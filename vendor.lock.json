@@ -1,23 +1,37 @@
 {
-  "schema_version": 1,
-  "generated_for": "AllfatherChess monorepo bootstrap",
+  "schema_version": 2,
+  "generated_for": "AllfatherChess derived-engine monorepo",
   "engines": {
     "stockfish": {
       "repository": "https://github.com/HMarcusWH/Stockfish.git",
       "branch": "master",
       "commit": "17a6c8f1eb0da45c2ca405321919519bf4e211ba",
+      "tree": "b14521db7dc6f5747042d76579a0b171e0a89f3f",
+      "tracked_entries": 119,
       "destination": "engines/stockfish"
     },
     "reckless": {
       "repository": "https://github.com/HMarcusWH/Reckless.git",
       "branch": "main",
       "commit": "31d9cd6fd2bea6d9f72eeb35e0bac70daa295fb1",
-      "destination": "engines/reckless"
+      "tree": "88763d8e81ea45b938403f7f4feee990ad244c2d",
+      "tracked_entries": 85,
+      "destination": "engines/reckless",
+      "artifacts": {
+        "default_nnue": {
+          "filename": "v60-7f587dfb.nnue",
+          "url": "https://github.com/codedeliveryservice/RecklessNetworks/releases/download/networks/v60-7f587dfb.nnue",
+          "size": 63266880,
+          "sha256": "7f587dfb1fe5d74d53909328afa6fd51650c8c7f45907602db7fbb1e52948c61"
+        }
+      }
     },
     "lc0": {
       "repository": "https://github.com/HMarcusWH/lc0.git",
       "branch": "master",
       "commit": "5cbfeb924c0fcf5efc1b2a43813ac8d63cfd9904",
+      "tree": "6dd8aad55c79fddc291abfede17934f9ce4ca928",
+      "tracked_entries": 399,
       "destination": "engines/lc0",
       "notes": "Includes merged adaptive-prefetch PR #1 and defect-telemetry PR #2."
     }

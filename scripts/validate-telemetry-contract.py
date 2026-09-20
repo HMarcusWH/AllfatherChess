@@ -228,7 +228,7 @@ def validate_controller(
         require_nonempty_str(controller["shard_id"], "controller.shard_id", path, line_no)
 
 
-def reject_forbidden_common_fields(
+def validate_common_payload(
     value: Any,
     *,
     forbidden: set[str],
@@ -236,14 +236,28 @@ def reject_forbidden_common_fields(
     line_no: int,
     trail: tuple[str, ...] = (),
 ) -> None:
+    # JSON booleans are not numeric observations even though bool subclasses
+    # int in Python.
+    if isinstance(value, bool):
+        return
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            dotted = ".".join(trail) or "<root>"
+            fail(path, line_no, f"common telemetry number must be finite: {dotted}")
+        return
+    if isinstance(value, int):
+        return
     if isinstance(value, dict):
         for key, child in value.items():
             if key in forbidden:
                 dotted = ".".join((*trail, key))
                 fail(path, line_no, f"derived/controller field is forbidden in raw telemetry: {dotted}")
+            # Engine-native extension payloads are deliberately opaque to the
+            # common contract. Only the actual event-level native.data path is
+            # exempt; nested objects named native/data do not receive this escape.
             if trail == ("native",) and key == "data":
                 continue
-            reject_forbidden_common_fields(
+            validate_common_payload(
                 child,
                 forbidden=forbidden,
                 path=path,
@@ -252,7 +266,7 @@ def reject_forbidden_common_fields(
             )
     elif isinstance(value, list):
         for index, child in enumerate(value):
-            reject_forbidden_common_fields(
+            validate_common_payload(
                 child,
                 forbidden=forbidden,
                 path=path,
@@ -272,7 +286,7 @@ def validate_record(
     for key in contract["common_required"]:
         require(record, key, path, line_no)
 
-    reject_forbidden_common_fields(
+    validate_common_payload(
         record,
         forbidden=set(contract.get("forbidden_common_fields", [])),
         path=path,

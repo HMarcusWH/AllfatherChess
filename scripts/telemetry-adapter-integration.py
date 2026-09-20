@@ -129,6 +129,7 @@ def run_engine(
             engine_instance="lc0-0",
             position_id="corpus:startpos",
             score_type="centipawn",
+            defer_completion_until_flush=defect,
         )
     else:
         raise IntegrationError(f"unsupported engine: {engine}")
@@ -153,6 +154,27 @@ def run_engine(
             events.extend(adapter.consume(line, observed_ms=observed_ms))
 
         session.search_nodes(nodes, timeout=30.0, observer=observe)
+
+        if defect:
+            # LC0 emits defect telemetry when the current Search object is
+            # destroyed. Force that lifecycle transition after bestmove, while
+            # keeping search.complete last in the normalized telemetry stream.
+            session.send("ucinewgame")
+            session.send("isready")
+
+            def observe_flush(line: str) -> None:
+                if line == "readyok":
+                    return
+                observe(line)
+
+            session.read_until(
+                lambda line: line == "readyok",
+                label="lc0 defect telemetry flush",
+                timeout=10.0,
+                observer=observe_flush,
+            )
+            final_ms = int((time.monotonic() - started_at) * 1000)
+            events.append(adapter.flush_completion(observed_ms=final_ms))
 
     assert_stream(events, engine, require_defect_summary=defect)
     return filename, events

@@ -22,7 +22,8 @@
     "lc0_score_type": "centipawn",
     "replay_root": "build/replays",
     "oracle_timeout_s": 10.0,
-    "drain_timeout_s": 5.0
+    "drain_timeout_s": 5.0,
+    "on_anchor_complete": "drain"
   },
   "budget": {
     "wall_ms": 4000,

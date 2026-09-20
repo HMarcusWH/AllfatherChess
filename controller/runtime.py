@@ -81,6 +81,7 @@ class ShadowSettings:
     lc0_score_type: str
     oracle_timeout_s: float
     drain_timeout_s: float
+    on_anchor_complete: str
 
     def instance(self, owner: str) -> str:
         return self.instance_by_owner[owner]
@@ -322,6 +323,12 @@ def _load_shadow_settings(
     if not replay_root.is_absolute():
         replay_root = (root / replay_value).resolve()
 
+    on_anchor_complete = raw.get("on_anchor_complete", "drain")
+    if on_anchor_complete not in ("drain", "cancel"):
+        raise RuntimeError(
+            f"shadow.on_anchor_complete must be 'drain' or 'cancel', got {on_anchor_complete!r}"
+        )
+
     return ShadowSettings(
         owners=tuple(owners),
         instance_by_owner=instance_by_owner,
@@ -332,6 +339,7 @@ def _load_shadow_settings(
         lc0_score_type=score_type,
         oracle_timeout_s=_require_positive_number(raw.get("oracle_timeout_s", 10.0), "shadow.oracle_timeout_s"),
         drain_timeout_s=_require_positive_number(raw.get("drain_timeout_s", 5.0), "shadow.drain_timeout_s"),
+        on_anchor_complete=str(on_anchor_complete),
     )
 
 

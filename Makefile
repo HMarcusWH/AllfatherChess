@@ -1,4 +1,4 @@
-.PHONY: vendor verify-vendor build-baselines smoke-baselines golden-baselines record-golden-baselines telemetry-contract
+.PHONY: vendor verify-vendor build-baselines smoke-baselines golden-baselines record-golden-baselines telemetry-contract telemetry-adapters telemetry-adapter-integration
 
 vendor:
 	@echo "Refusing implicit destructive vendor refresh." >&2
@@ -22,3 +22,9 @@ record-golden-baselines:
 
 telemetry-contract:
 	python3 scripts/validate-telemetry-contract.py
+
+telemetry-adapters:
+	python3 tests/telemetry/test_adapters.py
+
+telemetry-adapter-integration:
+	python3 scripts/telemetry-adapter-integration.py

@@ -10,28 +10,26 @@ The controller must prevent three strong solvers from wasting exploration comput
 
 A shard is a controller-defined chess search region identified initially by a root move and later by a move prefix.
 
-Conceptual state:
+PR #10 implements the root-only v1 shape:
 
 ```text
-Shard {
+RootShard {
   id
-  parent
-  prefix
+  prefix = [root_move]
   owner
   generation
-  budget
+  ordinal
   state
-  evidence
 }
 ```
 
-Allowed states:
+Root-v1 states are deliberately limited to:
 
 ```text
 UNASSIGNED -> LEASED -> ACTIVE -> SEALED
-                         |
-                         +-> SPLIT -> child shards
 ```
+
+Recursive parents/children, budgets, evidence, transfer, split, and VERIFY overlap remain later extensions. See `docs/SHARD_LEDGER.md`.
 
 ## Hard exploration invariant
 
@@ -82,8 +80,22 @@ every reported root PV head ∈ S
 
 PR #5 adds this primitive to Reckless and verifies the same valid-assignment command vocabulary against Stockfish and LC0.
 
-This is **not yet controller ownership**. The repository still lacks leases, cross-engine exclusion, shard state transitions, recursive prefixes, and VERIFY / RELOCK accounting. Those belong to the later controller and ShardLedger milestones.
+PR #10 adds the first actual controller ownership layer. The runtime obtains the legal root universe from Stockfish `go perft 1`, then `RootShardLedger` atomically assigns every root to exactly one authorized exploration owner for the generation.
 
-Malformed-input behavior is deliberately backend-specific. In particular, Stockfish and LC0 do not share the same behavior when a requested set contains no legal moves. The future Allfather adapter must therefore validate that dispatched controller shards are canonical, legal, deduplicated, and non-empty before invoking a backend.
+The implemented root-v1 guarantees are:
 
-Root-prefix separation also does not imply disjoint internal board-state expansion: independently owned prefixes may transpose later. PR #5 establishes only the backend primitive required for future root-prefix ownership.
+```text
+candidate universe immutable
+partition owner keys exact
+partition coverage exact
+cross-owner root overlap forbidden
+failed partition leaves ledger unchanged
+activation/sealing owner-atomic
+empty owner regions never dispatch
+```
+
+PR #10 still does **not** dispatch three live searches during gameplay. The existing Stockfish anchor remains the outward decision path. The real-engine qualification uses already-qualified `searchmoves` sequentially only to prove that an active ledger region can be enforced by every backend.
+
+Malformed-input behavior remains backend-specific, so controller dispatches must remain canonical, legal, deduplicated, and non-empty.
+
+Root-prefix separation also does not imply disjoint internal board-state expansion: independently owned prefixes may transpose later. PR #10 establishes assigned-prefix ownership only; recursive prefixes, measured transposition duplication, transfer, and VERIFY / RELOCK accounting remain later milestones.

@@ -85,16 +85,13 @@ jobs:
       - name: UCI smoke tests
         run: ./scripts/smoke-baselines.sh
 
-      - name: Bootstrap deterministic golden snapshot
-        run: |
-          python3 scripts/golden-baselines.py             --record             --output-dir build/recorded-golden             --stability-runs 3
+      - name: Verify frozen constituent golden baselines
+        run: python3 scripts/golden-baselines.py --verify
 
-      - name: Upload golden bootstrap evidence
+      - name: Upload golden verification evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: golden-baseline-bootstrap
-          path: |
-            build/recorded-golden
-            build/test-results/golden
+          name: golden-baseline-verification
+          path: build/test-results/golden
           if-no-files-found: warn

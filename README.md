@@ -31,8 +31,8 @@ During exploration, search regions are controller-owned and disjoint. Deliberate
 
 The three engine trees were bootstrapped from exact pinned upstream snapshots and now live as **derived Allfather source trees**. Their upstream ancestry is frozen in `vendor.lock.json`; future Allfather modifications are tracked normally in this monorepo and are not expected to remain byte-identical to the imported snapshots.
 
-The current foundation-hardening stage makes repository CI read-only, validates pushes to `main`, centralizes provenance in the lockfile, and cryptographically pins the external Reckless NNUE used by the baseline build.
+The repository foundation is now reproducible: CI is read-only, engine ancestry and external NNUE inputs are pinned, and the pre-controller behavior of Stockfish, Reckless, and LC0 is frozen under `tests/baseline/golden/` and verified on every relevant CI run.
 
 See `docs/BUILD_PLAN.md`, `docs/ARCHITECTURE.md`, `docs/SEARCH_SPACE_OWNERSHIP.md`, `docs/TELEMETRY_SCHEMA.md`, `docs/UPSTREAM_PROVENANCE.md`, and `LICENSES.md`.
 
-No hybrid routing-strength claim is made yet. The next experimental milestone after the foundation is hardened is a golden three-engine regression harness that freezes constituent behavior before search semantics are modified.
+No hybrid routing-strength claim is made yet. The next engine-control milestone is restricted-root search parity: Reckless must gain the same controller-grade root restriction primitive already exposed by Stockfish and LC0 before shard allocation is introduced.

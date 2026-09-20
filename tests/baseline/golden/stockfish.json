@@ -1,0 +1,243 @@
+{
+  "cases": {
+    "checkmate_terminal": {
+      "stable": {
+        "bestmove": null,
+        "depth": 0,
+        "ponder": null,
+        "score": {
+          "type": "mate",
+          "value": 0
+        }
+      },
+      "unstable_fields": []
+    },
+    "en_passant_available": {
+      "stable": {
+        "bestmove": "e5d6",
+        "depth": 5,
+        "multipv": 1,
+        "nodes": 256,
+        "ponder": "h1g2",
+        "pv": [
+          "e5d6",
+          "h1g2",
+          "d6d7",
+          "g2h1",
+          "d7d8q"
+        ],
+        "score": {
+          "type": "cp",
+          "value": 638
+        },
+        "seldepth": 6
+      },
+      "unstable_fields": []
+    },
+    "history_ruy_lopez": {
+      "stable": {
+        "bestmove": "b5c6",
+        "depth": 6,
+        "multipv": 1,
+        "nodes": 512,
+        "ponder": "b7c6",
+        "pv": [
+          "b5c6",
+          "b7c6"
+        ],
+        "score": {
+          "bound": "upper",
+          "type": "cp",
+          "value": 91
+        },
+        "seldepth": 6
+      },
+      "unstable_fields": []
+    },
+    "kiwipete_castling": {
+      "stable": {
+        "bestmove": "e2a6",
+        "depth": 4,
+        "multipv": 1,
+        "nodes": 512,
+        "ponder": "b4c3",
+        "pv": [
+          "e2a6",
+          "b4c3"
+        ],
+        "score": {
+          "bound": "upper",
+          "type": "cp",
+          "value": -151
+        },
+        "seldepth": 6
+      },
+      "unstable_fields": []
+    },
+    "perft_position_3": {
+      "stable": {
+        "bestmove": "b4f4",
+        "depth": 8,
+        "multipv": 1,
+        "nodes": 512,
+        "ponder": "h4g3",
+        "pv": [
+          "b4f4",
+          "h4g3"
+        ],
+        "score": {
+          "bound": "upper",
+          "type": "cp",
+          "value": 134
+        },
+        "seldepth": 10
+      },
+      "unstable_fields": []
+    },
+    "perft_position_4": {
+      "stable": {
+        "bestmove": "c4c5",
+        "depth": 8,
+        "multipv": 1,
+        "nodes": 512,
+        "ponder": "a3b4",
+        "pv": [
+          "c4c5",
+          "a3b4",
+          "c5b6",
+          "b2a1q",
+          "d1a1",
+          "b4c5",
+          "f3d4",
+          "c5b6"
+        ],
+        "score": {
+          "type": "cp",
+          "value": -417
+        },
+        "seldepth": 13
+      },
+      "unstable_fields": []
+    },
+    "perft_position_5": {
+      "stable": {
+        "bestmove": "d7c8b",
+        "depth": 7,
+        "multipv": 1,
+        "nodes": 517,
+        "ponder": "d8c8",
+        "pv": [
+          "d7c8b",
+          "d8c8",
+          "e2g3",
+          "e7b4",
+          "c2c3",
+          "c8e8",
+          "g3e2"
+        ],
+        "score": {
+          "type": "cp",
+          "value": 830
+        },
+        "seldepth": 8
+      },
+      "unstable_fields": []
+    },
+    "perft_position_6": {
+      "stable": {
+        "bestmove": "d1e1",
+        "depth": 3,
+        "multipv": 1,
+        "nodes": 512,
+        "ponder": "c6e5",
+        "pv": [
+          "d1e1",
+          "c6e5"
+        ],
+        "score": {
+          "bound": "upper",
+          "type": "cp",
+          "value": 28
+        },
+        "seldepth": 5
+      },
+      "unstable_fields": []
+    },
+    "promotion_available": {
+      "stable": {
+        "bestmove": "h1g2",
+        "depth": 4,
+        "multipv": 1,
+        "nodes": 256,
+        "ponder": "h8g7",
+        "pv": [
+          "h1g2",
+          "h8g7",
+          "a7a8q"
+        ],
+        "score": {
+          "type": "cp",
+          "value": 618
+        },
+        "seldepth": 7
+      },
+      "unstable_fields": []
+    },
+    "side_in_check": {
+      "stable": {
+        "bestmove": "e1e2",
+        "depth": 5,
+        "multipv": 1,
+        "nodes": 256,
+        "ponder": "e8d7",
+        "pv": [
+          "e1e2",
+          "e8d7"
+        ],
+        "score": {
+          "type": "cp",
+          "value": 2
+        },
+        "seldepth": 7
+      },
+      "unstable_fields": []
+    },
+    "stalemate_terminal": {
+      "stable": {
+        "bestmove": null,
+        "depth": 0,
+        "ponder": null,
+        "score": {
+          "type": "cp",
+          "value": 0
+        }
+      },
+      "unstable_fields": []
+    },
+    "startpos": {
+      "stable": {
+        "bestmove": "d2d4",
+        "depth": 4,
+        "multipv": 1,
+        "nodes": 512,
+        "ponder": "d7d5",
+        "pv": [
+          "d2d4",
+          "d7d5"
+        ],
+        "score": {
+          "bound": "upper",
+          "type": "cp",
+          "value": 40
+        },
+        "seldepth": 4
+      },
+      "unstable_fields": []
+    }
+  },
+  "corpus_sha256": "768a90cc0da2fd84549c69b9795c1ca30da0cde826c8f2b905168b6f80ccc411",
+  "engine": "stockfish",
+  "profile_sha256": "6f0b61a820866c55469ea583e590a6fbee0d448f89c74a81ef3293758f6e46c6",
+  "schema_version": 1,
+  "stability_runs": 3
+}

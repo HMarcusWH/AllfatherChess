@@ -15,7 +15,7 @@ The target claim is empirical, not assumed: the hybrid must outperform the stron
 5. If a shortcut is not justified, the system buys more compute or falls back.
 6. Every behavioral optimization must be ablated against reproducible baselines.
 7. Upstream ancestry and current derived-engine source are separate identities: the engine trees may evolve locally without pretending to remain byte-identical to their imported baselines.
-8. CI validates and records; it does not silently mutate or re-vendor source.
+8. CI validates committed expectations; it does not record new golden behavior, silently mutate source, or re-vendor engine trees.
 
 ## Milestones
 
@@ -91,20 +91,21 @@ Run fixed-node, fixed-time, self-play, SPRT-style, and external-engine compariso
 ## Immediate PR train
 
 1. **PR #1 — Monorepo bootstrap**: pinned imports, provenance foundation, baseline build and UCI smoke. **Merged.**
-2. **PR #2 — Foundation hardening**: read-only CI, authoritative lockfile, derived-tree-safe provenance, pinned Reckless NNUE, documentation correction. **Current.**
-3. **PR #3 — Golden three-engine regression harness**: frozen position corpus, manifests, deterministic baseline checks, legal-move/search completion/crash-hang gates.
-4. **PR #4 — Reckless restricted-root search**: add UCI `searchmoves` / equivalent controller-owned root restriction.
-5. **PR #5 — Common telemetry contract**: freeze engine-neutral telemetry vocabulary and backend-specific extension rules.
-6. **PR #6 — Per-engine telemetry implementation**: Stockfish, Reckless, and LC0 adapters/emitters without active routing.
-7. **PR #7 — Hybrid UCI shell**: one external UCI endpoint plus three backend process adapters.
-8. **PR #8 — Root ShardLedger**: pairwise-disjoint exploration allocation.
-9. **PR #9 — Shadow execution and replay**: synchronized three-engine runs with no routing intervention.
-10. **PR #10 — Residual calibration**: disagreement/convergence features and counterfactual stop labels.
-11. **PR #11 — Adaptive budget routing**: active CPU/GPU/time allocation.
-12. **PR #12 — Recursive shard splitting**.
-13. **PR #13 — Explicit VERIFY / RELOCK**.
-14. **PR #14 — CPU/GPU resource scheduler**.
-15. **PR #15+ — Cross-feed, native integration, and strength optimization**, each promoted only after isolated ablation.
+2. **PR #2 — Foundation hardening**: read-only CI, authoritative lockfile, derived-tree-safe provenance, pinned engine inputs. **Merged.**
+3. **PR #3 — Golden three-engine regression harness**: deterministic corpus, fresh-process recorder/verifier, legal-move cross-checks, manifests. **Merged.**
+4. **PR #4 — Finalize frozen golden gate**: commit the pre-controller snapshots and switch CI permanently from record mode to verify mode. **Current.**
+5. **PR #5 — Reckless restricted-root search**: add UCI `searchmoves` / equivalent controller-owned root restriction.
+6. **PR #6 — Common telemetry contract**: freeze engine-neutral telemetry vocabulary and backend-specific extension rules.
+7. **PR #7 — Per-engine telemetry implementation**: Stockfish, Reckless, and LC0 adapters/emitters without active routing.
+8. **PR #8 — Hybrid UCI shell**: one external UCI endpoint plus three backend process adapters.
+9. **PR #9 — Root ShardLedger**: pairwise-disjoint exploration allocation.
+10. **PR #10 — Shadow execution and replay**: synchronized three-engine runs with no routing intervention.
+11. **PR #11 — Residual calibration**: disagreement/convergence features and counterfactual stop labels.
+12. **PR #12 — Adaptive budget routing**: active CPU/GPU/time allocation.
+13. **PR #13 — Recursive shard splitting**.
+14. **PR #14 — Explicit VERIFY / RELOCK**.
+15. **PR #15 — CPU/GPU resource scheduler**.
+16. **PR #16+ — Cross-feed, native integration, and strength optimization**, each promoted only after isolated ablation.
 
 ## Foundation-hardening acceptance gate
 
@@ -121,3 +122,13 @@ PR #2 is complete only when:
 - no engine search-semantic source file changes occur in PR #2.
 
 The post-merge `main` workflow run is itself part of this gate because validating that trigger is one of the bugs this PR fixes.
+
+## Frozen-golden acceptance gate
+
+The first search-semantic engine change must not begin until:
+
+- `tests/baseline/golden/legal_moves.json` is committed;
+- Stockfish, Reckless, and LC0 golden snapshots are committed;
+- CI runs `golden-baselines.py --verify`, never `--record`;
+- a clean PR run proves the committed snapshots reproduce on the declared baseline profile;
+- ordinary unrestricted engine behavior remains the reference against which later semantic changes are reviewed.

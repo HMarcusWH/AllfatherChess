@@ -10,6 +10,8 @@ The suite has three separate jobs:
 
 The corpus is intentionally small and branch-oriented. It is **not** a tactical benchmark, Elo test, or strength claim.
 
+The committed baseline under `tests/baseline/golden/` was frozen from the successful post-merge `main` run for commit `aed7935fca36d606eaaa5f3615c74753b312efe9` (workflow run `35526663709`). That bootstrap recorded all 12 cases for all three engines across three fresh-process repetitions with zero unstable normalized fields. The source artifact digest was `sha256:0836c7b47aa4de678d3c467c0d03a8db746234b9cd60ae356fc42c92a2906881`.
+
 ## Profiles
 
 - Stockfish and Reckless run single-threaded with fixed small hash tables and fixed node budgets.
@@ -23,7 +25,7 @@ The corpus is intentionally small and branch-oriented. It is **not** a tactical 
 python3 scripts/golden-baselines.py --record
 ```
 
-Recording repeats every engine/case in fresh processes. `bestmove` must be deterministic. Other normalized fields are promoted into the hard golden fingerprint only when all record-time observations agree.
+Recording is an explicit maintenance action only. It repeats every engine/case in fresh processes; `bestmove` must be deterministic, and other normalized fields are promoted into the hard golden fingerprint only when all record-time observations agree. CI never records or rewrites expectations.
 
 ## Verification
 

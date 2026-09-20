@@ -216,6 +216,26 @@ class TelemetryAdapterTests(unittest.TestCase):
         self.assertEqual(summary["native"]["schema"], "lc0.defect.summary.v1")
         self.assertEqual(summary["native"]["data"]["speculative_unused"], 7)
 
+    def test_lc0_can_defer_completion_until_post_search_defect_flush(self):
+        adapter = started(
+            Lc0TelemetryAdapter(
+                search_id="lc0-deferred",
+                engine_instance="lc0-0",
+                position_id="fixture:startpos",
+                score_type="centipawn",
+                defer_completion_until_flush=True,
+            )
+        )
+        self.assertEqual(adapter.consume("bestmove e2e4", observed_ms=5), [])
+        summary = adapter.consume(
+            'info string DEFECT_TELEMETRY_SUMMARY {"v":1,"iterations":1}',
+            observed_ms=6,
+        )[0]
+        complete = adapter.flush_completion(observed_ms=7)
+        self.assertEqual(summary["native"]["schema"], "lc0.defect.summary.v1")
+        self.assertEqual(complete["event_type"], "search.complete")
+        self.assertEqual(complete["native"]["data"]["received_observed_ms"], 5)
+
     def test_malformed_lc0_defect_json_is_an_error(self):
         adapter = lc0_adapter()
         with self.assertRaises(TelemetryParseError):

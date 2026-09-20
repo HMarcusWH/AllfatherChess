@@ -18,16 +18,18 @@ from tests.harness.uci_session import UciSession
 FAKE = ROOT / "tests" / "fixtures" / "fake_uci_engine.py"
 
 
-def write_config(directory: Path) -> Path:
-    backends = {
-        name: {
+def write_config(directory: Path, *, stockfish_exit_on_go: bool = False) -> Path:
+    backends = {}
+    for name in ("stockfish", "reckless", "lc0"):
+        args = [str(FAKE), "--name", f"Fake-{name}"]
+        if name == "stockfish" and stockfish_exit_on_go:
+            args += ["--exit-on", "go"]
+        backends[name] = {
             "binary": sys.executable,
             "cwd": ".",
-            "args": [str(FAKE), "--name", f"Fake-{name}"],
+            "args": args,
             "options": {"UCI_Chess960": False},
         }
-        for name in ("stockfish", "reckless", "lc0")
-    }
     path = directory / "runtime.json"
     path.write_text(
         json.dumps(
@@ -93,6 +95,14 @@ class UciFrontendTests(unittest.TestCase):
                 )
                 self.assertTrue(any("rejected" in line for line in rejected))
 
+                session.send("position startpos moves d2d4")
+                position_rejected = session.read_until(
+                    lambda line: "rejected" in line and "position startpos" in line,
+                    label="position-during-search rejection",
+                    timeout=3.0,
+                )
+                self.assertTrue(any("rejected" in line for line in position_rejected))
+
                 session.send("stop")
                 stop_lines = session.read_until(
                     lambda line: line.startswith("bestmove "),
@@ -100,6 +110,25 @@ class UciFrontendTests(unittest.TestCase):
                     timeout=3.0,
                 )
                 self.assertEqual(stop_lines[-1], "bestmove e2e4")
+
+    def test_anchor_failure_fails_closed_without_backend_fallback(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config = write_config(Path(tmp), stockfish_exit_on_go=True)
+            with UciSession(
+                Path(sys.executable),
+                cwd=ROOT,
+                timeout=5.0,
+                args=["-m", "controller", "--config", str(config)],
+            ) as session:
+                session.set_position({"startpos_moves": []})
+                session.send("go nodes 1")
+                lines = session.read_until(
+                    lambda line: line == "bestmove 0000",
+                    label="fail-closed null bestmove",
+                    timeout=3.0,
+                )
+                self.assertTrue(any("runtime failure" in line for line in lines))
+                self.assertFalse(any(line == "bestmove e2e4" for line in lines))
 
 
 if __name__ == "__main__":

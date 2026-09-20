@@ -4,7 +4,9 @@
 
 Build a single UCI chess engine that can exceed the strength/compute frontier of its three constituent engines by routing heterogeneous search more intelligently.
 
-The target claim is empirical, not assumed: the hybrid must outperform the strongest constituent under a declared equal hardware and wall-clock budget before any "best engine" claim is made.
+The target claim is empirical, not assumed: Allfather must ultimately outperform **each** constituent engine in head-to-head testing while operating inside the same declared total resource envelope. Solver compute, verification work, controller overhead, CPU/GPU occupancy, memory, and wall-clock effects must be accounted rather than hidden behind three simultaneous full-budget searches.
+
+Shadow research is intentionally different from the final competitive regime. It may overspend compute to collect counterfactual evidence, but no shadow result is itself an equal-compute strength claim.
 
 ## Frozen architectural rules
 
@@ -16,6 +18,8 @@ The target claim is empirical, not assumed: the hybrid must outperform the stron
 6. Every behavioral optimization must be ablated against reproducible baselines.
 7. Upstream ancestry and current derived-engine source are separate identities: the engine trees may evolve locally without pretending to remain byte-identical to their imported baselines.
 8. CI validates committed expectations; it does not record new golden behavior, silently mutate source, or re-vendor engine trees.
+9. The final active controller is budget-constrained globally: constituent compute, VERIFY / RELOCK work, and controller overhead all spend from the same declared envelope.
+10. Shadow mode is an observatory, not a strength mode: it may collect deliberately over-budget evidence, but it cannot be used to claim equal-compute superiority.
 
 ## Milestones
 
@@ -58,7 +62,9 @@ Partition legal root moves into pairwise-disjoint controller-owned regions. Asse
 
 ### M5 — Shadow three-engine search
 
-Run synchronized three-engine searches without changing final move selection. Capture trajectories for replay and counterfactual stopping analysis.
+Run synchronized restricted Stockfish, Reckless, and LC0 shadow searches while a separate unrestricted Stockfish anchor remains the sole outward bestmove authority. Capture raw trajectories, exact owned root sets, run metadata, and ledger snapshots for deterministic replay and later counterfactual stopping analysis.
+
+The shadow milestone is permitted to use extra research compute. It does not yet implement residual calibration, voting, routing, or an equal-budget strength claim.
 
 ### M6 — Residual geometry
 
@@ -103,8 +109,8 @@ Run fixed-node, fixed-time, self-play, SPRT-style, and external-engine compariso
 7. **PR #7 — Per-engine telemetry implementation**: Stockfish, Reckless, and LC0 adapters/emitters without active routing. **Merged.**
 8. **PR #8 — Historical Codex review hardening**: retire actionable review debt before introducing the hybrid process shell. **Merged.**
 9. **PR #9 — Hybrid UCI shell**: one external UCI endpoint plus three backend process adapters. **Merged.**
-10. **PR #10 — Root ShardLedger**: pairwise-disjoint exploration allocation. **Current.**
-11. **PR #11 — Shadow execution and replay**: synchronized three-engine runs with no routing intervention.
+10. **PR #10 — Root ShardLedger**: pairwise-disjoint exploration allocation. **Merged.**
+11. **PR #11 — Shadow execution and replay**: unrestricted Stockfish anchor plus three restricted shadow workers, replay bundles, and no routing intervention. **Current.**
 12. **PR #12 — Residual calibration**: disagreement/convergence features and counterfactual stop labels.
 13. **PR #13 — Adaptive budget routing**: active CPU/GPU/time allocation.
 14. **PR #14 — Recursive shard splitting**.
@@ -251,3 +257,24 @@ PR #10 is complete only when:
 - no file under `engines/**`, `tests/baseline/golden/**`, `schemas/telemetry/**`, `adapters/telemetry/**`, `config/allfather.validation.json`, or `controller/uci_frontend.py` changes in PR #10;
 - PR #10 introduces no concurrent three-engine search, residual/ranking/voting logic, adaptive assignment, shard transfer, recursive split, VERIFY overlap, fallback policy, or resource-routing policy;
 - every pre-existing baseline, restricted-root, telemetry, controller-shell, and Reckless portability/hardening gate remains green.
+
+
+## Shadow execution and replay acceptance gate
+
+PR #11 is complete only when:
+
+- the external UCI decision path remains unrestricted Stockfish-anchor authority; no shadow observation may alter, replace, vote on, or otherwise select the outward bestmove;
+- shadow execution uses distinct managed engine instances: `stockfish-anchor` for outward authority and `stockfish-shadow`, `reckless-shadow`, and `lc0-shadow` for restricted evidence collection;
+- `RootShardLedger` governs only the three shadow exploration owners; the unrestricted anchor is deliberately outside shard ownership and does not weaken pairwise-disjoint ownership among shadow workers;
+- every dispatched shadow worker consumes exactly its non-empty `ledger.active_roots(owner)` set through the already-qualified `searchmoves` primitive;
+- empty owner regions are not dispatched and terminal empty ledgers remain valid;
+- all shadow streams use telemetry v1 with `controller.execution_mode = shadow`, distinct `engine_instance` values, and engine-native score/work semantics preserved;
+- raw telemetry remains free of residuals, aggregate rankings, overlap metrics, voting, routing decisions, and calibrated cross-engine score conversions;
+- one run-level replay manifest binds the synchronized position, external request, engine/build/config identities, pre-dispatch ledger snapshot, exact shadow root sets, raw stream identities/locations, completion or failure disposition, and final ledger snapshot;
+- replay artifacts are deterministic enough to reconstruct what each backend observed and which roots it was authorized to search, without requiring live controller policy;
+- shadow process failure is recorded explicitly and never silently promotes another backend to outward authority;
+- stop/quit lifecycle terminates all active shadow work without orphaned processes, while the outward UCI frontend still emits at most the anchor's single bestmove for the search;
+- fixed-node validation proves semantic non-intervention at the outward Stockfish decision boundary; no timed-search equivalence claim is made unless CPU/GPU resource isolation is separately established;
+- PR #11 introduces no residual calibration, candidate voting, adaptive routing, recursive shard transfer/split, VERIFY / RELOCK overlap, cross-feed, or strength claim;
+- shadow runs are explicitly marked as research evidence that may exceed the eventual competitive resource envelope;
+- every pre-existing baseline, restricted-root, telemetry, controller-shell, ShardLedger, and portability/hardening gate remains green.

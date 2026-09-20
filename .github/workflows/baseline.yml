@@ -1,6 +1,7 @@
 name: Baseline engine validation
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - foundation/monorepo-bootstrap

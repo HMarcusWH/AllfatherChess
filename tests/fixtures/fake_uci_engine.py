@@ -73,6 +73,12 @@ def main() -> int:
             pass
         elif command.startswith("position "):
             pass
+        elif command == "go perft 1":
+            maybe_exit("go")
+            emit("e2e4: 1")
+            emit("d2d4: 1")
+            emit("g1f3: 1")
+            emit("Nodes searched: 3")
         elif command == "go" or command.startswith("go "):
             maybe_exit("go")
             start_search(command)

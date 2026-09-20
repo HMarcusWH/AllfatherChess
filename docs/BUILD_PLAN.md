@@ -196,10 +196,10 @@ PR #8 is complete only when:
 - Reckless zero-root search remains fail-closed with Syzygy enabled paths guarded against empty roots;
 - a Threads=2 zero-root search followed by an unrestricted search in the same process succeeds;
 - Reckless build/test commands load the crate-local Cargo target configuration;
-- Reckless cannot silently download an unverified fallback NNUE during a monorepo build;
-- LC0 defect telemetry is emitted on the normal completed-search path before bestmove and no duplicate summary is emitted by destructor fallback;
+- Reckless cannot silently download an unverified fallback NNUE during a monorepo build, and the default no-`EVALFILE` source-build path uses the same pinned verifier on Linux, macOS, and Windows;
+- LC0 defect telemetry is emitted on the normal completed-search path before bestmove, waits for full worker quiescence only when defect telemetry is enabled, preserves ordinary bestmove timing otherwise, and emits no duplicate summary from destructor fallback;
 - telemetry v1 rejects non-finite numbers, non-canonical moves, boolean versions, nested derived common fields, invalid terminal provenance, and known work-unit mismatches;
 - telemetry stream payloads cannot overwrite immutable event metadata;
 - focused regression fixtures/tests exercise each repaired validation boundary;
-- frozen golden, restricted-root, telemetry-contract, static-adapter, and live-adapter gates all remain green;
+- frozen golden, restricted-root, telemetry-contract, static-adapter, live-adapter, and cross-platform Reckless source-build gates all remain green;
 - the backend-light/random LC0 regression configuration is explicitly non-strength-qualified. A real inference backend/network/hardware qualification remains mandatory before the strength campaign.

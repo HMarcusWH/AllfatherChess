@@ -55,6 +55,7 @@ jobs:
             scripts/reckless-nnue-rerun-contract.py \
             scripts/golden-baselines.py \
             scripts/restricted-root-contract.py \
+            scripts/shard-ledger-contract.py \
             scripts/validate-telemetry-contract.py \
             scripts/telemetry-adapter-integration.py \
             scripts/hybrid-shell-contract.py \
@@ -131,6 +132,9 @@ jobs:
       - name: Verify restricted-root controller contract
         run: python3 scripts/restricted-root-contract.py
 
+      - name: Verify Root ShardLedger contract
+        run: python3 scripts/shard-ledger-contract.py
+
       - name: Verify live telemetry adapters
         run: python3 scripts/telemetry-adapter-integration.py
 
@@ -145,6 +149,7 @@ jobs:
           path: |
             build/test-results/golden
             build/test-results/restricted-root
+            build/test-results/shard-ledger
             build/test-results/telemetry-adapters
             build/test-results/hybrid-shell
           if-no-files-found: warn

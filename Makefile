@@ -1,4 +1,4 @@
-.PHONY: vendor verify-vendor build-baselines smoke-baselines golden-baselines record-golden-baselines telemetry-contract telemetry-adapters telemetry-adapter-integration controller-tests hybrid-shell-contract run-allfather
+.PHONY: vendor verify-vendor build-baselines smoke-baselines golden-baselines record-golden-baselines telemetry-contract telemetry-adapters telemetry-adapter-integration controller-tests shard-ledger-tests shard-ledger-contract hybrid-shell-contract run-allfather
 
 vendor:
 	@echo "Refusing implicit destructive vendor refresh." >&2
@@ -33,6 +33,13 @@ controller-tests:
 	python3 tests/adapters/test_uci_process.py
 	python3 tests/controller/test_runtime.py
 	python3 tests/controller/test_uci_frontend.py
+	python3 tests/controller/test_shard_ledger.py
+
+shard-ledger-tests:
+	python3 tests/controller/test_shard_ledger.py
+
+shard-ledger-contract:
+	python3 scripts/shard-ledger-contract.py
 
 hybrid-shell-contract:
 	python3 scripts/hybrid-shell-contract.py

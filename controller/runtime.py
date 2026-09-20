@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import glob
 import json
+import re
 import threading
 from dataclasses import dataclass
 from pathlib import Path
@@ -14,6 +15,10 @@ from adapters.process import UciProcess, UciProcessError
 
 class RuntimeError(RuntimeError):
     """Raised when the managed backend runtime cannot preserve its contract."""
+
+
+_PERFT_ROOT_RE = re.compile(r"^([a-h][1-8][a-h][1-8][qrbn]?):\s+(\d+)$")
+_PERFT_TOTAL_RE = re.compile(r"^Nodes searched:\s+(\d+)$")
 
 
 @dataclass(frozen=True)
@@ -257,6 +262,68 @@ class BackendManager:
         except UciProcessError as exc:
             self._notify_failure(f"position synchronization failed: {exc}", None)
             raise RuntimeError(str(exc)) from exc
+
+    def legal_root_moves(self) -> tuple[str, ...]:
+        """Return canonical legal root moves from Stockfish's depth-1 perft oracle."""
+        self._require_healthy()
+        if self.config.anchor != "stockfish":
+            raise RuntimeError("root legal-move oracle requires Stockfish anchor mode")
+        try:
+            lines = self.anchor.run_idle_request(
+                "go perft 1",
+                lambda line: _PERFT_TOTAL_RE.fullmatch(line) is not None,
+                label="Stockfish go perft 1",
+                timeout=10.0,
+            )
+        except UciProcessError as exc:
+            self._notify_failure(f"legal-root oracle process failure: {exc}", None)
+            raise RuntimeError(str(exc)) from exc
+
+        roots: list[str] = []
+        seen: set[str] = set()
+        total: int | None = None
+        for line in lines:
+            total_match = _PERFT_TOTAL_RE.fullmatch(line)
+            if total_match is not None:
+                total = int(total_match.group(1))
+                continue
+            root_match = _PERFT_ROOT_RE.fullmatch(line)
+            if root_match is None:
+                # Stockfish may emit unrelated informational material (for
+                # example network-verification strings) before perft output.
+                continue
+            move, count_raw = root_match.groups()
+            count = int(count_raw)
+            if count != 1:
+                self._notify_failure(
+                    f"legal-root oracle returned depth-1 count {count} for {move}",
+                    None,
+                )
+                raise RuntimeError(
+                    f"Stockfish perft-1 root {move} reported count {count}, expected 1"
+                )
+            if move in seen:
+                self._notify_failure(
+                    f"legal-root oracle returned duplicate root {move}",
+                    None,
+                )
+                raise RuntimeError(f"Stockfish perft-1 returned duplicate root {move}")
+            seen.add(move)
+            roots.append(move)
+
+        if total is None:
+            self._notify_failure("legal-root oracle omitted Nodes searched total", None)
+            raise RuntimeError("Stockfish perft-1 omitted Nodes searched total")
+        if total != len(roots):
+            self._notify_failure(
+                f"legal-root oracle total mismatch: total={total}, roots={len(roots)}",
+                None,
+            )
+            raise RuntimeError(
+                f"Stockfish perft-1 total mismatch: Nodes searched={total}, "
+                f"parsed roots={len(roots)}"
+            )
+        return tuple(roots)
 
     def start_anchor_search(
         self,

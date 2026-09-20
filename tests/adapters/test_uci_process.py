@@ -11,7 +11,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from adapters.process import UciProcess
+from adapters.process import UciProcess, UciProcessError
 
 
 FAKE = ROOT / "tests" / "fixtures" / "fake_uci_engine.py"
@@ -62,6 +62,42 @@ class UciProcessTests(unittest.TestCase):
         finally:
             process.close()
         self.assertFalse(process.alive)
+
+    def test_idle_request_collects_perft_and_rejects_active_search(self):
+        process = self.make_process()
+        info_seen = threading.Event()
+        try:
+            process.start()
+            process.configure({"UCI_Chess960": False})
+            lines = process.run_idle_request(
+                "go perft 1",
+                lambda line: line == "Nodes searched: 3",
+                label="fake perft",
+                timeout=2.0,
+            )
+            self.assertEqual(
+                [line for line in lines if line.endswith(": 1")],
+                ["e2e4: 1", "d2d4: 1", "g1f3: 1"],
+            )
+            self.assertEqual(lines[-1], "Nodes searched: 3")
+
+            process.start_search(
+                "go infinite",
+                token=19,
+                on_info=lambda token, line: info_seen.set(),
+                on_complete=lambda token, line: None,
+            )
+            self.assertTrue(info_seen.wait(2.0))
+            with self.assertRaises(UciProcessError):
+                process.run_idle_request(
+                    "go perft 1",
+                    lambda line: line.startswith("Nodes searched:"),
+                    label="perft-during-search",
+                    timeout=1.0,
+                )
+            process.stop()
+        finally:
+            process.close()
 
     def test_unexpected_exit_reports_active_token(self):
         exit_seen = threading.Event()

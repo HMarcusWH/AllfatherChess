@@ -60,6 +60,10 @@ class BackendManagerTests(unittest.TestCase):
                 manager.set_position("position startpos moves e2e4")
                 manager.set_chess960(False)
                 manager.ready_all()
+                self.assertEqual(
+                    manager.legal_root_moves(),
+                    ("e2e4", "d2d4", "g1f3"),
+                )
             finally:
                 manager.close()
             self.assertTrue(all(not process.alive for process in processes))

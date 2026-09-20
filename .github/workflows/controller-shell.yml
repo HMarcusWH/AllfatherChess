@@ -60,3 +60,6 @@ jobs:
 
       - name: Validate external UCI frontend
         run: python3 tests/controller/test_uci_frontend.py
+
+      - name: Validate Root ShardLedger invariants
+        run: python3 tests/controller/test_shard_ledger.py

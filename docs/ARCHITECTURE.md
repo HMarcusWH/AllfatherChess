@@ -27,7 +27,9 @@ One checkout provides four process boundaries:
 - Reckless baseline;
 - LC0 baseline.
 
-The controller communicates with engine processes through a production UCI process adapter with one permanent stdout reader per backend. In the first Generation-1 implementation all three engines are launched, configured, synchronized, and health-checked, while Stockfish alone acts as the transparent search anchor. Reckless and LC0 remain ready until later shard/shadow milestones authorize them to search.
+The controller communicates with engine processes through a production UCI process adapter with one permanent stdout reader per backend. In the first Generation-1 implementation all three engines are launched, configured, synchronized, and health-checked, while Stockfish alone acts as the transparent search anchor.
+
+PR #10 adds a controller-owned legal-root oracle and `RootShardLedger`. Stockfish `go perft 1` provides the canonical live legal-root universe; the ledger can atomically assign those roots into pairwise-disjoint owner regions for Stockfish, Reckless, and LC0. This ownership state is qualified but is not yet wired into outward gameplay: Reckless and LC0 remain ready until the shadow-execution milestone authorizes concurrent restricted searches.
 
 ### Generation 2 — structured local adapters
 
@@ -43,10 +45,10 @@ Permit controlled information transfer such as LC0 policy hints to alpha-beta mo
 
 ## Central state
 
-The controller will maintain an engine-neutral state containing:
+The controller maintains and will extend an engine-neutral state containing:
 
-- current position and legal moves;
-- active `SearchRegion` / shard ownership;
+- current synchronized position and a Stockfish-qualified legal-root universe;
+- root-v1 `RootShardLedger` ownership, generation, revision, and shard state;
 - per-engine observations;
 - normalized candidate rankings and PV summaries;
 - intra-alpha-beta and cross-paradigm residuals;

@@ -1,0 +1,1 @@
+{"schema_version":1,"event_type":"candidate.update","search_id":"bad-1","sequence":0,"observed_ms":0,"engine":"stockfish","engine_instance":"stockfish-0","position_id":"p","candidate":{"multipv_index":1,"move":"e2e4","pv":["e2e4"]}}

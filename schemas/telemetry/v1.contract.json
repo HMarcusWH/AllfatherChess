@@ -1,0 +1,100 @@
+{
+  "contract": "allfather.telemetry",
+  "schema_version": 1,
+  "event_types": [
+    "search.started",
+    "candidate.update",
+    "search.complete",
+    "native.event",
+    "terminal.fact"
+  ],
+  "engines": [
+    "stockfish",
+    "reckless",
+    "lc0"
+  ],
+  "variants": {
+    "standard": "uci",
+    "chess960": "uci_chess960"
+  },
+  "move_pattern": "^[a-h][1-8][a-h][1-8][qrbn]?$",
+  "evaluation": {
+    "kinds": [
+      "cp",
+      "mate",
+      "wdl",
+      "scalar"
+    ],
+    "bounds": [
+      "none",
+      "lower",
+      "upper"
+    ],
+    "perspectives": [
+      "root_player",
+      "white",
+      "black",
+      "unknown"
+    ]
+  },
+  "controller": {
+    "execution_modes": [
+      "baseline",
+      "shadow",
+      "active"
+    ],
+    "phases": [
+      "EXPLORE",
+      "COMPARE",
+      "REFINE",
+      "VERIFY",
+      "RELOCK",
+      "STOP"
+    ]
+  },
+  "terminal_facts": [
+    "checkmate",
+    "stalemate",
+    "tablebase_win",
+    "tablebase_draw",
+    "tablebase_loss"
+  ],
+  "native_schema_prefix_by_engine": {
+    "stockfish": "stockfish.",
+    "reckless": "reckless.",
+    "lc0": "lc0."
+  },
+  "common_required": [
+    "schema_version",
+    "event_type",
+    "search_id",
+    "sequence",
+    "observed_ms",
+    "engine",
+    "engine_instance",
+    "position_id"
+  ],
+  "notes": {
+    "ordering": "sequence is authoritative within a search; observed_ms is adapter monotonic time and must not decrease",
+    "raw_vs_derived": "raw telemetry must not contain controller residuals, aggregate rankings, overlap metrics, or routing decisions; those are derived later",
+    "completion": "bestmove null means only that the search produced no move; terminality requires terminal.fact provenance",
+    "native": "native payloads are lossless engine-specific evidence and must keep an engine-prefixed schema name"
+  },
+  "terminal_perspectives": [
+    "side_to_move",
+    "white",
+    "black"
+  ],
+  "forbidden_top_level_fields": [
+    "ranking",
+    "leader_move",
+    "runner_up_move",
+    "candidate_count",
+    "residual",
+    "residuals",
+    "top_k_overlap",
+    "rank_correlation",
+    "pv_overlap",
+    "routing_decision"
+  ]
+}

@@ -1,0 +1,47 @@
+name: Telemetry contract validation
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - schemas/telemetry/**
+      - scripts/validate-telemetry-contract.py
+      - tests/telemetry/**
+      - docs/TELEMETRY_SCHEMA.md
+      - docs/TELEMETRY_MAPPING.md
+      - Makefile
+      - .github/workflows/telemetry-contract.yml
+  pull_request:
+    paths:
+      - schemas/telemetry/**
+      - scripts/validate-telemetry-contract.py
+      - tests/telemetry/**
+      - docs/TELEMETRY_SCHEMA.md
+      - docs/TELEMETRY_MAPPING.md
+      - Makefile
+      - .github/workflows/telemetry-contract.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: telemetry-contract-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Python version
+        run: python3 --version
+
+      - name: Compile validator
+        run: python3 -m py_compile scripts/validate-telemetry-contract.py
+
+      - name: Validate telemetry v1 contract
+        run: python3 scripts/validate-telemetry-contract.py

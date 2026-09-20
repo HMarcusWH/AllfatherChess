@@ -94,8 +94,8 @@ Run fixed-node, fixed-time, self-play, SPRT-style, and external-engine compariso
 2. **PR #2 — Foundation hardening**: read-only CI, authoritative lockfile, derived-tree-safe provenance, pinned engine inputs. **Merged.**
 3. **PR #3 — Golden three-engine regression harness**: deterministic corpus, fresh-process recorder/verifier, legal-move cross-checks, manifests. **Merged.**
 4. **PR #4 — Finalize frozen golden gate**: commit the pre-controller snapshots and switch CI permanently from record mode to verify mode. **Merged.**
-5. **PR #5 — Reckless restricted-root search**: add UCI `searchmoves` / equivalent controller-owned root restriction. **Current.**
-6. **PR #6 — Common telemetry contract**: freeze engine-neutral telemetry vocabulary and backend-specific extension rules.
+5. **PR #5 — Reckless restricted-root search**: add UCI `searchmoves` / equivalent controller-owned root restriction. **Merged.**
+6. **PR #6 — Common telemetry contract**: freeze engine-neutral telemetry vocabulary and backend-specific extension rules. **Current.**
 7. **PR #7 — Per-engine telemetry implementation**: Stockfish, Reckless, and LC0 adapters/emitters without active routing.
 8. **PR #8 — Hybrid UCI shell**: one external UCI endpoint plus three backend process adapters.
 9. **PR #9 — Root ShardLedger**: pairwise-disjoint exploration allocation.
@@ -147,3 +147,22 @@ PR #5 is complete only when:
 - Syzygy ranks only the already-filtered root set;
 - valid non-empty restricted-root assignments produce authorized best moves and PV root heads in Stockfish, Reckless, and LC0;
 - no frozen golden file is regenerated or updated.
+
+## Telemetry-contract acceptance gate
+
+PR #6 is complete only when:
+
+- telemetry v1 is defined as a replayable raw event stream with `search.started`, `candidate.update`, `native.event`, `terminal.fact`, and `search.complete`;
+- standard and Chess960 move encodings are explicit;
+- sequence ordering and adapter observation time are distinct from backend-reported time;
+- MultiPV observations remain `multipv_index` events rather than fabricated atomic ranking snapshots;
+- engine evaluation and work values retain explicit semantic provenance and are not treated as interchangeable across backends;
+- LC0 defect telemetry is preserved losslessly under native schemas, including raw internal move identifiers;
+- terminal facts require independent provenance and perspective; a null best move does not imply terminality;
+- controller execution mode remains distinct from the existing EXPLORE / COMPARE / REFINE / VERIFY / RELOCK / STOP phase vocabulary;
+- raw telemetry rejects derived residual, overlap, ranking, and routing fields;
+- valid Stockfish, Reckless, LC0, Chess960, native-defect, and terminal JSONL fixtures pass;
+- deliberately invalid lifecycle/semantic fixtures are rejected;
+- the validator uses only Python standard-library dependencies;
+- no file under `engines/**`, `tests/baseline/golden/**`, or `vendor.lock.json` changes in PR #6;
+- the frozen baseline and restricted-root gates remain green.

@@ -95,8 +95,8 @@ Run fixed-node, fixed-time, self-play, SPRT-style, and external-engine compariso
 3. **PR #3 — Golden three-engine regression harness**: deterministic corpus, fresh-process recorder/verifier, legal-move cross-checks, manifests. **Merged.**
 4. **PR #4 — Finalize frozen golden gate**: commit the pre-controller snapshots and switch CI permanently from record mode to verify mode. **Merged.**
 5. **PR #5 — Reckless restricted-root search**: add UCI `searchmoves` / equivalent controller-owned root restriction. **Merged.**
-6. **PR #6 — Common telemetry contract**: freeze engine-neutral telemetry vocabulary and backend-specific extension rules. **Current.**
-7. **PR #7 — Per-engine telemetry implementation**: Stockfish, Reckless, and LC0 adapters/emitters without active routing.
+6. **PR #6 — Common telemetry contract**: freeze engine-neutral telemetry vocabulary and backend-specific extension rules. **Merged.**
+7. **PR #7 — Per-engine telemetry implementation**: Stockfish, Reckless, and LC0 adapters/emitters without active routing. **Current.**
 8. **PR #8 — Hybrid UCI shell**: one external UCI endpoint plus three backend process adapters.
 9. **PR #9 — Root ShardLedger**: pairwise-disjoint exploration allocation.
 10. **PR #10 — Shadow execution and replay**: synchronized three-engine runs with no routing intervention.
@@ -166,3 +166,22 @@ PR #6 is complete only when:
 - the validator uses only Python standard-library dependencies;
 - no file under `engines/**`, `tests/baseline/golden/**`, or `vendor.lock.json` changes in PR #6;
 - the frozen baseline and restricted-root gates remain green.
+
+## Telemetry-adapter acceptance gate
+
+PR #7 is complete only when:
+
+- Stockfish, Reckless, and LC0 UCI search output maps into telemetry v1 without modifying any engine source;
+- shared parsing is syntactic only while engine-specific semantic tags are assigned in backend adapters;
+- one physical PV-bearing UCI line produces one `candidate.update`, with remaining evidence retained in that event's native payload rather than duplicated;
+- non-PV info lines remain `native.event` and null best moves never manufacture `terminal.fact`;
+- LC0 ScoreType is explicit adapter configuration and every supported ScoreType keeps a distinct semantic tag;
+- LC0 MultiPV=1 lines without an explicit `multipv` token normalize to `multipv_index = 1` without creating an atomic ranking claim;
+- LC0 `player`, `gameid`, and `side` bestmove metadata remains losslessly available under a native schema;
+- LC0 hidden defect telemetry is exercised through `--show-hidden`, with SUMMARY required in live integration and ITER parsing covered statically;
+- malformed structured defect JSON fails explicitly instead of disappearing;
+- adapter-observed time is captured as lines are dequeued, not reconstructed after a search has completed;
+- static stdlib-only adapter tests pass;
+- live Stockfish, Reckless, LC0, and LC0-defect JSONL streams validate against the frozen telemetry v1 contract;
+- existing frozen-golden and restricted-root gates remain green;
+- `engines/**`, `tests/baseline/golden/**`, `tests/harness/normalize.py`, `vendor.lock.json`, and `controller/**` remain unchanged.

@@ -93,8 +93,8 @@ Run fixed-node, fixed-time, self-play, SPRT-style, and external-engine compariso
 1. **PR #1 — Monorepo bootstrap**: pinned imports, provenance foundation, baseline build and UCI smoke. **Merged.**
 2. **PR #2 — Foundation hardening**: read-only CI, authoritative lockfile, derived-tree-safe provenance, pinned engine inputs. **Merged.**
 3. **PR #3 — Golden three-engine regression harness**: deterministic corpus, fresh-process recorder/verifier, legal-move cross-checks, manifests. **Merged.**
-4. **PR #4 — Finalize frozen golden gate**: commit the pre-controller snapshots and switch CI permanently from record mode to verify mode. **Current.**
-5. **PR #5 — Reckless restricted-root search**: add UCI `searchmoves` / equivalent controller-owned root restriction.
+4. **PR #4 — Finalize frozen golden gate**: commit the pre-controller snapshots and switch CI permanently from record mode to verify mode. **Merged.**
+5. **PR #5 — Reckless restricted-root search**: add UCI `searchmoves` / equivalent controller-owned root restriction. **Current.**
 6. **PR #6 — Common telemetry contract**: freeze engine-neutral telemetry vocabulary and backend-specific extension rules.
 7. **PR #7 — Per-engine telemetry implementation**: Stockfish, Reckless, and LC0 adapters/emitters without active routing.
 8. **PR #8 — Hybrid UCI shell**: one external UCI endpoint plus three backend process adapters.
@@ -132,3 +132,18 @@ The first search-semantic engine change must not begin until:
 - CI runs `golden-baselines.py --verify`, never `--record`;
 - a clean PR run proves the committed snapshots reproduce on the declared baseline profile;
 - ordinary unrestricted engine behavior remains the reference against which later semantic changes are reviewed.
+
+## Restricted-root acceptance gate
+
+PR #5 is complete only when:
+
+- unrestricted Stockfish, Reckless, and LC0 golden verification remains unchanged and green;
+- Reckless accepts UCI `go ... searchmoves ...` with `searchmoves` last;
+- an absent restriction remains unrestricted;
+- an explicit restriction resolving to zero legal moves remains zero-root/fail-closed inside Reckless;
+- native root ordering is preserved after filtering;
+- native and WASM root construction use the same restriction helper;
+- helper threads inherit the same restricted root vector;
+- Syzygy ranks only the already-filtered root set;
+- valid non-empty restricted-root assignments produce authorized best moves and PV root heads in Stockfish, Reckless, and LC0;
+- no frozen golden file is regenerated or updated.

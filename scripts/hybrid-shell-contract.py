@@ -51,8 +51,7 @@ def main() -> int:
         timeout=20.0,
         args=["-m", "controller", "--config", str(CONFIG_PATH)],
     ) as shell:
-        handshake = "
-".join(shell.transcript)
+        handshake = "\n".join(shell.transcript)
         if "id name AllfatherChess" not in handshake:
             raise ContractError("external shell did not identify as AllfatherChess")
         if "id name Stockfish" in handshake or "id name Reckless" in handshake or "id name lc0" in handshake.lower():
@@ -106,8 +105,7 @@ def main() -> int:
         "isready_during_search": True,
     }
     (RESULT_DIR / "report.json").write_text(
-        json.dumps(report, indent=2, sort_keys=True) + "
-",
+        json.dumps(report, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
     print(
@@ -124,6 +122,5 @@ if __name__ == "__main__":
         RESULT_DIR.mkdir(parents=True, exist_ok=True)
         message = f"hybrid shell contract failure: {exc}"
         print(message, file=sys.stderr)
-        (RESULT_DIR / "failure.txt").write_text(message + "
-", encoding="utf-8")
+        (RESULT_DIR / "failure.txt").write_text(message + "\n", encoding="utf-8")
         raise SystemExit(1)

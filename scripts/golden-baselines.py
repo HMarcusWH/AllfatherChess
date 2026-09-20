@@ -81,7 +81,18 @@ def derive_legal_moves(engine: str, binary: Path, case: dict[str, Any]) -> list[
         if engine == "stockfish":
             lines = session.synchronous_command("go perft 1", timeout=10.0)
         elif engine == "reckless":
-            lines = session.synchronous_command("simpleperft 1", timeout=10.0)
+            # Reckless handles isready directly in its stdin listener thread, so
+            # readyok is not a sequencing barrier for non-search debug commands.
+            # Queue an unknown command behind simpleperft instead; the main UCI
+            # loop emits the marker only after simpleperft has completed.
+            marker = "__allfather_perft_barrier__"
+            session.send("simpleperft 1")
+            session.send(marker)
+            lines = session.read_until(
+                lambda line: marker in line,
+                label="reckless perft barrier",
+                timeout=10.0,
+            )[:-1]
         else:
             raise GoldenError(f"no legal-move oracle defined for {engine}")
     return extract_perft_moves(lines)

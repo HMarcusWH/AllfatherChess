@@ -103,8 +103,8 @@ fn run_verified_nnue_fetch(fetch: &Path) -> PathBuf {
 
 fn generate_model_env() {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let mut path = match env::var("EVALFILE") {
-        Ok(value) => PathBuf::from(value),
+    let (mut path, source_label) = match env::var("EVALFILE") {
+        Ok(value) => (PathBuf::from(value), "explicit EVALFILE override"),
         Err(_) => {
             let fetch = manifest_dir.join("../../scripts/fetch-reckless-network.py");
             if !fetch.is_file() {
@@ -113,7 +113,7 @@ fn generate_model_env() {
                     fetch.display()
                 );
             }
-            run_verified_nnue_fetch(&fetch)
+            (run_verified_nnue_fetch(&fetch), "pinned Allfather NNUE")
         }
     };
 
@@ -123,11 +123,15 @@ fn generate_model_env() {
 
     if !path.is_file() {
         panic!(
-            "verified EVALFILE does not point to a readable NNUE file: {}",
+            "{} does not point to a readable NNUE file: {}",
+            source_label,
             path.display()
         );
     }
 
+    // The model bytes are embedded into the binary. Track the resolved file
+    // itself so same-path replacement/corruption forces build.rs to rerun.
+    println!("cargo:rerun-if-changed={}", path.display());
     println!("cargo:rustc-env=MODEL={}", path.display());
     println!("cargo:rerun-if-env-changed=PYTHON");
     println!("cargo:rerun-if-env-changed=ALLFATHER_ARTIFACT_DIR");

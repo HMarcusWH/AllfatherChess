@@ -1,0 +1,51 @@
+name: Baseline engine validation
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - foundation/monorepo-bootstrap
+    paths:
+      - engines/**
+      - scripts/build-baselines.sh
+      - scripts/smoke-baselines.sh
+      - scripts/verify-vendor.sh
+      - .github/workflows/baseline.yml
+  pull_request:
+    paths:
+      - engines/**
+      - scripts/**
+      - vendor.lock.json
+      - .github/workflows/baseline.yml
+
+jobs:
+  build-baselines:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install LC0 validation dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y meson ninja-build pkg-config libprotobuf-dev protobuf-compiler zlib1g-dev
+
+      - name: Toolchain versions
+        run: |
+          gcc --version | head -n1
+          g++ --version | head -n1
+          rustc --version
+          cargo --version
+          meson --version
+          ninja --version
+
+      - name: Verify pinned snapshots
+        run: ./scripts/verify-vendor.sh
+
+      - name: Build all three baselines
+        env:
+          JOBS: "2"
+        run: ./scripts/build-baselines.sh
+
+      - name: UCI smoke tests
+        run: ./scripts/smoke-baselines.sh

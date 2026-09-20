@@ -1,4 +1,4 @@
-.PHONY: vendor verify-vendor build-baselines smoke-baselines
+.PHONY: vendor verify-vendor build-baselines smoke-baselines golden-baselines record-golden-baselines
 
 vendor:
 	@echo "Refusing implicit destructive vendor refresh." >&2
@@ -13,3 +13,9 @@ build-baselines:
 
 smoke-baselines:
 	./scripts/smoke-baselines.sh
+
+golden-baselines:
+	python3 scripts/golden-baselines.py --verify
+
+record-golden-baselines:
+	python3 scripts/golden-baselines.py --record

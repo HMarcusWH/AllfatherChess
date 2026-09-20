@@ -7,7 +7,7 @@ from typing import Any, Iterable
 
 
 _MOVE_RE = re.compile(r"^[a-h][1-8][a-h][1-8][qrbn]?$")
-_NONE_MOVES = {"(none)", "none", "0000"}
+_NONE_MOVES = {"(none)", "none", "0000", "a1a1"}
 
 
 def is_uci_move(value: str) -> bool:

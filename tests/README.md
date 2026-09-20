@@ -21,3 +21,8 @@ Telemetry adapter syntax/semantic tests run with `make telemetry-adapters`. Afte
 Controller/process tests run with `make controller-tests` and use deterministic fake UCI backends to exercise startup, one-reader stdout demultiplexing, transactional shutdown, duplicate-go rejection, and `isready` during `go infinite`.
 
 After all three real engines are built, `make hybrid-shell-contract` verifies that the external identity is AllfatherChess, Stockfish remains the transparent anchor, direct and shell node-limited best moves agree, and `stop` completes an infinite search after a concurrent readiness barrier.
+
+
+Root ShardLedger invariant tests run with `make shard-ledger-tests`. They attack exact partition coverage, overlap rejection, atomic failure, one-shot leasing, owner-atomic activation/sealing, empty terminal ledgers, detached snapshots, deterministic IDs, revision behavior, and concurrent conflicting mutations.
+
+After all three real engines are built, `make shard-ledger-contract` qualifies the managed Stockfish `go perft 1` legal-root oracle against frozen legal-move cases, checks Chess960 castling encoding, builds a live startpos ledger, and sequentially proves that Stockfish, Reckless, and LC0 remain inside their test-only owned `searchmoves` regions.

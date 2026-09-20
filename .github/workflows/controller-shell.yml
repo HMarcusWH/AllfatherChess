@@ -48,6 +48,7 @@ jobs:
         run: |
           python3 -m py_compile             controller/*.py             adapters/process/*.py             tests/fixtures/fake_uci_engine.py             tests/adapters/test_uci_process.py             tests/controller/*.py
           python3 -m json.tool config/allfather.validation.json >/dev/null
+          ./allfather-chess --help >/dev/null
 
       - name: Validate process adapter
         run: python3 tests/adapters/test_uci_process.py

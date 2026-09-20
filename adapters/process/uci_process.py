@@ -66,6 +66,7 @@ class UciProcess:
 
         self._state_lock = threading.RLock()
         self._stdin_lock = threading.Lock()
+        self._command_gate = threading.Lock()
         self._waiters: list[_Waiter] = []
         self._search: _SearchSubscription | None = None
         self._closing = False
@@ -283,6 +284,34 @@ class UciProcess:
             timeout=timeout,
         )
 
+    def run_idle_request(
+        self,
+        command: str,
+        terminal_predicate: Callable[[str], bool],
+        *,
+        label: str,
+        timeout: float | None = None,
+    ) -> list[str]:
+        """Run one synchronous non-search diagnostic while no search is active.
+
+        The command gate is shared with start_search so an idle transaction and
+        a search cannot begin concurrently. ready() intentionally remains
+        independent because PR #9 permits isready during active search.
+        """
+        with self._command_gate:
+            with self._state_lock:
+                if self._search is not None:
+                    raise UciProcessError(
+                        f"{self.name}: idle request {label!r} is forbidden during active search"
+                    )
+            return self._request(
+                command,
+                terminal_predicate,
+                label=label,
+                timeout=timeout,
+                collect=True,
+            )
+
     def set_option(self, name: str, value: object) -> None:
         if name not in self.options:
             raise UciProcessError(f"{self.name}: required UCI option not exposed: {name}")
@@ -322,21 +351,22 @@ class UciProcess:
     ) -> None:
         if command != "go" and not command.startswith("go "):
             raise UciProcessError(f"{self.name}: invalid go command: {command!r}")
-        with self._state_lock:
-            if self._search is not None:
-                raise UciProcessError(f"{self.name}: search already active")
-            self._search = _SearchSubscription(
-                token=token,
-                on_info=on_info,
-                on_complete=on_complete,
-            )
-        try:
-            self.send(command)
-        except Exception:
+        with self._command_gate:
             with self._state_lock:
-                if self._search is not None and self._search.token == token:
-                    self._search = None
-            raise
+                if self._search is not None:
+                    raise UciProcessError(f"{self.name}: search already active")
+                self._search = _SearchSubscription(
+                    token=token,
+                    on_info=on_info,
+                    on_complete=on_complete,
+                )
+            try:
+                self.send(command)
+            except Exception:
+                with self._state_lock:
+                    if self._search is not None and self._search.token == token:
+                        self._search = None
+                raise
 
     def stop(self) -> None:
         if self.active_search:

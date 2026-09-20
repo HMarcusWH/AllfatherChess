@@ -1044,8 +1044,11 @@ void Search::WatchdogThread() {
     // Minimum wait time is there to prevent busy wait and other threads
     // starvation.
     watchdog_cv_.wait_for(
-        lock.get_raw(), std::chrono::milliseconds(remaining_time),
-        [this]() { return stop_.load(std::memory_order_acquire); });
+        lock.get_raw(), std::chrono::milliseconds(remaining_time), [this]() {
+          if (!stop_.load(std::memory_order_acquire)) return false;
+          return !params_.GetDefectTelemetry() ||
+                 active_search_workers_.load(std::memory_order_acquire) == 0;
+        });
   }
   LOGFILE << "End a watchdog thread.";
 }

@@ -1,3 +1,5 @@
 repository=https://github.com/HMarcusWH/Stockfish.git
 commit=17a6c8f1eb0da45c2ca405321919519bf4e211ba
+tree=b14521db7dc6f5747042d76579a0b171e0a89f3f
+tracked_entries=119
 imported_by=scripts/vendor-engines.sh

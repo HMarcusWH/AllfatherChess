@@ -1,3 +1,5 @@
 repository=https://github.com/HMarcusWH/lc0.git
 commit=5cbfeb924c0fcf5efc1b2a43813ac8d63cfd9904
+tree=6dd8aad55c79fddc291abfede17934f9ce4ca928
+tracked_entries=399
 imported_by=scripts/vendor-engines.sh

@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "generated_for": "AllfatherChess monorepo bootstrap",
+  "engines": {
+    "stockfish": {
+      "repository": "https://github.com/HMarcusWH/Stockfish.git",
+      "branch": "master",
+      "commit": "17a6c8f1eb0da45c2ca405321919519bf4e211ba",
+      "destination": "engines/stockfish"
+    },
+    "reckless": {
+      "repository": "https://github.com/HMarcusWH/Reckless.git",
+      "branch": "main",
+      "commit": "31d9cd6fd2bea6d9f72eeb35e0bac70daa295fb1",
+      "destination": "engines/reckless"
+    },
+    "lc0": {
+      "repository": "https://github.com/HMarcusWH/lc0.git",
+      "branch": "master",
+      "commit": "5cbfeb924c0fcf5efc1b2a43813ac8d63cfd9904",
+      "destination": "engines/lc0",
+      "notes": "Includes merged adaptive-prefetch PR #1 and defect-telemetry PR #2."
+    }
+  }
+}

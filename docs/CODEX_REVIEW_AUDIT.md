@@ -28,7 +28,7 @@ This audit covers the user-requested review history for PRs #1, #2, #3, #5, #6, 
 
 **Finding:** a fresh direct Cargo build could fall back to an unverified network download.
 
-**Repair:** the derived Reckless build script no longer downloads a network. `EVALFILE` is mandatory, and the repository build obtains that path only from `scripts/fetch-reckless-network.sh`, which verifies locked size and SHA-256.
+**Repair:** the derived Reckless build script no longer performs its own unverified download. An explicit `EVALFILE` is accepted; otherwise normal engine-local Cargo/Make entry points invoke the repository's `scripts/fetch-reckless-network.sh`, which resolves the lockfile pin and verifies size and SHA-256 before returning the model path.
 
 ### Reckless Cargo configuration was skipped from repository-root builds
 
@@ -149,6 +149,30 @@ The separate bootstrap-golden issue discovered manually after merge was repaired
 **Finding:** `{"v": true}` could pass an equality check against version 1.
 
 **Repair:** LC0 defect payload version is a non-boolean integer and must equal 1.
+
+
+## PR #8 — historical review hardening
+
+The first Codex pass over this hardening PR found three additional issues in the proposed repairs; they are included here so the audit remains recursive rather than stopping at the historical PR boundary.
+
+### LC0 summary snapshot could race final worker iterations
+
+**Finding:** emitting the summary immediately after the stop decision could occur while another search worker was still completing its final iteration, producing an undercount that the one-shot guard would freeze permanently.
+
+**Repair:** LC0 now tracks active search workers. Once stop is raised, the watchdog does not emit final info/defect summary/bestmove until all search workers (including each worker's task-thread teardown) have exited. The live defect integration runs with two LC0 search workers and requires the summary in the normal pre-bestmove stream.
+
+### Native-data exemption could be spoofed in nested common payloads
+
+**Finding:** a path check exempted any nested object named `native.data`, not only the event-level engine-native payload.
+
+**Repair:** the recursive raw/derived guard exempts exactly the top-level event path `native.data`. A focused invalid fixture attempts the nested-request escape, while a valid event-level native fixture proves legitimate extension payloads remain lossless.
+
+### Reckless source-build entry points were broken by mandatory EVALFILE
+
+**Finding:** requiring `EVALFILE` unconditionally broke the documented engine-local Make/Cargo/PGO entry points.
+
+**Repair:** when `EVALFILE` is absent, the derived build script invokes the repository's verified NNUE fetch helper rather than downloading anything itself. CI explicitly runs a Reckless Cargo check without `EVALFILE` to exercise this default verified path.
+
 
 ## Promotion rule before the hybrid shell
 

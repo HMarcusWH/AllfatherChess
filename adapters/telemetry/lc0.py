@@ -5,7 +5,12 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from .uci import BaseUciTelemetryAdapter, TelemetryParseError, parse_info_line
+from .uci import (
+    BaseUciTelemetryAdapter,
+    TelemetryParseError,
+    parse_bestmove_line,
+    parse_info_line,
+)
 
 
 _SCORE_TYPES = {
@@ -25,10 +30,18 @@ class Lc0TelemetryAdapter(BaseUciTelemetryAdapter):
     nodes_unit = "count"
     default_multipv_if_missing = 1
 
-    def __init__(self, *, score_type: str, **kwargs: Any):
+    def __init__(
+        self,
+        *,
+        score_type: str,
+        defer_completion_until_flush: bool = False,
+        **kwargs: Any,
+    ):
         if score_type not in _SCORE_TYPES:
             raise ValueError(f"unsupported LC0 ScoreType: {score_type}")
         self.score_type = score_type
+        self.defer_completion_until_flush = defer_completion_until_flush
+        self._pending_bestmove: tuple[dict[str, Any], int | float] | None = None
         super().__init__(**kwargs)
 
     def score_semantics(self, kind: str) -> tuple[str, str]:
@@ -57,7 +70,23 @@ class Lc0TelemetryAdapter(BaseUciTelemetryAdapter):
             raise TelemetryParseError(f"unsupported {prefix.strip()} payload version: {payload.get('v')!r}")
         return payload
 
+    def flush_completion(self, *, observed_ms: int | float) -> dict[str, Any]:
+        if self._pending_bestmove is None:
+            raise TelemetryParseError("no deferred LC0 bestmove is pending")
+        parsed, received_ms = self._pending_bestmove
+        parsed = dict(parsed)
+        extra = dict(parsed.get("extra", {}))
+        extra["received_observed_ms"] = received_ms
+        parsed["extra"] = extra
+        self._pending_bestmove = None
+        return self._complete_event(parsed, observed_ms=observed_ms)
+
     def consume(self, line: str, *, observed_ms: int | float) -> list[dict[str, Any]]:
+        if self.defer_completion_until_flush and line.startswith("bestmove "):
+            if self._pending_bestmove is not None:
+                raise TelemetryParseError("multiple deferred LC0 bestmove lines")
+            self._pending_bestmove = (parse_bestmove_line(line), observed_ms)
+            return []
         if line.startswith("info "):
             parsed = parse_info_line(line)
             comment = parsed.get("comment")

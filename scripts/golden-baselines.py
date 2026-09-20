@@ -50,6 +50,11 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def sha256_json(value: Any) -> str:
+    payload = json.dumps(value, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
 def resolve_binary(profile: dict[str, Any]) -> Path:
     direct = ROOT / profile["binary"]
     if direct.is_file():
@@ -186,7 +191,7 @@ def record_engine(
     legal: dict[str, list[str]],
     stability_runs: int,
     corpus_sha: str,
-    profiles_sha: str,
+    profile_sha: str,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     golden_cases: dict[str, Any] = {}
     actual_cases: dict[str, Any] = {}
@@ -195,7 +200,10 @@ def record_engine(
             run_case(engine, binary, profile, case, legal[case["id"]])
             for _ in range(stability_runs)
         ]
-        stable, unstable = stable_projection(observations)
+        try:
+            stable, unstable = stable_projection(observations)
+        except GoldenError as exc:
+            raise GoldenError(f"{engine}/{case['id']}: {exc}") from exc
         golden_cases[case["id"]] = {
             "stable": stable,
             "unstable_fields": unstable,
@@ -206,7 +214,7 @@ def record_engine(
         "schema_version": 1,
         "engine": engine,
         "corpus_sha256": corpus_sha,
-        "profiles_sha256": profiles_sha,
+        "profile_sha256": profile_sha,
         "stability_runs": stability_runs,
         "cases": golden_cases,
     }
@@ -222,12 +230,12 @@ def verify_engine(
     legal: dict[str, list[str]],
     expected: dict[str, Any],
     corpus_sha: str,
-    profiles_sha: str,
+    profile_sha: str,
 ) -> tuple[list[str], dict[str, Any]]:
     errors: list[str] = []
     if expected.get("corpus_sha256") != corpus_sha:
         errors.append(f"{engine}: corpus hash changed; re-record intentionally")
-    if expected.get("profiles_sha256") != profiles_sha:
+    if expected.get("profile_sha256") != profile_sha:
         errors.append(f"{engine}: profile hash changed; re-record intentionally")
 
     actual_cases: dict[str, Any] = {}
@@ -302,6 +310,7 @@ def build_manifest(
         "vendor_lock_sha256": sha256_file(ROOT / "vendor.lock.json"),
         "corpus_sha256": corpus_sha,
         "profiles_sha256": profiles_sha,
+        "profile_sha256": {engine: sha256_json(profile) for engine, profile in load_json(PROFILES_PATH)["profiles"].items()},
         "engines": engine_meta,
     }
 
@@ -328,6 +337,7 @@ def run(args: argparse.Namespace) -> int:
     profiles = profiles_doc["profiles"]
     corpus_sha = sha256_file(CORPUS_PATH)
     profiles_sha = sha256_file(PROFILES_PATH)
+    profile_shas = {engine: sha256_json(profile) for engine, profile in profiles.items()}
 
     binaries = {engine: resolve_binary(profile) for engine, profile in profiles.items()}
     RESULT_DIR.mkdir(parents=True, exist_ok=True)
@@ -362,7 +372,7 @@ def run(args: argparse.Namespace) -> int:
                 legal,
                 args.stability_runs,
                 corpus_sha,
-                profiles_sha,
+                profile_shas[engine],
             )
             write_json(output_dir / f"{engine}.json", golden)
             write_json(actual_dir / f"{engine}.json", actual)
@@ -389,7 +399,7 @@ def run(args: argparse.Namespace) -> int:
                 legal,
                 expected,
                 corpus_sha,
-                profiles_sha,
+                profile_shas[engine],
             )
             errors.extend(engine_errors)
             write_json(actual_dir / f"{engine}.json", actual)

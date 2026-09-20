@@ -174,7 +174,11 @@ def validate_request(
         if not isinstance(item, dict):
             fail(path, line_no, f"{label} must be an object")
         require_nonempty_str(item.get("name"), f"{label}.name", path, line_no)
-        require_nonnegative_number(item.get("value"), f"{label}.value", path, line_no)
+        value = item.get("value")
+        if isinstance(value, bool):
+            pass
+        else:
+            require_nonnegative_number(value, f"{label}.value", path, line_no)
         require_nonempty_str(item.get("semantics"), f"{label}.semantics", path, line_no)
 
 

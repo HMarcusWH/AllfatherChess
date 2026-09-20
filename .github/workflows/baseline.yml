@@ -4,19 +4,27 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - foundation/monorepo-bootstrap
+      - main
     paths:
       - engines/**
-      - scripts/build-baselines.sh
-      - scripts/smoke-baselines.sh
-      - scripts/verify-vendor.sh
+      - scripts/**
+      - vendor.lock.json
+      - Makefile
       - .github/workflows/baseline.yml
   pull_request:
     paths:
       - engines/**
       - scripts/**
       - vendor.lock.json
+      - Makefile
       - .github/workflows/baseline.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: baseline-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build-baselines:
@@ -24,6 +32,28 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+
+      - name: Validate lock and scripts
+        run: |
+          python3 scripts/vendor-lock.py validate
+          python3 -m py_compile scripts/vendor-lock.py
+          bash -n scripts/vendor-engines.sh
+          bash -n scripts/verify-vendor.sh
+          bash -n scripts/fetch-reckless-network.sh
+          bash -n scripts/build-baselines.sh
+          bash -n scripts/smoke-baselines.sh
+
+      - name: Verify declared engine ancestry
+        run: ./scripts/verify-vendor.sh
+
+      - name: Cache pinned Reckless NNUE
+        uses: actions/cache@v4
+        with:
+          path: build/artifacts/reckless
+          key: reckless-nnue-${{ runner.os }}-${{ hashFiles('vendor.lock.json') }}
+
+      - name: Fetch and verify pinned Reckless NNUE
+        run: ./scripts/fetch-reckless-network.sh >/dev/null
 
       - name: Install LC0 validation dependencies
         run: |
@@ -36,11 +66,9 @@ jobs:
           g++ --version | head -n1
           rustc --version
           cargo --version
+          python3 --version
           meson --version
           ninja --version
-
-      - name: Verify pinned snapshots
-        run: ./scripts/verify-vendor.sh
 
       - name: Build all three baselines
         env:

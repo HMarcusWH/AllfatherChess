@@ -48,6 +48,8 @@ position_id
 
 `sequence` is authoritative ordering within one search. `observed_ms` is adapter monotonic receipt/observation time, not an engine-reported clock and not a wall-clock timestamp.
 
+`engine` identifies the solver family (`stockfish`, `reckless`, or `lc0`). `engine_instance` identifies the concrete managed role/process. In PR #11 this distinction is required because both `stockfish-anchor` and `stockfish-shadow` are Stockfish instances with different authority and dispatch contracts. A consumer must not infer authority from the solver family alone.
+
 `search.started` additionally records enough position information for replay. Request limits may carry non-negative numeric values or boolean UCI flags such as `infinite` / `ponder`:
 
 ```text
@@ -142,7 +144,7 @@ execution_mode = baseline | shadow | active
 phase = EXPLORE | COMPARE | REFINE | VERIFY | RELOCK | STOP
 ```
 
-`shadow` is an execution mode, not a controller phase.
+`shadow` is an execution mode, not a controller phase. PR #11 shadow worker streams use `execution_mode = shadow`; the unrestricted anchor may be recorded separately as reference/authority evidence but remains outside shard ownership. Shadow telemetry does not grant decision authority.
 
 ## Raw versus derived
 
@@ -157,6 +159,10 @@ backend output
 ```
 
 This separation is an architectural invariant, not a naming preference.
+
+## Replay binding
+
+Telemetry v1 remains a per-search raw event contract. PR #11 does not add run-level orchestration fields to every event. Instead, a separate replay manifest binds the synchronized position/request, engine instances, ledger snapshots, exact authorized shadow root sets, telemetry stream identities/paths, and completion/failure dispositions for one shadow experiment. This preserves raw telemetry v1 while making the multi-process experiment reconstructable.
 
 ## Versioning
 

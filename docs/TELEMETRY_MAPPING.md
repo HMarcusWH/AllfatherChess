@@ -65,6 +65,14 @@ The LC0 adapter maps these payloads losslessly to `lc0.defect.iter.v1` and `lc0.
 
 Do not promote `leader_move_raw` or `runner_up_move_raw` into common UCI moves. They are internal raw move encodings.
 
+## Shadow instance mapping
+
+PR #11 reuses the same solver-family adapters for distinct managed process roles. The common `engine` field continues to identify semantic provenance (`stockfish`, `reckless`, `lc0`), while `engine_instance` distinguishes concrete roles such as `stockfish-anchor`, `stockfish-shadow`, `reckless-shadow`, and `lc0-shadow`.
+
+No new score conversion is introduced for shadow mode. In particular, Stockfish and Reckless centipawns remain independently tagged, LC0 score semantics remain `ScoreType`-qualified, and alpha-beta nodes remain incomparable to LC0 visit/playout-derived counts without later calibration.
+
+The run-level relationship between these independent telemetry streams belongs in the PR #11 replay manifest rather than in fabricated aggregate ranking events.
+
 ## Terminal facts
 
 Ordinary UCI parsing does not manufacture terminal facts. A `terminal.fact` requires an independent rules or tablebase source with explicit provenance and perspective. This preserves the distinction between "search returned no move" and "position is terminal."

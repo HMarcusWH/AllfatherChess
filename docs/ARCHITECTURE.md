@@ -16,20 +16,33 @@ The controller owns:
 
 The controller does **not** flatten the three native search states into one universal tree. Stockfish and Reckless keep their alpha-beta/NNUE internals; LC0 keeps its MCTS tree, NN cache, policy/value semantics, and batching.
 
+## Optimization objective
+
+The product target is not "three engines worth of compute against one engine." In the eventual active regime, all solver work, verification work, and controller overhead must fit inside one declared total resource envelope `B`. The controller succeeds only if allocating that envelope heterogeneously produces stronger chess than giving the comparable envelope to Stockfish, Reckless, or LC0 alone. Shadow mode is deliberately allowed to overspend while collecting calibration evidence, and therefore carries no equal-compute strength claim.
+
 ## Generations
 
 ### Generation 1 — process-isolated monorepo
 
-One checkout provides four process boundaries:
+Anchor-mode Generation 1 provides four process boundaries:
 
 - `allfather-chess` / `python -m controller` — the only external UCI endpoint;
-- Stockfish baseline;
-- Reckless baseline;
-- LC0 baseline.
+- Stockfish anchor;
+- Reckless managed backend;
+- LC0 managed backend.
+
+PR #11 shadow mode adds a second Stockfish process. The controller therefore manages four engine instances while preserving one external UCI identity:
+
+- `stockfish-anchor` — unrestricted outward decision authority;
+- `stockfish-shadow` — restricted Stockfish evidence worker;
+- `reckless-shadow` — restricted Reckless evidence worker;
+- `lc0-shadow` — restricted LC0 evidence worker.
 
 The controller communicates with engine processes through a production UCI process adapter with one permanent stdout reader per backend. In the first Generation-1 implementation all three engines are launched, configured, synchronized, and health-checked, while Stockfish alone acts as the transparent search anchor.
 
-PR #10 adds a controller-owned legal-root oracle and `RootShardLedger`. Stockfish `go perft 1` provides the canonical live legal-root universe; the ledger can atomically assign those roots into pairwise-disjoint owner regions for Stockfish, Reckless, and LC0. This ownership state is qualified but is not yet wired into outward gameplay: Reckless and LC0 remain ready until the shadow-execution milestone authorizes concurrent restricted searches.
+PR #10 adds a controller-owned legal-root oracle and `RootShardLedger`. Stockfish `go perft 1` provides the canonical live legal-root universe; the ledger can atomically assign those roots into pairwise-disjoint owner regions for Stockfish, Reckless, and LC0.
+
+PR #11 consumes that ownership in **shadow mode**. The three shadow workers search their pairwise-disjoint `active_roots(owner)` regions concurrently and emit raw telemetry/replay evidence. The unrestricted `stockfish-anchor` is intentionally outside the exploration ledger and remains the only outward bestmove authority. Shadow evidence cannot influence move selection in this milestone.
 
 ### Generation 2 — structured local adapters
 
@@ -49,6 +62,7 @@ The controller maintains and will extend an engine-neutral state containing:
 
 - current synchronized position and a Stockfish-qualified legal-root universe;
 - root-v1 `RootShardLedger` ownership, generation, revision, and shard state;
+- shadow-run identity and replay-manifest binding across anchor/shadow engine instances;
 - per-engine observations;
 - normalized candidate rankings and PV summaries;
 - intra-alpha-beta and cross-paradigm residuals;

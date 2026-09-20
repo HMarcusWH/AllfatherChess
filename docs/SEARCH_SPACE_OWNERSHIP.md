@@ -43,6 +43,12 @@ Sibling assignments are pairwise disjoint. At the root, the union of assigned sh
 
 An ownership invariant failure is not a warning. Routing must stop and fall back to a safe declared mode.
 
+### Anchor exception is not an ownership exception
+
+PR #11 keeps an unrestricted `stockfish-anchor` running as the sole outward decision authority while `stockfish-shadow`, `reckless-shadow`, and `lc0-shadow` consume the ledger partition. The anchor is **not an exploration owner** and holds no ledger shard. Therefore its independent unrestricted search may traverse roots also searched by shadow workers without violating the ownership invariant: the invariant forbids duplicate ownership among the three shadow exploration workers, not independent reference/authority work outside the ledger.
+
+That anchor/shadow duplication is deliberate research overhead and must not be misreported as efficient equal-budget play. The eventual active controller must remove or account for such duplicated compute inside its global budget.
+
 ## Verification exception
 
 Independent overlap is valuable for checking a candidate discovered by another solver. It is therefore isolated into an explicit phase:
@@ -94,7 +100,9 @@ activation/sealing owner-atomic
 empty owner regions never dispatch
 ```
 
-PR #10 still does **not** dispatch three live searches during gameplay. The existing Stockfish anchor remains the outward decision path. The real-engine qualification uses already-qualified `searchmoves` sequentially only to prove that an active ledger region can be enforced by every backend.
+PR #10 does **not** dispatch three live searches during gameplay. Its real-engine qualification uses already-qualified `searchmoves` sequentially only to prove that an active ledger region can be enforced by every backend.
+
+PR #11 is the first consumer of `active_roots(owner)` in concurrent shadow execution. It activates only non-empty owner regions, dispatches the exact owned root sets to the three shadow workers, and records the result. It does not change the partition based on search evidence and does not permit shadow results to affect the outward Stockfish anchor.
 
 Malformed-input behavior remains backend-specific, so controller dispatches must remain canonical, legal, deduplicated, and non-empty.
 

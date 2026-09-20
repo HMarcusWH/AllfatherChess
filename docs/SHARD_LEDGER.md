@@ -190,6 +190,42 @@ The real-engine PR #10 contract:
 The round-robin partition used by that contract is test code only. It is not a
 production routing policy.
 
+## PR #11 consumer contract
+
+PR #11 consumes the frozen root-v1 ledger without changing its schema or state machine.
+
+For each non-empty owner region:
+
+```text
+assign_partition(...)
+activate_owner(owner)
+roots = active_roots(owner)
+dispatch shadow search with exactly roots
+record telemetry / completion disposition
+seal_owner(owner)
+```
+
+The ledger owners remain the solver families:
+
+```text
+stockfish
+reckless
+lc0
+```
+
+The runtime process identities are more specific:
+
+```text
+stockfish-anchor   unrestricted, no ledger ownership
+stockfish-shadow   owner = stockfish
+reckless-shadow    owner = reckless
+lc0-shadow         owner = lc0
+```
+
+The unrestricted anchor therefore does not appear in the ledger and cannot mutate shard state. Pairwise-disjoint ownership applies to the three shadow exploration workers only.
+
+PR #11 may bind ledger snapshots into a separate replay manifest, but it must not add residuals, rankings, routing scores, budgets, recursive children, transfer state, or verification overlap to `RootShardLedger` v1.
+
 ## Transpositions
 
 Root-prefix disjointness does not imply global board-state disjointness.

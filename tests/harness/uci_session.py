@@ -150,8 +150,19 @@ class UciSession:
             raise UciError(f"unsupported position specification: {position}")
         self.send(command)
 
-    def search_nodes(self, nodes: int, *, timeout: float = 20.0) -> list[str]:
-        self.send(f"go nodes {nodes}")
+    def search_nodes(
+        self,
+        nodes: int,
+        *,
+        searchmoves: list[str] | None = None,
+        timeout: float = 20.0,
+    ) -> list[str]:
+        command = f"go nodes {nodes}"
+        if searchmoves is not None:
+            command += " searchmoves"
+            if searchmoves:
+                command += " " + " ".join(searchmoves)
+        self.send(command)
         return self.read_until(
             lambda line: line.startswith("bestmove "),
             label="bestmove",

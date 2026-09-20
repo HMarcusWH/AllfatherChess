@@ -6,11 +6,22 @@ JOBS="${JOBS:-2}"
 
 "$ROOT/scripts/verify-vendor.sh"
 
+echo "==> Resolving pinned Reckless NNUE"
+RECKLESS_NET="$("$ROOT/scripts/fetch-reckless-network.sh")"
+[[ -f "$RECKLESS_NET" ]] || {
+  echo "verified Reckless network path does not exist: $RECKLESS_NET" >&2
+  exit 1
+}
+
 echo "==> Building Stockfish"
 make -C "$ROOT/engines/stockfish/src" -j"$JOBS" build ARCH=x86-64
 
-echo "==> Building Reckless"
-cargo build --manifest-path "$ROOT/engines/reckless/Cargo.toml" --release --no-default-features
+echo "==> Building Reckless with verified EVALFILE"
+EVALFILE="$RECKLESS_NET" \
+  cargo build \
+    --manifest-path "$ROOT/engines/reckless/Cargo.toml" \
+    --release \
+    --no-default-features
 
 echo "==> Building LC0 (backend-light validation configuration)"
 (

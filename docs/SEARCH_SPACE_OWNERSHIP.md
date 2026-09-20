@@ -62,9 +62,9 @@ All verification work is separately accounted.
 
 Disjoint prefixes do not imply disjoint board-state expansion because distinct move orders can transpose.
 
-The first implementation will therefore guarantee **region-level** non-overlap and instrument canonical-position fingerprints to measure residual transposition duplication.
+PR #10 therefore guarantees **region-level / assigned-prefix** non-overlap only. It does not yet instrument canonical-position fingerprints or claim disjoint internal board-state expansion.
 
-A global position-ownership table is a later optimization and will only be introduced if measurements show that transposition duplication is materially expensive. Such a table must encode search-relevant state, including draw-sensitive context, rather than piece placement alone.
+Canonical-position overlap measurement and any global position-ownership table are later optimizations. They will only be introduced if measurements show that transposition duplication is materially expensive. Such a table must encode search-relevant state, including draw-sensitive context, rather than piece placement alone.
 
 ## Backend restricted-root capability v1
 

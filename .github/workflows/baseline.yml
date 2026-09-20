@@ -9,6 +9,9 @@ on:
       - engines/**
       - adapters/**
       - common/**
+      - controller/**
+      - config/**
+      - allfather-chess
       - scripts/**
       - tests/**
       - vendor.lock.json
@@ -19,6 +22,9 @@ on:
       - engines/**
       - adapters/**
       - common/**
+      - controller/**
+      - config/**
+      - allfather-chess
       - scripts/**
       - tests/**
       - vendor.lock.json
@@ -42,7 +48,27 @@ jobs:
       - name: Validate lock and scripts
         run: |
           python3 scripts/vendor-lock.py validate
-          python3 -m py_compile             scripts/vendor-lock.py             scripts/fetch-reckless-network.py             scripts/reckless-nnue-rerun-contract.py             scripts/golden-baselines.py             scripts/restricted-root-contract.py             scripts/validate-telemetry-contract.py             scripts/telemetry-adapter-integration.py             tests/harness/*.py             common/*.py             adapters/*.py             adapters/telemetry/*.py             tests/telemetry/test_adapters.py
+          python3 -m py_compile \
+            allfather-chess \
+            scripts/vendor-lock.py \
+            scripts/fetch-reckless-network.py \
+            scripts/reckless-nnue-rerun-contract.py \
+            scripts/golden-baselines.py \
+            scripts/restricted-root-contract.py \
+            scripts/validate-telemetry-contract.py \
+            scripts/telemetry-adapter-integration.py \
+            scripts/hybrid-shell-contract.py \
+            tests/harness/*.py \
+            tests/adapters/test_uci_process.py \
+            tests/controller/*.py \
+            tests/fixtures/fake_uci_engine.py \
+            common/*.py \
+            controller/*.py \
+            adapters/*.py \
+            adapters/telemetry/*.py \
+            adapters/process/*.py \
+            tests/telemetry/test_adapters.py
+          python3 -m json.tool config/allfather.validation.json >/dev/null
           bash -n scripts/vendor-engines.sh
           bash -n scripts/verify-vendor.sh
           bash -n scripts/fetch-stockfish-network.sh
@@ -108,6 +134,9 @@ jobs:
       - name: Verify live telemetry adapters
         run: python3 scripts/telemetry-adapter-integration.py
 
+      - name: Verify real-engine hybrid UCI shell
+        run: python3 scripts/hybrid-shell-contract.py
+
       - name: Upload validation evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -117,4 +146,5 @@ jobs:
             build/test-results/golden
             build/test-results/restricted-root
             build/test-results/telemetry-adapters
+            build/test-results/hybrid-shell
           if-no-files-found: warn

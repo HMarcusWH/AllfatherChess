@@ -47,30 +47,73 @@ fn generate_syzygy_binding() {
         .unwrap();
 }
 
+fn run_verified_nnue_fetch(fetch: &Path) -> PathBuf {
+    let mut candidates: Vec<(String, Vec<String>)> = Vec::new();
+
+    if let Ok(value) = env::var("PYTHON") {
+        if !value.trim().is_empty() {
+            candidates.push((value, Vec::new()));
+        }
+    }
+
+    if cfg!(windows) {
+        candidates.push(("py".to_string(), vec!["-3".to_string()]));
+        candidates.push(("python".to_string(), Vec::new()));
+        candidates.push(("python3".to_string(), Vec::new()));
+    } else {
+        candidates.push(("python3".to_string(), Vec::new()));
+        candidates.push(("python".to_string(), Vec::new()));
+    }
+
+    for (program, args) in candidates {
+        let mut command = Command::new(&program);
+        command.args(&args).arg(fetch);
+
+        match command.output() {
+            Ok(output) => {
+                if !output.status.success() {
+                    panic!(
+                        "Allfather verified NNUE fetch helper failed via {}: {}",
+                        program,
+                        String::from_utf8_lossy(&output.stderr)
+                    );
+                }
+                let value = String::from_utf8(output.stdout)
+                    .expect("verified NNUE helper returned a non-UTF-8 path");
+                let trimmed = value.trim();
+                if trimmed.is_empty() {
+                    panic!("verified NNUE helper returned an empty path");
+                }
+                return PathBuf::from(trimmed);
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => {
+                panic!(
+                    "failed to launch Python interpreter {} for verified NNUE fetch: {}",
+                    program, error
+                );
+            }
+        }
+    }
+
+    panic!(
+        "EVALFILE is unset and no Python 3 interpreter was found; set PYTHON to a Python 3 executable or provide EVALFILE explicitly"
+    );
+}
+
 fn generate_model_env() {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let mut path = match env::var("EVALFILE") {
         Ok(value) => PathBuf::from(value),
         Err(_) => {
-            let fetch = manifest_dir.join("../../scripts/fetch-reckless-network.sh");
+            let fetch = manifest_dir.join("../../scripts/fetch-reckless-network.py");
             if !fetch.is_file() {
                 panic!(
-                    "EVALFILE is unset and the Allfather verified NNUE fetch helper is unavailable: {}",
+                    "EVALFILE is unset and the portable Allfather verified NNUE fetch helper is unavailable: {}",
                     fetch.display()
                 );
             }
-            let output = Command::new(&fetch)
-                .output()
-                .expect("failed to execute the Allfather verified NNUE fetch helper");
-            if !output.status.success() {
-                panic!(
-                    "Allfather verified NNUE fetch helper failed: {}",
-                    String::from_utf8_lossy(&output.stderr)
-                );
-            }
-            let value = String::from_utf8(output.stdout)
-                .expect("verified NNUE helper returned a non-UTF-8 path");
-            PathBuf::from(value.trim())
+            run_verified_nnue_fetch(&fetch)
         }
     };
 
@@ -79,11 +122,16 @@ fn generate_model_env() {
     }
 
     if !path.is_file() {
-        panic!("verified EVALFILE does not point to a readable NNUE file: {}", path.display());
+        panic!(
+            "verified EVALFILE does not point to a readable NNUE file: {}",
+            path.display()
+        );
     }
 
     println!("cargo:rustc-env=MODEL={}", path.display());
-    println!("cargo:rerun-if-changed=../../scripts/fetch-reckless-network.sh");
+    println!("cargo:rerun-if-env-changed=PYTHON");
+    println!("cargo:rerun-if-env-changed=ALLFATHER_ARTIFACT_DIR");
+    println!("cargo:rerun-if-changed=../../scripts/fetch-reckless-network.py");
     println!("cargo:rerun-if-changed=../../vendor.lock.json");
 }
 

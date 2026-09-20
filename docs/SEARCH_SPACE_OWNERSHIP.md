@@ -67,3 +67,23 @@ Disjoint prefixes do not imply disjoint board-state expansion because distinct m
 The first implementation will therefore guarantee **region-level** non-overlap and instrument canonical-position fingerprints to measure residual transposition duplication.
 
 A global position-ownership table is a later optimization and will only be introduced if measurements show that transposition duplication is materially expensive. Such a table must encode search-relevant state, including draw-sensitive context, rather than piece placement alone.
+
+## Backend restricted-root capability v1
+
+Before the controller can allocate disjoint root shards, every constituent backend must accept a valid non-empty legal root set and keep its root search inside that set.
+
+For an invocation with authorized root set `S`:
+
+```text
+backend root candidate set ⊆ S
+bestmove ∈ S
+every reported root PV head ∈ S
+```
+
+PR #5 adds this primitive to Reckless and verifies the same valid-assignment command vocabulary against Stockfish and LC0.
+
+This is **not yet controller ownership**. The repository still lacks leases, cross-engine exclusion, shard state transitions, recursive prefixes, and VERIFY / RELOCK accounting. Those belong to the later controller and ShardLedger milestones.
+
+Malformed-input behavior is deliberately backend-specific. In particular, Stockfish and LC0 do not share the same behavior when a requested set contains no legal moves. The future Allfather adapter must therefore validate that dispatched controller shards are canonical, legal, deduplicated, and non-empty before invoking a backend.
+
+Root-prefix separation also does not imply disjoint internal board-state expansion: independently owned prefixes may transpose later. PR #5 establishes only the backend primitive required for future root-prefix ownership.

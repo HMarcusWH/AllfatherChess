@@ -7,6 +7,8 @@ on:
       - main
     paths:
       - engines/**
+      - adapters/**
+      - common/**
       - scripts/**
       - tests/**
       - vendor.lock.json
@@ -15,6 +17,8 @@ on:
   pull_request:
     paths:
       - engines/**
+      - adapters/**
+      - common/**
       - scripts/**
       - tests/**
       - vendor.lock.json
@@ -38,7 +42,7 @@ jobs:
       - name: Validate lock and scripts
         run: |
           python3 scripts/vendor-lock.py validate
-          python3 -m py_compile scripts/vendor-lock.py scripts/golden-baselines.py scripts/restricted-root-contract.py tests/harness/*.py
+          python3 -m py_compile             scripts/vendor-lock.py             scripts/golden-baselines.py             scripts/restricted-root-contract.py             scripts/validate-telemetry-contract.py             scripts/telemetry-adapter-integration.py             tests/harness/*.py             common/*.py             adapters/*.py             adapters/telemetry/*.py             tests/telemetry/test_adapters.py
           bash -n scripts/vendor-engines.sh
           bash -n scripts/verify-vendor.sh
           bash -n scripts/fetch-stockfish-network.sh
@@ -96,6 +100,9 @@ jobs:
       - name: Verify restricted-root controller contract
         run: python3 scripts/restricted-root-contract.py
 
+      - name: Verify live telemetry adapters
+        run: python3 scripts/telemetry-adapter-integration.py
+
       - name: Upload validation evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -104,4 +111,5 @@ jobs:
           path: |
             build/test-results/golden
             build/test-results/restricted-root
+            build/test-results/telemetry-adapters
           if-no-files-found: warn

@@ -7,8 +7,12 @@ on:
       - main
     paths:
       - schemas/telemetry/**
+      - adapters/**
+      - common/**
       - scripts/validate-telemetry-contract.py
+      - scripts/telemetry-adapter-integration.py
       - tests/telemetry/**
+      - tests/harness/uci_session.py
       - docs/TELEMETRY_SCHEMA.md
       - docs/TELEMETRY_MAPPING.md
       - Makefile
@@ -16,8 +20,12 @@ on:
   pull_request:
     paths:
       - schemas/telemetry/**
+      - adapters/**
+      - common/**
       - scripts/validate-telemetry-contract.py
+      - scripts/telemetry-adapter-integration.py
       - tests/telemetry/**
+      - tests/harness/uci_session.py
       - docs/TELEMETRY_SCHEMA.md
       - docs/TELEMETRY_MAPPING.md
       - Makefile
@@ -40,8 +48,12 @@ jobs:
       - name: Python version
         run: python3 --version
 
-      - name: Compile validator
-        run: python3 -m py_compile scripts/validate-telemetry-contract.py
+      - name: Compile telemetry code
+        run: |
+          python3 -m py_compile             scripts/validate-telemetry-contract.py             scripts/telemetry-adapter-integration.py             common/*.py             adapters/*.py             adapters/telemetry/*.py             tests/telemetry/test_adapters.py
 
       - name: Validate telemetry v1 contract
         run: python3 scripts/validate-telemetry-contract.py
+
+      - name: Validate backend telemetry adapters
+        run: python3 tests/telemetry/test_adapters.py

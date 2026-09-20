@@ -20,10 +20,18 @@ _OPTION_RE = re.compile(r"^option name (.+?) type ")
 
 
 class UciSession:
-    def __init__(self, binary: Path, *, cwd: Path, timeout: float = 10.0):
+    def __init__(
+        self,
+        binary: Path,
+        *,
+        cwd: Path,
+        timeout: float = 10.0,
+        args: list[str] | None = None,
+    ):
         self.binary = binary
         self.cwd = cwd
         self.timeout = timeout
+        self.args = list(args or [])
         self.proc: subprocess.Popen[str] | None = None
         self._lines: queue.Queue[str | None] = queue.Queue()
         self._reader: threading.Thread | None = None
@@ -46,7 +54,7 @@ class UciSession:
             raise UciError(f"engine binary not executable: {self.binary}")
 
         self.proc = subprocess.Popen(
-            [str(self.binary)],
+            [str(self.binary), *self.args],
             cwd=str(self.cwd),
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
@@ -88,6 +96,7 @@ class UciSession:
         *,
         label: str,
         timeout: float | None = None,
+        observer: Callable[[str], None] | None = None,
     ) -> list[str]:
         deadline = time.monotonic() + (self.timeout if timeout is None else timeout)
         lines: list[str] = []
@@ -107,6 +116,8 @@ class UciSession:
                 raise UciError(f"engine exited while waiting for {label}; rc={rc}\n{tail}")
             self.transcript.append(f"<< {line}")
             lines.append(line)
+            if observer is not None:
+                observer(line)
             if predicate(line):
                 return lines
 
@@ -156,6 +167,7 @@ class UciSession:
         *,
         searchmoves: list[str] | None = None,
         timeout: float = 20.0,
+        observer: Callable[[str], None] | None = None,
     ) -> list[str]:
         command = f"go nodes {nodes}"
         if searchmoves is not None:
@@ -167,6 +179,7 @@ class UciSession:
             lambda line: line.startswith("bestmove "),
             label="bestmove",
             timeout=timeout,
+            observer=observer,
         )
 
     def synchronous_command(self, command: str, *, timeout: float = 10.0) -> list[str]:

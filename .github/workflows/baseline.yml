@@ -8,6 +8,7 @@ on:
     paths:
       - engines/**
       - scripts/**
+      - tests/**
       - vendor.lock.json
       - Makefile
       - .github/workflows/baseline.yml
@@ -15,6 +16,7 @@ on:
     paths:
       - engines/**
       - scripts/**
+      - tests/**
       - vendor.lock.json
       - Makefile
       - .github/workflows/baseline.yml
@@ -36,9 +38,10 @@ jobs:
       - name: Validate lock and scripts
         run: |
           python3 scripts/vendor-lock.py validate
-          python3 -m py_compile scripts/vendor-lock.py
+          python3 -m py_compile scripts/vendor-lock.py scripts/golden-baselines.py tests/harness/*.py
           bash -n scripts/vendor-engines.sh
           bash -n scripts/verify-vendor.sh
+          bash -n scripts/fetch-stockfish-network.sh
           bash -n scripts/fetch-reckless-network.sh
           bash -n scripts/build-baselines.sh
           bash -n scripts/smoke-baselines.sh
@@ -46,14 +49,18 @@ jobs:
       - name: Verify declared engine ancestry
         run: ./scripts/verify-vendor.sh
 
-      - name: Cache pinned Reckless NNUE
+      - name: Cache pinned engine NNUE artifacts
         uses: actions/cache@v4
         with:
-          path: build/artifacts/reckless
-          key: reckless-nnue-${{ runner.os }}-${{ hashFiles('vendor.lock.json') }}
+          path: |
+            build/artifacts/stockfish
+            build/artifacts/reckless
+          key: engine-nnue-${{ runner.os }}-${{ hashFiles('vendor.lock.json') }}
 
-      - name: Fetch and verify pinned Reckless NNUE
-        run: ./scripts/fetch-reckless-network.sh >/dev/null
+      - name: Fetch and verify pinned engine NNUE artifacts
+        run: |
+          ./scripts/fetch-stockfish-network.sh >/dev/null
+          ./scripts/fetch-reckless-network.sh >/dev/null
 
       - name: Install LC0 validation dependencies
         run: |
@@ -77,3 +84,17 @@ jobs:
 
       - name: UCI smoke tests
         run: ./scripts/smoke-baselines.sh
+
+      - name: Bootstrap deterministic golden snapshot
+        run: |
+          python3 scripts/golden-baselines.py             --record             --output-dir build/recorded-golden             --stability-runs 3
+
+      - name: Upload golden bootstrap evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: golden-baseline-bootstrap
+          path: |
+            build/recorded-golden
+            build/test-results/golden
+          if-no-files-found: warn

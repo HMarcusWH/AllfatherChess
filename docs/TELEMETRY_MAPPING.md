@@ -87,3 +87,12 @@ LC0 may append `player`, `gameid`, and `side` to `bestmove`; those fields remain
 Known null-move sentinels `(none)`, `none`, `0000`, and `a1a1` normalize to `bestmove = null` without creating `terminal.fact`.
 
 The production adapters consume lines supplied by a caller and do not launch processes. PR #8 will own backend subprocess lifecycle and feed stdout into these already-qualified adapters.
+
+
+## LC0 defect lifecycle ordering
+
+LC0 currently emits defect telemetry from the classic `Search` destructor. The search object survives its `bestmove` response and is normally destroyed by the next search/new-game lifecycle transition. Therefore live defect capture cannot naively emit common `search.complete` at the instant the LC0 bestmove line is dequeued and then append defect records afterward, because telemetry v1 forbids events after completion.
+
+When defect capture is enabled, `Lc0TelemetryAdapter` can defer normalized completion. It records the physical bestmove receipt time in `lc0.uci.bestmove.v1` native data, allows the caller to force/search-reset the LC0 search object and consume its defect records, then emits common `search.complete` through `flush_completion()`. Normal LC0 searches do not use this mode.
+
+The PR #7 live integration exercises this exact lifecycle by issuing `ucinewgame` plus an `isready` barrier after the deferred bestmove, requiring `lc0.defect.summary.v1`, then flushing completion last.

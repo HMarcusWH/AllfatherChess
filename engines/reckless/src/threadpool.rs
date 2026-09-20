@@ -19,11 +19,20 @@ use crate::{
     search::{self, Report},
     thread::{RootMove, SharedContext, Status, ThreadData},
     time::TimeManager,
+    types::Move,
 };
 
 pub struct ThreadPool {
     pub workers: Vec<WorkerThread>,
     pub vector: Vec<ThreadData>,
+}
+
+fn make_root_moves(board: &Board, restriction: Option<&[Move]>) -> Vec<RootMove> {
+    board.generate_all_moves()
+        .iter()
+        .filter(|entry| restriction.map_or(true, |allowed| allowed.contains(&entry.mv)))
+        .map(|entry| RootMove { mv: entry.mv, ..Default::default() })
+        .collect()
 }
 
 impl ThreadPool {
@@ -81,7 +90,7 @@ impl ThreadPool {
 
     pub fn execute_searches(
         &mut self, time_manager: TimeManager, report: Report, multi_pv: usize, board: &Board,
-        shared: &Arc<SharedContext>,
+        root_restriction: Option<&[Move]>, shared: &Arc<SharedContext>,
     ) {
         shared.tt.increment_age();
 
@@ -103,8 +112,7 @@ impl ThreadPool {
             {
                 let t1 = &mut self.vector[0];
                 t1.board = (*board).clone();
-                t1.root_moves =
-                    t1.board.generate_all_moves().iter().map(|v| RootMove { mv: v.mv, ..Default::default() }).collect();
+                t1.root_moves = make_root_moves(&t1.board, root_restriction);
                 t1.multi_pv = multi_pv;
                 t1.time_manager = time_manager.clone();
             }
@@ -156,8 +164,7 @@ impl ThreadPool {
             t1.shared.stop_probing_tb.store(false, Ordering::Relaxed);
 
             t1.board = (*board).clone();
-            t1.root_moves =
-                t1.board.generate_all_moves().iter().map(|v| RootMove { mv: v.mv, ..Default::default() }).collect();
+            t1.root_moves = make_root_moves(&t1.board, root_restriction);
 
             #[cfg(feature = "syzygy")]
             if t1.board.castling().raw() == 0 && t1.board.occupancies().popcount() <= tb::size() && !t1.board.is_draw(0)
@@ -200,6 +207,44 @@ impl ThreadPool {
                 handler.join();
             }
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unrestricted_and_explicit_all_legal_roots_match() {
+        let board = Board::starting_position();
+        let legal = board.generate_all_moves().iter().map(|entry| entry.mv).collect::<Vec<_>>();
+        let unrestricted = make_root_moves(&board, None);
+        let restricted = make_root_moves(&board, Some(&legal));
+
+        let unrestricted_moves = unrestricted.iter().map(|root| root.mv).collect::<Vec<_>>();
+        let restricted_moves = restricted.iter().map(|root| root.mv).collect::<Vec<_>>();
+        assert_eq!(unrestricted_moves, restricted_moves);
+    }
+
+    #[test]
+    fn restricted_roots_preserve_native_order() {
+        let board = Board::starting_position();
+        let legal = board.generate_all_moves();
+        let allowed = legal
+            .iter()
+            .map(|entry| entry.mv)
+            .filter(|mv| matches!(mv.to_uci(&board).as_str(), "e2e4" | "d2d4"))
+            .collect::<Vec<_>>();
+        let restricted = make_root_moves(&board, Some(&allowed));
+        let restricted_moves = restricted.iter().map(|root| root.mv).collect::<Vec<_>>();
+        assert_eq!(restricted_moves, allowed);
+    }
+
+    #[test]
+    fn explicit_empty_restriction_yields_zero_roots() {
+        let board = Board::starting_position();
+        let restricted = make_root_moves(&board, Some(&[]));
+        assert!(restricted.is_empty());
     }
 }
 

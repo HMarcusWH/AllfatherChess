@@ -35,4 +35,4 @@ The repository foundation is now reproducible: CI is read-only, engine ancestry 
 
 See `docs/BUILD_PLAN.md`, `docs/ARCHITECTURE.md`, `docs/SEARCH_SPACE_OWNERSHIP.md`, `docs/TELEMETRY_SCHEMA.md`, `docs/UPSTREAM_PROVENANCE.md`, and `LICENSES.md`.
 
-No hybrid routing-strength claim is made yet. The next engine-control milestone is restricted-root search parity: Reckless must gain the same controller-grade root restriction primitive already exposed by Stockfish and LC0 before shard allocation is introduced.
+No hybrid routing-strength claim is made yet. Restricted-root search parity is now being established across Stockfish, Reckless, and LC0; the next milestone is a common telemetry contract so the future controller can compare evidence returned from assigned regions without flattening native engine semantics.

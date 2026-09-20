@@ -83,11 +83,12 @@ class TelemetryStream:
     ) -> dict[str, Any]:
         if self._started:
             raise TelemetryError("search stream already started")
+        move_encoding = self.identity.move_encoding
         event = self._common("search.started", observed_ms)
         event.update(
             {
                 "variant": self.identity.variant,
-                "move_encoding": self.identity.move_encoding,
+                "move_encoding": move_encoding,
                 "position": position,
                 "request": request,
             }

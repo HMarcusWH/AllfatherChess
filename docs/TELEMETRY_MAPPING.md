@@ -21,6 +21,7 @@ Portable mapping:
 - full PV -> `candidate.pv`
 - `score cp` -> `stockfish.uci_cp`
 - `score mate` -> `stockfish.uci_mate`
+- optional UCI WDL -> a second evaluation channel with `stockfish.uci_wdl`
 - `lowerbound` / `upperbound` -> evaluation bound; absent qualifier -> `none`
 - `nodes` -> `stockfish.uci_nodes`, unit `nodes`
 - `time` -> `stockfish.uci_time`
@@ -47,6 +48,7 @@ Important semantic caveats:
 
 - LC0 UCI `nodes` is produced from LC0 playout/visit accounting, not alpha-beta node accounting. Map it as unit `count` with semantics `lc0.uci_nodes` until a stronger common unit is qualified.
 - LC0 score output depends on configured `ScoreType` and can represent several transformations (centipawn variants, Q, W-L, win percentage, WDL_mu). PR #7 must tag the active transformation rather than assuming every printed `score cp` is the same semantic quantity.
+- LC0 omits the `multipv` token for the default single-PV case. A PV-bearing primary line without `multipv` is normalized by the adapter to `candidate.multipv_index = 1`; no atomic ranking frame is inferred.
 - WDL, when emitted, is a separate evaluation channel with semantics `lc0.uci_wdl`; it does not replace the scalar score channel.
 - eps, moves-left, depth/seldepth/hashfull/tbhits/nps and similar fields remain under `lc0.uci.v1` unless/until promoted by a later contract.
 

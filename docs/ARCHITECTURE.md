@@ -20,14 +20,14 @@ The controller does **not** flatten the three native search states into one univ
 
 ### Generation 1 — process-isolated monorepo
 
-One checkout builds four executables:
+One checkout provides four process boundaries:
 
-- `allfather-chess` (controller; added later)
-- Stockfish baseline
-- Reckless baseline
-- LC0 baseline
+- `allfather-chess` / `python -m controller` — the only external UCI endpoint;
+- Stockfish baseline;
+- Reckless baseline;
+- LC0 baseline.
 
-The controller communicates with engine processes over a structured UCI-compatible adapter.
+The controller communicates with engine processes through a production UCI process adapter with one permanent stdout reader per backend. In the first Generation-1 implementation all three engines are launched, configured, synchronized, and health-checked, while Stockfish alone acts as the transparent search anchor. Reckless and LC0 remain ready until later shard/shadow milestones authorize them to search.
 
 ### Generation 2 — structured local adapters
 

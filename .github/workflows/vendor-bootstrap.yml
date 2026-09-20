@@ -7,6 +7,7 @@ on:
     paths:
       - vendor.lock.json
       - scripts/vendor-engines.sh
+      - scripts/verify-vendor.sh
       - .github/workflows/vendor-bootstrap.yml
 
 permissions:
@@ -23,18 +24,23 @@ jobs:
       - name: Import exact pinned snapshots
         run: ./scripts/vendor-engines.sh
 
-      - name: Verify provenance
+      - name: Verify provenance and archive completeness
         run: ./scripts/verify-vendor.sh
 
       - name: Commit vendored sources
         shell: bash
         run: |
-          if [[ -z "$(git status --porcelain -- engines)" ]]; then
+          # Force-add because vendored projects contain their own .gitignore
+          # files. A file tracked upstream must remain tracked in this
+          # monorepo even if the upstream ignore rules also match that path.
+          git add -A -f engines
+
+          if git diff --cached --quiet -- engines; then
             echo "Vendored trees already match."
             exit 0
           fi
+
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add engines
-          git commit -m "vendor: import pinned engine snapshots"
+          git commit -m "vendor: restore exact pinned engine snapshots"
           git push origin HEAD:${GITHUB_REF_NAME}

@@ -32,7 +32,8 @@
         "MaxConcurrentSearchers": 1,
         "TaskWorkers": 0,
         "MultiPV": 1,
-        "UCI_Chess960": false
+        "UCI_Chess960": false,
+        "Threads": 1
       }
     }
   }

@@ -631,9 +631,13 @@ void Search::MaybeTriggerStop(const IterationStats& stats,
     if (stopper_->ShouldStop(stats, hints)) FireStopInternal();
   }
 
-  // If we are the first to see that stop is needed.
+  // Respond only after all search workers have quiesced. Search workers may
+  // still be finishing their final iteration after stop_ is raised; emitting
+  // defect telemetry before they exit would snapshot incomplete counters.
   if (stop_.load(std::memory_order_acquire) && ok_to_respond_bestmove_ &&
       !bestmove_is_sent_) {
+    if (active_search_workers_.load(std::memory_order_acquire) != 0) return;
+
     SendUciInfo();
     EnsureBestMoveKnown();
     SendMovesStats();
@@ -901,6 +905,7 @@ void Search::StartThreads(size_t how_many) {
                !backend_attributes_.runs_on_cpu;
   }
   thread_count_.store(how_many, std::memory_order_release);
+  active_search_workers_.store(how_many, std::memory_order_release);
   // First thread is a watchdog thread.
   if (threads_.size() == 0) {
     threads_.emplace_back([this]() { WatchdogThread(); });
@@ -908,8 +913,12 @@ void Search::StartThreads(size_t how_many) {
   // Start working threads.
   for (size_t i = 0; i < how_many; i++) {
     threads_.emplace_back([this]() {
-      SearchWorker worker(this, params_);
-      worker.RunBlocking();
+      {
+        SearchWorker worker(this, params_);
+        worker.RunBlocking();
+      }
+      active_search_workers_.fetch_sub(1, std::memory_order_acq_rel);
+      watchdog_cv_.notify_all();
     });
   }
   LOGFILE << "Search started. "

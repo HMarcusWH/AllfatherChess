@@ -11,7 +11,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from adapters.process import UciProcess
+from adapters.process import UciProcess, UciProcessError
 
 
 FAKE = ROOT / "tests" / "fixtures" / "fake_uci_engine.py"
@@ -88,7 +88,7 @@ class UciProcessTests(unittest.TestCase):
                 on_complete=lambda token, line: None,
             )
             self.assertTrue(info_seen.wait(2.0))
-            with self.assertRaises(Exception):
+            with self.assertRaises(UciProcessError):
                 process.run_idle_request(
                     "go perft 1",
                     lambda line: line.startswith("Nodes searched:"),

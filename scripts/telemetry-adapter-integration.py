@@ -119,6 +119,7 @@ def run_engine(
             args = ["--show-hidden"]
             options["DefectTelemetry"] = True
             options["DefectTelemetryIterations"] = 2
+            options["Threads"] = 2
             search_id = "integration-lc0-defect"
             filename = "lc0-defect.jsonl"
         else:

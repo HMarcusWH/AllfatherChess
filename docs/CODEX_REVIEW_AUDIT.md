@@ -189,6 +189,21 @@ The first Codex pass over this hardening PR found three additional issues in the
 **Repair:** `scripts/fetch-reckless-network.py` is now the canonical stdlib-only implementation using `hashlib`, `urllib`, temporary files, and atomic replacement. `build.rs` discovers a Python 3 interpreter portably (or honors explicit `PYTHON`) and invokes the Python helper. The shell helper is a thin Unix wrapper. A GitHub Actions matrix runs the default no-`EVALFILE` source-build path on Ubuntu, macOS, and Windows.
 
 
+## PR #8 — third Codex pass
+
+### Track the resolved Reckless NNUE as a Cargo input
+
+**Finding:** the verified model path was exported through `MODEL`, but the resolved model file itself was not registered with Cargo through `cargo:rerun-if-changed`. A same-path, same-size corruption/replacement could therefore reach a later compile without re-running the verifier.
+
+**Repair:** `build.rs` now registers the exact resolved NNUE path with `cargo:rerun-if-changed` for both the pinned default path and an explicit `EVALFILE` override. A dedicated regression contract establishes the default build, flips one byte without changing file size, reruns Cargo, and independently verifies that the pinned size/SHA-256 were restored before any cleanup helper can run.
+
+### Reject non-finite numbers throughout common telemetry
+
+**Finding:** finite checks covered known numeric fields, but an unknown common extension such as `request.extra.samples[1].measurement = 1e309` could still decode to infinity and escape validation.
+
+**Repair:** the recursive common-payload validator now rejects non-finite floating-point values anywhere in common objects/arrays while preserving booleans as booleans. The exemption remains restricted to the actual event-level `native.data` payload. Regression fixtures prove that finite unknown common extensions remain legal, nested non-finite common extensions fail, and engine-native extension data remains opaque to the common contract.
+
+
 ## Promotion rule before the hybrid shell
 
 The historical-review hardening PR is complete only when:

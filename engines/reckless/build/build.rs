@@ -48,23 +48,43 @@ fn generate_syzygy_binding() {
 }
 
 fn generate_model_env() {
-    let mut path = env::var("EVALFILE")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| {
-            panic!(
-                "EVALFILE is required for reproducible Allfather builds; use scripts/fetch-reckless-network.sh to obtain the pinned NNUE"
-            )
-        });
+    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let mut path = match env::var("EVALFILE") {
+        Ok(value) => PathBuf::from(value),
+        Err(_) => {
+            let fetch = manifest_dir.join("../../scripts/fetch-reckless-network.sh");
+            if !fetch.is_file() {
+                panic!(
+                    "EVALFILE is unset and the Allfather verified NNUE fetch helper is unavailable: {}",
+                    fetch.display()
+                );
+            }
+            let output = Command::new(&fetch)
+                .output()
+                .expect("failed to execute the Allfather verified NNUE fetch helper");
+            if !output.status.success() {
+                panic!(
+                    "Allfather verified NNUE fetch helper failed: {}",
+                    String::from_utf8_lossy(&output.stderr)
+                );
+            }
+            let value = String::from_utf8(output.stdout)
+                .expect("verified NNUE helper returned a non-UTF-8 path");
+            PathBuf::from(value.trim())
+        }
+    };
 
     if path.is_relative() {
-        path = Path::new(env!("CARGO_MANIFEST_DIR")).join(path);
+        path = manifest_dir.join(path);
     }
 
     if !path.is_file() {
-        panic!("EVALFILE does not point to a readable NNUE file: {}", path.display());
+        panic!("verified EVALFILE does not point to a readable NNUE file: {}", path.display());
     }
 
     println!("cargo:rustc-env=MODEL={}", path.display());
+    println!("cargo:rerun-if-changed=../../scripts/fetch-reckless-network.sh");
+    println!("cargo:rerun-if-changed=../../vendor.lock.json");
 }
 
 fn generate_attack_maps() {

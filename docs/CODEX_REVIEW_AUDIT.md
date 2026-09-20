@@ -28,7 +28,7 @@ This audit covers the user-requested review history for PRs #1, #2, #3, #5, #6, 
 
 **Finding:** a fresh direct Cargo build could fall back to an unverified network download.
 
-**Repair:** the derived Reckless build script no longer performs its own unverified download. An explicit `EVALFILE` is accepted; otherwise normal engine-local Cargo/Make entry points invoke the repository's `scripts/fetch-reckless-network.sh`, which resolves the lockfile pin and verifies size and SHA-256 before returning the model path.
+**Repair:** the derived Reckless build script no longer performs its own unverified download. An explicit `EVALFILE` is accepted; otherwise normal engine-local Cargo/Make entry points invoke the repository's stdlib Python helper `scripts/fetch-reckless-network.py`, which reads the lockfile pin, verifies size and SHA-256, downloads atomically when required, and works on Linux/macOS/Windows. The shell script is now only a Unix convenience wrapper around that canonical helper.
 
 ### Reckless Cargo configuration was skipped from repository-root builds
 
@@ -159,7 +159,7 @@ The first Codex pass over this hardening PR found three additional issues in the
 
 **Finding:** emitting the summary immediately after the stop decision could occur while another search worker was still completing its final iteration, producing an undercount that the one-shot guard would freeze permanently.
 
-**Repair:** LC0 now tracks active search workers. Once stop is raised, the watchdog does not emit final info/defect summary/bestmove until all search workers (including each worker's task-thread teardown) have exited. The live defect integration runs with two LC0 search workers and requires the summary in the normal pre-bestmove stream.
+**Repair:** LC0 now tracks active search workers only for opt-in defect telemetry. When `DefectTelemetry=true`, the watchdog waits for all search workers (including each worker's task-thread teardown) before final info/defect summary/bestmove. Ordinary searches do not wait on the telemetry barrier and preserve the original immediate bestmove path. Live normal and defect integrations both run with two LC0 search workers; the defect run requires the summary in the normal pre-bestmove stream.
 
 ### Native-data exemption could be spoofed in nested common payloads
 
@@ -171,7 +171,22 @@ The first Codex pass over this hardening PR found three additional issues in the
 
 **Finding:** requiring `EVALFILE` unconditionally broke the documented engine-local Make/Cargo/PGO entry points.
 
-**Repair:** when `EVALFILE` is absent, the derived build script invokes the repository's verified NNUE fetch helper rather than downloading anything itself. CI explicitly runs a Reckless Cargo check without `EVALFILE` to exercise this default verified path.
+**Repair:** when `EVALFILE` is absent, the derived build script invokes the repository's portable stdlib Python NNUE verifier/downloader rather than downloading anything itself. Linux baseline CI runs a Cargo check without `EVALFILE`, and a dedicated matrix verifies the same source-build entry point on Ubuntu, macOS, and Windows.
+
+
+## PR #8 — second Codex pass
+
+### LC0 quiescence must not delay ordinary bestmove
+
+**Finding:** the first worker-quiescence repair applied to every LC0 search, so a normal timed search could wait for slow in-flight workers after the stop decision and consume remaining clock before returning bestmove.
+
+**Repair:** the quiescence barrier and active-worker bookkeeping are now gated on `DefectTelemetry`. Normal searches retain the original immediate response semantics. The normal LC0 live integration also runs with two workers to exercise this path.
+
+### Reckless verified fetch path must be portable
+
+**Finding:** invoking a Bash helper directly from Rust broke native Windows source builds, and the helper's GNU `sha256sum` dependency was not portable to default macOS.
+
+**Repair:** `scripts/fetch-reckless-network.py` is now the canonical stdlib-only implementation using `hashlib`, `urllib`, temporary files, and atomic replacement. `build.rs` discovers a Python 3 interpreter portably (or honors explicit `PYTHON`) and invokes the Python helper. The shell helper is a thin Unix wrapper. A GitHub Actions matrix runs the default no-`EVALFILE` source-build path on Ubuntu, macOS, and Windows.
 
 
 ## Promotion rule before the hybrid shell

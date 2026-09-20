@@ -59,8 +59,11 @@ class UciFrontend:
             self._state = ShellState.UNHEALTHY
             self._active_generation = None
 
-        self._diagnostic(f"runtime failure: {message}")
+        # Avoid unsolicited UCI output while idle. An unhealthy idle runtime
+        # reports its stored reason on the next readiness request. During an
+        # active search we must unblock the GUI immediately and fail closed.
         if searching:
+            self._diagnostic(f"runtime failure: {message}")
             self._write("bestmove 0000")
             try:
                 if self.runtime.anchor.alive:

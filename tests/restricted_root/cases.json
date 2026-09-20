@@ -1,0 +1,140 @@
+{
+  "schema_version": 1,
+  "description": "Restricted-root controller contract. Cross-engine cases contain only valid non-empty assignments; malformed cases are Reckless-specific.",
+  "cross_engine": [
+    {
+      "id": "startpos_single",
+      "position_id": "startpos",
+      "nodes": 256,
+      "searchmoves": [
+        "e2e4"
+      ]
+    },
+    {
+      "id": "startpos_pair",
+      "position_id": "startpos",
+      "nodes": 256,
+      "searchmoves": [
+        "e2e4",
+        "d2d4"
+      ]
+    },
+    {
+      "id": "castling_single",
+      "position_id": "kiwipete_castling",
+      "nodes": 256,
+      "searchmoves": [
+        "e1g1"
+      ]
+    },
+    {
+      "id": "en_passant_single",
+      "position_id": "en_passant_available",
+      "nodes": 128,
+      "searchmoves": [
+        "e5d6"
+      ]
+    },
+    {
+      "id": "promotion_single",
+      "position_id": "promotion_available",
+      "nodes": 128,
+      "searchmoves": [
+        "a7a8q"
+      ]
+    }
+  ],
+  "reckless_specific": [
+    {
+      "id": "duplicates",
+      "position_id": "startpos",
+      "nodes": 256,
+      "searchmoves": [
+        "e2e4",
+        "e2e4",
+        "d2d4"
+      ],
+      "expected_allowed": [
+        "e2e4",
+        "d2d4"
+      ]
+    },
+    {
+      "id": "mixed_valid_invalid",
+      "position_id": "startpos",
+      "nodes": 256,
+      "searchmoves": [
+        "garbage",
+        "e2e4",
+        "also_bad",
+        "d2d4"
+      ],
+      "expected_allowed": [
+        "e2e4",
+        "d2d4"
+      ]
+    },
+    {
+      "id": "all_invalid_fail_closed",
+      "position_id": "startpos",
+      "nodes": 64,
+      "searchmoves": [
+        "garbage"
+      ],
+      "expected_allowed": []
+    },
+    {
+      "id": "explicit_empty_fail_closed",
+      "position_id": "startpos",
+      "nodes": 64,
+      "searchmoves": [],
+      "expected_allowed": []
+    },
+    {
+      "id": "multipv_clamped_to_shard",
+      "position_id": "startpos",
+      "nodes": 256,
+      "searchmoves": [
+        "e2e4",
+        "d2d4"
+      ],
+      "expected_allowed": [
+        "e2e4",
+        "d2d4"
+      ],
+      "options": {
+        "MultiPV": 4
+      }
+    },
+    {
+      "id": "two_threads_share_shard",
+      "position_id": "startpos",
+      "nodes": 512,
+      "searchmoves": [
+        "e2e4",
+        "d2d4"
+      ],
+      "expected_allowed": [
+        "e2e4",
+        "d2d4"
+      ],
+      "options": {
+        "Threads": 2
+      }
+    },
+    {
+      "id": "chess960_castling_notation",
+      "position_id": "kiwipete_castling",
+      "nodes": 128,
+      "searchmoves": [
+        "e1h1"
+      ],
+      "expected_allowed": [
+        "e1h1"
+      ],
+      "options": {
+        "UCI_Chess960": true
+      }
+    }
+  ]
+}

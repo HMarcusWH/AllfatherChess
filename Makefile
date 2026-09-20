@@ -1,7 +1,9 @@
 .PHONY: vendor verify-vendor build-baselines smoke-baselines
 
 vendor:
-	./scripts/vendor-engines.sh
+	@echo "Refusing implicit destructive vendor refresh." >&2
+	@echo "Use: ./scripts/vendor-engines.sh --engine <stockfish|reckless|lc0> --overwrite" >&2
+	@exit 2
 
 verify-vendor:
 	./scripts/verify-vendor.sh

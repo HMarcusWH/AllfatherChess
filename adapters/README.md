@@ -17,7 +17,9 @@ A PV-bearing line becomes one `candidate.update`; unpromoted information from th
 
 LC0 defect records are consumed losslessly as `lc0.defect.iter.v1` and `lc0.defect.summary.v1`. Raw internal move identifiers remain raw. The derived LC0 tree now emits defect telemetry once on the normal search-completion path before `bestmove`, so the adapter no longer needs a deferred-completion workaround.
 
-The adapters do not launch engines. Process lifecycle, command dispatch, stop handling, and the externally visible UCI shell remain PR #8 work.
+PR #9 adds a separate production process layer under `adapters/process/`. `UciProcess` owns exactly one stdout reader per backend and demultiplexes handshake waiters, `isready` barriers, search info, and `bestmove` callbacks without competing queue consumers. It also isolates stderr, serializes stdin writes, tracks process health, and performs bounded shutdown.
+
+The telemetry adapters remain read-only semantic normalizers and are intentionally not coupled to subprocess ownership yet. Shadow execution in a later PR can subscribe the existing telemetry adapters to the process stream without rewriting process management.
 
 Future capability surface:
 

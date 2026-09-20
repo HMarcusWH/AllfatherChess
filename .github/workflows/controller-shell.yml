@@ -1,0 +1,59 @@
+name: Controller shell validation
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - controller/**
+      - adapters/process/**
+      - config/**
+      - tests/adapters/test_uci_process.py
+      - tests/controller/**
+      - tests/fixtures/fake_uci_engine.py
+      - docs/UCI_SHELL.md
+      - Makefile
+      - .github/workflows/controller-shell.yml
+  pull_request:
+    paths:
+      - controller/**
+      - adapters/process/**
+      - config/**
+      - tests/adapters/test_uci_process.py
+      - tests/controller/**
+      - tests/fixtures/fake_uci_engine.py
+      - docs/UCI_SHELL.md
+      - Makefile
+      - .github/workflows/controller-shell.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: controller-shell-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Python version
+        run: python3 --version
+
+      - name: Compile controller shell
+        run: |
+          python3 -m py_compile             controller/*.py             adapters/process/*.py             tests/fixtures/fake_uci_engine.py             tests/adapters/test_uci_process.py             tests/controller/*.py
+          python3 -m json.tool config/allfather.validation.json >/dev/null
+
+      - name: Validate process adapter
+        run: python3 tests/adapters/test_uci_process.py
+
+      - name: Validate transactional runtime
+        run: python3 tests/controller/test_runtime.py
+
+      - name: Validate external UCI frontend
+        run: python3 tests/controller/test_uci_frontend.py

@@ -1,6 +1,6 @@
 # Hybrid telemetry contract v1
 
-Status: frozen contract candidate for PR #6.
+Status: telemetry v1 contract.
 
 The telemetry layer preserves raw backend observations in one replayable event vocabulary without pretending that Stockfish, Reckless, and LC0 have identical search semantics. Raw evidence is deliberately separated from controller-derived rankings, residuals, overlap metrics, verification conclusions, and routing decisions.
 
@@ -48,7 +48,7 @@ position_id
 
 `sequence` is authoritative ordering within one search. `observed_ms` is adapter monotonic receipt/observation time, not an engine-reported clock and not a wall-clock timestamp.
 
-`search.started` additionally records enough position information for replay:
+`search.started` additionally records enough position information for replay. Request limits may carry non-negative numeric values or boolean UCI flags such as `infinite` / `ponder`:
 
 ```text
 variant
@@ -82,7 +82,7 @@ engine_time?
 native?
 ```
 
-`multipv_index` preserves the UCI/backend observation. It is not promoted to a durable global rank. Candidate updates from an iterative search are not assumed to form an atomic frame.
+`multipv_index` preserves the UCI/backend observation. It is not promoted to a durable global rank. Candidate updates from an iterative search are not assumed to form an atomic frame. When a backend omits `multipv` for its primary PV (LC0 commonly does this at MultiPV=1), the adapter normalizes that protocol-default primary line to `multipv_index = 1`.
 
 When a PV is present it is non-empty and `pv[0] == candidate.move`.
 
@@ -126,7 +126,7 @@ LC0's existing defect instrumentation is preserved as native evidence under `lc0
 
 `search.complete.bestmove = null` means only that the backend produced no move. It does not prove terminality; for example, an explicitly empty restricted-root invocation can produce no best move on a nonterminal board.
 
-A `terminal.fact` therefore requires `fact`, `perspective`, and `source`. The source identifies the independent rules/tablebase basis. Multiple terminal facts may coexist when multiple independent sources support the same position.
+A `terminal.fact` therefore requires `fact`, `perspective`, and `source`. Terminal perspectives are `side_to_move`, `white`, or `black`. The source identifies the independent rules/tablebase basis. Multiple terminal facts may coexist when multiple independent sources support the same position.
 
 ## Controller context
 

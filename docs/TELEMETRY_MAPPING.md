@@ -91,8 +91,6 @@ The production adapters consume lines supplied by a caller and do not launch pro
 
 ## LC0 defect lifecycle ordering
 
-LC0 currently emits defect telemetry from the classic `Search` destructor. The search object survives its `bestmove` response and is normally destroyed by the next search/new-game lifecycle transition. Therefore live defect capture cannot naively emit common `search.complete` at the instant the LC0 bestmove line is dequeued and then append defect records afterward, because telemetry v1 forbids events after completion.
+The derived LC0 search now emits defect telemetry exactly once on the normal completion path before its physical `bestmove` response. The destructor retains a guarded fallback for aborted/destroyed searches, but normal completed searches no longer defer telemetry until `ucinewgame` or the next search.
 
-When defect capture is enabled, `Lc0TelemetryAdapter` can defer normalized completion. It records the physical bestmove receipt time in `lc0.uci.bestmove.v1` native data, allows the caller to force/search-reset the LC0 search object and consume its defect records, then emits common `search.complete` through `flush_completion()`. Normal LC0 searches do not use this mode.
-
-The PR #7 live integration exercises this exact lifecycle by issuing `ucinewgame` plus an `isready` barrier after the deferred bestmove, requiring `lc0.defect.summary.v1`, then flushing completion last.
+This ordering matches telemetry v1 directly: defect ITER/SUMMARY native events arrive before `search.complete`. The live integration requires `lc0.defect.summary.v1` to be observed before bestmove, so a regression back to destructor-only emission fails CI.

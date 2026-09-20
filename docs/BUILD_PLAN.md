@@ -96,16 +96,17 @@ Run fixed-node, fixed-time, self-play, SPRT-style, and external-engine compariso
 4. **PR #4 — Finalize frozen golden gate**: commit the pre-controller snapshots and switch CI permanently from record mode to verify mode. **Merged.**
 5. **PR #5 — Reckless restricted-root search**: add UCI `searchmoves` / equivalent controller-owned root restriction. **Merged.**
 6. **PR #6 — Common telemetry contract**: freeze engine-neutral telemetry vocabulary and backend-specific extension rules. **Merged.**
-7. **PR #7 — Per-engine telemetry implementation**: Stockfish, Reckless, and LC0 adapters/emitters without active routing. **Current.**
-8. **PR #8 — Hybrid UCI shell**: one external UCI endpoint plus three backend process adapters.
-9. **PR #9 — Root ShardLedger**: pairwise-disjoint exploration allocation.
-10. **PR #10 — Shadow execution and replay**: synchronized three-engine runs with no routing intervention.
-11. **PR #11 — Residual calibration**: disagreement/convergence features and counterfactual stop labels.
-12. **PR #12 — Adaptive budget routing**: active CPU/GPU/time allocation.
-13. **PR #13 — Recursive shard splitting**.
-14. **PR #14 — Explicit VERIFY / RELOCK**.
-15. **PR #15 — CPU/GPU resource scheduler**.
-16. **PR #16+ — Cross-feed, native integration, and strength optimization**, each promoted only after isolated ablation.
+7. **PR #7 — Per-engine telemetry implementation**: Stockfish, Reckless, and LC0 adapters/emitters without active routing. **Merged.**
+8. **PR #8 — Historical Codex review hardening**: retire actionable review debt before introducing the hybrid process shell. **Current.**
+9. **PR #9 — Hybrid UCI shell**: one external UCI endpoint plus three backend process adapters.
+10. **PR #10 — Root ShardLedger**: pairwise-disjoint exploration allocation.
+11. **PR #11 — Shadow execution and replay**: synchronized three-engine runs with no routing intervention.
+12. **PR #12 — Residual calibration**: disagreement/convergence features and counterfactual stop labels.
+13. **PR #13 — Adaptive budget routing**: active CPU/GPU/time allocation.
+14. **PR #14 — Recursive shard splitting**.
+15. **PR #15 — Explicit VERIFY / RELOCK**.
+16. **PR #16 — CPU/GPU resource scheduler**.
+17. **PR #17+ — Cross-feed, native integration, and strength optimization**, each promoted only after isolated ablation.
 
 ## Foundation-hardening acceptance gate
 
@@ -185,3 +186,20 @@ PR #7 is complete only when:
 - live Stockfish, Reckless, LC0, and LC0-defect JSONL streams validate against the frozen telemetry v1 contract;
 - existing frozen-golden and restricted-root gates remain green;
 - `engines/**`, `tests/baseline/golden/**`, `tests/harness/normalize.py`, `vendor.lock.json`, and `controller/**` remain unchanged.
+
+
+## Historical Codex-review hardening gate
+
+PR #8 is complete only when:
+
+- all actionable Codex findings from the requested PR history are reconciled in `docs/CODEX_REVIEW_AUDIT.md`;
+- Reckless zero-root search remains fail-closed with Syzygy enabled paths guarded against empty roots;
+- a Threads=2 zero-root search followed by an unrestricted search in the same process succeeds;
+- Reckless build/test commands load the crate-local Cargo target configuration;
+- Reckless cannot silently download an unverified fallback NNUE during a monorepo build;
+- LC0 defect telemetry is emitted on the normal completed-search path before bestmove and no duplicate summary is emitted by destructor fallback;
+- telemetry v1 rejects non-finite numbers, non-canonical moves, boolean versions, nested derived common fields, invalid terminal provenance, and known work-unit mismatches;
+- telemetry stream payloads cannot overwrite immutable event metadata;
+- focused regression fixtures/tests exercise each repaired validation boundary;
+- frozen golden, restricted-root, telemetry-contract, static-adapter, and live-adapter gates all remain green;
+- the backend-light/random LC0 regression configuration is explicitly non-strength-qualified. A real inference backend/network/hardware qualification remains mandatory before the strength campaign.

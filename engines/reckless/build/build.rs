@@ -10,9 +10,6 @@ mod attacks;
 mod magics;
 mod maps;
 
-const BASE_URL: &str = "https://github.com/codedeliveryservice/RecklessNetworks/releases/download/networks";
-const NETWORK_NAME: &str = "v60-7f587dfb.nnue";
-
 fn main() {
     generate_model_env();
     generate_attack_maps();
@@ -24,14 +21,9 @@ fn main() {
         generate_syzygy_binding();
     }
 
-    if !Path::new("networks").join(NETWORK_NAME).exists() && env::var("EVALFILE").is_err() {
-        download_network();
-    }
-
     println!("cargo:rerun-if-env-changed=EVALFILE");
     println!("cargo:rerun-if-changed=.git/HEAD");
     println!("cargo:rerun-if-changed=.git/logs/HEAD");
-    println!("cargo:rerun-if-changed=networks/{NETWORK_NAME}");
 }
 
 #[cfg(feature = "syzygy")]
@@ -56,10 +48,20 @@ fn generate_syzygy_binding() {
 }
 
 fn generate_model_env() {
-    let mut path = env::var("EVALFILE").map(PathBuf::from).unwrap_or_else(|_| Path::new("networks").join(NETWORK_NAME));
+    let mut path = env::var("EVALFILE")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| {
+            panic!(
+                "EVALFILE is required for reproducible Allfather builds; use scripts/fetch-reckless-network.sh to obtain the pinned NNUE"
+            )
+        });
 
     if path.is_relative() {
         path = Path::new(env!("CARGO_MANIFEST_DIR")).join(path);
+    }
+
+    if !path.is_file() {
+        panic!("EVALFILE does not point to a readable NNUE file: {}", path.display());
     }
 
     println!("cargo:rustc-env=MODEL={}", path.display());
@@ -98,20 +100,6 @@ fn write(mut buf: BufWriter<File>) -> Result<(), std::io::Error> {
     writeln!(buf, "struct MagicEntry {{ pub mask: u64, pub magic: u64, pub shift: u32, pub offset: u32 }}")
 }
 
-fn download_network() {
-    let response = Command::new("curl")
-        .arg("-sfL")
-        .arg(format!("{BASE_URL}/{NETWORK_NAME}"))
-        .output()
-        .expect("Failed to execute `curl` to download network");
-
-    if response.status.success() {
-        std::fs::create_dir_all("networks").unwrap();
-        std::fs::write(format!("networks/{NETWORK_NAME}"), response.stdout).unwrap();
-    } else {
-        panic!("Failed to download the network");
-    }
-}
 
 fn generate_compiler_info() {
     fn get_env(key: &str) -> String {

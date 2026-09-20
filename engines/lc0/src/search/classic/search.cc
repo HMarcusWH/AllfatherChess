@@ -637,6 +637,7 @@ void Search::MaybeTriggerStop(const IterationStats& stats,
     SendUciInfo();
     EnsureBestMoveKnown();
     SendMovesStats();
+    if (params_.GetDefectTelemetry()) EmitDefectTelemetry();
     BestMoveInfo info(final_bestmove_, final_pondermove_);
     uci_responder_->OutputBestMove(&info);
     stopper_->OnSearchDone(stats);
@@ -1170,6 +1171,10 @@ void Search::RecordDefectTelemetryIteration(
 }
 
 void Search::EmitDefectTelemetry() {
+  if (defect_telemetry_emitted_.exchange(true, std::memory_order_acq_rel)) {
+    return;
+  }
+
   DefectTelemetryTotals totals;
   uint64_t speculative_unused = 0;
   std::vector<std::string> iterations;

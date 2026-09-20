@@ -89,7 +89,9 @@ jobs:
       - name: Reckless restricted-root unit tests
         env:
           EVALFILE: ${{ github.workspace }}/build/artifacts/reckless/v60-7f587dfb.nnue
-        run: cargo test --manifest-path engines/reckless/Cargo.toml --release --no-default-features
+        run: |
+          cd engines/reckless
+          cargo test --release --no-default-features
 
       - name: UCI smoke tests
         run: ./scripts/smoke-baselines.sh

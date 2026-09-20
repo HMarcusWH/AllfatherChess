@@ -78,14 +78,16 @@
     "ordering": "sequence is authoritative within a search; observed_ms is adapter monotonic time and must not decrease",
     "raw_vs_derived": "raw telemetry must not contain controller residuals, aggregate rankings, overlap metrics, or routing decisions; those are derived later",
     "completion": "bestmove null means only that the search produced no move; terminality requires terminal.fact provenance",
-    "native": "native payloads are lossless engine-specific evidence and must keep an engine-prefixed schema name"
+    "native": "native payloads are lossless engine-specific evidence and must keep an engine-prefixed schema name",
+    "terminal_provenance": "terminal.fact source must use an approved independent rules.* or tablebase.* namespace",
+    "work_units": "known v1 work semantics have canonical units; engine-native extensions remain namespace-tagged"
   },
   "terminal_perspectives": [
     "side_to_move",
     "white",
     "black"
   ],
-  "forbidden_top_level_fields": [
+  "forbidden_common_fields": [
     "ranking",
     "leader_move",
     "runner_up_move",
@@ -96,5 +98,14 @@
     "rank_correlation",
     "pv_overlap",
     "routing_decision"
-  ]
+  ],
+  "terminal_source_prefixes": [
+    "rules.",
+    "tablebase."
+  ],
+  "known_work_units": {
+    "stockfish.uci_nodes": "nodes",
+    "reckless.uci_nodes": "nodes",
+    "lc0.uci_nodes": "count"
+  }
 }

@@ -26,13 +26,12 @@ echo "==> Building Stockfish"
 make -C "$ROOT/engines/stockfish/src" -j"$JOBS" build ARCH=x86-64
 
 echo "==> Building Reckless with verified EVALFILE"
-EVALFILE="$RECKLESS_NET" \
-  cargo build \
-    --manifest-path "$ROOT/engines/reckless/Cargo.toml" \
-    --release \
-    --no-default-features
+(
+  cd "$ROOT/engines/reckless"
+  EVALFILE="$RECKLESS_NET" cargo build --release --no-default-features
+)
 
-echo "==> Building LC0 (backend-light validation configuration)"
+echo "==> Building LC0 (backend-light deterministic regression configuration; NOT strength-qualified)"
 (
   cd "$ROOT/engines/lc0"
   ./build.sh release -Dbuild_backends=false -Dgtest=false -Db_lto=false

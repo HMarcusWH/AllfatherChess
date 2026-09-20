@@ -190,6 +190,7 @@ class Search {
     uint64_t backup_us = 0;
   };
 
+  std::atomic<bool> defect_telemetry_emitted_{false};
   mutable Mutex defect_telemetry_mutex_;
   DefectTelemetryTotals defect_telemetry_totals_
       GUARDED_BY(defect_telemetry_mutex_);

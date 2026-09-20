@@ -120,6 +120,7 @@ impl ThreadPool {
             let root_moves = self.vector[0].root_moves.clone();
             for (index, t) in self.vector[1..].iter_mut().enumerate() {
                 t.id = index + 1;
+                t.multi_pv = multi_pv;
                 t.time_manager = time_manager.clone();
                 t.board = (*board).clone();
                 t.root_moves = root_moves.clone();
@@ -167,7 +168,10 @@ impl ThreadPool {
             t1.root_moves = make_root_moves(&t1.board, root_restriction);
 
             #[cfg(feature = "syzygy")]
-            if t1.board.castling().raw() == 0 && t1.board.occupancies().popcount() <= tb::size() && !t1.board.is_draw(0)
+            if !t1.root_moves.is_empty()
+                && t1.board.castling().raw() == 0
+                && t1.board.occupancies().popcount() <= tb::size()
+                && !t1.board.is_draw(0)
             {
                 tb::rank_rootmoves(t1);
                 tb::normalize_draw_ranks(t1);
@@ -193,6 +197,7 @@ impl ThreadPool {
                 handlers.push(scope.spawn_into(
                     move || {
                         t.id = index + 1;
+                        t.multi_pv = multi_pv;
                         t.time_manager = tm;
                         t.board = (*board).clone();
                         t.root_moves = root_moves;

@@ -115,6 +115,7 @@ def run_engine(
     elif engine == "lc0":
         options["ScoreType"] = "centipawn"
         options["UCI_ShowWDL"] = True
+        options["Threads"] = 2
         if defect:
             args = ["--show-hidden"]
             options["DefectTelemetry"] = True

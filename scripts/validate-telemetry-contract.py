@@ -241,7 +241,7 @@ def reject_forbidden_common_fields(
             if key in forbidden:
                 dotted = ".".join((*trail, key))
                 fail(path, line_no, f"derived/controller field is forbidden in raw telemetry: {dotted}")
-            if trail and trail[-1] == "native" and key == "data":
+            if trail == ("native",) and key == "data":
                 continue
             reject_forbidden_common_fields(
                 child,

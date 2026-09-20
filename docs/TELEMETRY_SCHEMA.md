@@ -116,6 +116,10 @@ LC0 currently constructs its UCI `nodes` value from playout/visit accounting, wh
 
 Backend-reported search time is likewise separate from adapter `observed_ms` and remains semantically tagged.
 
+Every numeric value anywhere in **common telemetry** must be finite, including values inside unknown/future common extension objects and arrays. JSON values that decode to NaN or positive/negative infinity are invalid even when the enclosing field is not otherwise understood by telemetry v1. Booleans remain booleans and are not treated as numeric observations.
+
+The sole exception is the event-level `native.data` payload. That object is intentionally engine-defined and opaque to the common contract; backend-specific schemas may impose stricter rules of their own.
+
 ## Native evidence
 
 Native payloads have `native.schema` and `native.data`, and the schema namespace must match the engine: `stockfish.*`, `reckless.*`, or `lc0.*`.

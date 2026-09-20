@@ -93,6 +93,11 @@ jobs:
           cd engines/reckless
           cargo test --release --no-default-features
 
+      - name: Verify Reckless default build uses locked NNUE helper
+        run: |
+          cd engines/reckless
+          cargo check --release --no-default-features
+
       - name: UCI smoke tests
         run: ./scripts/smoke-baselines.sh
 

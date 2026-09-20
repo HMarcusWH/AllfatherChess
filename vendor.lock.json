@@ -8,7 +8,15 @@
       "commit": "17a6c8f1eb0da45c2ca405321919519bf4e211ba",
       "tree": "b14521db7dc6f5747042d76579a0b171e0a89f3f",
       "tracked_entries": 119,
-      "destination": "engines/stockfish"
+      "destination": "engines/stockfish",
+      "artifacts": {
+        "default_nnue": {
+          "filename": "nn-134a887f4c8f.nnue",
+          "url": "https://github.com/official-stockfish/networks/raw/master/nn-134a887f4c8f.nnue",
+          "size": 98961994,
+          "sha256": "134a887f4c8ff7bf7284177a3b3fc6ff9cef95ba89eb8db3079a8e507f7126af"
+        }
+      }
     },
     "reckless": {
       "repository": "https://github.com/HMarcusWH/Reckless.git",

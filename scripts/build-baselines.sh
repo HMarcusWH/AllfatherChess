@@ -6,6 +6,15 @@ JOBS="${JOBS:-2}"
 
 "$ROOT/scripts/verify-vendor.sh"
 
+echo "==> Resolving pinned Stockfish NNUE"
+STOCKFISH_NET="$("$ROOT/scripts/fetch-stockfish-network.sh")"
+[[ -f "$STOCKFISH_NET" ]] || {
+  echo "verified Stockfish network path does not exist: $STOCKFISH_NET" >&2
+  exit 1
+}
+STOCKFISH_NET_NAME="$("$ROOT/scripts/vendor-lock.py" artifact stockfish default_nnue filename)"
+ln -sfn "$STOCKFISH_NET" "$ROOT/engines/stockfish/src/$STOCKFISH_NET_NAME"
+
 echo "==> Resolving pinned Reckless NNUE"
 RECKLESS_NET="$("$ROOT/scripts/fetch-reckless-network.sh")"
 [[ -f "$RECKLESS_NET" ]] || {

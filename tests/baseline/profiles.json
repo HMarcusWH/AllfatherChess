@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "profiles": {
+    "stockfish": {
+      "binary": "engines/stockfish/src/stockfish",
+      "options": {
+        "Threads": 1,
+        "Hash": 16,
+        "MultiPV": 1,
+        "UCI_Chess960": false
+      }
+    },
+    "reckless": {
+      "binary": "engines/reckless/target/release/reckless",
+      "options": {
+        "Threads": 1,
+        "Hash": 16,
+        "MultiPV": 1,
+        "Minimal": false,
+        "UCI_Chess960": false
+      }
+    },
+    "lc0": {
+      "binary": "engines/lc0/build/release/lc0",
+      "fallback_glob": "engines/lc0/build/**/lc0",
+      "options": {
+        "WeightsFile": "",
+        "Backend": "random",
+        "BackendOptions": "seed=20260920",
+        "NNCacheSize": 0,
+        "MinibatchSize": 1,
+        "MaxConcurrentSearchers": 1,
+        "TaskWorkers": 0,
+        "MultiPV": 1,
+        "UCI_Chess960": false,
+        "Threads": 1
+      }
+    }
+  }
+}

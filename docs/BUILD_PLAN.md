@@ -56,35 +56,39 @@ Create `allfather-chess` as the only externally visible UCI endpoint and process
 
 Partition legal root moves into pairwise-disjoint controller-owned regions. Assert that every active legal move has exactly one exploration owner.
 
-### M5 — Recursive shard splitting
+### M5 — Shadow three-engine search
 
-Represent search regions as move-prefix shards that may be split, transferred, sealed, or retired atomically.
+Run synchronized three-engine searches without changing final move selection. Capture trajectories for replay and counterfactual stopping analysis.
 
-### M6 — Shadow three-engine search
-
-Run the controller without changing solver behavior. Capture trajectories for replay and counterfactual stopping analysis.
-
-### M7 — Residual geometry
+### M6 — Residual geometry
 
 Calibrate Stockfish-vs-Reckless disagreement, LC0-vs-alpha-beta-family disagreement, leader stability, top-k overlap, PV divergence, budget sensitivity, and reversal risk.
 
-### M8 — Adaptive compute routing
+### M7 — Adaptive compute routing
 
 Route CPU/GPU/time budgets according to expected marginal decision value rather than fixed equal shares.
+
+### M8 — Recursive shard splitting
+
+Represent search regions as move-prefix shards that may be split, transferred, sealed, or retired atomically.
 
 ### M9 — VERIFY / RELOCK
 
 Permit intentional independent re-search of selected candidates. Track verification compute separately from exploration compute.
 
-### M10 — Cross-feed
+### M10 — CPU/GPU resource scheduler
+
+Turn external resource limits into controller-wide CPU/GPU/time allocations without multiplying a GUI request independently across all three engines.
+
+### M11 — Cross-feed
 
 Ablate controlled information transfer between backends.
 
-### M11 — Native integration
+### M12 — Native integration
 
 Replace subprocess boundaries only where measured benefits justify tighter coupling.
 
-### M12 — Strength campaign
+### M13 — Strength campaign
 
 Run fixed-node, fixed-time, self-play, SPRT-style, and external-engine comparisons. The final product is promoted only on statistically credible strength gains at equal declared resources.
 
@@ -97,8 +101,8 @@ Run fixed-node, fixed-time, self-play, SPRT-style, and external-engine compariso
 5. **PR #5 — Reckless restricted-root search**: add UCI `searchmoves` / equivalent controller-owned root restriction. **Merged.**
 6. **PR #6 — Common telemetry contract**: freeze engine-neutral telemetry vocabulary and backend-specific extension rules. **Merged.**
 7. **PR #7 — Per-engine telemetry implementation**: Stockfish, Reckless, and LC0 adapters/emitters without active routing. **Merged.**
-8. **PR #8 — Historical Codex review hardening**: retire actionable review debt before introducing the hybrid process shell. **Current.**
-9. **PR #9 — Hybrid UCI shell**: one external UCI endpoint plus three backend process adapters.
+8. **PR #8 — Historical Codex review hardening**: retire actionable review debt before introducing the hybrid process shell. **Merged.**
+9. **PR #9 — Hybrid UCI shell**: one external UCI endpoint plus three backend process adapters. **Current.**
 10. **PR #10 — Root ShardLedger**: pairwise-disjoint exploration allocation.
 11. **PR #11 — Shadow execution and replay**: synchronized three-engine runs with no routing intervention.
 12. **PR #12 — Residual calibration**: disagreement/convergence features and counterfactual stop labels.
@@ -203,3 +207,22 @@ PR #8 is complete only when:
 - focused regression fixtures/tests exercise each repaired validation boundary, including same-size NNUE cache corruption/recovery and finite-vs-non-finite unknown common telemetry extensions;
 - frozen golden, restricted-root, telemetry-contract, static-adapter, live-adapter, and cross-platform Reckless source-build gates all remain green;
 - the backend-light/random LC0 regression configuration is explicitly non-strength-qualified. A real inference backend/network/hardware qualification remains mandatory before the strength campaign.
+
+
+## Hybrid UCI shell acceptance gate
+
+PR #9 is complete only when:
+
+- `allfather-chess` / `python -m controller` is the only externally visible UCI identity and constituent backend `id` / `option` handshake chatter does not leak;
+- Stockfish, Reckless, and LC0 are launched transactionally, configured from `config/allfather.validation.json`, synchronized on game/position/Chess960 state, and shut down without orphaned child processes;
+- production backend process management uses exactly one stdout reader per engine and demultiplexes protocol waiters from search callbacks so `isready` cannot race an active search reader;
+- PR #9 runs in explicit anchor mode: Stockfish alone receives `go`, `stop`, and `ponderhit`; Reckless and LC0 remain managed and ready but do not search;
+- state-changing commands cannot desynchronize backends during an active search; duplicate `go` is rejected until the current search completes;
+- `isready` returns `readyok` during `go infinite` without terminating the search, and `stop` then produces exactly one anchor `bestmove`;
+- backend startup/readiness/process failure fails closed and never silently promotes another constituent engine to active search;
+- the deterministic direct-Stockfish node contract and the Allfather anchor contract return the same best move under the same validation configuration;
+- the validation configuration remains explicitly non-strength-qualified and no LC0/random-backend result is promoted as a strength claim;
+- fast fake-backend process/frontend tests and the real three-engine shell contract are green;
+- every pre-existing frozen golden, restricted-root, telemetry, Reckless portability, and historical-hardening gate remains green;
+- no file under `engines/**`, `tests/baseline/golden/**`, `schemas/telemetry/**`, or `vendor.lock.json` changes in PR #9;
+- PR #9 introduces no ShardLedger, residual calculation, engine voting, Reckless/LC0 shadow search, automatic fallback, or resource-routing policy.

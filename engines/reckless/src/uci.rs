@@ -186,10 +186,19 @@ fn reset(threads: &mut ThreadPool, shared: &Arc<SharedContext>) {
 }
 
 fn go(threads: &mut ThreadPool, settings: &Settings, board: &Board, shared: &Arc<SharedContext>, tokens: &[&str]) {
-    let limits = parse_limits(board.side_to_move(), tokens);
+    let (limit_tokens, requested_searchmoves) = split_searchmoves(tokens);
+    let limits = parse_limits(board.side_to_move(), limit_tokens);
+    let root_restriction = resolve_searchmoves(board, requested_searchmoves);
     let time_manager = TimeManager::new(limits, board.fullmove_number(), settings.move_overhead);
 
-    threads.execute_searches(time_manager, settings.report, settings.multi_pv, board, shared);
+    threads.execute_searches(
+        time_manager,
+        settings.report,
+        settings.multi_pv,
+        board,
+        root_restriction.as_deref(),
+        shared,
+    );
 
     if threads[0].root_moves.is_empty() {
         println!("bestmove (none)");
@@ -248,6 +257,26 @@ fn go(threads: &mut ThreadPool, settings: &Settings, board: &Board, shared: &Arc
 
     println!("bestmove {}", threads[best].root_moves[0].mv.to_uci(board));
     crate::misc::dbg_print();
+}
+
+fn split_searchmoves<'a>(tokens: &'a [&'a str]) -> (&'a [&'a str], Option<&'a [&'a str]>) {
+    match tokens.iter().position(|token| *token == "searchmoves") {
+        Some(index) => (&tokens[..index], Some(&tokens[index + 1..])),
+        None => (tokens, None),
+    }
+}
+
+fn resolve_searchmoves(board: &Board, requested: Option<&[&str]>) -> Option<Vec<Move>> {
+    requested.map(|requested| {
+        board.generate_all_moves()
+            .iter()
+            .map(|entry| entry.mv)
+            .filter(|mv| {
+                let uci = mv.to_uci(board);
+                requested.iter().any(|candidate| uci.eq_ignore_ascii_case(candidate))
+            })
+            .collect()
+    })
 }
 
 fn position(board: &mut Board, settings: &Settings, mut tokens: &[&str]) {
@@ -442,6 +471,61 @@ mod tests {
 
         position(&mut board, &settings, tokens);
         board.clone()
+    }
+
+    #[test]
+    fn test_split_searchmoves_absent() {
+        let tokens = ["nodes", "1000"];
+        let (limits, searchmoves) = split_searchmoves(&tokens);
+        assert_eq!(limits, &["nodes", "1000"]);
+        assert!(searchmoves.is_none());
+    }
+
+    #[test]
+    fn test_split_searchmoves_suffix() {
+        let tokens = ["nodes", "1000", "searchmoves", "e2e4", "d2d4"];
+        let (limits, searchmoves) = split_searchmoves(&tokens);
+        assert_eq!(limits, &["nodes", "1000"]);
+        assert_eq!(searchmoves, Some(&["e2e4", "d2d4"][..]));
+    }
+
+    #[test]
+    fn test_resolve_searchmoves_preserves_native_order_and_deduplicates() {
+        let board = Board::starting_position();
+        let all = board.generate_all_moves();
+        let requested = ["e2e4", "d2d4", "e2e4"];
+        let resolved = resolve_searchmoves(&board, Some(&requested)).unwrap();
+        let expected = all
+            .iter()
+            .map(|entry| entry.mv)
+            .filter(|mv| matches!(mv.to_uci(&board).as_str(), "e2e4" | "d2d4"))
+            .collect::<Vec<_>>();
+        assert_eq!(resolved, expected);
+    }
+
+    #[test]
+    fn test_resolve_searchmoves_mixed_valid_invalid() {
+        let board = Board::starting_position();
+        let requested = ["garbage", "e2e4", "also_bad"];
+        let resolved = resolve_searchmoves(&board, Some(&requested)).unwrap();
+        assert_eq!(resolved.len(), 1);
+        assert_eq!(resolved[0].to_uci(&board), "e2e4");
+    }
+
+    #[test]
+    fn test_resolve_searchmoves_explicit_empty_stays_empty() {
+        let board = Board::starting_position();
+        let requested: [&str; 0] = [];
+        let resolved = resolve_searchmoves(&board, Some(&requested)).unwrap();
+        assert!(resolved.is_empty());
+    }
+
+    #[test]
+    fn test_resolve_searchmoves_all_invalid_stays_empty() {
+        let board = Board::starting_position();
+        let requested = ["garbage"];
+        let resolved = resolve_searchmoves(&board, Some(&requested)).unwrap();
+        assert!(resolved.is_empty());
     }
 
     #[test]

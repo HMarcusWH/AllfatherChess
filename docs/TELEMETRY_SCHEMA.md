@@ -1,67 +1,159 @@
-# Hybrid telemetry schema
+# Hybrid telemetry contract v1
 
-Status: draft v0.1.
+Status: frozen contract candidate for PR #6.
 
-The common telemetry layer normalizes observations without pretending that Stockfish, Reckless, and LC0 have identical search semantics.
+The telemetry layer preserves raw backend observations in one replayable event vocabulary without pretending that Stockfish, Reckless, and LC0 have identical search semantics. Raw evidence is deliberately separated from controller-derived rankings, residuals, overlap metrics, verification conclusions, and routing decisions.
 
-## Common envelope
+The machine-readable contract is `schemas/telemetry/v1.contract.json`. The standard-library validator is `scripts/validate-telemetry-contract.py`.
 
-Every record should eventually contain:
+## Event lifecycle
+
+A search is a JSONL event stream:
+
+```text
+search.started
+      |
+      +--> candidate.update
+      +--> candidate.update
+      +--> native.event
+      +--> terminal.fact   (only with independent provenance)
+      |
+      '--> search.complete
+```
+
+The five event types are:
+
+- `search.started`: establishes immutable search identity, position reconstruction, variant/move encoding, requested limits/root set, and optional controller context.
+- `candidate.update`: one backend candidate/PV observation. It is not an atomic global ranking snapshot.
+- `native.event`: lossless backend-specific evidence that cannot honestly be normalized into the common fields.
+- `terminal.fact`: independently justified rules/tablebase terminal evidence. A missing best move is not sufficient.
+- `search.complete`: terminates the stream and carries the backend best move and optional ponder move.
+
+Every search must begin with exactly one `search.started`, event `sequence` must strictly increase, adapter `observed_ms` must not decrease, identity fields must remain stable, and no event may follow `search.complete`.
+
+## Common identity and ordering
+
+Every event contains:
 
 ```text
 schema_version
+event_type
 search_id
+sequence
+observed_ms
 engine
-timestamp
+engine_instance
 position_id
-shard_id
-phase
-budget
-iteration
-elapsed_ms
-nodes_or_playouts
-candidate_count
-leader_move
-runner_up_move
-ranking
-pv
-terminal_fact
-engine_specific
 ```
 
-## Common derived evidence
+`sequence` is authoritative ordering within one search. `observed_ms` is adapter monotonic receipt/observation time, not an engine-reported clock and not a wall-clock timestamp.
 
-Controller-side derived fields may include:
+`search.started` additionally records enough position information for replay:
 
-- leader changes over a rolling horizon;
-- top-k candidate overlap;
-- rank correlation;
-- PV prefix overlap / divergence;
-- score or value margin trend within an engine;
-- compute spent per candidate;
-- search-result sensitivity to added budget;
-- verification reversals.
+```text
+variant
+move_encoding
+position.base_fen
+position.moves[]
+request
+controller?    (optional until the controller exists)
+```
 
-## Native evidence remains tagged
+The v1 variant/encoding pairs are:
 
-Stockfish / Reckless examples:
-- depth / seldepth;
-- alpha-beta score and bound type;
-- aspiration fail-low/fail-high;
-- LMR / re-search counters;
-- TT, pruning, and cutoff counters.
+```text
+standard -> uci
+chess960 -> uci_chess960
+```
 
-LC0 examples:
-- visits;
-- policy mass;
-- Q/value estimates;
-- effective candidate count;
-- NN/cache submissions;
-- speculative prefetch work;
-- batch sizes and NN timing.
+This distinction is required because castling move strings differ under Chess960 conventions.
 
-A Stockfish TT bound is not an LC0 Q value. The controller may compare calibrated consequences, but the raw values retain native semantics.
+## Candidate updates
 
-## Existing LC0 instrumentation
+A `candidate.update` contains one observed candidate:
 
-The pinned LC0 snapshot already includes opt-in defect telemetry from its merged research PR #2. That data becomes an input to the common schema rather than being discarded or renamed blindly.
+```text
+candidate.multipv_index
+candidate.move
+candidate.pv[]
+candidate.evaluations[]?
+work[]?
+engine_time?
+native?
+```
+
+`multipv_index` preserves the UCI/backend observation. It is not promoted to a durable global rank. Candidate updates from an iterative search are not assumed to form an atomic frame.
+
+When a PV is present it is non-empty and `pv[0] == candidate.move`.
+
+The contract does not require MultiPV indices to be contiguous, and `search.complete.bestmove` is not required to have appeared in a previous candidate event.
+
+## Evaluations
+
+Engine values remain source-tagged. A common evaluation entry contains `kind`, `bound`, `perspective`, `semantics`, and either a scalar `value` or WDL components.
+
+Bounds are `none`, `lower`, or `upper`. An ordinary unqualified UCI score uses `none`; it is not relabeled as mathematically exact.
+
+Perspectives may be `root_player`, `white`, `black`, or `unknown`. PR #7 must only promote a backend to a stronger perspective label when source inspection/tests justify it.
+
+Examples of distinct semantics include `stockfish.uci_cp`, `reckless.uci_cp`, `lc0.uci_score.centipawn`, and `lc0.uci_wdl`. Numerically equal values with different semantics are not automatically comparable.
+
+## Work and time
+
+There is no `nodes_or_playouts` field. Work observations are arrays of tagged counters, for example:
+
+```json
+{"value": 512, "unit": "nodes", "semantics": "stockfish.uci_nodes"}
+```
+
+or:
+
+```json
+{"value": 512, "unit": "count", "semantics": "lc0.uci_nodes"}
+```
+
+LC0 currently constructs its UCI `nodes` value from playout/visit accounting, while Stockfish and Reckless report alpha-beta search-node accounting. The semantics tag is therefore mandatory.
+
+Backend-reported search time is likewise separate from adapter `observed_ms` and remains semantically tagged.
+
+## Native evidence
+
+Native payloads have `native.schema` and `native.data`, and the schema namespace must match the engine: `stockfish.*`, `reckless.*`, or `lc0.*`.
+
+LC0's existing defect instrumentation is preserved as native evidence under `lc0.defect.iter.v1` and `lc0.defect.summary.v1`. Fields such as `leader_move_raw` and `runner_up_move_raw` remain raw internal LC0 encodings. They must not be converted into common UCI candidate moves without a separately tested mapping.
+
+## Terminal evidence
+
+`search.complete.bestmove = null` means only that the backend produced no move. It does not prove terminality; for example, an explicitly empty restricted-root invocation can produce no best move on a nonterminal board.
+
+A `terminal.fact` therefore requires `fact`, `perspective`, and `source`. The source identifies the independent rules/tablebase basis. Multiple terminal facts may coexist when multiple independent sources support the same position.
+
+## Controller context
+
+Controller context is optional until the controller exists. Execution mode and controller phase are distinct:
+
+```text
+execution_mode = baseline | shadow | active
+
+phase = EXPLORE | COMPARE | REFINE | VERIFY | RELOCK | STOP
+```
+
+`shadow` is an execution mode, not a controller phase.
+
+## Raw versus derived
+
+Raw telemetry v1 forbids aggregate `ranking`, leader/runner-up summaries, residuals, top-k overlap, rank correlation, PV-overlap metrics, and routing decisions.
+
+```text
+backend output
+    -> telemetry v1 raw events
+    -> replay / state reconstruction
+    -> derived rankings and residuals
+    -> routing / verification decisions
+```
+
+This separation is an architectural invariant, not a naming preference.
+
+## Versioning
+
+Consumers must reject unsupported `schema_version` values. Optional native fields may grow under their engine-specific namespaces without changing the common contract. A breaking change to common event semantics requires a new telemetry major version.

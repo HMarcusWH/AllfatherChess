@@ -1,0 +1,2 @@
+{"schema_version":1,"event_type":"search.started","search_id":"bad-12","sequence":0,"observed_ms":0,"engine":"lc0","engine_instance":"lc0-0","position_id":"p1","variant":"standard","move_encoding":"uci","position":{"base_fen":"rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1","moves":[]},"request":{"limits":[]}}
+{"schema_version":1,"event_type":"search.complete","search_id":"bad-12","sequence":1,"observed_ms":1,"engine":"lc0","engine_instance":"lc0-0","position_id":"p2","bestmove":"e2e4"}

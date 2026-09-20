@@ -6,9 +6,11 @@ Planned test families:
 - UCI lifecycle and process isolation;
 - shard-ownership invariants;
 - zero accidental exploration overlap;
-- deterministic replay of recorded telemetry;
+- telemetry contract validation and deterministic replay of recorded telemetry;
 - verification/re-lock accounting;
 - fallback behavior;
 - fixed-budget strength and compute comparisons.
 
 A routing optimization is not promoted on local speed alone; it must preserve correctness invariants and survive the declared experimental protocol.
+
+The telemetry v1 contract fixtures live under `tests/telemetry/`. Run `make telemetry-contract` to validate both accepted and deliberately rejected JSONL streams without building the engines.

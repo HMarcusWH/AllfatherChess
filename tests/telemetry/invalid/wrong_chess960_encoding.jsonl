@@ -1,0 +1,1 @@
+{"schema_version":1,"event_type":"search.started","search_id":"bad-10","sequence":0,"observed_ms":0,"engine":"reckless","engine_instance":"reckless-0","position_id":"p","variant":"chess960","move_encoding":"uci","position":{"base_fen":"r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1","moves":[]},"request":{"limits":[]}}

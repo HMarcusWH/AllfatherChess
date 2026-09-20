@@ -80,7 +80,8 @@
     "completion": "bestmove null means only that the search produced no move; terminality requires terminal.fact provenance",
     "native": "native payloads are lossless engine-specific evidence and must keep an engine-prefixed schema name",
     "terminal_provenance": "terminal.fact source must use an approved independent rules.* or tablebase.* namespace",
-    "work_units": "known v1 work semantics have canonical units; engine-native extensions remain namespace-tagged"
+    "work_units": "known v1 work semantics have canonical units; engine-native extensions remain namespace-tagged",
+    "common_numeric_finiteness": "all numeric values in common telemetry must be finite; only event-level native.data remains engine-defined and opaque to this invariant"
   },
   "terminal_perspectives": [
     "side_to_move",

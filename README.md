@@ -29,6 +29,10 @@ During exploration, search regions are controller-owned and disjoint. Deliberate
 
 ## Repository status
 
-This repository is being bootstrapped from exact pinned snapshots of the three source engines. See `docs/BUILD_PLAN.md`, `docs/ARCHITECTURE.md`, `docs/SEARCH_SPACE_OWNERSHIP.md`, `docs/TELEMETRY_SCHEMA.md`, `docs/UPSTREAM_PROVENANCE.md`, and `LICENSES.md`.
+The three engine trees were bootstrapped from exact pinned upstream snapshots and now live as **derived Allfather source trees**. Their upstream ancestry is frozen in `vendor.lock.json`; future Allfather modifications are tracked normally in this monorepo and are not expected to remain byte-identical to the imported snapshots.
 
-The first milestone is deliberately conservative: reproduce the three baselines in one checkout before changing search behavior.
+The current foundation-hardening stage makes repository CI read-only, validates pushes to `main`, centralizes provenance in the lockfile, and cryptographically pins the external Reckless NNUE used by the baseline build.
+
+See `docs/BUILD_PLAN.md`, `docs/ARCHITECTURE.md`, `docs/SEARCH_SPACE_OWNERSHIP.md`, `docs/TELEMETRY_SCHEMA.md`, `docs/UPSTREAM_PROVENANCE.md`, and `LICENSES.md`.
+
+No hybrid routing-strength claim is made yet. The next experimental milestone after the foundation is hardened is a golden three-engine regression harness that freezes constituent behavior before search semantics are modified.

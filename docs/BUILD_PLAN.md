@@ -14,20 +14,35 @@ The target claim is empirical, not assumed: the hybrid must outperform the stron
 4. Engine-native values are not treated as interchangeable without calibration.
 5. If a shortcut is not justified, the system buys more compute or falls back.
 6. Every behavioral optimization must be ablated against reproducible baselines.
+7. Upstream ancestry and current derived-engine source are separate identities: the engine trees may evolve locally without pretending to remain byte-identical to their imported baselines.
+8. CI validates and records; it does not silently mutate or re-vendor source.
 
 ## Milestones
 
 ### M0 — Reproducible three-brain monorepo
 
-- pin exact source commits;
+- pin exact source commits and source trees;
 - vendor complete source snapshots with original notices/licenses;
+- record tracked-entry counts and provenance;
 - build all three from one checkout;
-- smoke-test UCI startup;
-- record provenance and toolchains.
+- smoke-test UCI startup.
 
-### M1 — Common observability
+### M0.1 — Foundation hardening
 
-Add or adapt read-only telemetry so all three solvers expose decision trajectories without changing search behavior.
+Before behavior-changing chess work:
+
+- make `vendor.lock.json` the single source of truth for imported ancestry;
+- separate immutable upstream ancestry from evolving Allfather engine trees;
+- remove CI source mutation and auto-vendoring;
+- validate normal pushes to `main`;
+- cryptographically pin externally downloaded engine artifacts;
+- ensure destructive source refresh requires an explicit operator action.
+
+### M1 — Golden regression and common observability foundation
+
+Freeze the baseline behavior of all three constituent engines before changing search semantics. Establish deterministic test positions, build/run manifests, crash/hang detection, legal best-move checks, and baseline fingerprints.
+
+Then add or adapt read-only telemetry so all three solvers expose decision trajectories without changing search behavior.
 
 ### M2 — Restricted search regions
 
@@ -75,13 +90,34 @@ Run fixed-node, fixed-time, self-play, SPRT-style, and external-engine compariso
 
 ## Immediate PR train
 
-1. Monorepo bootstrap, pinned imports, provenance, CI.
-2. Golden baseline/regression harness.
-3. Reckless restricted-root search.
-4. Common telemetry contract.
-5. Per-engine telemetry adapters.
-6. Hybrid UCI shell.
-7. Root ShardLedger.
-8. Shadow execution + replay.
-9. Residual calibration.
-10. Adaptive routing.
+1. **PR #1 — Monorepo bootstrap**: pinned imports, provenance foundation, baseline build and UCI smoke. **Merged.**
+2. **PR #2 — Foundation hardening**: read-only CI, authoritative lockfile, derived-tree-safe provenance, pinned Reckless NNUE, documentation correction. **Current.**
+3. **PR #3 — Golden three-engine regression harness**: frozen position corpus, manifests, deterministic baseline checks, legal-move/search completion/crash-hang gates.
+4. **PR #4 — Reckless restricted-root search**: add UCI `searchmoves` / equivalent controller-owned root restriction.
+5. **PR #5 — Common telemetry contract**: freeze engine-neutral telemetry vocabulary and backend-specific extension rules.
+6. **PR #6 — Per-engine telemetry implementation**: Stockfish, Reckless, and LC0 adapters/emitters without active routing.
+7. **PR #7 — Hybrid UCI shell**: one external UCI endpoint plus three backend process adapters.
+8. **PR #8 — Root ShardLedger**: pairwise-disjoint exploration allocation.
+9. **PR #9 — Shadow execution and replay**: synchronized three-engine runs with no routing intervention.
+10. **PR #10 — Residual calibration**: disagreement/convergence features and counterfactual stop labels.
+11. **PR #11 — Adaptive budget routing**: active CPU/GPU/time allocation.
+12. **PR #12 — Recursive shard splitting**.
+13. **PR #13 — Explicit VERIFY / RELOCK**.
+14. **PR #14 — CPU/GPU resource scheduler**.
+15. **PR #15+ — Cross-feed, native integration, and strength optimization**, each promoted only after isolated ablation.
+
+## Foundation-hardening acceptance gate
+
+PR #2 is complete only when:
+
+- normal pull requests are validated;
+- pushes to `main` are validated;
+- CI has no source-control write permission;
+- engine repository/commit/tree identities are defined only in `vendor.lock.json`;
+- provenance checks do not require live derived trees to equal upstream byte-for-byte;
+- Reckless's current NNUE is fetched only under an exact locked size and SHA-256;
+- Stockfish, Reckless, and LC0 all build;
+- all three UCI smoke tests pass;
+- no engine search-semantic source file changes occur in PR #2.
+
+The post-merge `main` workflow run is itself part of this gate because validating that trigger is one of the bugs this PR fixes.

@@ -38,7 +38,7 @@ jobs:
       - name: Validate lock and scripts
         run: |
           python3 scripts/vendor-lock.py validate
-          python3 -m py_compile scripts/vendor-lock.py scripts/golden-baselines.py tests/harness/*.py
+          python3 -m py_compile scripts/vendor-lock.py scripts/golden-baselines.py scripts/restricted-root-contract.py tests/harness/*.py
           bash -n scripts/vendor-engines.sh
           bash -n scripts/verify-vendor.sh
           bash -n scripts/fetch-stockfish-network.sh
@@ -82,16 +82,26 @@ jobs:
           JOBS: "2"
         run: ./scripts/build-baselines.sh
 
+      - name: Reckless restricted-root unit tests
+        env:
+          EVALFILE: ${{ github.workspace }}/build/artifacts/reckless/v60-7f587dfb.nnue
+        run: cargo test --manifest-path engines/reckless/Cargo.toml --release --no-default-features
+
       - name: UCI smoke tests
         run: ./scripts/smoke-baselines.sh
 
       - name: Verify frozen constituent golden baselines
         run: python3 scripts/golden-baselines.py --verify
 
-      - name: Upload golden verification evidence
+      - name: Verify restricted-root controller contract
+        run: python3 scripts/restricted-root-contract.py
+
+      - name: Upload validation evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: golden-baseline-verification
-          path: build/test-results/golden
+          name: engine-validation-evidence
+          path: |
+            build/test-results/golden
+            build/test-results/restricted-root
           if-no-files-found: warn

@@ -102,8 +102,8 @@ Run fixed-node, fixed-time, self-play, SPRT-style, and external-engine compariso
 6. **PR #6 — Common telemetry contract**: freeze engine-neutral telemetry vocabulary and backend-specific extension rules. **Merged.**
 7. **PR #7 — Per-engine telemetry implementation**: Stockfish, Reckless, and LC0 adapters/emitters without active routing. **Merged.**
 8. **PR #8 — Historical Codex review hardening**: retire actionable review debt before introducing the hybrid process shell. **Merged.**
-9. **PR #9 — Hybrid UCI shell**: one external UCI endpoint plus three backend process adapters. **Current.**
-10. **PR #10 — Root ShardLedger**: pairwise-disjoint exploration allocation.
+9. **PR #9 — Hybrid UCI shell**: one external UCI endpoint plus three backend process adapters. **Merged.**
+10. **PR #10 — Root ShardLedger**: pairwise-disjoint exploration allocation. **Current.**
 11. **PR #11 — Shadow execution and replay**: synchronized three-engine runs with no routing intervention.
 12. **PR #12 — Residual calibration**: disagreement/convergence features and counterfactual stop labels.
 13. **PR #13 — Adaptive budget routing**: active CPU/GPU/time allocation.
@@ -226,3 +226,28 @@ PR #9 is complete only when:
 - every pre-existing frozen golden, restricted-root, telemetry, Reckless portability, and historical-hardening gate remains green;
 - no file under `engines/**`, `tests/baseline/golden/**`, `schemas/telemetry/**`, or `vendor.lock.json` changes in PR #9;
 - PR #9 introduces no ShardLedger, residual calculation, engine voting, Reckless/LC0 shadow search, automatic fallback, or resource-routing policy.
+
+
+## Root ShardLedger acceptance gate
+
+PR #10 is complete only when:
+
+- the managed runtime obtains the live legal-root universe from Stockfish `go perft 1` without introducing a second chess move generator;
+- the legal-root parser accepts only canonical lowercase UCI roots, requires every depth-1 count to equal one, rejects duplicates, and requires `Nodes searched` to equal the parsed root count;
+- terminal positions produce a valid empty candidate universe;
+- the legal-root oracle follows synchronized standard/Chess960 move encoding and is cross-checked against the frozen legal-move corpus;
+- `RootShardLedger` preserves candidate input order and creates deterministic one-root-per-shard IDs for a declared generation;
+- the authorized owner set is explicit and immutable for the ledger;
+- partition assignment is atomic, one-shot, exact-coverage, and rejects missing/extra owners, unknown roots, malformed roots, duplicate roots, omissions, and cross-owner overlap before mutating any shard;
+- the root-v1 state machine is limited to `UNASSIGNED -> LEASED -> ACTIVE -> SEALED`;
+- activation and sealing are owner-atomic, and an empty owner region can never be emitted as a backend dispatch;
+- successful mutations advance a monotonic revision and failed mutations leave the snapshot/revision unchanged;
+- concurrent conflicting partition attempts cannot create partial or overlapping ownership;
+- snapshots are stable JSON-serializable detached copies suitable for later replay work;
+- a real-engine qualification partitions a live nonterminal root universe in test code only, then runs Stockfish, Reckless, and LC0 sequentially under their ledger-owned `searchmoves` and requires bestmove/PV heads to remain inside the owned region;
+- the round-robin qualification partition remains test-only and is not promoted into production routing policy;
+- live gameplay remains the PR #9 Stockfish anchor path and external bestmove selection is unchanged;
+- the implementation guarantees assigned-prefix non-overlap only and makes no claim of global board-state/transposition non-overlap;
+- no file under `engines/**`, `tests/baseline/golden/**`, `schemas/telemetry/**`, `adapters/telemetry/**`, `config/allfather.validation.json`, or `controller/uci_frontend.py` changes in PR #10;
+- PR #10 introduces no concurrent three-engine search, residual/ranking/voting logic, adaptive assignment, shard transfer, recursive split, VERIFY overlap, fallback policy, or resource-routing policy;
+- every pre-existing baseline, restricted-root, telemetry, controller-shell, and Reckless portability/hardening gate remains green.

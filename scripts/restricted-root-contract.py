@@ -22,8 +22,8 @@ LEGAL_PATH = ROOT / "tests" / "baseline" / "golden" / "legal_moves.json"
 PROFILES_PATH = ROOT / "tests" / "baseline" / "profiles.json"
 RESULT_DIR = ROOT / "build" / "test-results" / "restricted-root"
 
-PV_HEAD_RE = re.compile(r"(?:^|\\s)pv\\s+([a-h][1-8][a-h][1-8][qrbn]?)(?:\\s|$)")
-MULTIPV_RE = re.compile(r"(?:^|\\s)multipv\\s+(\\d+)(?:\\s|$)")
+PV_HEAD_RE = re.compile(r"(?:^|\s)pv\s+([a-h][1-8][a-h][1-8][qrbn]?)(?:\s|$)")
+MULTIPV_RE = re.compile(r"(?:^|\s)multipv\s+(\d+)(?:\s|$)")
 
 
 class ContractError(RuntimeError):

@@ -2,38 +2,68 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+LOCK="$ROOT/scripts/vendor-lock.py"
+
+"$LOCK" validate >/dev/null
 
 check_origin() {
   local name="$1"
-  local sha="$2"
-  local tree="$3"
-  local origin="$ROOT/engines/$name/.allfather-origin"
+  local repo commit tree entries dest_rel origin
+  repo="$("$LOCK" engine "$name" repository)"
+  commit="$("$LOCK" engine "$name" commit)"
+  tree="$("$LOCK" engine "$name" tree)"
+  entries="$("$LOCK" engine "$name" tracked_entries)"
+  dest_rel="$("$LOCK" engine "$name" destination)"
+  origin="$ROOT/$dest_rel/.allfather-origin"
 
-  test -f "$origin" || { echo "missing $origin" >&2; exit 1; }
-  grep -qx "commit=$sha" "$origin" || {
-    echo "$name provenance mismatch; expected commit $sha" >&2
+  [[ -f "$origin" ]] || {
+    echo "missing provenance record: $origin" >&2
     exit 1
   }
-  grep -qx "tree=$tree" "$origin" || {
-    echo "$name provenance mismatch; expected tree $tree" >&2
+
+  grep -Fqx "repository=$repo" "$origin" || {
+    echo "$name provenance mismatch: repository" >&2
+    exit 1
+  }
+  grep -Fqx "commit=$commit" "$origin" || {
+    echo "$name provenance mismatch: commit" >&2
+    exit 1
+  }
+  grep -Fqx "tree=$tree" "$origin" || {
+    echo "$name provenance mismatch: tree" >&2
+    exit 1
+  }
+  grep -Fqx "tracked_entries=$entries" "$origin" || {
+    echo "$name provenance mismatch: tracked_entries" >&2
+    exit 1
+  }
+  grep -Fqx "imported_by=scripts/vendor-engines.sh" "$origin" || {
+    echo "$name provenance mismatch: importer identity" >&2
     exit 1
   }
 }
 
-check_origin stockfish "17a6c8f1eb0da45c2ca405321919519bf4e211ba" "b14521db7dc6f5747042d76579a0b171e0a89f3f"
-check_origin reckless  "31d9cd6fd2bea6d9f72eeb35e0bac70daa295fb1" "88763d8e81ea45b938403f7f4feee990ad244c2d"
-check_origin lc0       "5cbfeb924c0fcf5efc1b2a43813ac8d63cfd9904" "6dd8aad55c79fddc291abfede17934f9ce4ca928"
+check_origin stockfish
+check_origin reckless
+check_origin lc0
 
 # License/provenance anchors.
-test -f "$ROOT/engines/stockfish/Copying.txt"
-test -f "$ROOT/engines/reckless/LICENSE"
-test -f "$ROOT/engines/lc0/COPYING"
+[[ -f "$ROOT/engines/stockfish/Copying.txt" ]]
+[[ -f "$ROOT/engines/reckless/LICENSE" ]]
+[[ -f "$ROOT/engines/lc0/COPYING" ]]
 
-# Build-critical tracked files that are easy to lose when vendoring because
-# LC0's own .gitignore ignores most of subprojects/.
-test -f "$ROOT/engines/lc0/subprojects/abseil-cpp.wrap"
-test -f "$ROOT/engines/lc0/subprojects/protobuf.wrap"
-test -f "$ROOT/engines/lc0/subprojects/zlib.wrap"
-test -d "$ROOT/engines/lc0/subprojects/packagefiles"
+# Build-critical LC0 files that were previously lost by ignore-sensitive
+# vendoring. These are structural anchors, not an assertion that the current
+# derived LC0 tree must remain byte-identical to its imported upstream tree.
+[[ -f "$ROOT/engines/lc0/subprojects/abseil-cpp.wrap" ]]
+[[ -f "$ROOT/engines/lc0/subprojects/protobuf.wrap" ]]
+[[ -f "$ROOT/engines/lc0/subprojects/zlib.wrap" ]]
+[[ -d "$ROOT/engines/lc0/subprojects/packagefiles" ]]
 
-echo "Vendored provenance, completeness anchors, and license files verified."
+# A monorepo engine subtree must never silently become a nested git repository.
+if find "$ROOT/engines" -type d -name .git -print -quit | grep -q .; then
+  echo "nested .git directory found under engines/" >&2
+  exit 1
+fi
+
+echo "Declared upstream ancestry, structural anchors, and license files verified."

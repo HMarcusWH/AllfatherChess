@@ -3,14 +3,10 @@
 from __future__ import annotations
 
 import json
+import math
 from typing import Any
 
-from .uci import (
-    BaseUciTelemetryAdapter,
-    TelemetryParseError,
-    parse_bestmove_line,
-    parse_info_line,
-)
+from .uci import BaseUciTelemetryAdapter, TelemetryParseError, parse_info_line
 
 
 _SCORE_TYPES = {
@@ -30,18 +26,10 @@ class Lc0TelemetryAdapter(BaseUciTelemetryAdapter):
     nodes_unit = "count"
     default_multipv_if_missing = 1
 
-    def __init__(
-        self,
-        *,
-        score_type: str,
-        defer_completion_until_flush: bool = False,
-        **kwargs: Any,
-    ):
+    def __init__(self, *, score_type: str, **kwargs: Any):
         if score_type not in _SCORE_TYPES:
             raise ValueError(f"unsupported LC0 ScoreType: {score_type}")
         self.score_type = score_type
-        self.defer_completion_until_flush = defer_completion_until_flush
-        self._pending_bestmove: tuple[dict[str, Any], int | float] | None = None
         super().__init__(**kwargs)
 
     def score_semantics(self, kind: str) -> tuple[str, str]:
@@ -56,6 +44,21 @@ class Lc0TelemetryAdapter(BaseUciTelemetryAdapter):
         return "lc0.uci_wdl"
 
     @staticmethod
+    def _reject_nonfinite_native(value: Any, *, label: str = "payload") -> None:
+        if isinstance(value, float) and not math.isfinite(value):
+            raise TelemetryParseError(f"{label} contains a non-finite number")
+        if isinstance(value, dict):
+            for key, child in value.items():
+                Lc0TelemetryAdapter._reject_nonfinite_native(
+                    child, label=f"{label}.{key}"
+                )
+        elif isinstance(value, list):
+            for index, child in enumerate(value):
+                Lc0TelemetryAdapter._reject_nonfinite_native(
+                    child, label=f"{label}[{index}]"
+                )
+
+    @staticmethod
     def _parse_defect_payload(comment: str, prefix: str) -> dict[str, Any]:
         raw = comment[len(prefix) :].strip()
         if not raw:
@@ -66,27 +69,16 @@ class Lc0TelemetryAdapter(BaseUciTelemetryAdapter):
             raise TelemetryParseError(f"malformed {prefix.strip()} JSON: {exc}") from exc
         if not isinstance(payload, dict):
             raise TelemetryParseError(f"{prefix.strip()} payload must be a JSON object")
-        if payload.get("v") != 1:
-            raise TelemetryParseError(f"unsupported {prefix.strip()} payload version: {payload.get('v')!r}")
+        Lc0TelemetryAdapter._reject_nonfinite_native(payload)
+        version = payload.get("v")
+        if isinstance(version, bool) or not isinstance(version, int) or version != 1:
+            raise TelemetryParseError(
+                f"unsupported {prefix.strip()} payload version: {version!r}"
+            )
         return payload
 
-    def flush_completion(self, *, observed_ms: int | float) -> dict[str, Any]:
-        if self._pending_bestmove is None:
-            raise TelemetryParseError("no deferred LC0 bestmove is pending")
-        parsed, received_ms = self._pending_bestmove
-        parsed = dict(parsed)
-        extra = dict(parsed.get("extra", {}))
-        extra["received_observed_ms"] = received_ms
-        parsed["extra"] = extra
-        self._pending_bestmove = None
-        return self._complete_event(parsed, observed_ms=observed_ms)
 
     def consume(self, line: str, *, observed_ms: int | float) -> list[dict[str, Any]]:
-        if self.defer_completion_until_flush and line.startswith("bestmove "):
-            if self._pending_bestmove is not None:
-                raise TelemetryParseError("multiple deferred LC0 bestmove lines")
-            self._pending_bestmove = (parse_bestmove_line(line), observed_ms)
-            return []
         if line.startswith("info "):
             parsed = parse_info_line(line)
             comment = parsed.get("comment")

@@ -66,6 +66,10 @@ pub fn probe(board: &Board) -> Option<GameOutcome> {
 }
 
 pub fn rank_rootmoves(td: &mut ThreadData) {
+    if td.root_moves.is_empty() {
+        return;
+    }
+
     let mut rootmoves_in_c: mem::MaybeUninit<TbRootMoves> = mem::MaybeUninit::uninit();
     let ep_square = tb_en_passant_square(&td.board);
 

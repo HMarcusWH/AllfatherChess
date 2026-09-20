@@ -33,6 +33,6 @@ The three engine trees were bootstrapped from exact pinned upstream snapshots an
 
 The repository foundation is now reproducible: CI is read-only, engine ancestry and external NNUE inputs are pinned, and the pre-controller behavior of Stockfish, Reckless, and LC0 is frozen under `tests/baseline/golden/` and verified on every relevant CI run. Restricted-root search parity is established across all three backends, and read-only per-engine telemetry adapters now map live UCI/native evidence into telemetry v1.
 
-See `docs/BUILD_PLAN.md`, `docs/ARCHITECTURE.md`, `docs/SEARCH_SPACE_OWNERSHIP.md`, `docs/TELEMETRY_SCHEMA.md`, `docs/TELEMETRY_MAPPING.md`, `docs/UPSTREAM_PROVENANCE.md`, and `LICENSES.md`.
+See `docs/BUILD_PLAN.md`, `docs/ARCHITECTURE.md`, `docs/SEARCH_SPACE_OWNERSHIP.md`, `docs/TELEMETRY_SCHEMA.md`, `docs/TELEMETRY_MAPPING.md`, `docs/CODEX_REVIEW_AUDIT.md`, `docs/UPSTREAM_PROVENANCE.md`, and `LICENSES.md`.
 
-No hybrid routing-strength claim is made yet. The current milestone implements and validates read-only telemetry adapters. The next milestone is the hybrid UCI/process shell that will launch the three backends and feed their stdout into these adapters without active routing.
+No hybrid routing-strength claim is made yet. Before introducing the hybrid UCI/process shell, the repository is retiring historical Codex review debt across bootstrap, restricted-root, telemetry-contract, and telemetry-adapter work. The current LC0 random/backend-light validation build is deterministic regression infrastructure only and is explicitly **not strength-qualified**; real LC0 inference/network/hardware qualification remains a later strength-campaign requirement.

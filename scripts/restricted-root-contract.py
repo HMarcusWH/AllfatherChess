@@ -94,6 +94,54 @@ def run_search(
     }
 
 
+def run_reckless_reuse_sequence(
+    profile: dict[str, Any],
+    position: dict[str, Any],
+    *,
+    nodes: int,
+) -> dict[str, Any]:
+    options = dict(profile.get("options", {}))
+    options["Threads"] = 2
+    binary = resolve_binary(profile)
+
+    with UciSession(binary, cwd=ROOT, timeout=12.0) as session:
+        session.configure(options)
+        session.new_game()
+        session.set_position(position)
+
+        zero_lines = session.search_nodes(nodes, searchmoves=[], timeout=25.0)
+        zero = normalize_search(zero_lines)
+        zero_heads, zero_multipv = inspect_info(zero_lines)
+        zero_observation = {
+            "engine": "reckless",
+            "bestmove": zero["bestmove"],
+            "pv_heads": zero_heads,
+            "multipv_indices": zero_multipv,
+        }
+        assert_restricted(
+            label="reuse-zero-root/reckless",
+            observation=zero_observation,
+            allowed=[],
+        )
+
+        session.set_position(position)
+        normal_lines = session.search_nodes(nodes, searchmoves=None, timeout=25.0)
+        normal = normalize_search(normal_lines)
+        normal_heads, normal_multipv = inspect_info(normal_lines)
+        if normal["bestmove"] is None:
+            raise ContractError("reuse-after-zero-root/reckless: unrestricted search returned no move")
+
+    return {
+        "zero_root": zero_observation,
+        "unrestricted_after_zero": {
+            "engine": "reckless",
+            "bestmove": normal["bestmove"],
+            "pv_heads": normal_heads,
+            "multipv_indices": normal_multipv,
+        },
+    }
+
+
 def assert_restricted(
     *,
     label: str,
@@ -137,6 +185,7 @@ def main() -> int:
         "schema_version": 1,
         "cross_engine": [],
         "reckless_specific": [],
+        "reckless_reuse": None,
     }
 
     for case in cases["cross_engine"]:
@@ -181,6 +230,12 @@ def main() -> int:
         )
         results["reckless_specific"].append({"case": case["id"], **observation})
 
+    results["reckless_reuse"] = run_reckless_reuse_sequence(
+        reckless_profile,
+        corpus["startpos"],
+        nodes=256,
+    )
+
     RESULT_DIR.mkdir(parents=True, exist_ok=True)
     (RESULT_DIR / "report.json").write_text(
         json.dumps(results, indent=2, sort_keys=True) + "\n",
@@ -190,7 +245,8 @@ def main() -> int:
     print(
         "restricted-root contract passed: "
         f"{len(results['cross_engine'])} cross-engine observations, "
-        f"{len(results['reckless_specific'])} Reckless-specific observations"
+        f"{len(results['reckless_specific'])} Reckless-specific observations, "
+        "1 same-process reuse sequence"
     )
     return 0
 

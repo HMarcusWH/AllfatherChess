@@ -631,12 +631,20 @@ void Search::MaybeTriggerStop(const IterationStats& stats,
     if (stopper_->ShouldStop(stats, hints)) FireStopInternal();
   }
 
-  // If we are the first to see that stop is needed.
+  // Defect telemetry needs a complete final snapshot, so in that opt-in
+  // mode wait until all search workers (and their task threads) have quiesced.
+  // Ordinary searches preserve the original immediate bestmove response path.
   if (stop_.load(std::memory_order_acquire) && ok_to_respond_bestmove_ &&
       !bestmove_is_sent_) {
+    if (params_.GetDefectTelemetry() &&
+        active_search_workers_.load(std::memory_order_acquire) != 0) {
+      return;
+    }
+
     SendUciInfo();
     EnsureBestMoveKnown();
     SendMovesStats();
+    if (params_.GetDefectTelemetry()) EmitDefectTelemetry();
     BestMoveInfo info(final_bestmove_, final_pondermove_);
     uci_responder_->OutputBestMove(&info);
     stopper_->OnSearchDone(stats);
@@ -900,15 +908,24 @@ void Search::StartThreads(size_t how_many) {
                !backend_attributes_.runs_on_cpu;
   }
   thread_count_.store(how_many, std::memory_order_release);
+  const bool track_defect_workers = params_.GetDefectTelemetry();
+  active_search_workers_.store(track_defect_workers ? how_many : 0,
+                               std::memory_order_release);
   // First thread is a watchdog thread.
   if (threads_.size() == 0) {
     threads_.emplace_back([this]() { WatchdogThread(); });
   }
   // Start working threads.
   for (size_t i = 0; i < how_many; i++) {
-    threads_.emplace_back([this]() {
-      SearchWorker worker(this, params_);
-      worker.RunBlocking();
+    threads_.emplace_back([this, track_defect_workers]() {
+      {
+        SearchWorker worker(this, params_);
+        worker.RunBlocking();
+      }
+      if (track_defect_workers) {
+        active_search_workers_.fetch_sub(1, std::memory_order_acq_rel);
+        watchdog_cv_.notify_all();
+      }
     });
   }
   LOGFILE << "Search started. "
@@ -1027,8 +1044,11 @@ void Search::WatchdogThread() {
     // Minimum wait time is there to prevent busy wait and other threads
     // starvation.
     watchdog_cv_.wait_for(
-        lock.get_raw(), std::chrono::milliseconds(remaining_time),
-        [this]() { return stop_.load(std::memory_order_acquire); });
+        lock.get_raw(), std::chrono::milliseconds(remaining_time), [this]() {
+          if (!stop_.load(std::memory_order_acquire)) return false;
+          return !params_.GetDefectTelemetry() ||
+                 active_search_workers_.load(std::memory_order_acquire) == 0;
+        });
   }
   LOGFILE << "End a watchdog thread.";
 }
@@ -1170,6 +1190,10 @@ void Search::RecordDefectTelemetryIteration(
 }
 
 void Search::EmitDefectTelemetry() {
+  if (defect_telemetry_emitted_.exchange(true, std::memory_order_acq_rel)) {
+    return;
+  }
+
   DefectTelemetryTotals totals;
   uint64_t speculative_unused = 0;
   std::vector<std::string> iterations;

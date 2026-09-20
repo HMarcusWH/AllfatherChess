@@ -15,7 +15,7 @@ The shared parser recognizes stable UCI syntax but does not assign cross-engine 
 
 A PV-bearing line becomes one `candidate.update`; unpromoted information from that same physical line is retained inside its `native` payload rather than duplicated into a second event. Non-PV search information becomes `native.event`. `bestmove` becomes `search.complete`.
 
-LC0 defect records are consumed losslessly as `lc0.defect.iter.v1` and `lc0.defect.summary.v1`. Raw internal move identifiers remain raw. Because LC0 emits these records when its search object is destroyed, the LC0 adapter also supports an opt-in deferred-completion path that keeps normalized `search.complete` last while preserving the physical bestmove receipt time in native data.
+LC0 defect records are consumed losslessly as `lc0.defect.iter.v1` and `lc0.defect.summary.v1`. Raw internal move identifiers remain raw. The derived LC0 tree now emits defect telemetry once on the normal search-completion path before `bestmove`, so the adapter no longer needs a deferred-completion workaround.
 
 The adapters do not launch engines. Process lifecycle, command dispatch, stop handling, and the externally visible UCI shell remain PR #8 work.
 

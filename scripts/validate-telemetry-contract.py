@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 import sys
 from pathlib import Path
@@ -25,7 +26,13 @@ def fail(path: Path, line_no: int, message: str) -> None:
 
 def load_contract() -> dict[str, Any]:
     data = json.loads(CONTRACT_PATH.read_text(encoding="utf-8"))
-    if data.get("contract") != "allfather.telemetry" or data.get("schema_version") != 1:
+    version = data.get("schema_version")
+    if (
+        data.get("contract") != "allfather.telemetry"
+        or isinstance(version, bool)
+        or not isinstance(version, int)
+        or version != 1
+    ):
         raise ContractError("unsupported telemetry contract metadata")
     return data
 
@@ -63,16 +70,29 @@ def require_nonempty_str(value: Any, label: str, path: Path, line_no: int) -> st
     return value
 
 
+def require_finite_number(value: Any, label: str, path: Path, line_no: int) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        fail(path, line_no, f"{label} must be a finite number")
+    try:
+        numeric = float(value)
+    except OverflowError:
+        fail(path, line_no, f"{label} must be finite")
+    if not math.isfinite(numeric):
+        fail(path, line_no, f"{label} must be finite")
+    return numeric
+
+
 def require_nonnegative_number(value: Any, label: str, path: Path, line_no: int) -> float:
-    if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0:
+    numeric = require_finite_number(value, label, path, line_no)
+    if numeric < 0:
         fail(path, line_no, f"{label} must be a non-negative number")
-    return float(value)
+    return numeric
 
 
 def validate_move(move: Any, move_re: re.Pattern[str], label: str, path: Path, line_no: int) -> str:
-    move = require_nonempty_str(move, label, path, line_no).lower()
+    move = require_nonempty_str(move, label, path, line_no)
     if not move_re.fullmatch(move):
-        fail(path, line_no, f"{label} is not normalized UCI move syntax: {move!r}")
+        fail(path, line_no, f"{label} is not canonical lowercase UCI move syntax: {move!r}")
     return move
 
 
@@ -127,14 +147,14 @@ def validate_evaluations(
             if item["win"] + item["draw"] + item["loss"] != item["scale"]:
                 fail(path, line_no, f"{label} WDL components must sum to scale")
         else:
-            if "value" not in item or isinstance(item["value"], bool) or not isinstance(item["value"], (int, float)):
-                fail(path, line_no, f"{label}.value must be numeric")
+            require_finite_number(item.get("value"), f"{label}.value", path, line_no)
 
 
 def validate_work(
     work: Any,
     *,
     engine: str,
+    contract: dict[str, Any],
     path: Path,
     line_no: int,
 ) -> None:
@@ -145,10 +165,17 @@ def validate_work(
         if not isinstance(item, dict):
             fail(path, line_no, f"{label} must be an object")
         require_nonnegative_number(item.get("value"), f"{label}.value", path, line_no)
-        require_nonempty_str(item.get("unit"), f"{label}.unit", path, line_no)
+        unit = require_nonempty_str(item.get("unit"), f"{label}.unit", path, line_no)
         semantics = require_nonempty_str(item.get("semantics"), f"{label}.semantics", path, line_no)
         if not semantics.startswith(engine + "."):
             fail(path, line_no, f"{label}.semantics must be engine-prefixed")
+        expected_unit = contract["known_work_units"].get(semantics)
+        if expected_unit is not None and unit != expected_unit:
+            fail(
+                path,
+                line_no,
+                f"{label}.unit must be {expected_unit!r} for semantics {semantics!r}",
+            )
 
 
 def validate_request(
@@ -201,6 +228,53 @@ def validate_controller(
         require_nonempty_str(controller["shard_id"], "controller.shard_id", path, line_no)
 
 
+def validate_common_payload(
+    value: Any,
+    *,
+    forbidden: set[str],
+    path: Path,
+    line_no: int,
+    trail: tuple[str, ...] = (),
+) -> None:
+    # JSON booleans are not numeric observations even though bool subclasses
+    # int in Python.
+    if isinstance(value, bool):
+        return
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            dotted = ".".join(trail) or "<root>"
+            fail(path, line_no, f"common telemetry number must be finite: {dotted}")
+        return
+    if isinstance(value, int):
+        return
+    if isinstance(value, dict):
+        for key, child in value.items():
+            if key in forbidden:
+                dotted = ".".join((*trail, key))
+                fail(path, line_no, f"derived/controller field is forbidden in raw telemetry: {dotted}")
+            # Engine-native extension payloads are deliberately opaque to the
+            # common contract. Only the actual event-level native.data path is
+            # exempt; nested objects named native/data do not receive this escape.
+            if trail == ("native",) and key == "data":
+                continue
+            validate_common_payload(
+                child,
+                forbidden=forbidden,
+                path=path,
+                line_no=line_no,
+                trail=(*trail, key),
+            )
+    elif isinstance(value, list):
+        for index, child in enumerate(value):
+            validate_common_payload(
+                child,
+                forbidden=forbidden,
+                path=path,
+                line_no=line_no,
+                trail=(*trail, str(index)),
+            )
+
+
 def validate_record(
     record: dict[str, Any],
     *,
@@ -212,12 +286,20 @@ def validate_record(
     for key in contract["common_required"]:
         require(record, key, path, line_no)
 
-    forbidden = sorted(set(record) & set(contract.get("forbidden_top_level_fields", [])))
-    if forbidden:
-        fail(path, line_no, f"derived/controller fields are forbidden in raw telemetry: {forbidden}")
+    validate_common_payload(
+        record,
+        forbidden=set(contract.get("forbidden_common_fields", [])),
+        path=path,
+        line_no=line_no,
+    )
 
-    if record["schema_version"] != contract["schema_version"]:
-        fail(path, line_no, f"unsupported schema_version {record['schema_version']!r}")
+    schema_version = record["schema_version"]
+    if (
+        isinstance(schema_version, bool)
+        or not isinstance(schema_version, int)
+        or schema_version != contract["schema_version"]
+    ):
+        fail(path, line_no, f"unsupported schema_version {schema_version!r}")
 
     event_type = record["event_type"]
     if event_type not in contract["event_types"]:
@@ -286,7 +368,13 @@ def validate_record(
                 line_no=line_no,
             )
         if "work" in record:
-            validate_work(record["work"], engine=engine, path=path, line_no=line_no)
+            validate_work(
+                record["work"],
+                engine=engine,
+                contract=contract,
+                path=path,
+                line_no=line_no,
+            )
         if "engine_time" in record:
             engine_time = record["engine_time"]
             if not isinstance(engine_time, dict):
@@ -340,7 +428,9 @@ def validate_record(
         perspective = record.get("perspective")
         if perspective not in contract["terminal_perspectives"]:
             fail(path, line_no, f"unsupported terminal perspective {perspective!r}")
-        require_nonempty_str(record.get("source"), "terminal.fact source", path, line_no)
+        source = require_nonempty_str(record.get("source"), "terminal.fact source", path, line_no)
+        if not any(source.startswith(prefix) for prefix in contract["terminal_source_prefixes"]):
+            fail(path, line_no, f"terminal.fact source is not independently qualified: {source!r}")
 
 
 def validate_stream(path: Path, contract: dict[str, Any]) -> None:

@@ -190,6 +190,7 @@ class Search {
     uint64_t backup_us = 0;
   };
 
+  std::atomic<bool> defect_telemetry_emitted_{false};
   mutable Mutex defect_telemetry_mutex_;
   DefectTelemetryTotals defect_telemetry_totals_
       GUARDED_BY(defect_telemetry_mutex_);
@@ -254,6 +255,7 @@ class Search {
   std::atomic<int> pending_searchers_{0};
   std::atomic<int> backend_waiting_counter_{0};
   std::atomic<int> thread_count_{0};
+  std::atomic<int> active_search_workers_{0};
 
   std::vector<std::pair<Node*, int>> shared_collisions_
       GUARDED_BY(nodes_mutex_);

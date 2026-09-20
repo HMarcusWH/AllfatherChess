@@ -1,0 +1,58 @@
+name: Reckless portable source build
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - engines/reckless/**
+      - scripts/fetch-reckless-network.py
+      - scripts/fetch-reckless-network.sh
+      - vendor.lock.json
+      - .github/workflows/reckless-portable-build.yml
+  pull_request:
+    paths:
+      - engines/reckless/**
+      - scripts/fetch-reckless-network.py
+      - scripts/fetch-reckless-network.sh
+      - vendor.lock.json
+      - .github/workflows/reckless-portable-build.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: reckless-portable-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  source-build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+          - windows-latest
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Toolchain versions
+        run: |
+          python --version
+          rustc --version
+          cargo --version
+
+      - name: Verify portable pinned-NNUE source build
+        working-directory: engines/reckless
+        env:
+          PYTHON: python
+        run: cargo check --release --no-default-features

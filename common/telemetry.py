@@ -2,11 +2,22 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Any
 
 
 STARTPOS_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+_COMMON_EVENT_KEYS = {
+    "schema_version",
+    "event_type",
+    "search_id",
+    "sequence",
+    "observed_ms",
+    "engine",
+    "engine_instance",
+    "position_id",
+}
 
 
 class TelemetryError(RuntimeError):
@@ -51,7 +62,12 @@ class TelemetryStream:
     def _validate_observed_ms(self, observed_ms: int | float) -> float:
         if isinstance(observed_ms, bool) or not isinstance(observed_ms, (int, float)):
             raise TelemetryError("observed_ms must be numeric")
-        value = float(observed_ms)
+        try:
+            value = float(observed_ms)
+        except OverflowError as exc:
+            raise TelemetryError("observed_ms must be finite") from exc
+        if not math.isfinite(value):
+            raise TelemetryError("observed_ms must be finite")
         if value < 0:
             raise TelemetryError("observed_ms must be non-negative")
         if self._started and value < self._last_observed_ms:
@@ -111,6 +127,12 @@ class TelemetryStream:
             raise TelemetryError("cannot emit after search.complete")
         if event_type == "search.started":
             raise TelemetryError("search.started must be emitted by start()")
+        if payload:
+            collisions = sorted(_COMMON_EVENT_KEYS.intersection(payload))
+            if collisions:
+                raise TelemetryError(
+                    f"payload cannot overwrite immutable stream metadata: {collisions}"
+                )
         event = self._common(event_type, observed_ms)
         if payload:
             event.update(payload)

@@ -10,9 +10,6 @@ mod attacks;
 mod magics;
 mod maps;
 
-const BASE_URL: &str = "https://github.com/codedeliveryservice/RecklessNetworks/releases/download/networks";
-const NETWORK_NAME: &str = "v60-7f587dfb.nnue";
-
 fn main() {
     generate_model_env();
     generate_attack_maps();
@@ -24,14 +21,9 @@ fn main() {
         generate_syzygy_binding();
     }
 
-    if !Path::new("networks").join(NETWORK_NAME).exists() && env::var("EVALFILE").is_err() {
-        download_network();
-    }
-
     println!("cargo:rerun-if-env-changed=EVALFILE");
     println!("cargo:rerun-if-changed=.git/HEAD");
     println!("cargo:rerun-if-changed=.git/logs/HEAD");
-    println!("cargo:rerun-if-changed=networks/{NETWORK_NAME}");
 }
 
 #[cfg(feature = "syzygy")]
@@ -55,14 +47,96 @@ fn generate_syzygy_binding() {
         .unwrap();
 }
 
-fn generate_model_env() {
-    let mut path = env::var("EVALFILE").map(PathBuf::from).unwrap_or_else(|_| Path::new("networks").join(NETWORK_NAME));
+fn run_verified_nnue_fetch(fetch: &Path) -> PathBuf {
+    let mut candidates: Vec<(String, Vec<String>)> = Vec::new();
 
-    if path.is_relative() {
-        path = Path::new(env!("CARGO_MANIFEST_DIR")).join(path);
+    if let Ok(value) = env::var("PYTHON") {
+        if !value.trim().is_empty() {
+            candidates.push((value, Vec::new()));
+        }
     }
 
+    if cfg!(windows) {
+        candidates.push(("py".to_string(), vec!["-3".to_string()]));
+        candidates.push(("python".to_string(), Vec::new()));
+        candidates.push(("python3".to_string(), Vec::new()));
+    } else {
+        candidates.push(("python3".to_string(), Vec::new()));
+        candidates.push(("python".to_string(), Vec::new()));
+    }
+
+    for (program, args) in candidates {
+        let mut command = Command::new(&program);
+        command.args(&args).arg(fetch);
+
+        match command.output() {
+            Ok(output) => {
+                if !output.status.success() {
+                    panic!(
+                        "Allfather verified NNUE fetch helper failed via {}: {}",
+                        program,
+                        String::from_utf8_lossy(&output.stderr)
+                    );
+                }
+                let value = String::from_utf8(output.stdout)
+                    .expect("verified NNUE helper returned a non-UTF-8 path");
+                let trimmed = value.trim();
+                if trimmed.is_empty() {
+                    panic!("verified NNUE helper returned an empty path");
+                }
+                return PathBuf::from(trimmed);
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => {
+                panic!(
+                    "failed to launch Python interpreter {} for verified NNUE fetch: {}",
+                    program, error
+                );
+            }
+        }
+    }
+
+    panic!(
+        "EVALFILE is unset and no Python 3 interpreter was found; set PYTHON to a Python 3 executable or provide EVALFILE explicitly"
+    );
+}
+
+fn generate_model_env() {
+    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let (mut path, source_label) = match env::var("EVALFILE") {
+        Ok(value) => (PathBuf::from(value), "explicit EVALFILE override"),
+        Err(_) => {
+            let fetch = manifest_dir.join("../../scripts/fetch-reckless-network.py");
+            if !fetch.is_file() {
+                panic!(
+                    "EVALFILE is unset and the portable Allfather verified NNUE fetch helper is unavailable: {}",
+                    fetch.display()
+                );
+            }
+            (run_verified_nnue_fetch(&fetch), "pinned Allfather NNUE")
+        }
+    };
+
+    if path.is_relative() {
+        path = manifest_dir.join(path);
+    }
+
+    if !path.is_file() {
+        panic!(
+            "{} does not point to a readable NNUE file: {}",
+            source_label,
+            path.display()
+        );
+    }
+
+    // The model bytes are embedded into the binary. Track the resolved file
+    // itself so same-path replacement/corruption forces build.rs to rerun.
+    println!("cargo:rerun-if-changed={}", path.display());
     println!("cargo:rustc-env=MODEL={}", path.display());
+    println!("cargo:rerun-if-env-changed=PYTHON");
+    println!("cargo:rerun-if-env-changed=ALLFATHER_ARTIFACT_DIR");
+    println!("cargo:rerun-if-changed=../../scripts/fetch-reckless-network.py");
+    println!("cargo:rerun-if-changed=../../vendor.lock.json");
 }
 
 fn generate_attack_maps() {
@@ -98,20 +172,6 @@ fn write(mut buf: BufWriter<File>) -> Result<(), std::io::Error> {
     writeln!(buf, "struct MagicEntry {{ pub mask: u64, pub magic: u64, pub shift: u32, pub offset: u32 }}")
 }
 
-fn download_network() {
-    let response = Command::new("curl")
-        .arg("-sfL")
-        .arg(format!("{BASE_URL}/{NETWORK_NAME}"))
-        .output()
-        .expect("Failed to execute `curl` to download network");
-
-    if response.status.success() {
-        std::fs::create_dir_all("networks").unwrap();
-        std::fs::write(format!("networks/{NETWORK_NAME}"), response.stdout).unwrap();
-    } else {
-        panic!("Failed to download the network");
-    }
-}
 
 fn generate_compiler_info() {
     fn get_env(key: &str) -> String {

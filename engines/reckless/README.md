@@ -59,7 +59,10 @@ You can download precompiled builds from the [GitHub Releases page](https://gith
 To build Reckless from source, make sure you have:
 
 - `Rust 1.88.0` or a later version installed ([official Rust installation guide](https://www.rust-lang.org/tools/install))
+- Python 3 available as `python3`, `python`, or the Windows `py -3` launcher when `EVALFILE` is not supplied; the Allfather-derived build uses it to fetch and SHA-256-verify the pinned NNUE from `vendor.lock.json`
 - `Clang` installed (required for building the [Fathom](https://github.com/jdart1/Fathom) library used for Syzygy endgame tablebase support)
+
+The Allfather-derived tree never performs Reckless's historical unverified network fallback. You may provide an explicit verified model with `EVALFILE`; otherwise the build invokes the repository's portable stdlib Python verifier/downloader. Set `PYTHON` to a Python 3 executable if automatic interpreter discovery is not appropriate on your host.
 
 Once installed, you can build it with:
 

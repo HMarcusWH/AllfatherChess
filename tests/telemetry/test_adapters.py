@@ -16,7 +16,7 @@ from adapters.telemetry import (
     StockfishTelemetryAdapter,
     TelemetryParseError,
 )
-from common.telemetry import STARTPOS_FEN, TelemetryError
+from common.telemetry import STARTPOS_FEN, SearchIdentity, TelemetryError, TelemetryStream
 
 
 def started(adapter):
@@ -216,25 +216,63 @@ class TelemetryAdapterTests(unittest.TestCase):
         self.assertEqual(summary["native"]["schema"], "lc0.defect.summary.v1")
         self.assertEqual(summary["native"]["data"]["speculative_unused"], 7)
 
-    def test_lc0_can_defer_completion_until_post_search_defect_flush(self):
-        adapter = started(
-            Lc0TelemetryAdapter(
-                search_id="lc0-deferred",
-                engine_instance="lc0-0",
+    def test_boolean_lc0_defect_version_is_rejected(self):
+        adapter = lc0_adapter()
+        with self.assertRaises(TelemetryParseError):
+            adapter.consume(
+                'info string DEFECT_TELEMETRY_SUMMARY {"v":true,"iterations":1}',
+                observed_ms=1,
+            )
+
+    def test_nonfinite_observed_time_is_rejected(self):
+        for observed_ms in (float("nan"), float("inf"), float("-inf")):
+            stream = TelemetryStream(
+                SearchIdentity(
+                    engine="stockfish",
+                    engine_instance="stockfish-0",
+                    search_id=f"nonfinite-{observed_ms!r}",
+                    position_id="fixture:startpos",
+                )
+            )
+            with self.assertRaises(TelemetryError):
+                stream.start(
+                    position={"base_fen": STARTPOS_FEN, "moves": []},
+                    request={"limits": []},
+                    observed_ms=observed_ms,
+                )
+
+    def test_payload_cannot_overwrite_stream_metadata(self):
+        stream = TelemetryStream(
+            SearchIdentity(
+                engine="stockfish",
+                engine_instance="stockfish-0",
+                search_id="payload-collision",
                 position_id="fixture:startpos",
-                score_type="centipawn",
-                defer_completion_until_flush=True,
             )
         )
-        self.assertEqual(adapter.consume("bestmove e2e4", observed_ms=5), [])
-        summary = adapter.consume(
-            'info string DEFECT_TELEMETRY_SUMMARY {"v":1,"iterations":1}',
-            observed_ms=6,
-        )[0]
-        complete = adapter.flush_completion(observed_ms=7)
-        self.assertEqual(summary["native"]["schema"], "lc0.defect.summary.v1")
-        self.assertEqual(complete["event_type"], "search.complete")
-        self.assertEqual(complete["native"]["data"]["received_observed_ms"], 5)
+        stream.start(
+            position={"base_fen": STARTPOS_FEN, "moves": []},
+            request={"limits": []},
+            observed_ms=0,
+        )
+        with self.assertRaises(TelemetryError):
+            stream.emit(
+                "native.event",
+                observed_ms=1,
+                payload={
+                    "event_type": "search.complete",
+                    "native": {"schema": "stockfish.uci.v1", "data": {}},
+                },
+            )
+        self.assertFalse(stream.completed)
+
+    def test_nonfinite_lc0_defect_value_is_rejected(self):
+        adapter = lc0_adapter()
+        with self.assertRaises(TelemetryParseError):
+            adapter.consume(
+                'info string DEFECT_TELEMETRY_SUMMARY {"v":1,"avg_batch_before":1e309}',
+                observed_ms=1,
+            )
 
     def test_malformed_lc0_defect_json_is_an_error(self):
         adapter = lc0_adapter()

@@ -29,7 +29,7 @@ jobs:
       - name: Commit vendored sources
         shell: bash
         run: |
-          if git diff --quiet -- engines; then
+          if [[ -z "$(git status --porcelain -- engines)" ]]; then
             echo "Vendored trees already match."
             exit 0
           fi

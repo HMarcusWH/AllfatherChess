@@ -107,3 +107,19 @@ The controller maintains and will extend an engine-neutral state containing:
 - hard terminal evidence such as legal mate or tablebase facts.
 
 Engine-native values remain tagged with their source and semantics.
+
+
+## Explicit common-support VERIFY
+
+After a clean pairwise-disjoint EXPLORE run, VERIFY v1 takes the three owner
+bestmoves in declared owner order and reuses the same three shadow processes to
+search that exact common root set. This is deliberate duplicate work under
+phase `VERIFY`; it does not modify `RootShardLedger`.
+
+Raw VERIFY streams and their own manifest live under
+`<run>/verification/` and hash-bind the finalized parent replay manifest.
+`controller/verification.py` owns that evidence model; `controller/shadow.py`
+continues to own UCI process lifecycle and the anchor-completion race.
+
+The outward move remains the unrestricted Stockfish anchor's. Active-mode
+VERIFY is rejected until verification spend is wired into `BudgetLedger`.

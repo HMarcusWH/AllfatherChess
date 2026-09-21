@@ -1756,6 +1756,10 @@ class ShadowRunCoordinator:
                 if elapsed_ms - stage.dispatched_ms > stage_budget_ms
             ]
             if overrun:
+                refinement.request_target_abort(
+                    target_id,
+                    "REFINE stage deadline exceeded; stopping target stages",
+                )
                 instances = list(dict.fromkeys(stage.instance for stage in pending))
                 self._stop_instances(instances)
                 deadline = time.monotonic() + self.settings.drain_timeout_s
@@ -2087,6 +2091,10 @@ class ShadowRunCoordinator:
                     break
 
             if not dispatched_all:
+                refinement.request_target_abort(
+                    target.target_id,
+                    "partial REFINE dispatch; stopping already-dispatched stages",
+                )
                 pending_instances = [
                     stage.instance
                     for stage in refinement.active_stages()
@@ -2308,7 +2316,8 @@ class ShadowRunCoordinator:
                         )
                         break
 
-        if failure is None and not active.cancelled:
+        target_abort = refinement.target_abort_requested(target_id)
+        if failure is None and not active.cancelled and not target_abort:
             try:
                 for shard_id in stage.shard_ids:
                     refinement.ledger.seal_shard(shard_id, owner=owner)
@@ -2331,13 +2340,22 @@ class ShadowRunCoordinator:
             refinement.set_disposition("incomplete", failure)
             return
 
-        disposition = "stopped" if active.cancelled else "completed"
+        disposition = (
+            "stopped" if active.cancelled or target_abort else "completed"
+        )
+        stop_reason = (
+            active.cancel_reason
+            if active.cancelled
+            else "refine_target_abort"
+            if target_abort
+            else None
+        )
         refinement.record_completion(
             stage,
             completed_ms=elapsed,
             disposition=disposition,
             bestmove=bestmove,
-            stop_reason=active.cancel_reason if active.cancelled else None,
+            stop_reason=stop_reason,
         )
 
     def _await_refinement_target(

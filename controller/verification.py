@@ -388,14 +388,21 @@ def verify_verification_integrity(run_dir: Path | str) -> list[str]:
     streams = manifest.get("streams", [])
     stream_instances = [record.get("instance") for record in streams if isinstance(record, dict)]
     expected_instances = list(participants.values())
-    if len(stream_instances) != 3 or set(stream_instances) != set(expected_instances):
+    disposition = (manifest.get("disposition") or {}).get("run")
+    if len(stream_instances) != len(set(stream_instances)):
+        problems.append("verification manifest contains duplicate stream instances")
+    if any(instance not in expected_instances for instance in stream_instances):
+        problems.append("verification stream instance is not a declared participant")
+    if disposition == "completed" and (
+        len(stream_instances) != 3 or set(stream_instances) != set(expected_instances)
+    ):
         problems.append(
-            "verification stream instances do not match the three declared participants"
+            "completed verification does not contain all three participant streams"
         )
 
     stages = manifest.get("stages", [])
-    if len(stages) != 3:
-        problems.append("verification manifest does not contain exactly three stages")
+    if disposition == "completed" and len(stages) != 3:
+        problems.append("completed verification does not contain exactly three stages")
     seen_stage_owners: set[str] = set()
     seen_search_ids: set[str] = set()
     for stage in stages:
@@ -475,7 +482,13 @@ def verify_verification_integrity(run_dir: Path | str) -> list[str]:
             problems.append(
                 f"{stage.get('instance')}: stage candidate roots differ from VERIFY plan"
             )
-        request = parse_go_request(stage.get("command", ""))
+        try:
+            request = parse_go_request(stage.get("command", ""))
+        except Exception as exc:
+            problems.append(
+                f"{stage.get('instance')}: cannot parse VERIFY stage command: {exc}"
+            )
+            continue
         if tuple(request.get("root_moves", [])) != candidates:
             problems.append(
                 f"{stage.get('instance')}: stage command differs from VERIFY plan"

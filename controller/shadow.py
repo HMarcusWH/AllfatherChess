@@ -1852,6 +1852,15 @@ class ShadowRunCoordinator:
                 moves=tuple(active.context.position.moves) + (target.root_move,),
                 variant=active.context.position.variant,
             )
+            with self._lock:
+                if active.cancelled or active.anchor_completed.is_set():
+                    all_completed = False
+                    refinement.set_disposition(
+                        "incomplete",
+                        "decision boundary reached before REFINE child oracle",
+                    )
+                    break
+                active.refinement_oracle_active = True
             try:
                 children = self.runtime.legal_moves_at_shadow_position(
                     instance=self.settings.oracle,
@@ -1865,6 +1874,9 @@ class ShadowRunCoordinator:
                     f"child oracle failed for {target.root_move}: {exc}",
                 )
                 break
+            finally:
+                with self._lock:
+                    active.refinement_oracle_active = False
 
             child_partition = partition_children(children, plan.owners)
             if not children:
@@ -1994,6 +2006,8 @@ class ShadowRunCoordinator:
                             instance, descendant_position.command()
                         )
                         prepared_instances.append(instance)
+                        with self._lock:
+                            active.refinement_positioned.add(instance)
                     except ControllerRuntimeError as exc:
                         setup_ok = False
                         refinement.set_target_disposition(
@@ -2355,10 +2369,10 @@ class ShadowRunCoordinator:
     ) -> bool:
         restored = True
         for instance in dict.fromkeys(instances):
-            if not self.runtime.shadow_available(instance):
-                restored = False
-                continue
             try:
+                if not self.runtime.shadow_available(instance):
+                    restored = False
+                    continue
                 self.runtime.restore_shadow_position(instance)
             except ControllerRuntimeError as exc:
                 restored = False
@@ -2370,6 +2384,9 @@ class ShadowRunCoordinator:
                     target_id, "incomplete", message
                 )
                 refinement.set_disposition("incomplete", message)
+            finally:
+                with self._lock:
+                    active.refinement_positioned.discard(instance)
         return restored
 
     def _dispatch_stage(self, active: _ActiveRun, state: _OwnerState, *, limit: dict[str, Any]) -> bool:

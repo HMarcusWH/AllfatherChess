@@ -524,6 +524,84 @@ def _load_verification_settings(
     )
 
 
+def _load_refinement_settings(
+    data: dict[str, object],
+    *,
+    mode: str,
+    shadow: ShadowSettings | None,
+    verification: VerificationSettings | None,
+) -> RefinementSettings | None:
+    raw_value = data.get("refinement")
+    if raw_value is None:
+        return None
+    if mode != "shadow":
+        raise RuntimeError(
+            "refinement settings are supported only in mode='shadow' until "
+            "REFINE work is charged through the active BudgetLedger"
+        )
+    if shadow is None:
+        raise RuntimeError("refinement requires shadow settings")
+    if verification is None or not verification.enabled:
+        raise RuntimeError("refinement requires verification.enabled")
+
+    raw = _require_object(raw_value, "refinement")
+    enabled = raw.get("enabled")
+    if not isinstance(enabled, bool):
+        raise RuntimeError("refinement.enabled must be a boolean")
+    if not enabled:
+        return None
+
+    if tuple(shadow.owners) != SOLVER_FAMILIES:
+        raise RuntimeError(
+            "refinement v1 requires shadow.owners exactly "
+            f"{list(SOLVER_FAMILIES)} in that order"
+        )
+
+    nomination = raw.get(
+        "nomination_method", "verify_final_disagreement_union_v1"
+    )
+    if nomination != "verify_final_disagreement_union_v1":
+        raise RuntimeError(
+            "refinement.nomination_method currently supports exactly "
+            "'verify_final_disagreement_union_v1'"
+        )
+
+    child_partition = raw.get("child_partition", "child_index_modulo")
+    if child_partition != "child_index_modulo":
+        raise RuntimeError(
+            "refinement.child_partition currently supports exactly "
+            "'child_index_modulo'"
+        )
+
+    dispatch = _require_object(
+        raw.get("dispatch_limit", {"nodes": 3000}),
+        "refinement.dispatch_limit",
+    )
+    if sorted(dispatch) != ["nodes"]:
+        raise RuntimeError(
+            "refinement.dispatch_limit currently supports exactly the 'nodes' key"
+        )
+    nodes = dispatch["nodes"]
+    if isinstance(nodes, bool) or not isinstance(nodes, int) or nodes < 1:
+        raise RuntimeError("refinement.dispatch_limit.nodes must be a positive integer")
+
+    max_targets = raw.get("max_targets", 3)
+    if (
+        isinstance(max_targets, bool)
+        or not isinstance(max_targets, int)
+        or max_targets < 1
+        or max_targets > 3
+    ):
+        raise RuntimeError("refinement.max_targets must be an integer in [1, 3]")
+
+    return RefinementSettings(
+        enabled=True,
+        nomination_method=str(nomination),
+        child_partition=str(child_partition),
+        dispatch_limit={"nodes": int(nodes)},
+        max_targets=int(max_targets),
+    )
+
 def load_runtime_config(path: Path) -> RuntimeConfig:
     path = path.resolve()
     try:
@@ -557,6 +635,12 @@ def load_runtime_config(path: Path) -> RuntimeConfig:
         raise RuntimeError("shadow settings are only valid in shadow/active mode")
 
     verification = _load_verification_settings(data, mode=str(mode), shadow=shadow)
+    refinement = _load_refinement_settings(
+        data,
+        mode=str(mode),
+        shadow=shadow,
+        verification=verification,
+    )
 
     budget = data.get("budget")
     if budget is not None:
@@ -577,6 +661,7 @@ def load_runtime_config(path: Path) -> RuntimeConfig:
         backends=specs,
         shadow=shadow,
         verification=verification,
+        refinement=refinement,
         budget=budget,
         routing=routing,
     )

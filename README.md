@@ -33,11 +33,17 @@ During exploration, search regions are controller-owned and disjoint. Deliberate
 
 The three engine trees were bootstrapped from exact pinned upstream snapshots and now live as **derived Allfather source trees**. Their upstream ancestry is frozen in `vendor.lock.json`; future Allfather modifications are tracked normally in this monorepo and are not expected to remain byte-identical to the imported snapshots.
 
-The repository foundation is now reproducible: CI is read-only, engine ancestry and external NNUE inputs are pinned, and the pre-controller behavior of Stockfish, Reckless, and LC0 is frozen under `tests/baseline/golden/` and verified on every relevant CI run. Restricted-root search parity is established across all three backends, read-only telemetry maps live UCI/native evidence into telemetry v1, PR #9 added the first externally visible AllfatherChess UCI/process shell, and PR #10 added controller-owned legal-root qualification plus the root ShardLedger. PR #11 is now the current milestone: shadow execution and replay, with Stockfish remaining the sole outward move authority while three restricted shadow workers collect replayable evidence.
+The repository foundation is reproducible: CI is read-only, engine ancestry and external NNUE inputs are pinned, and the pre-controller behavior of Stockfish, Reckless, and LC0 is frozen under `tests/baseline/golden/` and verified on every relevant CI run. Restricted-root search parity is established across all three backends, read-only telemetry maps live UCI/native evidence into telemetry v1, PR #9 added the first externally visible AllfatherChess UCI/process shell, and PR #10 added controller-owned legal-root qualification plus the root ShardLedger.
 
-See `docs/BUILD_PLAN.md`, `docs/ARCHITECTURE.md`, `docs/UCI_SHELL.md`, `docs/SHARD_LEDGER.md`, `docs/SHADOW_EXECUTION.md`, `docs/SEARCH_SPACE_OWNERSHIP.md`, `docs/TELEMETRY_SCHEMA.md`, `docs/TELEMETRY_MAPPING.md`, `docs/CODEX_REVIEW_AUDIT.md`, `docs/UPSTREAM_PROVENANCE.md`, and `LICENSES.md`.
+The current milestone implements the complete immediate controller stack:
 
-No hybrid routing-strength claim is made yet. PR #10 can represent an exact pairwise-disjoint root ownership partition, but live gameplay intentionally remains the PR #9 transparent Stockfish anchor path. The real-engine ShardLedger contract exercises owned regions sequentially only as qualification; it is not shadow execution or a routing policy. The current LC0 random/backend-light validation build remains deterministic regression infrastructure only and is explicitly **not strength-qualified**; real LC0 inference/network/hardware qualification remains a later strength-campaign requirement.
+1. **shadow execution and replay** — an unrestricted `stockfish-anchor` holds sole outward authority while `stockfish-shadow`, `reckless-shadow`, and `lc0-shadow` search pairwise-disjoint ledger-owned regions and emit replayable telemetry;
+2. **residual and counterfactual calibration** — a derived layer turns replay bundles into scale-free disagreement/stability features and a calibrated reversal-risk model, with an enforced firewall against mixing engine evaluation scales;
+3. **active adaptive compute routing** — a conservative policy allocates shadow observation compute inside one declared resource envelope, where an instability signal may nominate computation but only a calibrated, in-domain, sufficiently supported, low-risk verdict may authorize stopping.
+
+Documentation: `docs/BUILD_PLAN.md`, `docs/ARCHITECTURE.md`, `docs/UCI_SHELL.md`, `docs/SHARD_LEDGER.md`, `docs/SHADOW_EXECUTION.md`, `docs/REPLAY_FORMAT.md`, `docs/RESIDUAL_CALIBRATION.md`, `docs/BUDGET_ROUTING.md`, `docs/SEARCH_SPACE_OWNERSHIP.md`, `docs/TELEMETRY_SCHEMA.md`, `docs/TELEMETRY_MAPPING.md`, `docs/THEORY_IMPLEMENTATION_MAP.md`, `docs/CLAIM_LEDGER.md`, `docs/ADVERSARIAL_AUDIT.md`, `docs/CODEX_REVIEW_AUDIT.md`, `docs/UPSTREAM_PROVENANCE.md`, and `LICENSES.md`.
+
+**No strength claim is made.** No Elo experiment has been run. The outward move is still the unrestricted Stockfish anchor's in every mode, routing governs observation compute only, and shadow mode deliberately overspends compute to collect evidence. `docs/CLAIM_LEDGER.md` labels every claim as PROVED, MEASURED, DERIVED, CALIBRATED, POLICY, or OPEN. The current LC0 random/backend-light validation build remains deterministic regression infrastructure only and is explicitly **not strength-qualified**; real LC0 inference/network/hardware qualification remains a later strength-campaign requirement.
 
 
 ## Run the Generation-1 validation shell
@@ -55,4 +61,26 @@ Equivalent cross-platform invocation:
 python3 -m controller --config config/allfather.validation.json
 ```
 
-The validation configuration exists to prove process/UCI semantics, not playing strength.
+The validation configuration exists to prove process/UCI semantics, not playing strength. It is the frozen anchor-only regression baseline and is unchanged by this milestone.
+
+## Run the shadow observatory
+
+```bash
+make run-allfather-shadow                # four instances, one outward identity
+make shadow-evidence-sweep               # collect replay bundles over the frozen corpus
+make residual-calibration                # derive features, then fit a reversal-risk model
+```
+
+Shadow mode is a research observatory. It intentionally exceeds the eventual competitive resource envelope and carries no equal-compute claim.
+
+## Run active routing
+
+`config/allfather.active.validation.json` ships with `"calibration": null`, which is fail-closed: with no fitted model the policy can never authorize suppression. Point `routing.calibration` at a model produced by `make residual-calibration` to enable gated stopping.
+
+## Validation
+
+```bash
+make controller-tests                    # fast, no engines required
+make shadow-execution-contract           # real engines: concurrency, containment, telemetry, replay
+make active-routing-contract             # real engines: sweep -> derive -> calibrate -> route
+```

@@ -19,7 +19,7 @@ LC0 defect records are consumed losslessly as `lc0.defect.iter.v1` and `lc0.defe
 
 PR #9 adds a separate production process layer under `adapters/process/`. `UciProcess` owns exactly one stdout reader per backend and demultiplexes handshake waiters, `isready` barriers, search info, and `bestmove` callbacks without competing queue consumers. It also isolates stderr, serializes stdin writes, tracks process health, and performs bounded shutdown.
 
-The telemetry adapters remain read-only semantic normalizers and are intentionally not coupled to subprocess ownership yet. Shadow execution in a later PR can subscribe the existing telemetry adapters to the process stream without rewriting process management.
+The telemetry adapters remain read-only semantic normalizers and are not coupled to subprocess ownership. Shadow execution subscribes them to the live process stream without any adapter change: `controller/replay.py` enqueues raw lines on the engine's stdout reader thread with an observation timestamp, and a dedicated writer thread performs adapter translation and file IO. Capture therefore cannot stall or deadlock the single reader, and a capture-queue overflow is recorded as explicit truncation evidence rather than applying back-pressure.
 
 Future capability surface:
 

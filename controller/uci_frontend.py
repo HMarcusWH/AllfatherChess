@@ -1,4 +1,4 @@
-"""Externally visible AllfatherChess UCI frontend for anchor mode."""
+"""Externally visible AllfatherChess UCI frontend."""
 
 from __future__ import annotations
 
@@ -6,9 +6,12 @@ import re
 import sys
 import threading
 from enum import Enum
-from typing import TextIO
+from typing import TYPE_CHECKING, TextIO
 
 from .runtime import BackendManager, RuntimeError
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from .shadow import ShadowRunCoordinator
 
 
 _SETOPTION_RE = re.compile(r"^setoption\s+name\s+(.+?)(?:\s+value(?:\s+(.*))?)?$")
@@ -22,10 +25,21 @@ class ShellState(str, Enum):
 
 
 class UciFrontend:
-    """One external UCI identity with Stockfish as the transparent PR9 anchor."""
+    """One external UCI identity with Stockfish as the transparent anchor.
 
-    def __init__(self, runtime: BackendManager, *, output: TextIO | None = None) -> None:
+    Shadow workers, when configured, observe the same synchronized state but can
+    never write to this stream: only the anchor's `bestmove` leaves the process.
+    """
+
+    def __init__(
+        self,
+        runtime: BackendManager,
+        *,
+        output: TextIO | None = None,
+        shadow: "ShadowRunCoordinator | None" = None,
+    ) -> None:
         self.runtime = runtime
+        self.shadow = shadow
         self.output = sys.stdout if output is None else output
         self._state_lock = threading.RLock()
         self._write_lock = threading.Lock()
@@ -63,6 +77,7 @@ class UciFrontend:
         # reports its stored reason on the next readiness request. During an
         # active search we must unblock the GUI immediately and fail closed.
         if searching:
+            self._shadow_cancel("anchor_failure", active)
             self._diagnostic(f"runtime failure: {message}")
             self._write("bestmove 0000")
             try:
@@ -78,12 +93,56 @@ class UciFrontend:
         self._write(line)
 
     def _on_search_complete(self, token: int, line: str) -> None:
+        if self.shadow is not None:
+            try:
+                self.shadow.note_anchor_complete(token, line)
+            except Exception as exc:  # pragma: no cover - shadow control is non-authoritative
+                self._diagnostic(f"shadow release failed: {exc}")
         with self._state_lock:
             if self._state != ShellState.SEARCHING or self._active_generation != token:
                 return
             self._active_generation = None
             self._state = ShellState.READY if self.runtime.healthy else ShellState.UNHEALTHY
         self._write(line)
+
+    def _shadow_cancel(self, reason: str, generation: int | None = None) -> None:
+        """Cancel shadow observation without ever waiting on it.
+
+        Every call here is on an authority path -- the command loop or a
+        runtime-failure handler -- and cancellation writes `stop` to each
+        dispatched shadow's stdin, which can block on a full pipe. `detach`
+        keeps that write off this thread entirely; the coordinator's quiesce
+        barrier joins the detached writer before any state change, so a late
+        `stop` can never reach the next generation.
+        """
+        if self.shadow is None:
+            return
+        try:
+            self.shadow.cancel(generation, reason=reason, detach=True)
+        except Exception as exc:  # pragma: no cover - shadow control is non-authoritative
+            self._diagnostic(f"shadow cancel failed: {exc}")
+
+    def _shadow_quiesce(self) -> None:
+        """Hard barrier before any state mutation.
+
+        A prior shadow generation must never be able to observe the next
+        position, so state synchronization waits for the previous run to drain.
+
+        A worker that misses the drain deadline is recorded as a shadow failure
+        by the coordinator, which removes it from synchronization and dispatch.
+        The mutation that follows therefore never reaches a process still
+        executing the previous generation.
+        """
+        if self.shadow is None:
+            return
+        try:
+            if not self.shadow.quiesce():
+                self._diagnostic(
+                    "previous shadow generation did not drain; the affected shadow "
+                    "workers are recorded as failed and excluded from this state change"
+                )
+        except Exception as exc:  # pragma: no cover - shadow control is non-authoritative
+            self._diagnostic(f"shadow quiesce failed: {exc}")
 
     def _reject_while_searching(self, command: str) -> None:
         self._diagnostic(f"rejected {command!r} while anchor search is active")
@@ -111,6 +170,7 @@ class UciFrontend:
         if lowered not in {"true", "false"}:
             self._diagnostic("UCI_Chess960 expects true or false")
             return
+        self._shadow_quiesce()
         try:
             self.runtime.set_chess960(lowered == "true")
         except RuntimeError as exc:
@@ -142,7 +202,17 @@ class UciFrontend:
             self._active_generation = token
             self._state = ShellState.SEARCHING
 
+        prepared = False
+        if self.shadow is not None:
+            try:
+                prepared = self.shadow.prepare_run(generation=token, go_command=command)
+            except Exception as exc:  # pragma: no cover - shadow setup is non-authoritative
+                self._diagnostic(f"shadow run preparation failed: {exc}")
+
         try:
+            # The outward anchor always starts first. Shadow qualification and
+            # dispatch happen afterwards on a worker thread so no observational
+            # work can delay the decision authority.
             self.runtime.start_anchor_search(
                 command,
                 token=token,
@@ -150,10 +220,22 @@ class UciFrontend:
                 on_complete=self._on_search_complete,
             )
         except RuntimeError as exc:
+            if prepared and self.shadow is not None:
+                try:
+                    self.shadow.abort_run(token, reason="anchor_dispatch_failed")
+                except Exception:  # pragma: no cover
+                    pass
             with self._state_lock:
                 already_failed = self._state == ShellState.UNHEALTHY
             if not already_failed:
                 self._runtime_failed(f"search dispatch failed: {exc}", token)
+            return
+
+        if prepared and self.shadow is not None:
+            try:
+                self.shadow.start_shadow_work(token)
+            except Exception as exc:  # pragma: no cover - shadow control is non-authoritative
+                self._diagnostic(f"shadow dispatch failed: {exc}")
 
     def handle_command(self, raw: str) -> bool:
         command = raw.strip()
@@ -181,6 +263,7 @@ class UciFrontend:
                 return True
             if self.state != ShellState.READY:
                 return True
+            self._shadow_quiesce()
             try:
                 self.runtime.new_game()
             except RuntimeError as exc:
@@ -197,6 +280,7 @@ class UciFrontend:
             if not (command.startswith("position startpos") or command.startswith("position fen ")):
                 self._diagnostic("unsupported position command")
                 return True
+            self._shadow_quiesce()
             try:
                 self.runtime.set_position(command)
             except RuntimeError as exc:
@@ -210,11 +294,18 @@ class UciFrontend:
 
         if command == "stop":
             if self.state == ShellState.SEARCHING:
+                # AUTHORITY FIRST. Cancelling shadows ahead of this sent `stop`
+                # to every dispatched observational process, so one blocked
+                # shadow stdin meant `stop_anchor()` was never reached and the
+                # anchor's already-computed `bestmove` was never requested. The
+                # GUI's `stop` is a decision-authority command; observation is
+                # torn down afterwards and off this thread.
                 try:
                     self.runtime.stop_anchor()
                 except RuntimeError as exc:
                     if self.state != ShellState.UNHEALTHY:
                         self._runtime_failed(str(exc), self._active_generation)
+                self._shadow_cancel("stop", self._active_generation)
             return True
 
         if command == "ponderhit":
@@ -230,7 +321,7 @@ class UciFrontend:
             with self._state_lock:
                 self._state = ShellState.SHUTDOWN
                 self._active_generation = None
-            self.runtime.close()
+            self._shutdown()
             return False
 
         # UCI permits engines to ignore commands/options they do not implement.
@@ -247,4 +338,13 @@ class UciFrontend:
                 with self._state_lock:
                     self._state = ShellState.SHUTDOWN
                     self._active_generation = None
-                self.runtime.close()
+                self._shutdown()
+
+    def _shutdown(self) -> None:
+        """Close shadow work before the processes so no run is left orphaned."""
+        if self.shadow is not None:
+            try:
+                self.shadow.close()
+            except Exception as exc:  # pragma: no cover - shutdown is best effort
+                self._diagnostic(f"shadow shutdown failed: {exc}")
+        self.runtime.close()

@@ -45,7 +45,7 @@ An ownership invariant failure is not a warning. Routing must stop and fall back
 
 ### Anchor exception is not an ownership exception
 
-PR #11 keeps an unrestricted `stockfish-anchor` running as the sole outward decision authority while `stockfish-shadow`, `reckless-shadow`, and `lc0-shadow` consume the ledger partition. The anchor is **not an exploration owner** and holds no ledger shard. Therefore its independent unrestricted search may traverse roots also searched by shadow workers without violating the ownership invariant: the invariant forbids duplicate ownership among the three shadow exploration workers, not independent reference/authority work outside the ledger.
+Shadow and active mode keep an unrestricted `stockfish-anchor` running as the sole outward decision authority while `stockfish-shadow`, `reckless-shadow`, and `lc0-shadow` consume the ledger partition. The anchor is **not an exploration owner** and holds no ledger shard. Therefore its independent unrestricted search may traverse roots also searched by shadow workers without violating the ownership invariant: the invariant forbids duplicate ownership among the three shadow exploration workers, not independent reference/authority work outside the ledger.
 
 That anchor/shadow duplication is deliberate research overhead and must not be misreported as efficient equal-budget play. The eventual active controller must remove or account for such duplicated compute inside its global budget.
 
@@ -102,7 +102,26 @@ empty owner regions never dispatch
 
 PR #10 does **not** dispatch three live searches during gameplay. Its real-engine qualification uses already-qualified `searchmoves` sequentially only to prove that an active ledger region can be enforced by every backend.
 
-PR #11 is the first consumer of `active_roots(owner)` in concurrent shadow execution. It activates only non-empty owner regions, dispatches the exact owned root sets to the three shadow workers, and records the result. It does not change the partition based on search evidence and does not permit shadow results to affect the outward Stockfish anchor.
+Shadow execution is the first consumer of `active_roots(owner)` in concurrent search. It activates only non-empty owner regions, dispatches the exact owned root sets to the three shadow workers, and records the result. It does not change the partition based on search evidence and does not permit shadow results to affect the outward Stockfish anchor.
+
+### The partition is instrumentation, not policy
+
+The implemented partition is `root_index % owner_count`. No score, prior,
+historical result, policy probability, residual, or heuristic may alter it.
+`partition_roots` takes only the root sequence and the owner list, and a test
+pins its exact output.
+
+Active-mode routing changes **how much compute** an owner receives. It never
+changes **which roots** an owner owns. Recursive splitting and shard transfer
+remain later milestones.
+
+### Cost of disjointness
+
+Disjointness is what makes the ownership invariant meaningful, and it has a
+price worth stating: within one run, two shadow workers never share a root, so a
+direct Stockfish-vs-Reckless comparison has empty support. The derived layer
+reports that explicitly rather than fabricating a comparison. Closing this gap
+requires the explicit overlap phase below, not a weakening of the invariant.
 
 Malformed-input behavior remains backend-specific, so controller dispatches must remain canonical, legal, deduplicated, and non-empty.
 

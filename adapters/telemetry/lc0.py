@@ -9,7 +9,7 @@ from typing import Any
 from .uci import BaseUciTelemetryAdapter, TelemetryParseError, parse_info_line
 
 
-_SCORE_TYPES = {
+SUPPORTED_SCORE_TYPES = {
     "centipawn",
     "centipawn_with_drawscore",
     "centipawn_2019",
@@ -27,7 +27,7 @@ class Lc0TelemetryAdapter(BaseUciTelemetryAdapter):
     default_multipv_if_missing = 1
 
     def __init__(self, *, score_type: str, **kwargs: Any):
-        if score_type not in _SCORE_TYPES:
+        if score_type not in SUPPORTED_SCORE_TYPES:
             raise ValueError(f"unsupported LC0 ScoreType: {score_type}")
         self.score_type = score_type
         super().__init__(**kwargs)

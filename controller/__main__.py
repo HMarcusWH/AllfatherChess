@@ -6,6 +6,8 @@ import argparse
 import sys
 from pathlib import Path
 
+from .budget import BudgetError
+from .routing import RoutingError
 from .runtime import BackendManager, RuntimeError
 from .uci_frontend import UciFrontend
 
@@ -25,18 +27,44 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _build_shadow(runtime: BackendManager, frontend_diagnostic):
+    """Attach shadow/active coordination when the configuration declares it."""
+    if runtime.config.shadow is None:
+        return None
+    from .shadow import ShadowRunCoordinator
+
+    router = None
+    if runtime.config.mode == "active":
+        from .routing import build_router
+
+        router = build_router(runtime.config)
+    return ShadowRunCoordinator(runtime, router=router, diagnostic=frontend_diagnostic)
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     runtime: BackendManager | None = None
+    shadow = None
     try:
         runtime = BackendManager.from_path(args.config)
         runtime.start()
         frontend = UciFrontend(runtime)
+        shadow = _build_shadow(runtime, frontend._diagnostic)
+        frontend.shadow = shadow
         frontend.run()
         return 0
-    except (RuntimeError, OSError, ValueError) as exc:
+    except (RuntimeError, RoutingError, BudgetError, OSError, ValueError) as exc:
+        # RoutingError and BudgetError subclass the *builtin* RuntimeError, not
+        # controller.runtime.RuntimeError, so without naming them an invalid
+        # routing policy, budget, or calibration would escape with a traceback
+        # after the engine processes had already started, leaking them.
         message = " ".join(str(exc).splitlines())
         print(f"info string Allfather startup failure: {message}", flush=True)
+        if shadow is not None:
+            try:
+                shadow.close()
+            except Exception:
+                pass
         if runtime is not None:
             runtime.close()
         return 2

@@ -1745,6 +1745,631 @@ class ShadowRunCoordinator:
                 return
             self._wait_slice(pending, interval)
 
+    def _execute_refinement(self, active: _ActiveRun) -> None:
+        settings = self.runtime.config.refinement
+        verification = active.verification
+        if settings is None or verification is None or active.cancelled or self._closed:
+            return
+        if active.anchor_completed.is_set() or verification.disposition != "completed":
+            return
+        if active.ledger is None:
+            active.run.note("REFINE skipped: completed root ledger is unavailable")
+            return
+
+        try:
+            plan = build_refinement_plan(
+                settings=settings,
+                verification=verification,
+            )
+        except RefinementError as exc:
+            active.run.note(f"REFINE plan rejected: {exc}")
+            return
+
+        source_root_snapshot = active.ledger.snapshot()
+        try:
+            prefix_ledger = PrefixShardLedger(
+                active.ledger.candidate_roots,
+                owners=plan.owners,
+                generation=active.generation,
+            )
+            root_partition = {
+                owner: tuple(active.run.owner_roots.get(owner, ()))
+                for owner in plan.owners
+            }
+            prefix_ledger.assign_root_partition(root_partition)
+            for owner in plan.owners:
+                owned = [
+                    item
+                    for item in prefix_ledger.frontier_for_owner(owner)
+                    if item["state"] == "leased"
+                ]
+                for item in owned:
+                    shard_id = str(item["id"])
+                    prefix_ledger.activate_shard(shard_id, owner=owner)
+                    prefix_ledger.seal_shard(shard_id, owner=owner)
+            initial_v2_snapshot = prefix_ledger.snapshot()
+        except PrefixShardLedgerError as exc:
+            active.run.note(f"REFINE v2 mirror rejected: {exc}")
+            return
+
+        refinement = RefinementRun(
+            plan=plan,
+            run_dir=active.run.run_dir,
+            ledger=prefix_ledger,
+            source_root_v1_snapshot=source_root_snapshot,
+            initial_v2_snapshot=initial_v2_snapshot,
+        )
+        active.refinement = refinement
+
+        if not plan.targets:
+            refinement.set_disposition(
+                "not_applicable",
+                "completed VERIFY final leaders were unanimous",
+            )
+            return
+
+        all_completed = True
+        for target in plan.targets:
+            if active.cancelled or self._closed or active.anchor_completed.is_set():
+                all_completed = False
+                refinement.set_disposition(
+                    "incomplete",
+                    "decision boundary or cancellation reached before all REFINE targets",
+                )
+                break
+
+            root_shard = next(
+                (
+                    item
+                    for item in prefix_ledger.frontier()
+                    if item["prefix"] == [target.root_move]
+                ),
+                None,
+            )
+            if root_shard is None:
+                all_completed = False
+                refinement.set_disposition(
+                    "incomplete",
+                    f"target root {target.root_move} is not on the v2 frontier",
+                )
+                break
+            source_shard_id = str(root_shard["id"])
+            if (
+                root_shard["state"] != "sealed"
+                or root_shard["owner"] != target.source_owner
+            ):
+                all_completed = False
+                refinement.set_disposition(
+                    "incomplete",
+                    f"target root {target.root_move} does not match completed EXPLORE ownership",
+                )
+                break
+
+            descendant_position = PositionRequest(
+                base_fen=active.context.position.base_fen,
+                moves=tuple(active.context.position.moves) + (target.root_move,),
+                variant=active.context.position.variant,
+            )
+            try:
+                children = self.runtime.legal_moves_at_shadow_position(
+                    instance=self.settings.oracle,
+                    position_command=descendant_position.command(),
+                    timeout=self.settings.oracle_timeout_s,
+                )
+            except ControllerRuntimeError as exc:
+                all_completed = False
+                refinement.set_disposition(
+                    "incomplete",
+                    f"child oracle failed for {target.root_move}: {exc}",
+                )
+                break
+
+            child_partition = partition_children(children, plan.owners)
+            if not children:
+                refinement.register_target(
+                    target=target,
+                    source_shard_id=source_shard_id,
+                    oracle_position_command=descendant_position.command(),
+                    oracle_children=children,
+                    child_partition=child_partition,
+                    child_shards={owner: () for owner in plan.owners},
+                )
+                refinement.set_target_disposition(
+                    target.target_id,
+                    "terminal",
+                    "exact child oracle returned an empty legal continuation set",
+                )
+                continue
+
+            try:
+                child_ids = prefix_ledger.split_shard(
+                    source_shard_id,
+                    children,
+                    owner=target.source_owner,
+                )
+                child_id_by_move = {
+                    str(prefix_ledger.get(shard_id)["prefix"][-1]): shard_id
+                    for shard_id in child_ids
+                }
+                child_shards = {
+                    owner: tuple(child_id_by_move[move] for move in child_partition[owner])
+                    for owner in plan.owners
+                }
+                for owner in plan.owners:
+                    shard_ids = child_shards[owner]
+                    if owner == target.source_owner or not shard_ids:
+                        continue
+                    prefix_ledger.transfer_shards(
+                        shard_ids,
+                        from_owner=target.source_owner,
+                        to_owner=owner,
+                    )
+            except PrefixShardLedgerError as exc:
+                all_completed = False
+                refinement.set_disposition(
+                    "incomplete",
+                    f"recursive split/transfer failed for {target.root_move}: {exc}",
+                )
+                break
+
+            record = refinement.register_target(
+                target=target,
+                source_shard_id=source_shard_id,
+                oracle_position_command=descendant_position.command(),
+                oracle_children=children,
+                child_partition=child_partition,
+                child_shards=child_shards,
+            )
+
+            prepared_instances: list[str] = []
+            setup_ok = True
+            for owner in plan.owners:
+                moves = child_partition[owner]
+                if not moves:
+                    continue
+                instance = plan.participants[owner]
+                spec = self.runtime.spec(instance)
+                stream_path = (
+                    refinement.refinement_dir
+                    / target.target_id
+                    / f"{instance}.jsonl"
+                )
+                opened, stream = self._within_prepare_budget(
+                    f"{active.run.run_id}-refine-{target.target_id}-{instance}-stream",
+                    discard=lambda late: self._release_late_stream(None, late),
+                    work=lambda spec=spec, instance=instance, stream_path=stream_path, descendant_position=descendant_position: TelemetryStreamWriter(
+                        instance=instance,
+                        family=spec.family,
+                        role=spec.role,
+                        path=stream_path,
+                        adapter_factory=self._adapter_factory(
+                            family=spec.family,
+                            instance=instance,
+                            position_id=descendant_position.position_id,
+                            variant=descendant_position.variant,
+                        ),
+                        track_events=True,
+                    ),
+                )
+                if not opened or stream is None:
+                    setup_ok = False
+                    refinement.set_target_disposition(
+                        target.target_id,
+                        "incomplete",
+                        f"REFINE telemetry stream setup failed for {instance}",
+                    )
+                    refinement.set_disposition(
+                        "incomplete",
+                        f"REFINE telemetry stream setup failed for {instance}",
+                    )
+                    break
+                refinement.register_stream(target.target_id, stream)
+
+            if setup_ok:
+                for owner in plan.owners:
+                    if not child_partition[owner]:
+                        continue
+                    instance = plan.participants[owner]
+                    if (
+                        active.cancelled
+                        or self._closed
+                        or active.anchor_completed.is_set()
+                        or not self.runtime.shadow_available(instance)
+                    ):
+                        setup_ok = False
+                        refinement.set_target_disposition(
+                            target.target_id,
+                            "incomplete",
+                            "decision boundary or shadow health changed during REFINE setup",
+                        )
+                        refinement.set_disposition(
+                            "incomplete",
+                            "REFINE setup lost its decision/health preconditions",
+                        )
+                        break
+                    try:
+                        self.runtime.set_shadow_position(
+                            instance, descendant_position.command()
+                        )
+                        prepared_instances.append(instance)
+                    except ControllerRuntimeError as exc:
+                        setup_ok = False
+                        refinement.set_target_disposition(
+                            target.target_id,
+                            "incomplete",
+                            f"could not position {instance} for REFINE: {exc}",
+                        )
+                        refinement.set_disposition(
+                            "incomplete",
+                            f"could not position {instance} for REFINE",
+                        )
+                        break
+
+            if not setup_ok:
+                self._restore_refinement_instances(
+                    active, refinement, target.target_id, prepared_instances
+                )
+                all_completed = False
+                break
+
+            dispatched_all = True
+            for owner in plan.owners:
+                if not child_partition[owner]:
+                    continue
+                if not self._dispatch_refinement_stage(
+                    active,
+                    target_id=target.target_id,
+                    owner=owner,
+                    descendant_position=descendant_position,
+                ):
+                    dispatched_all = False
+                    refinement.set_target_disposition(
+                        target.target_id,
+                        "incomplete",
+                        f"REFINE dispatch failed for {owner}",
+                    )
+                    refinement.set_disposition(
+                        "incomplete",
+                        f"REFINE dispatch failed for target {target.root_move}",
+                    )
+                    break
+
+            if not dispatched_all:
+                pending_instances = [
+                    stage.instance
+                    for stage in refinement.active_stages()
+                    if stage.target_id == target.target_id
+                ]
+                if pending_instances:
+                    self._stop_instances(list(dict.fromkeys(pending_instances)))
+
+            self._await_refinement_target(active, target.target_id)
+            restored = self._restore_refinement_instances(
+                active, refinement, target.target_id, prepared_instances
+            )
+
+            required_owners = {
+                owner for owner in plan.owners if child_partition[owner]
+            }
+            completed_owners = {
+                stage.owner
+                for stage in record.stages.values()
+                if stage.disposition == "completed"
+            }
+            if dispatched_all and restored and completed_owners == required_owners:
+                refinement.set_target_disposition(target.target_id, "completed")
+            else:
+                all_completed = False
+                if record.disposition == "running":
+                    refinement.set_target_disposition(
+                        target.target_id,
+                        "incomplete",
+                        "not all required REFINE stages completed and restored",
+                    )
+                refinement.set_disposition(
+                    "incomplete",
+                    "at least one REFINE target did not complete cleanly",
+                )
+                break
+
+        if all_completed and refinement.disposition == "running":
+            refinement.set_disposition("completed")
+
+    def _dispatch_refinement_stage(
+        self,
+        active: _ActiveRun,
+        *,
+        target_id: str,
+        owner: str,
+        descendant_position: PositionRequest,
+    ) -> bool:
+        refinement = active.refinement
+        settings = self.runtime.config.refinement
+        if refinement is None or settings is None:
+            return False
+        record = refinement.target_record(target_id)
+        if record is None:
+            return False
+        child_moves = record.child_partition.get(owner, ())
+        shard_ids = record.child_shards.get(owner, ())
+        if not child_moves or not shard_ids:
+            return False
+        instance = refinement.plan.participants[owner]
+        spec = self.runtime.spec(instance)
+        stream = refinement.stream(target_id, instance)
+        if stream is None:
+            return False
+        try:
+            dispatch = compile_descendant_region(
+                active.context.position,
+                parent_prefix=(record.target.root_move,),
+                child_moves=child_moves,
+                limit=dict(settings.dispatch_limit),
+            )
+        except SearchRequestError:
+            return False
+        if dispatch.position != descendant_position:
+            return False
+
+        generation = active.generation
+        search_id = (
+            f"{active.run.run_id}:refine:{target_id}:{instance}"
+        )
+
+        def on_info(token: int, line: str) -> None:
+            return None
+
+        def on_complete(token: int, line: str) -> None:
+            self._on_refinement_complete(
+                generation,
+                target_id,
+                owner,
+                token,
+                line,
+            )
+
+        with self._lock:
+            if (
+                active.cancelled
+                or self._closed
+                or active.anchor_completed.is_set()
+                or not self.runtime.shadow_available(instance)
+            ):
+                return False
+            try:
+                for shard_id in shard_ids:
+                    refinement.ledger.activate_shard(shard_id, owner=owner)
+            except PrefixShardLedgerError as exc:
+                refinement.note(
+                    f"could not activate REFINE shards for {owner}: {exc}"
+                )
+                return False
+
+            refinement.activate_stream(target_id, instance)
+            stream.begin_stage(
+                search_id=search_id,
+                position=descendant_position.telemetry_position(),
+                request=parse_go_request(dispatch.go_command),
+                controller={
+                    "execution_mode": self.runtime.config.telemetry_execution_mode,
+                    "phase": "REFINE",
+                    "instance_role": "shadow",
+                    "owner": owner,
+                    "decision_authority": False,
+                },
+                observed_ms=(time.monotonic() - active.started_monotonic) * 1000.0,
+            )
+            prefixes = tuple(
+                (record.target.root_move, move) for move in child_moves
+            )
+            stage = refinement.record_dispatch(
+                target_id=target_id,
+                owner=owner,
+                instance=instance,
+                family=spec.family,
+                search_id=search_id,
+                position_command=descendant_position.command(),
+                command=dispatch.go_command,
+                child_moves=child_moves,
+                shard_ids=shard_ids,
+                prefixes=prefixes,
+                dispatched_ms=(time.monotonic() - active.started_monotonic) * 1000.0,
+            )
+            dispatched = self.runtime.start_shadow_search(
+                instance,
+                dispatch.go_command,
+                token=generation,
+                on_info=on_info,
+                on_complete=on_complete,
+            )
+        if not dispatched:
+            refinement.record_completion(
+                stage,
+                completed_ms=(time.monotonic() - active.started_monotonic) * 1000.0,
+                disposition="failed",
+                failure="REFINE dispatch rejected; instance unavailable",
+            )
+            return False
+        return True
+
+    def _on_refinement_complete(
+        self,
+        generation: int,
+        target_id: str,
+        owner: str,
+        token: int,
+        line: str,
+    ) -> None:
+        with self._lock:
+            active = self._run
+            if active is None or active.generation != generation or token != generation:
+                return
+            refinement = active.refinement
+            stage = (
+                None
+                if refinement is None
+                else refinement.stage_for_target_owner(target_id, owner)
+            )
+            elapsed = (time.monotonic() - active.started_monotonic) * 1000.0
+        if refinement is None or stage is None:
+            return
+
+        tokens = line.split()
+        bestmove = (
+            tokens[1]
+            if line.startswith("bestmove ") and len(tokens) > 1
+            else None
+        )
+        allowed = set(stage.child_moves)
+        failure: str | None = None
+        if bestmove is not None and bestmove not in allowed:
+            failure = (
+                f"REFINE instance {stage.instance} answered {bestmove} outside "
+                f"its child region {list(stage.child_moves)}"
+            )
+
+        stream = refinement.stream(target_id, stage.instance)
+        if failure is None and stream is not None:
+            if not stream.drain_barrier(0.25):
+                failure = (
+                    f"REFINE telemetry for {stage.instance} did not drain before "
+                    "the completion audit"
+                )
+            elif stream.evidence_lossy:
+                failure = f"REFINE telemetry for {stage.instance} lost evidence"
+            elif stream.tracked_events_truncated:
+                failure = (
+                    f"REFINE live evidence for {stage.instance} exceeded the "
+                    "tracked-event limit before the completion audit"
+                )
+            else:
+                for event in stream.tracked_events():
+                    if event.get("event_type") != "candidate.update":
+                        continue
+                    candidate = event.get("candidate") or {}
+                    move = candidate.get("move")
+                    pv = candidate.get("pv") or []
+                    if move not in allowed or (pv and pv[0] not in allowed):
+                        failure = (
+                            f"REFINE telemetry for {stage.instance} escaped "
+                            "its assigned child region"
+                        )
+                        break
+
+        if failure is None and not active.cancelled:
+            try:
+                for shard_id in stage.shard_ids:
+                    refinement.ledger.seal_shard(shard_id, owner=owner)
+            except PrefixShardLedgerError as exc:
+                failure = f"REFINE shard sealing failed for {owner}: {exc}"
+
+        if failure is not None:
+            self.runtime.record_shadow_failure(
+                stage.instance, failure, generation=active.generation
+            )
+            refinement.record_completion(
+                stage,
+                completed_ms=elapsed,
+                disposition="failed",
+                bestmove=bestmove,
+                stop_reason="refine_region_escape_or_loss",
+                failure=failure,
+            )
+            refinement.set_target_disposition(target_id, "incomplete", failure)
+            refinement.set_disposition("incomplete", failure)
+            return
+
+        disposition = "stopped" if active.cancelled else "completed"
+        refinement.record_completion(
+            stage,
+            completed_ms=elapsed,
+            disposition=disposition,
+            bestmove=bestmove,
+            stop_reason=active.cancel_reason if active.cancelled else None,
+        )
+
+    def _await_refinement_target(
+        self,
+        active: _ActiveRun,
+        target_id: str,
+    ) -> None:
+        refinement = active.refinement
+        if refinement is None:
+            return
+        interval = 0.02
+        stage_budget_ms = float(self.settings.stage_timeout_s) * 1000.0
+
+        while True:
+            pending = [
+                stage
+                for stage in refinement.active_stages()
+                if stage.target_id == target_id
+            ]
+            if not pending:
+                return
+            elapsed_ms = (time.monotonic() - active.started_monotonic) * 1000.0
+            overrun = [
+                stage
+                for stage in pending
+                if elapsed_ms - stage.dispatched_ms > stage_budget_ms
+            ]
+            if overrun:
+                instances = list(dict.fromkeys(stage.instance for stage in pending))
+                self._stop_instances(instances)
+                deadline = time.monotonic() + self.settings.drain_timeout_s
+                for stage in pending:
+                    stage.done.wait(timeout=max(0.0, deadline - time.monotonic()))
+                for stage in pending:
+                    if stage.done.is_set():
+                        continue
+                    message = (
+                        f"REFINE instance {stage.instance} exceeded the stage "
+                        "budget and did not drain after stop"
+                    )
+                    self.runtime.record_shadow_failure(
+                        stage.instance, message, generation=active.generation
+                    )
+                    refinement.record_completion(
+                        stage,
+                        completed_ms=(time.monotonic() - active.started_monotonic) * 1000.0,
+                        disposition="failed",
+                        failure=message,
+                    )
+                    refinement.set_target_disposition(
+                        target_id, "incomplete", message
+                    )
+                refinement.set_disposition(
+                    "incomplete", "REFINE stage deadline exceeded"
+                )
+                return
+            self._wait_slice(pending, interval)
+
+    def _restore_refinement_instances(
+        self,
+        active: _ActiveRun,
+        refinement: RefinementRun,
+        target_id: str,
+        instances: list[str],
+    ) -> bool:
+        restored = True
+        for instance in dict.fromkeys(instances):
+            if not self.runtime.shadow_available(instance):
+                restored = False
+                continue
+            try:
+                self.runtime.restore_shadow_position(instance)
+            except ControllerRuntimeError as exc:
+                restored = False
+                message = (
+                    f"REFINE instance {instance} could not restore external position: {exc}"
+                )
+                refinement.note(message)
+                refinement.set_target_disposition(
+                    target_id, "incomplete", message
+                )
+                refinement.set_disposition("incomplete", message)
+        return restored
+
     def _dispatch_stage(self, active: _ActiveRun, state: _OwnerState, *, limit: dict[str, Any]) -> bool:
         if active.cancelled or self._closed:
             return False

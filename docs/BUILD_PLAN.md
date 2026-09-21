@@ -78,17 +78,21 @@ Route CPU/GPU/time budgets according to expected marginal decision value rather 
 
 Scope limit: the router allocates **shadow observation compute**. The unrestricted anchor remains the sole outward decision authority, so no routing decision can change the move. Extending routing to the decision itself requires evidence this milestone does not have.
 
-### M8 — Recursive shard splitting
+### M8 — Explicit common-support VERIFY execution
 
-Represent search regions as move-prefix shards that may be split, transferred, sealed, or retired atomically.
+Permit intentional independent re-search of the three clean EXPLORE nominees while leaving RootShardLedger ownership pairwise-disjoint. VERIFY v1 is deterministic shadow-mode instrumentation, stored in a separate raw artifact, and cannot affect the outward Stockfish anchor.
 
-### M9 — VERIFY / RELOCK
+### M9 — COMPARE / RELOCK derived analysis
 
-Permit intentional independent re-search of selected candidates. Track verification compute separately from exploration compute.
+Use the common-support VERIFY trajectories to derive cross-engine structural comparisons, EXPLORE-to-VERIFY preference changes, and a descriptive RELOCK state. Agreement is evidence, not a correctness certificate.
 
-### M10 — CPU/GPU resource scheduler
+### M10 — Recursive shard splitting
 
-Turn external resource limits into controller-wide CPU/GPU/time allocations without multiplying a GUI request independently across all three engines.
+Represent search regions as move-prefix shards that may be split, transferred, sealed, or retired atomically after common-support evidence tells us which disagreements are worth localizing.
+
+### M11 — Active VERIFY + CPU/GPU resource scheduler
+
+Charge EXPLORE, VERIFY, controller overhead, CPU/GPU occupancy and time through one controller-wide envelope. VERIFY remains forbidden in active mode until this integration exists.
 
 ### M11 — Cross-feed
 
@@ -115,10 +119,11 @@ Run fixed-node, fixed-time, self-play, SPRT-style, and external-engine compariso
 9. **PR #9 — Hybrid UCI shell**: one external UCI endpoint plus three backend process adapters. **Merged.**
 10. **PR #10 — Root ShardLedger**: pairwise-disjoint exploration allocation. **Merged.**
 11. **PR #11-#13 — Immediate controller stack** (landed together): shadow execution and replay, residual/counterfactual calibration, and active adaptive budget routing. **Current.** The three were built in one PR because the later two are meaningless without the evidence the first produces, and because splitting them would have frozen an interface before its consumer existed. They remain three separate layers in the code, with separate artifacts, separate documents, and separate test suites.
-14. **PR #14 — Recursive shard splitting**.
-15. **PR #15 — Explicit VERIFY / RELOCK**.
-16. **PR #16 — CPU/GPU resource scheduler**.
-17. **PR #17+ — Cross-feed, native integration, and strength optimization**, each promoted only after isolated ablation.
+14. **PR #14 — Explicit common-support VERIFY execution**.
+15. **PR #15 — COMPARE / RELOCK derived analysis**.
+16. **PR #16 — Recursive shard splitting**.
+17. **PR #17 — Active VERIFY + CPU/GPU resource scheduler**.
+18. **PR #18+ — Cross-feed, native integration, and strength optimization**, each promoted only after isolated ablation.
 
 ## Foundation-hardening acceptance gate
 

@@ -162,8 +162,17 @@ class TelemetryStreamWriter:
         position: dict[str, Any],
         request: dict[str, Any],
         controller: dict[str, Any] | None,
+        observed_ms: float = 0.0,
     ) -> None:
-        self._enqueue(("begin", search_id, position, request, controller))
+        """Open a search on this stream.
+
+        `observed_ms` is this stage's run-relative dispatch time. Defaulting it
+        to zero made every `search.started` claim the search began at run start,
+        even for an extension dispatched seconds later, while its candidate and
+        completion events carried the real controller clock -- an internally
+        inconsistent timeline that no stage-duration audit could trust.
+        """
+        self._enqueue(("begin", search_id, position, request, controller, observed_ms))
 
     def submit(self, line: str, observed_ms: float) -> None:
         self._enqueue(("line", line, observed_ms))
@@ -172,14 +181,21 @@ class TelemetryStreamWriter:
         with self._lock:
             if self._closed:
                 return
+            # Count the item BEFORE publishing it. `put_nowait` makes the item
+            # visible to the writer thread immediately, so incrementing
+            # afterwards leaves a window in which the item is queued (or even
+            # already applied) while `pending_events()` computes zero -- and a
+            # routing checkpoint in that window would read "drained" with a
+            # line still in flight. Counting first can only over-report, which
+            # costs a conservative denial rather than an unsound stop.
+            self._enqueued += 1
         try:
             self._queue.put_nowait(item)
         except queue.Full:
             with self._lock:
+                self._enqueued -= 1
                 self._dropped += 1
             return
-        with self._lock:
-            self._enqueued += 1
         size = self._queue.qsize()
         if size > self._queued_peak:
             self._queued_peak = size
@@ -208,9 +224,14 @@ class TelemetryStreamWriter:
     def _apply(self, item: Any) -> None:
         kind = item[0]
         if kind == "begin":
-            _, search_id, position, request, controller = item
+            _, search_id, position, request, controller, observed_ms = item
             adapter = self._adapter_factory(search_id)
-            event = adapter.start(position=position, request=request, controller=controller)
+            event = adapter.start(
+                position=position,
+                request=request,
+                controller=controller,
+                observed_ms=observed_ms,
+            )
             self._adapter = adapter
             with self._lock:
                 self._search_ids.append(search_id)
@@ -266,6 +287,30 @@ class TelemetryStreamWriter:
         """Lines received from the engine but not yet translated to disk."""
         with self._lock:
             return max(0, self._enqueued - self._applied)
+
+    @property
+    def evidence_lossy(self) -> bool:
+        """True once this stream has lost evidence it can never recover.
+
+        A dropped queue entry or a failed adapter translation removes an
+        observation permanently. Once the queue has drained, `pending_events()`
+        is zero again and the backlog gate passes, so without this a lost leader
+        flip is indistinguishable from a stable search -- the one direction that
+        authorizes suppression. The finalized manifest records the same thing as
+        `contract_validatable: false`, but only after the run is over, which is
+        far too late for the decision that used it.
+        """
+        with self._lock:
+            return self._dropped > 0 or bool(self._errors)
+
+    def live_evidence_faults(self) -> dict[str, Any]:
+        """What this stream has lost, for the decision certificate."""
+        with self._lock:
+            return {
+                "dropped_events": self._dropped,
+                "adapter_errors": len(self._errors),
+                "view_truncated": self._events_truncated,
+            }
 
     def drain_barrier(self, timeout: float = 0.025) -> bool:
         """Best-effort wait for the writer thread to catch up.

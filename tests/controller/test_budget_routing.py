@@ -693,6 +693,72 @@ class ReviewRegressionRoundThreeTests(unittest.TestCase):
         self.assertNotIn("total", totals)
 
 
+class ReviewRegressionRoundFourTests(unittest.TestCase):
+    """Round-four findings on the live gate, the ledger, and settings."""
+
+    # -- Q2: lossy telemetry was invisible to the live gate -----------------
+
+    def test_a_lossy_stream_may_not_authorize_a_stop(self):
+        """A dropped event never comes back, and a lost flip reads as stability."""
+        router = ConservativeRouter(
+            envelope=envelope(),
+            policy=policy(),
+            calibration=confident_model(risk=0.0001, support=900),
+        )
+        router.on_run_start(_FakeContext())
+        settled = observation(active=True, leader_flips=0, stable_run_fraction=1.0)
+        allowed = router._authorize(propose(settled, router.policy), settled, 10.0)
+
+        lost = observation(
+            active=True,
+            leader_flips=0,
+            stable_run_fraction=1.0,
+            observation_lossy=True,
+        )
+        denied = router._authorize(propose(lost, router.policy), lost, 10.0)
+
+        self.assertTrue(allowed.granted, "the fixture must otherwise authorize")
+        self.assertFalse(denied.granted)
+        self.assertIn("observation_intact", [g.name for g in denied.gates if not g.passed])
+
+    def test_the_lossy_flag_is_recorded_on_the_decision(self):
+        self.assertTrue(observation(observation_lossy=True).as_dict()["observation_lossy"])
+        self.assertFalse(observation().as_dict()["observation_lossy"])
+
+    # -- Q5: an extension the coordinator could not run leaked its reservation
+
+    def test_an_undispatched_extension_returns_its_reservation(self):
+        router = ConservativeRouter(envelope=envelope(cpu_ms=5000), policy=policy())
+        router.on_run_start(_FakeContext())
+        before = router.ledger.available_cpu_ms()
+        router._reservations.setdefault("stockfish", []).append(
+            router.ledger.reserve("shadow:stockfish", cpu_ms=400.0)
+        )
+        self.assertLess(router.ledger.available_cpu_ms(), before)
+
+        router.release_undispatched("stockfish")
+        self.assertEqual(router.ledger.available_cpu_ms(), before)
+        self.assertNotIn("stockfish", router._reservations)
+
+    def test_releasing_an_owner_with_no_reservation_is_harmless(self):
+        router = ConservativeRouter(envelope=envelope(), policy=policy())
+        router.on_run_start(_FakeContext())
+        before = router.ledger.available_cpu_ms()
+        router.release_undispatched("lc0")
+        self.assertEqual(router.ledger.available_cpu_ms(), before)
+
+    def test_only_the_latest_extension_is_released(self):
+        """A rollback must not return an earlier stage's committed capacity."""
+        router = ConservativeRouter(envelope=envelope(cpu_ms=5000), policy=policy())
+        router.on_run_start(_FakeContext())
+        first = router.ledger.reserve("shadow:stockfish", cpu_ms=400.0)
+        second = router.ledger.reserve("shadow:stockfish", cpu_ms=400.0)
+        router._reservations["stockfish"] = [first, second]
+        router.release_undispatched("stockfish")
+        self.assertEqual(router._reservations["stockfish"], [first])
+
+
+
 class RouterConfigTests(unittest.TestCase):
     def test_active_config_builds_a_fail_closed_router(self):
         path = ROOT / "config" / "allfather.active.validation.json"
@@ -1022,9 +1088,13 @@ class _FakeContext:
         return False
 
     pending: int = 0
+    lossy: bool = False
 
     def owner_events_pending(self, owner: str, *, barrier_s: float = 0.025) -> int:
         return self.pending
+
+    def owner_evidence_lossy(self, owner: str) -> bool:
+        return self.lossy
 
 
 if __name__ == "__main__":

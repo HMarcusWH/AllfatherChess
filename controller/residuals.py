@@ -208,6 +208,8 @@ def extract_features(
     """Deterministically derive the residual geometry of one replay bundle."""
     checkpoints = bundle.checkpoints(fractions)
     anchor = bundle.anchor
+    # Whole-run view, used for run-level summaries. Per-checkpoint views are
+    # selected inside the checkpoint loop below.
     shadows = bundle.shadows()
 
     # Keyed by search id: active routing can dispatch several stages to one
@@ -254,6 +256,11 @@ def extract_features(
 
     checkpoint_rows: list[CheckpointFeatures] = []
     for point, fraction in zip(checkpoints, fractions):
+        # The stage each worker was actually on at this time, not the stage it
+        # happened to finish the run on. A later stage has no observations at an
+        # earlier checkpoint, so reusing the run's final selection reported the
+        # worker as silent at a time when it had already named a leader.
+        shadows = bundle.shadows_at(point)
         per_owner: dict[str, dict[str, Any]] = {}
         for trajectory in shadows:
             owner = trajectory.owner or trajectory.family
@@ -411,6 +418,7 @@ def build_derived_artifact(
 
     sources: list[dict[str, Any]] = []
     runs: list[dict[str, Any]] = []
+    seen_run_ids: dict[str, str] = {}
     for run_dir in sorted(Path(item) for item in run_dirs):
         # Provenance is only meaningful if the bytes still match the manifest
         # the provenance points at. Extracting first and recording the declared
@@ -422,6 +430,18 @@ def build_derived_artifact(
                 f"bundle integrity failed: {problems}"
             )
         bundle = load_bundle(run_dir)
+        run_id = str(bundle.manifest.get("run_id") or run_dir.name)
+        if run_id in seen_run_ids:
+            # A bundle copied under a second directory name carries the same
+            # run_id and contributes identical checkpoint rows. Support is the
+            # quantity the suppression floor is measured in, so letting a copy
+            # count twice would let a bucket cross `stop_min_support` on one
+            # run's evidence.
+            raise FeatureExtractionError(
+                f"refusing to derive features twice from run_id {run_id!r}: "
+                f"{seen_run_ids[run_id]} and {run_dir.name} are the same run"
+            )
+        seen_run_ids[run_id] = run_dir.name
         sources.append(_source_record(run_dir, bundle))
         runs.append(
             extract_features(

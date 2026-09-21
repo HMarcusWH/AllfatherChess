@@ -96,6 +96,7 @@ calibration_present    AND calibration_validated
                        AND observed_work >= min_observation_nodes
                        AND observation_current
                        AND observation_drained
+                       AND observation_intact
 ```
 
 `observation_current` fails when the live event view has stopped tracking the
@@ -118,6 +119,19 @@ bookkeeping, which is the worse failure. Failing closed on the residual is the
 cheaper half of that trade. Measured over 153 contract decisions the backlog was
 zero every time, so on this hardware at this event rate the guard never fires --
 it is correct and, so far, untested by real data.
+
+The watermark is reserved **before** the item is published to the writer's
+queue. Incrementing it afterwards left a window in which the line was already
+queued -- or already applied, making the subtraction negative and clamping to
+zero -- while a checkpoint read "drained". Counting first can only over-report,
+which costs a conservative denial rather than an unsound stop.
+
+`observation_intact` fails when a stream has permanently lost evidence: a
+dropped queue entry or a failed adapter translation. Unlike a backlog this never
+clears, and it is invisible to the backlog gate precisely because the queue
+drains afterwards. The finalized manifest records the same thing as
+`contract_validatable: false`, but only once the run is over, which is far too
+late for the decision that used it.
 
 ### Thresholds are validated, not just parsed
 
@@ -149,6 +163,15 @@ be checked rather than trusted.
 There is still deliberately no scalar total across semantics: summing alpha-beta
 nodes with LC0 visit-derived counts would assert an equivalence nothing here has
 established.
+
+### A reservation the coordinator cannot spend is returned
+
+The router reserves an extension's compute before handing the command to the
+coordinator. When the coordinator cannot run it -- the anchor completed in the
+intervening race, the worker is no longer eligible, the backend refused -- the
+reservation covers a stage that will never exist. Holding it denies capacity to
+real work and leaves finalization to settle spend that never happened, so the
+coordinator rolls it back through `release_undispatched`.
 
 `EXTEND` / `ABSTAIN_BUY_COMPUTE` require:
 

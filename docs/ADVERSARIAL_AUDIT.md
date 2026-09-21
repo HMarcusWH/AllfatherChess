@@ -389,6 +389,92 @@ content-hash directory -- neither the newest nor the one that was asked for. An
 explicit id is now resolved or the run fails, and with no id the most recent
 artifact is used *and named*.
 
+## Twelve more findings from a fourth review
+
+A fourth review found twelve further defects. **Two of them were holes in the
+round-three fix**, which is worth stating plainly rather than filing under
+"more findings".
+
+**The observational layer could take down the outward search.** The telemetry
+observer ran before the authoritative callback, so an exception in it skipped
+`on_complete` entirely. For the anchor's `bestmove` that left the frontend in
+SEARCHING forever: the engine simply never answered. This is the exact failure
+the authority/observation split exists to prevent, and it was reachable from any
+bug in the replay writer. The observer is now wrapped, the authority callback
+always runs, and the failure is recorded as evidence. Recording it is itself
+guarded, because `record_shadow_failure` raises for the anchor -- which would
+have reintroduced the same bug one layer down.
+
+**The round-three backlog guard had a race, and a blind spot.** The watermark
+was incremented *after* `put_nowait` published the item, so a checkpoint in that
+window read `pending_events() == 0` with a line already queued -- and if the
+writer had already applied it, the subtraction went negative and clamped to
+zero. The counter is now reserved before publication and rolled back on a
+rejected enqueue, so it can only over-report, which costs a conservative denial
+rather than an unsound stop. Separately, the live gates saw only the 50,000-event
+tracking cap: a dropped queue entry or a failed adapter translation drained away,
+after which backlog was zero and both gates passed. Round two had already
+established that a dropped leader flip reads as stability -- that reasoning had
+been applied offline only. There is now an `observation_intact` gate, and unlike
+a backlog it never clears.
+
+**A trajectory ended at its last `info` line, not at its completion.** `span_ms`
+discarded the `search.complete` timestamp, so every horizon was measured against
+a short span and a completed search that emitted no candidate update at all was
+reported as zero-length. Two such searches exist in this repository's own sweep.
+Relatedly, `search.started` was always stamped `observed_ms=0`, so an extension
+dispatched seconds into a run claimed it began at run start while its own
+candidate and completion events carried the real clock.
+
+**Per-checkpoint views used the run's final stage.** `shadows()` selected the
+last stage per instance once for the whole run and reused it at every
+checkpoint, so at a checkpoint before an extension was dispatched the selected
+stage had no observations and the worker looked silent at a time when it had in
+fact reported a leader. There is now `shadows_at(t)`, and the whole-run view is
+defined in terms of it.
+
+**The served model was not the model that was measured.** Bucket risks were
+rounded to six decimals on write while the evaluation was computed from the
+unrounded values, and the difference is in the permissive direction: 1/21
+serializes as `0.047619`, which passes a threshold of `0.047619` that the fitted
+`0.0476190476...` denies. Full precision is now persisted.
+
+**Support could be inflated by copying.** A bundle copied under a second
+directory name carries the same `run_id` and contributed identical checkpoint
+rows, so a bucket could cross `stop_min_support` on one run's evidence.
+Duplicate run ids are refused before fitting.
+
+**Three lifecycle and config gaps.** An extension the coordinator could not
+dispatch left the router's reservation open, denying capacity to real work and
+leaving finalization to settle spend that never happened. `drain_timeout_s * 4`
+was used as a hard cap on every normally progressing shadow stage, turning a
+stop-wait bound into an undocumented runtime limit; stages now have their own
+declared `stage_timeout_s`. And configuration and binary hashes were captured
+when the shadow coordinator was constructed -- after every process had already
+started -- so they are now taken at config load, before anything is launched.
+A config that enables `UCI_Chess960` as a startup option is refused outright
+rather than leaving the engines searching FRC while every replay recorded
+`variant: standard`.
+
+### What the span fix cost, and why that cost was not paid down either
+
+The correction is small in magnitude on this evidence -- a median span extension
+of 0.1 ms -- but it moved the numbers, and not in the flattering direction. The
+36-run sweep now yields 350 labelled rows and 140 training rows (was 360 and
+150), and critically `lc0|n3|s0|f1` fell from support 28 to **24**, dropping
+below `stop_min_support = 25`. Exactly one bucket is now servable, the
+held-out in-domain rate is **0.00**, and the fitter prints that the model is
+out-of-domain everywhere.
+
+The inverted direction survived unchanged: never-flipped 0.219 against
+just-flipped 0.038. So the round-two conclusion stands, on slightly worse
+evidence.
+
+The support floor was not lowered. A model that is out-of-domain on its entire
+held-out split is a model that should authorize nothing, and making it authorize
+something by moving the number it is measured against would be the precise
+failure this audit exists to catch.
+
 ## Residual concerns worth carrying forward
 
 1. **Fast searches collect nothing.** With `on_anchor_complete: drain`, a very
@@ -427,3 +513,15 @@ artifact is used *and named*.
     worker thread until the controller shuts down. There is deliberately no
     arbitrary timeout, because inventing one is what produced the defect it
     replaced.
+11. **The calibration is now out-of-domain on its own held-out split.** One
+    bucket clears the support floor and no held-out row lands in it. The
+    pipeline is working and the model is honest about knowing nothing; that is
+    not the same as the model being useful. Closing this needs more evidence,
+    not a lower floor.
+12. **`stage_timeout_s` is a new declared constant with no measurement behind
+    it.** It replaces a worse constant. A stage that legitimately needs longer
+    than it will still be cut off, and nothing here establishes the right value.
+13. **Observer failures are recorded but not surfaced in the manifest.** They
+    live on the runtime and in shadow health; a run whose anchor stream was
+    damaged by an observer exception is not called out anywhere a reader would
+    look first.

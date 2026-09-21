@@ -211,6 +211,13 @@ class RunContext:
             return False
         return state.stream.tracked_events_truncated
 
+    def owner_evidence_lossy(self, owner: str) -> bool:
+        """True when this worker's stream has already lost evidence."""
+        state = self._coordinator._owner_state(self.generation, owner)
+        if state is None or state.stream is None:
+            return False
+        return state.stream.evidence_lossy
+
     def owner_events_pending(self, owner: str, *, barrier_s: float = 0.025) -> int:
         """Lines received from this worker but not yet translated to disk.
 
@@ -283,11 +290,18 @@ class ShadowRunCoordinator:
         self._lock = threading.RLock()
         self._run: _ActiveRun | None = None
         self._closed = False
-        self._config_sha = self._hash_config(runtime.config.path)
-        # Engine binaries are hashed exactly once, at construction. Hashing them
-        # per run would add hundreds of milliseconds to `prepare_run`, which
-        # runs synchronously before the outward anchor search starts.
-        self._engine_identity = self._build_engine_identities()
+        # Identities are taken from the runtime, which captured them when the
+        # configuration was loaded -- before any engine process was started, so
+        # they describe the bytes the running processes actually came from.
+        # They are also hashed exactly once: hashing per run would add hundreds
+        # of milliseconds to `prepare_run`, which runs synchronously before the
+        # outward anchor search starts.
+        self._config_sha = getattr(runtime, "config_sha256", "") or self._hash_config(
+            runtime.config.path
+        )
+        self._engine_identity = getattr(runtime, "engine_identity", None) or (
+            self._build_engine_identities()
+        )
         self._history: list[Path] = []
         runtime.set_instance_observer(self._observe_line)
         runtime.set_shadow_exit_handler(self._on_shadow_exit)
@@ -451,6 +465,7 @@ class ShadowRunCoordinator:
                 "instance_role": "anchor",
                 "decision_authority": True,
             },
+            observed_ms=(time.monotonic() - started) * 1000.0,
         )
         anchor_stage = run.record_dispatch(
             instance=anchor_name,
@@ -1002,6 +1017,7 @@ class ShadowRunCoordinator:
                     "owner": state.owner,
                     "decision_authority": False,
                 },
+                observed_ms=(time.monotonic() - active.started_monotonic) * 1000.0,
             )
             elapsed = (time.monotonic() - active.started_monotonic) * 1000.0
             stage = run.record_dispatch(
@@ -1072,7 +1088,12 @@ class ShadowRunCoordinator:
         interval = 0.02
         if self.router is not None:
             interval = max(0.005, float(self.router.checkpoint_interval_s))
-        deadline = time.monotonic() + max(1.0, self.settings.drain_timeout_s * 4)
+        # A normally progressing node-limited stage is not draining. Bounding it
+        # by `drain_timeout_s * 4` turned a stop-wait bound into an undocumented
+        # runtime cap that cancelled valid stages and recorded them as
+        # `drain_deadline`. The safety net stays -- a genuinely stuck worker
+        # still has to be cut loose -- but it is its own declared setting.
+        deadline = time.monotonic() + max(1.0, self.settings.stage_timeout_s)
         while True:
             pending = [state for state in active.owners.values() if state.dispatched and not state.done.is_set()]
             if not pending:
@@ -1092,6 +1113,21 @@ class ShadowRunCoordinator:
                 state.done.wait(timeout=interval)
             if self.router is not None and not active.cancelled:
                 self._router_checkpoint(active)
+
+    def _release_undispatched(self, active: _ActiveRun, owner: str) -> None:
+        """Return the reservation for an extension that was never dispatched."""
+        if self.router is None:
+            return
+        release = getattr(self.router, "release_undispatched", None)
+        if release is None:  # pragma: no cover - defensive against older routers
+            return
+        try:
+            release(owner)
+        except Exception as exc:  # pragma: no cover - router isolation
+            active.run.note(
+                f"router could not release the undispatched extension for {owner}: "
+                f"{type(exc).__name__}: {exc}"
+            )
 
     def _router_checkpoint(self, active: _ActiveRun) -> bool:
         """Apply authorized router commands. Returns True if new work was dispatched."""
@@ -1115,8 +1151,19 @@ class ShadowRunCoordinator:
                     except ControllerRuntimeError:  # pragma: no cover
                         pass
             elif command.action == "extend":
+                dispatched = False
                 if state.done.is_set() and not state.failed and not state.stopped_by_policy:
                     limit = command.extend_limit or dict(self.settings.dispatch_limit)
-                    if self._dispatch_stage(active, state, limit=limit):
-                        dispatched_any = True
+                    dispatched = self._dispatch_stage(active, state, limit=limit)
+                if dispatched:
+                    dispatched_any = True
+                else:
+                    # The router already reserved this extension's compute. If
+                    # the coordinator cannot run it -- the anchor completed in
+                    # the intervening race, the worker is no longer eligible,
+                    # the backend refused -- that reservation is for a stage
+                    # that will never exist. Leaving it open denies capacity to
+                    # real work and finalization later settles it as phantom
+                    # spend in route.json.
+                    self._release_undispatched(active, command.owner)
         return dispatched_any

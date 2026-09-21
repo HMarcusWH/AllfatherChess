@@ -82,6 +82,14 @@ Enforced by `tests/controller/*`, `scripts/shadow-execution-contract.py`, and
   file cannot delete a gate by making it vacuously true.
 - The legal-root oracle must be an observational `shadow` instance, so its
   failures stay evidence and can never reach outward authority.
+- A telemetry-observer exception cannot withhold the outward answer: the
+  authority callback runs whether or not observation succeeded, and the failure
+  is recorded as evidence rather than raised.
+- A stream that has dropped events or failed adapter translation may not
+  authorize suppression for the rest of the run.
+- A configuration may not start the engines in Chess960: the variant is the
+  GUI's to set, and a startup option would leave every replay recording a
+  variant the engines were not searching.
 - The authority stream stays open until the anchor answers, the anchor dies, or
   the controller closes. No shadow-side timeout can close it early.
 - A denied stop degrades to continued observation, never to an improvised
@@ -150,21 +158,24 @@ Deterministic calculations from the measured data, versioned as
 
   | bucket | meaning | support | fitted risk |
   | --- | --- | ---: | ---: |
-  | `lc0\|n3\|s3\|f0` | has never flipped its leader | 32 | **0.265** |
-  | `lc0\|n3\|s0\|f1` | flipped recently, current run < 25% of history | 28 | **0.033** |
+  | `lc0\|n3\|s3\|f0` | has never flipped its leader | 30 | **0.219** |
+  | `lc0\|n3\|s0\|f1` | flipped recently, current run < 25% of history | 24 | **0.038** |
 
   A worker that has never flipped is measured as ~8x *more* likely to flip
   within the next horizon than one that just flipped. The v2 entry that stood
   here claimed the opposite ("risk falls from 0.082 in the least-settled bucket
   to 0.011 in the most-settled"); that reading was an artifact of pooling anchor
   and cross-family rows into shared buckets, and it does not survive scoping.
-- **Consequence: zero authorized stops is structural here, not a near miss.**
-  Each servable bucket fails exactly one of the two remaining gates —
-  `s0|f1` clears the risk gate (0.033 <= 0.05) and fails
-  `stop_min_stability_fraction = 0.6`; `s3|f0` clears the stability gate and
-  fails the risk gate (0.265 > 0.05). Under this evidence the conjunction
-  cannot be satisfied by any well-supported bucket. The thresholds were **not**
-  moved to produce stops.
+  The ordering survived the round-four span correction unchanged; only the
+  magnitudes moved.
+- **Consequence: zero authorized stops is structural here, and round four made
+  it more so.** `s0|f1` now has support 24 and no longer clears
+  `stop_min_support = 25` at all, so exactly one bucket is servable: `s3|f0`,
+  which clears the stability gate and fails the risk gate (0.219 > 0.05). There
+  is no longer a well-supported bucket that could satisfy the conjunction even
+  in principle. The support floor was **not** lowered and neither threshold was
+  moved; doing either would manufacture stops out of a model that is
+  out-of-domain on its entire held-out split.
 - The reliability table agrees on the held-out rows where it has counts, and the
   model under-predicts slightly in its largest buckets; that is left uncorrected.
 

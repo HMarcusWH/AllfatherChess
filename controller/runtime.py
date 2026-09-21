@@ -8,6 +8,7 @@ residual computation, and no replay analysis.
 from __future__ import annotations
 
 import glob
+import hashlib
 import json
 import re
 import threading
@@ -82,6 +83,11 @@ class ShadowSettings:
     lc0_score_type: str
     oracle_timeout_s: float
     drain_timeout_s: float
+    #: Hard cap on one shadow stage that is progressing normally. Distinct from
+    #: `drain_timeout_s`, which bounds waiting for a worker to stop AFTER it has
+    #: been asked to. Using the drain bound for both imposed an undocumented
+    #: runtime limit on every node-limited stage.
+    stage_timeout_s: float
     on_anchor_complete: str
 
     def instance(self, owner: str) -> str:
@@ -151,6 +157,18 @@ def _resolve_binary(root: Path, raw: dict[str, object], name: str) -> Path:
     raise RuntimeError(f"backend {name}: binary not found: {direct}")
 
 
+def _hash_file(path: Path) -> str | None:
+    """sha256 of a file, or None when it cannot be read."""
+    try:
+        digest = hashlib.sha256()
+        with Path(path).open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1 << 20), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
+    except OSError:  # pragma: no cover - identity is best effort
+        return None
+
+
 def _build_spec(
     *,
     root: Path,
@@ -166,6 +184,16 @@ def _build_spec(
     if not isinstance(args_value, list) or not all(isinstance(item, str) for item in args_value):
         raise RuntimeError(f"backend {name}: args must be an array of strings")
     options = _require_object(raw.get("options", {}), f"backend {name}.options")
+    if options.get("UCI_Chess960") is True:
+        # The controller's shared variant state starts as standard chess and is
+        # only ever changed by the GUI's `setoption name UCI_Chess960`. Starting
+        # a process in Chess960 would leave it searching FRC while every replay
+        # recorded `variant: standard` and decoded castling moves the other way.
+        # Refuse it rather than record a position the engines are not searching.
+        raise RuntimeError(
+            f"backend {name}: UCI_Chess960 may not be enabled as a startup option; "
+            "the variant is owned by the GUI via 'setoption name UCI_Chess960'"
+        )
     return BackendSpec(
         name=name,
         family=family,
@@ -359,6 +387,9 @@ def _load_shadow_settings(
         lc0_score_type=score_type,
         oracle_timeout_s=_require_positive_number(raw.get("oracle_timeout_s", 10.0), "shadow.oracle_timeout_s"),
         drain_timeout_s=_require_positive_number(raw.get("drain_timeout_s", 5.0), "shadow.drain_timeout_s"),
+        stage_timeout_s=_require_positive_number(
+            raw.get("stage_timeout_s", 120.0), "shadow.stage_timeout_s"
+        ),
         on_anchor_complete=str(on_anchor_complete),
     )
 
@@ -457,7 +488,34 @@ class BackendManager:
         }
         self._shadow_exit_handler: Callable[[str, int | None, int | None], None] | None = None
         self._observer: Callable[[str, int, str, float], None] | None = None
+        #: Observer exceptions, kept as evidence. An observer failure costs
+        #: replay evidence, never the outward search, so it is recorded here
+        #: rather than raised.
+        self._observer_failures: list[str] = []
+
+        # Provenance is captured here, before `start()` launches anything. It
+        # used to be computed when the shadow coordinator was constructed --
+        # after every process was already running -- so a config or binary
+        # replaced during that window would be recorded in the manifest even
+        # though the running controller and processes came from the old bytes.
+        self.config_sha256: str = _hash_file(config.path) or ""
+        self.engine_identity: dict[str, Any] = {
+            name: {
+                "engine": spec.family,
+                "role": spec.role,
+                "binary": str(spec.binary),
+                "binary_sha256": _hash_file(spec.binary),
+                "args": list(spec.args),
+                "options": dict(spec.options),
+            }
+            for name, spec in sorted(config.backends.items())
+        }
         self._position_command: str | None = None
+        # The GUI owns the variant, via `setoption name UCI_Chess960`. A config
+        # that starts the engines in Chess960 would leave them searching FRC
+        # while this controller parsed every position as standard chess and
+        # recorded the wrong variant in every replay, so such a config is
+        # refused at load rather than silently disagreed with.
         self._chess960 = False
 
         # Deterministic startup/shutdown ordering: the outward anchor starts
@@ -582,6 +640,11 @@ class BackendManager:
                 return False
             process = self.backends.get(instance)
             return process is not None and process.alive
+
+    def observer_failures(self) -> tuple[str, ...]:
+        """Telemetry-observer exceptions recorded so far, newest last."""
+        with self._lock:
+            return tuple(self._observer_failures)
 
     def record_shadow_failure(self, instance: str, message: str, *, generation: int | None = None) -> None:
         with self._lock:
@@ -832,18 +895,42 @@ class BackendManager:
         on_info: Callable[[int, str], None],
         on_complete: Callable[[int, str], None],
     ) -> tuple[Callable[[int, str], None], Callable[[int, str], None]]:
-        def _info(token: int, line: str) -> None:
+        def _observe(token: int, line: str) -> None:
+            """Run the telemetry observer without letting it reach authority.
+
+            An observer exception must never preempt the authoritative callback.
+            It did: `observer(...)` raised, `on_complete` was skipped, and for
+            the anchor's `bestmove` the frontend stayed in SEARCHING forever --
+            observational machinery taking down the outward search, which is
+            exactly what the authority/observation split exists to prevent.
+            """
             with self._lock:
                 observer = self._observer
-            if observer is not None:
+            if observer is None:
+                return
+            try:
                 observer(instance, token, line, time.monotonic())
+            except Exception as exc:  # observation is never authoritative
+                message = f"telemetry observer failed: {type(exc).__name__}: {exc}"
+                try:
+                    self.record_shadow_failure(instance, message)
+                except Exception:
+                    # The anchor has no observational health record, and
+                    # `record_shadow_failure` raises for it. Losing the
+                    # authority stream's replay evidence is real and is
+                    # recorded below, but it can never withhold the
+                    # outward answer.
+                    pass
+                with self._lock:
+                    if len(self._observer_failures) < 64:
+                        self._observer_failures.append(f"{instance}: {message}")
+
+        def _info(token: int, line: str) -> None:
+            _observe(token, line)
             on_info(token, line)
 
         def _complete(token: int, line: str) -> None:
-            with self._lock:
-                observer = self._observer
-            if observer is not None:
-                observer(instance, token, line, time.monotonic())
+            _observe(token, line)
             on_complete(token, line)
 
         return _info, _complete

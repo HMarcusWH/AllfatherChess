@@ -94,6 +94,10 @@ class OwnerObservation:
     #: decision saw are behind what the engine had said, and the offline audit
     #: will show the difference.
     observation_backlog: int = 0
+    #: True when this worker's stream has permanently lost evidence (a dropped
+    #: queue entry or a failed adapter translation). Unlike a backlog this never
+    #: clears, and a lost leader flip reads as stability.
+    observation_lossy: bool = False
 
     def calibration_features(self) -> dict[str, float]:
         """Exactly the shared past-only feature set the model was fitted on.
@@ -124,6 +128,7 @@ class OwnerObservation:
             "work_semantics": self.work_semantics,
             "observation_truncated": self.observation_truncated,
             "observation_backlog": self.observation_backlog,
+            "observation_lossy": self.observation_lossy,
         }
 
 
@@ -312,6 +317,7 @@ def observe_owner(
     wall_ms: float,
     truncated: bool = False,
     backlog: int = 0,
+    lossy: bool = False,
 ) -> OwnerObservation:
     """Cheap observation. It nominates; it does not decide."""
     elapsed_fraction = 0.0 if wall_ms <= 0 else max(0.0, min(1.0, elapsed_ms / wall_ms))
@@ -330,6 +336,7 @@ def observe_owner(
             work_semantics=None,
             observation_truncated=truncated,
             observation_backlog=backlog,
+            observation_lossy=lossy,
         )
 
     # The same function the calibration was fitted with, over the same input.
@@ -350,6 +357,7 @@ def observe_owner(
         work_semantics=None if work is None else work[1],
         observation_truncated=truncated,
         observation_backlog=backlog,
+        observation_lossy=lossy,
     )
 
 
@@ -606,6 +614,29 @@ class ConservativeRouter:
             return True
         return self.policy.stage_gpu_ms_estimate > 0.0
 
+    def release_undispatched(self, owner: str) -> None:
+        """Return the most recent extension reservation for `owner`.
+
+        The coordinator calls this when it could not run an extension the
+        router authorized. The reservation covers a stage that will never
+        exist, so holding it denies capacity to real work and leaves
+        finalization to settle spend that never happened.
+        """
+        if self.ledger is None:
+            return
+        reservations = self._reservations.get(owner)
+        if not reservations:
+            return
+        reservation = reservations.pop()
+        if not reservations:
+            self._reservations.pop(owner, None)
+        self.ledger.release(reservation)
+        if self.audit is not None:
+            self.audit.note(
+                f"released the extension reservation for {owner}: the coordinator "
+                "could not dispatch the authorized stage"
+            )
+
     def _calibration_provenance(self) -> dict[str, Any] | None:
         if self.calibration is None:
             return None
@@ -673,6 +704,17 @@ class ConservativeRouter:
                         f"owner {owner} had {backlog} telemetry event(s) in flight when "
                         "this checkpoint read it; suppression is withheld for this worker"
                     )
+                lossy = False
+                try:
+                    lossy = bool(context.owner_evidence_lossy(owner))
+                except AttributeError:  # pragma: no cover - older contexts
+                    lossy = False
+                if lossy:
+                    audit.note(
+                        f"owner {owner} has permanently lost telemetry evidence "
+                        "(dropped events or failed adapter translation); suppression "
+                        "is withheld for this worker for the rest of the run"
+                    )
                 observation = observe_owner(
                     owner=owner,
                     instance=context.owner_instance(owner),
@@ -683,6 +725,7 @@ class ConservativeRouter:
                     wall_ms=wall,
                     truncated=truncated,
                     backlog=backlog,
+                    lossy=lossy,
                 )
                 if observation.work_value is not None and observation.work_semantics:
                     # Tagged per semantics and never summed across them: the
@@ -819,6 +862,15 @@ class ConservativeRouter:
                     f"{observation.observation_backlog} telemetry event(s) were still "
                     "in flight, so the engine has already reported something this "
                     "observation did not see",
+                )
+            )
+            gates.append(
+                Gate(
+                    "observation_intact",
+                    not observation.observation_lossy,
+                    "this stream dropped events or failed adapter translation, so an "
+                    "observation it has lost cannot be distinguished from one the "
+                    "engine never made",
                 )
             )
 

@@ -316,9 +316,15 @@ class ReversalRiskModel:
                 "horizon_fraction": self.horizon_fraction,
             },
             "prior_risk": self.prior_risk,
+            # Full precision on purpose. Rounding to six decimals persists a
+            # value different from the one the evaluation was computed with, and
+            # the difference is in the permissive direction: 1/21 serializes as
+            # 0.047619, which passes a threshold of 0.047619 that the fitted
+            # value 0.0476190476... does not. The served model must be the model
+            # that was measured.
             "buckets": {
                 key: {
-                    "risk": round(float(record["risk"]), 6),
+                    "risk": float(record["risk"]),
                     "support": int(record["support"]),
                     "positives": int(record["positives"]),
                 }

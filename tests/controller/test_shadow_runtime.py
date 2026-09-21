@@ -7,6 +7,7 @@ import json
 import os
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from pathlib import Path
@@ -749,6 +750,97 @@ class ShadowExecutionTests(unittest.TestCase):
                 text=True,
             )
             self.assertEqual(remaining.stdout.strip(), "", "shadow process outlived quit")
+
+
+class ReviewRegressionRoundFourTests(unittest.TestCase):
+    """Round-four findings on authority isolation, config and provenance."""
+
+    # -- Q10: an observer exception took down the outward search ------------
+
+    def test_a_failing_telemetry_observer_never_withholds_the_outward_answer(self):
+        """Observation is never authoritative, including when it crashes.
+
+        `observer(...)` ran before the authoritative callback, so an exception
+        in it skipped `on_complete`. For the anchor's `bestmove` that left the
+        frontend in SEARCHING forever: observational machinery taking down the
+        outward search.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            config = write_shadow_config(Path(tmp))
+            manager = BackendManager.from_path(config)
+            manager.start()
+            try:
+                def _boom(instance, token, line, observed):
+                    raise RuntimeError("observer exploded")
+
+                manager.set_instance_observer(_boom)
+                answered: list[str] = []
+                done = threading.Event()
+
+                def _on_complete(token: int, line: str) -> None:
+                    answered.append(line)
+                    done.set()
+
+                manager.start_anchor_search(
+                    "go nodes 64",
+                    token=1,
+                    on_info=lambda token, line: None,
+                    on_complete=_on_complete,
+                )
+                self.assertTrue(
+                    done.wait(timeout=15.0),
+                    "the anchor's bestmove never reached the authority callback",
+                )
+                self.assertTrue(answered[0].startswith("bestmove "))
+                # The failure is evidence, not silence.
+                self.assertTrue(
+                    any("telemetry observer failed" in item for item in manager.observer_failures()),
+                    "the observer failure was swallowed without record",
+                )
+            finally:
+                manager.set_instance_observer(None)
+                manager.close()
+
+    # -- Q11: a Chess960 startup option disagreed with the controller -------
+
+    def test_chess960_as_a_startup_option_is_refused(self):
+        """The engines would search FRC while every replay said standard."""
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write_shadow_config(Path(tmp))
+            document = json.loads(path.read_text())
+            document["instances"]["stockfish-shadow"]["options"]["UCI_Chess960"] = True
+            path.write_text(json.dumps(document), encoding="utf-8")
+            with self.assertRaises(RuntimeError) as ctx:
+                load_runtime_config(path)
+            self.assertIn("UCI_Chess960", str(ctx.exception))
+
+    # -- Q4: the drain bound doubled as an undocumented runtime cap ---------
+
+    def test_stage_timeout_is_declared_separately_from_the_drain_timeout(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config = load_runtime_config(write_shadow_config(Path(tmp), drain_timeout_s=1.0))
+            self.assertEqual(config.shadow.drain_timeout_s, 1.0)
+            self.assertGreater(
+                config.shadow.stage_timeout_s,
+                config.shadow.drain_timeout_s,
+                "a normally progressing stage must not be bounded by the stop-wait budget",
+            )
+
+    # -- Q9: provenance was hashed after the engines were already running ---
+
+    def test_provenance_is_captured_before_any_process_starts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config = write_shadow_config(Path(tmp))
+            manager = BackendManager.from_path(config)
+            # No start() yet: the identities must already be there.
+            self.assertTrue(manager.config_sha256)
+            self.assertEqual(len(manager.config_sha256), 64)
+            self.assertEqual(
+                sorted(manager.engine_identity),
+                sorted([ANCHOR, *SHADOWS]),
+            )
+            for identity in manager.engine_identity.values():
+                self.assertIn("binary_sha256", identity)
 
 
 if __name__ == "__main__":

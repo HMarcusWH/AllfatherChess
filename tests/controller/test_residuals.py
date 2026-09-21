@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -605,6 +606,90 @@ class ScriptArtifactSelectionTests(unittest.TestCase):
             result = self._run(tmp)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("most recent of 2 derived artifacts", result.stdout)
+
+
+
+class ReviewRegressionRoundFourTests(unittest.TestCase):
+    """Round-four findings on calibration serialization and replay identity."""
+
+    # -- Q12: the served model differed from the evaluated one --------------
+
+    def test_a_fitted_risk_survives_a_write_and_reload_exactly(self):
+        """Rounding persisted a value the evaluation was never computed with.
+
+        The difference is in the permissive direction: 1/21 serializes as
+        0.047619, which passes a threshold of 0.047619 that the fitted value
+        0.0476190476... does not.
+        """
+        rows = [
+            TrainingRow(
+                run_id=f"run-{index % 8}",
+                instance="lc0-shadow",
+                owner="lc0",
+                observation_count=13,
+                leader_flips=0,
+                stable_run_fraction=1.0,
+                label=(index == 0),
+            )
+            for index in range(21)
+        ]
+        model = ReversalRiskModel.fit(rows, min_support=1, horizon_fraction=0.25, sources=[])
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write_calibration(model, Path(tmp))
+            reloaded = load_calibration(path)
+
+        for key, record in model.buckets.items():
+            self.assertEqual(
+                float(reloaded.buckets[key]["risk"]),
+                float(record["risk"]),
+                f"bucket {key} was not served at the precision it was fitted at",
+            )
+
+    def test_a_serialized_risk_is_not_truncated_to_six_decimals(self):
+        awkward = 1.0 / 21.0
+        model = ReversalRiskModel(
+            model_id="calib-precision-test",
+            created_utc="2026-09-21T00:00:00Z",
+            extractor_version=EXTRACTOR_VERSION,
+            buckets={"lc0|n3|s3|f0": {"risk": awkward, "support": 40, "positives": 2}},
+            prior_risk=0.1,
+            min_support=1,
+            smoothing_alpha=1.0,
+            horizon_fraction=0.25,
+            sources=[],
+            evaluation={"test_rows": 5, "brier_score": 0.01, "in_domain_rate": 1.0},
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            reloaded = load_calibration(write_calibration(model, Path(tmp)))
+        served = float(reloaded.buckets["lc0|n3|s3|f0"]["risk"])
+        self.assertEqual(served, awkward)
+        self.assertGreater(
+            served,
+            0.047619,
+            "the persisted value passed a threshold the fitted value denies",
+        )
+
+    # -- Q6: a copied bundle counted twice toward the support floor ---------
+
+    def test_the_same_run_may_not_be_derived_from_twice(self):
+        """Support is the quantity the suppression floor is measured in."""
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            fixtures = replay_fixtures.write_all(tmp)
+            original = sorted(fixtures.values())[0]
+            copy = tmp / "copied-bundle"
+            shutil.copytree(original, copy)
+
+            with self.assertRaises(FeatureExtractionError) as ctx:
+                build_derived_artifact([original, copy])
+            message = str(ctx.exception)
+            self.assertIn("same run", message)
+
+    def test_distinct_runs_are_still_accepted(self):
+        with tempfile.TemporaryDirectory() as raw:
+            fixtures = replay_fixtures.write_all(Path(raw))
+            artifact = build_derived_artifact(sorted(fixtures.values()))
+            self.assertEqual(len(artifact.as_dict()["runs"]), len(fixtures))
 
 
 

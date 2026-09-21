@@ -74,14 +74,29 @@ class SearchTrajectory:
     bestmove: str | None
     complete: bool
     parse_errors: tuple[str, ...] = ()
+    #: Controller-side time of this search's `search.complete`, when one was
+    #: recorded. The search really ran until then, so it -- not the last
+    #: candidate update -- is the end of the observed trajectory.
+    completed_ms: float | None = None
+    #: Controller-side time of this search's `search.started`.
+    started_ms: float = 0.0
 
     # -- views ---------------------------------------------------------------
 
     @property
     def span_ms(self) -> float:
-        if not self.observations:
-            return 0.0
-        return self.observations[-1].observed_ms
+        """End of the observed trajectory.
+
+        The last candidate update is not the end of the search: an engine can
+        keep searching after its final `info` line, and a completed search that
+        emitted no candidate update at all is not zero-length. Ending the span
+        at the last update shortened every horizon, so late checkpoints were
+        marked right-censored when their horizon really was observed.
+        """
+        last_update = self.observations[-1].observed_ms if self.observations else 0.0
+        if self.completed_ms is None:
+            return last_update
+        return max(last_update, self.completed_ms)
 
     def observations_until(self, observed_ms: float) -> tuple[Observation, ...]:
         return tuple(item for item in self.observations if item.observed_ms <= observed_ms)
@@ -228,16 +243,34 @@ class ReplayBundle:
         return tuple(item for item in self.trajectories if item.role == "shadow")
 
     def shadows(self) -> tuple[SearchTrajectory, ...]:
-        """The latest stage per shadow instance.
+        """The latest stage per shadow instance, over the whole run.
 
         Active routing can dispatch several stages to one worker. Treating each
         stage as a separate worker would produce same-engine "cross-engine"
-        comparisons, so worker-level views collapse to the latest stage.
+        comparisons, so worker-level views collapse to one stage per instance.
+
+        For anything evaluated *at a checkpoint*, use `shadows_at` instead: this
+        view answers "which stage ended the run", which is not the same question
+        as "which stage was running at time t".
+        """
+        return self.shadows_at(None)
+
+    def shadows_at(self, observed_ms: float | None) -> tuple[SearchTrajectory, ...]:
+        """The latest stage per shadow instance dispatched at or before `observed_ms`.
+
+        Selecting the run's final stage once and reusing it for every checkpoint
+        silently replaced a completed earlier stage with a later one that had
+        not started yet, so `leader_at` returned None and the worker looked as
+        if it had said nothing at a time when it had in fact reported a leader.
+        `None` means "end of run" and keeps the whole-run behaviour.
         """
         latest: dict[str, SearchTrajectory] = {}
         for item in self.trajectories:
-            if item.role == "shadow":
-                latest[item.instance] = item
+            if item.role != "shadow":
+                continue
+            if observed_ms is not None and item.started_ms > observed_ms:
+                continue
+            latest[item.instance] = item
         return tuple(latest[name] for name in sorted(latest))
 
     def by_owner(self, owner: str) -> SearchTrajectory | None:
@@ -311,7 +344,11 @@ def _reconstruct_stream(
     observations: list[Observation] = []
     errors: list[str] = []
 
-    def flush(bestmove: str | None, complete: bool) -> None:
+    def flush(
+        bestmove: str | None,
+        complete: bool,
+        completed_ms: float | None = None,
+    ) -> None:
         nonlocal current, observations, errors
         if current is None:
             return
@@ -332,6 +369,8 @@ def _reconstruct_stream(
                 bestmove=bestmove,
                 complete=complete,
                 parse_errors=tuple(errors),
+                completed_ms=completed_ms,
+                started_ms=float(current.get("started_ms") or 0.0),
             )
         )
         current = None
@@ -348,6 +387,7 @@ def _reconstruct_stream(
                 "position_id": event["position_id"],
                 "request": event.get("request", {}),
                 "controller": event.get("controller", {}),
+                "started_ms": event.get("observed_ms", 0.0),
             }
             continue
         if current is None:
@@ -374,7 +414,11 @@ def _reconstruct_stream(
                 errors.append(f"malformed candidate.update: {type(exc).__name__}: {exc}")
             continue
         if event_type == "search.complete":
-            flush(event.get("bestmove"), True)
+            try:
+                completed_ms: float | None = float(event["observed_ms"])
+            except (KeyError, TypeError, ValueError):
+                completed_ms = None
+            flush(event.get("bestmove"), True, completed_ms)
             continue
 
     flush(None, False)

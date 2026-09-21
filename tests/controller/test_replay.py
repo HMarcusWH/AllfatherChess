@@ -178,6 +178,283 @@ class ReplayManifestTests(unittest.TestCase):
             self.assertTrue(any("hash mismatch" in problem for problem in problems))
 
 
+class ReviewRegressionRoundFourTests(unittest.TestCase):
+    """Round-four findings on telemetry capture and trajectory reconstruction."""
+
+    def _writer(self, directory: Path):
+        from controller.replay import TelemetryStreamWriter
+
+        return TelemetryStreamWriter(
+            path=directory / "stream.jsonl",
+            instance="stockfish-shadow",
+            family="stockfish",
+            role="shadow",
+            adapter_factory=lambda search_id: _SlowAdapter(search_id),
+            track_events=True,
+        )
+
+    # -- Q1: the watermark was bumped after the item was already visible ----
+
+    def test_a_queued_line_is_counted_before_it_is_published(self):
+        """`pending_events()` must never read zero while a line is in flight.
+
+        `put_nowait` publishes to the writer thread immediately. Incrementing
+        the counter afterwards left a window in which the item was queued -- or
+        already applied, making the subtraction negative and clamping to zero --
+        while a routing checkpoint read "drained".
+        """
+        from controller.replay import TelemetryStreamWriter
+
+        counted: list[int] = []
+
+        class _Probe(TelemetryStreamWriter):
+            def _enqueue(self, item):  # type: ignore[override]
+                super()._enqueue(item)
+                counted.append(self._enqueued)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            writer = _Probe(
+                path=Path(tmp) / "stream.jsonl",
+                instance="i",
+                family="stockfish",
+                role="shadow",
+                adapter_factory=lambda search_id: _SlowAdapter(search_id),
+                track_events=True,
+            )
+            try:
+                writer.submit("info depth 1", 1.0)
+                # Whatever the writer thread has done by now, the item was
+                # counted at publication time, not afterwards.
+                self.assertEqual(counted, [1])
+                self.assertGreaterEqual(writer._applied + writer.pending_events(), 1)
+            finally:
+                writer.close()
+
+    def test_a_dropped_line_does_not_leave_a_phantom_in_flight_count(self):
+        """A rejected enqueue must roll the reservation back, not strand it."""
+        from controller.replay import TelemetryStreamWriter
+
+        with tempfile.TemporaryDirectory() as tmp:
+            writer = TelemetryStreamWriter(
+                path=Path(tmp) / "stream.jsonl",
+                instance="i",
+                family="stockfish",
+                role="shadow",
+                adapter_factory=lambda search_id: _SlowAdapter(search_id),
+                track_events=True,
+            )
+            try:
+                with writer._lock:
+                    before = writer._enqueued
+                # Simulate the queue refusing the item.
+                writer._queue.put_nowait = _raise_full  # type: ignore[assignment]
+                writer.submit("info depth 1", 1.0)
+                with writer._lock:
+                    self.assertEqual(writer._enqueued, before)
+                    self.assertEqual(writer._dropped, 1)
+            finally:
+                writer._queue.put_nowait = type(writer._queue).put_nowait.__get__(writer._queue)
+                writer.close()
+
+    # -- Q2: dropped events and adapter errors were invisible while live ----
+
+    def test_a_dropped_event_marks_the_stream_lossy_for_the_live_gate(self):
+        """Once the queue drains, a backlog gate cannot see what was lost."""
+        from controller.replay import TelemetryStreamWriter
+
+        with tempfile.TemporaryDirectory() as tmp:
+            writer = TelemetryStreamWriter(
+                path=Path(tmp) / "stream.jsonl",
+                instance="i",
+                family="stockfish",
+                role="shadow",
+                adapter_factory=lambda search_id: _SlowAdapter(search_id),
+                track_events=True,
+            )
+            try:
+                self.assertFalse(writer.evidence_lossy)
+                with writer._lock:
+                    writer._dropped += 1
+                self.assertTrue(writer.evidence_lossy)
+                self.assertEqual(writer.pending_events(), 0)
+                faults = writer.live_evidence_faults()
+                self.assertEqual(faults["dropped_events"], 1)
+            finally:
+                writer.close()
+
+    def test_an_adapter_error_also_marks_the_stream_lossy(self):
+        from controller.replay import TelemetryStreamWriter
+
+        with tempfile.TemporaryDirectory() as tmp:
+            writer = TelemetryStreamWriter(
+                path=Path(tmp) / "stream.jsonl",
+                instance="i",
+                family="stockfish",
+                role="shadow",
+                adapter_factory=lambda search_id: _SlowAdapter(search_id),
+                track_events=True,
+            )
+            try:
+                with writer._lock:
+                    writer._errors.append("TelemetryParseError: bad line")
+                self.assertTrue(writer.evidence_lossy)
+                self.assertEqual(writer.live_evidence_faults()["adapter_errors"], 1)
+            finally:
+                writer.close()
+
+    # -- Q8: span_ms discarded the completion timestamp ---------------------
+
+    def test_a_trajectory_span_reaches_its_completion_not_its_last_update(self):
+        events = [
+            _started("s1", 10.0),
+            _update("s1", "e2e4", 20.0),
+            _complete("s1", "e2e4", 900.0),
+        ]
+        _ = None
+        trajectories = _rebuild(events)
+        self.assertEqual(len(trajectories), 1)
+        trajectory = trajectories[0]
+        self.assertEqual(trajectory.completed_ms, 900.0)
+        self.assertEqual(
+            trajectory.span_ms,
+            900.0,
+            "the span stopped at the last candidate update, shortening every horizon",
+        )
+
+    def test_a_completed_search_with_no_update_is_not_zero_length(self):
+        events = [_started("s1", 5.0), _complete("s1", "e2e4", 400.0)]
+        trajectory = _rebuild(events)[0]
+        self.assertEqual(trajectory.observations, ())
+        self.assertEqual(trajectory.span_ms, 400.0)
+
+    def test_an_unfinished_search_still_spans_its_last_update(self):
+        """No completion event means the last update is all there is."""
+        events = [_started("s1", 0.0), _update("s1", "e2e4", 50.0)]
+        trajectory = _rebuild(events)[0]
+        self.assertIsNone(trajectory.completed_ms)
+        self.assertEqual(trajectory.span_ms, 50.0)
+
+    # -- Q7: search.started always claimed the run had just begun -----------
+
+    def test_a_later_stage_records_when_it_actually_started(self):
+        events = [
+            _started("s1", 0.0),
+            _update("s1", "e2e4", 10.0),
+            _complete("s1", "e2e4", 20.0),
+            _started("s2", 500.0),
+            _update("s2", "d2d4", 510.0),
+            _complete("s2", "d2d4", 520.0),
+        ]
+        first, second = _rebuild(events)
+        self.assertEqual(first.started_ms, 0.0)
+        self.assertEqual(
+            second.started_ms,
+            500.0,
+            "an extension claimed it began at run start, contradicting its own events",
+        )
+
+    # -- Q3: the run's final stage was reused for every checkpoint ----------
+
+    def test_stage_selection_follows_the_checkpoint_not_the_end_of_the_run(self):
+        from controller.replay_analysis import ReplayBundle
+
+        events = [
+            _started("s1", 0.0),
+            _update("s1", "e2e4", 10.0),
+            _complete("s1", "e2e4", 20.0),
+            _started("s2", 500.0),
+            _update("s2", "d2d4", 510.0),
+            _complete("s2", "d2d4", 520.0),
+        ]
+        trajectories = _rebuild(events)
+        bundle = ReplayBundle(
+            run_dir=Path("."),
+            manifest={"streams": []},
+            trajectories=tuple(trajectories),
+        )
+
+        early = bundle.shadows_at(100.0)
+        self.assertEqual([item.search_id for item in early], ["s1"])
+        self.assertEqual(
+            early[0].leader_at(100.0),
+            "e2e4",
+            "the not-yet-started later stage replaced a stage that had reported a leader",
+        )
+
+        late = bundle.shadows_at(600.0)
+        self.assertEqual([item.search_id for item in late], ["s2"])
+        self.assertEqual(
+            [item.search_id for item in bundle.shadows()],
+            ["s2"],
+            "the whole-run view must still collapse to one stage per instance",
+        )
+
+
+def _rebuild(events):
+    from controller.replay_analysis import reconstruct_stream
+
+    return reconstruct_stream(
+        events, instance="stockfish-shadow", family="stockfish", role="shadow"
+    )
+
+
+def _raise_full(*_args, **_kwargs):
+    import queue as _queue
+
+    raise _queue.Full()
+
+
+def _started(search_id: str, observed_ms: float) -> dict:
+    return {
+        "event_type": "search.started",
+        "search_id": search_id,
+        "position_id": "p",
+        "variant": "standard",
+        "observed_ms": observed_ms,
+        "request": {},
+        "controller": {"owner": "stockfish", "execution_mode": "shadow"},
+        "engine": "stockfish",
+        "engine_instance": "stockfish-shadow",
+        "role": "shadow",
+    }
+
+
+def _update(search_id: str, move: str, observed_ms: float) -> dict:
+    return {
+        "event_type": "candidate.update",
+        "search_id": search_id,
+        "sequence": int(observed_ms),
+        "observed_ms": observed_ms,
+        "candidate": {"move": move, "multipv_index": 1, "pv": [move]},
+    }
+
+
+def _complete(search_id: str, bestmove: str, observed_ms: float) -> dict:
+    return {
+        "event_type": "search.complete",
+        "search_id": search_id,
+        "observed_ms": observed_ms,
+        "bestmove": bestmove,
+    }
+
+
+class _SlowAdapter:
+    """Minimal adapter stand-in for writer-level tests."""
+
+    def __init__(self, search_id: str):
+        self.search_id = search_id
+        self.stream = self
+
+    completed = False
+
+    def start(self, *, position, request, observed_ms=0, controller=None):
+        return {"event": "search.started", "search_id": self.search_id, "observed_ms": observed_ms}
+
+    def consume(self, line, *, observed_ms):
+        return []
+
+
+
 class ReplayFailureEvidenceTests(unittest.TestCase):
     def test_failed_shadow_stream_is_recorded_and_not_claimed_valid(self):
         with tempfile.TemporaryDirectory() as tmp:

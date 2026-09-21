@@ -1425,6 +1425,11 @@ class ShadowRunCoordinator:
         # EXPLORE owner to any shard.
         self._execute_verification(active)
 
+        # 8. One-level recursive shadow REFINE. This consumes only completed
+        # raw VERIFY facts and the PrefixShardLedger v2 substrate. It remains
+        # research instrumentation and may not influence the outward anchor.
+        self._execute_refinement(active)
+
         # The router's run is deliberately NOT closed here. `on_run_end` writes
         # the envelope claim, which now includes elapsed wall time, and the
         # anchor may still be searching: closing it at this point measured only

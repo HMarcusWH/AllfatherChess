@@ -211,6 +211,17 @@ class RunContext:
             return False
         return state.stream.tracked_events_truncated
 
+    def anchor_threads(self) -> int:
+        """Declared `Threads` option for the outward anchor, defaulting to 1."""
+        try:
+            spec = self._coordinator.runtime.spec(self._coordinator.runtime.anchor_name)
+        except Exception:  # pragma: no cover - defensive
+            return 1
+        try:
+            return max(1, int((spec.options or {}).get("Threads", 1)))
+        except (TypeError, ValueError):
+            return 1
+
     def owner_threads(self, owner: str) -> int:
         """Declared `Threads` option for this worker's engine, defaulting to 1."""
         instance = self.owner_instance(owner)
@@ -355,6 +366,42 @@ class ShadowRunCoordinator:
         except OSError:  # pragma: no cover - identity is best effort
             return None
 
+    def _make_run_dir_within_budget(self, run_dir: Path) -> bool:
+        """Create the run directory without letting the filesystem block a search.
+
+        A blocked or very slow `replay_root` would otherwise hold the calling
+        thread -- and therefore the outward anchor -- for as long as the kernel
+        takes. The work happens on a short-lived thread and is abandoned at the
+        declared budget. An abandoned thread may still create the directory
+        afterwards; nothing references it, so it is inert leftover rather than
+        state this run relies on.
+        """
+        budget = max(0.001, float(self.settings.prepare_budget_s))
+        outcome: dict[str, Any] = {}
+
+        def _make() -> None:
+            try:
+                run_dir.mkdir(parents=True, exist_ok=False)
+                outcome["ok"] = True
+            except OSError as exc:
+                outcome["error"] = str(exc)
+
+        worker = threading.Thread(
+            target=_make, name=f"allfather-prepare-{run_dir.name}", daemon=True
+        )
+        worker.start()
+        worker.join(timeout=budget)
+        if worker.is_alive():
+            self._diagnostic(
+                f"replay setup exceeded its {budget}s pre-anchor budget; this search "
+                "runs without a shadow bundle rather than delaying the outward decision"
+            )
+            return False
+        if "error" in outcome:
+            self._diagnostic(f"shadow run directory unavailable: {outcome['error']}")
+            return False
+        return bool(outcome.get("ok"))
+
     def _variant(self) -> str:
         return "chess960" if self.runtime.chess960 else "standard"
 
@@ -387,8 +434,13 @@ class ShadowRunCoordinator:
     def prepare_run(self, *, generation: int, go_command: str) -> bool:
         """Create the run bundle and anchor stream *before* the anchor starts.
 
-        This does directory and file work only. It performs no engine IO, so it
-        cannot delay the outward search.
+        This performs no engine IO, but it does perform **filesystem** IO -- a
+        `mkdir`, a file open and a writer-thread start -- and the frontend calls
+        it before `start_anchor_search`. On a slow or blocked `replay_root` that
+        is observational infrastructure delaying decision authority, which the
+        authority firewall does not permit. The filesystem portion therefore
+        runs off the calling thread under `shadow.prepare_budget_s`: past that
+        bound the search proceeds with no bundle rather than waiting.
         """
         with self._lock:
             if self._closed:
@@ -427,10 +479,7 @@ class ShadowRunCoordinator:
         now = _dt.datetime.now(_dt.timezone.utc)
         run_id = f"{now.strftime('%Y%m%dT%H%M%S%fZ')}-g{generation:06d}-{uuid.uuid4().hex[:8]}"
         run_dir = self.settings.replay_root / run_id
-        try:
-            run_dir.mkdir(parents=True, exist_ok=False)
-        except OSError as exc:
-            self._diagnostic(f"shadow run directory unavailable: {exc}")
+        if not self._make_run_dir_within_budget(run_dir):
             return False
 
         started = time.monotonic()

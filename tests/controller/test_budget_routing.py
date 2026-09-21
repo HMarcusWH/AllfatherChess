@@ -21,7 +21,7 @@ from controller.budget import (
 )
 from adapters.telemetry import Lc0TelemetryAdapter
 from common.telemetry import STARTPOS_FEN
-from controller.calibration import ReversalRiskModel, TrainingRow
+from controller.calibration import ReversalRiskModel, TrainingRow, bucket_key
 from controller.routing import (
     ConservativeRouter,
     OwnerObservation,
@@ -914,6 +914,129 @@ class ReviewRegressionRoundSixTests(unittest.TestCase):
 
 
 
+class ReviewRegressionRoundSevenTests(unittest.TestCase):
+    """Round-seven findings on anchor CPU, floors, and out-of-sample scope."""
+
+    # -- U1: the anchor fallback reservation ignored its own threads -------
+
+    def test_the_anchor_wall_fallback_is_scaled_by_its_thread_count(self):
+        """`wall_ms` is a duration. A four-thread anchor spends four times it."""
+        reserved = {}
+        for threads in (1, 4):
+            router = ConservativeRouter(
+                envelope=envelope(wall_ms=1000.0, cpu_ms=100000.0),
+                policy=policy(anchor_cpu_ms_estimate=0.0),
+            )
+            context = _FakeContext()
+            context.anchor_thread_count = threads
+            router.on_run_start(context)
+            reserved[threads] = router.ledger.snapshot()["lanes"]["anchor"]["reserved_cpu_ms"]
+        self.assertEqual(reserved[1], 1000.0)
+        self.assertEqual(
+            reserved[4],
+            4000.0,
+            "a four-thread anchor reserved one thread's worth of CPU",
+        )
+
+    def test_an_explicit_anchor_estimate_is_not_rescaled(self):
+        """A declared total-CPU figure is already a total."""
+        router = ConservativeRouter(
+            envelope=envelope(wall_ms=1000.0, cpu_ms=100000.0),
+            policy=policy(anchor_cpu_ms_estimate=2500.0),
+        )
+        context = _FakeContext()
+        context.anchor_thread_count = 4
+        router.on_run_start(context)
+        self.assertEqual(
+            router.ledger.snapshot()["lanes"]["anchor"]["reserved_cpu_ms"], 2500.0
+        )
+
+    # -- U4: the floors added in round six were never range-checked --------
+
+    def test_a_negative_observation_floor_is_refused(self):
+        """Round three range-checked every threshold for exactly this reason."""
+        with self.assertRaises(RoutingError):
+            RoutingPolicy.from_config(
+                {"policy": "conservative_v1", "observation_floors": {"lc0.uci_nodes": -1}}
+            )
+
+    def test_a_non_finite_observation_floor_is_refused(self):
+        with self.assertRaises(RoutingError):
+            RoutingPolicy.from_config(
+                {
+                    "policy": "conservative_v1",
+                    "observation_floors": {"lc0.uci_nodes": float("inf")},
+                }
+            )
+
+    def test_observation_floors_must_be_a_mapping(self):
+        with self.assertRaises(RoutingError):
+            RoutingPolicy.from_config(
+                {"policy": "conservative_v1", "observation_floors": [1, 2, 3]}
+            )
+
+    def test_a_valid_observation_floor_is_accepted(self):
+        parsed = RoutingPolicy.from_config(
+            {"policy": "conservative_v1", "observation_floors": {"lc0.uci_nodes": 500}}
+        )
+        self.assertEqual(parsed.observation_floor_for("lc0.uci_nodes"), 500.0)
+
+
+    # -- U3: "validated" did not mean validated for the bucket served ------
+
+    def test_a_bucket_with_no_held_out_rows_may_not_authorize(self):
+        """`test_rows > 0` says the model saw some held-out data, not this bucket's.
+
+        A bucket can be well supported in training while every held-out row
+        landed elsewhere, so the risk estimate actually being served was never
+        evaluated out of sample at all.
+        """
+        model = confident_model(risk=0.0001, support=900)
+        served = observation(active=True, leader_flips=0, stable_run_fraction=1.0)
+        key = bucket_key(served.calibration_features(), scope=served.owner)
+
+        # The model evaluated *some* rows, but none in the bucket being served.
+        model.evaluation = dict(
+            model.evaluation,
+            test_rows=40,
+            reliability=[{"bucket": "lc0|n0|s0|f0", "count": 40, "observed_rate": 0.0}],
+        )
+        router = ConservativeRouter(envelope=envelope(), policy=policy(), calibration=model)
+        router.on_run_start(_FakeContext())
+        denied = router._authorize(propose(served, router.policy), served, 10.0)
+        self.assertFalse(denied.granted)
+        self.assertIn("calibration_validated", [g.name for g in denied.gates if not g.passed])
+
+        # With held-out evidence in that bucket, the gate passes again.
+        model.evaluation = dict(
+            model.evaluation,
+            reliability=[{"bucket": key, "count": 12, "observed_rate": 0.0}],
+        )
+        allowed = router._authorize(propose(served, router.policy), served, 10.0)
+        self.assertTrue(allowed.granted)
+
+    # -- U5: a cancelled run lost the work reported after the last checkpoint
+
+    def test_final_native_work_reaches_a_cancelled_run_s_certificate(self):
+        """`_await_completion` returns with no final checkpoint once cancelled."""
+        router = ConservativeRouter(envelope=envelope(), policy=policy())
+        context = _WorkContext()
+        router.on_run_start(context)
+        # No checkpoint ever ran: this is the cancelled-before-first-checkpoint
+        # case, which reported no native work at all.
+        self.assertEqual(router.ledger.native_work_by_semantics(), {})
+        with tempfile.TemporaryDirectory() as tmp:
+            context.run_dir = Path(tmp)
+            router.on_run_end(context)
+            document = json.loads((Path(tmp) / "route.json").read_text())
+        totals = document["budget"]["native_work_by_semantics"]
+        self.assertIn(
+            "lc0.uci_nodes",
+            totals,
+            "work reported after the last checkpoint never reached route.json",
+        )
+
+
 class RouterConfigTests(unittest.TestCase):
     def test_active_config_builds_a_fail_closed_router(self):
         path = ROOT / "config" / "allfather.active.validation.json"
@@ -1249,9 +1372,13 @@ class _FakeContext:
         return self.lossy
 
     threads: int = 1
+    anchor_thread_count: int = 1
 
     def owner_threads(self, owner: str) -> int:
         return self.threads
+
+    def anchor_threads(self) -> int:
+        return self.anchor_thread_count
 
     def owner_last_stage_ms(self, owner: str) -> float | None:
         return self.stage_ms

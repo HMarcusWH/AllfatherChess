@@ -107,6 +107,13 @@ Enforced by `tests/controller/*`, `scripts/shadow-execution-contract.py`, and
   refused at load.
 - Instance names are restricted to a safe filename alphabet, because they are
   used directly as telemetry filenames.
+- Replay setup on the pre-anchor path is bounded by `shadow.prepare_budget_s`;
+  past it a search proceeds without a bundle rather than waiting on the
+  filesystem.
+- A stop requires held-out evidence **in the bucket being served**, not merely a
+  non-empty holdout somewhere in the model.
+- Every routing threshold, including per-semantics observation floors, is
+  range-checked at startup.
 - The authority stream stays open until the anchor answers, the anchor dies, or
   the controller closes. No shadow-side timeout can close it early.
 - A denied stop degrades to continued observation, never to an improvised

@@ -906,5 +906,56 @@ class ReviewRegressionRoundSixTests(unittest.TestCase):
 
 
 
+class ReviewRegressionRoundSevenTests(unittest.TestCase):
+    """Round-seven findings on the pre-anchor path."""
+
+    def test_replay_setup_is_bounded_before_the_anchor_is_dispatched(self):
+        """Observational filesystem IO may not delay decision authority.
+
+        `prepare_run` does a `mkdir`, opens a JSONL file and starts a writer
+        thread, and the frontend calls it before `start_anchor_search`. On a
+        blocked `replay_root` that held the outward search for as long as the
+        kernel took. The directory work is now abandoned at
+        `shadow.prepare_budget_s` and the search proceeds without a bundle.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            config = load_runtime_config(write_shadow_config(Path(tmp)))
+            self.assertGreater(config.shadow.prepare_budget_s, 0.0)
+            self.assertLessEqual(
+                config.shadow.prepare_budget_s,
+                1.0,
+                "the pre-anchor budget must be small enough to be a firewall",
+            )
+
+    def test_a_blocked_replay_root_does_not_hold_the_outward_search(self):
+        """The whole `prepare_run` path must return, not block on the kernel."""
+        import controller.shadow as shadow_module
+
+        with tempfile.TemporaryDirectory() as tmp:
+            manager = BackendManager.from_path(write_shadow_config(Path(tmp)))
+            manager.start()
+            coordinator = shadow_module.ShadowRunCoordinator(runtime=manager)
+            original = shadow_module.Path.mkdir
+            try:
+                def _hang(self, *args, **kwargs):
+                    time.sleep(5.0)
+
+                shadow_module.Path.mkdir = _hang  # type: ignore[assignment]
+                started = time.monotonic()
+                ok = coordinator.prepare_run(generation=1, go_command="go nodes 64")
+                elapsed = time.monotonic() - started
+            finally:
+                shadow_module.Path.mkdir = original  # type: ignore[assignment]
+                coordinator.close()
+                manager.close()
+
+            self.assertFalse(ok, "a blocked replay root must not yield a bundle")
+            self.assertLess(
+                elapsed,
+                2.0,
+                "the outward search was held for the full filesystem stall",
+            )
+
+
 if __name__ == "__main__":
     unittest.main()

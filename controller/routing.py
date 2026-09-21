@@ -44,6 +44,7 @@ from controller.calibration import (
     CalibrationError,
     CalibrationEvaluation,
     ReversalRiskModel,
+    bucket_key,
     load_calibration,
 )
 from common.residuals import past_only_features
@@ -257,10 +258,7 @@ class RoutingPolicy:
                 stage_cpu_ms_estimate=float(config.get("stage_cpu_ms_estimate", 400.0)),
                 anchor_cpu_ms_estimate=float(config.get("anchor_cpu_ms_estimate", 0.0)),
                 stage_gpu_ms_estimate=float(config.get("stage_gpu_ms_estimate", 0.0)),
-                observation_floors={
-                    str(key): float(value)
-                    for key, value in (config.get("observation_floors") or {}).items()
-                },
+                observation_floors=dict(config.get("observation_floors") or {}),
             )
         except (TypeError, ValueError) as exc:
             raise RoutingError(f"invalid routing configuration: {exc}") from exc
@@ -301,6 +299,21 @@ class RoutingPolicy:
             value = float(getattr(self, name))
             if not math.isfinite(value) or value < 0.0:
                 raise RoutingError(f"{name} must be a non-negative, finite duration")
+        # Round three range-checked every threshold precisely because an
+        # out-of-range value deletes a gate rather than misconfiguring it. This
+        # mapping was added in round six and skipped that rule: a floor of -1
+        # makes `minimum_observation` pass for any tagged observation.
+        if not isinstance(self.observation_floors, dict):
+            raise RoutingError("observation_floors must be a mapping of semantics to floors")
+        for semantics, floor in self.observation_floors.items():
+            if not isinstance(semantics, str) or not semantics:
+                raise RoutingError("observation_floors keys must be non-empty semantics tags")
+            if isinstance(floor, bool) or not isinstance(floor, (int, float)):
+                raise RoutingError(f"observation_floors[{semantics!r}] must be a number")
+            if not math.isfinite(float(floor)) or float(floor) < 0.0:
+                raise RoutingError(
+                    f"observation_floors[{semantics!r}] must be a non-negative, finite count"
+                )
 
     def observation_floor_for(self, semantics: str | None) -> float | None:
         """The declared minimum observation for this engine-native quantity.
@@ -539,7 +552,17 @@ class ConservativeRouter:
                 f"outward request is not bounded by the declared envelope: {self._anchor_bound[1]}; "
                 "this run cannot claim envelope compliance"
             )
-        anchor_cost = self.policy.anchor_cpu_ms_estimate or self.envelope.wall_ms
+        # The wall-time fallback is a DURATION, not a CPU figure. A four-thread
+        # anchor running `go movetime 1000` spends roughly 4000 CPU-ms, and
+        # reserving 1000 let `claimed` stay true while the anchor consumed four
+        # times its share. Shadow workers were scaled in rounds five and six;
+        # this path was not.
+        anchor_cost = self.policy.anchor_cpu_ms_estimate
+        anchor_threads = 1
+        if not anchor_cost:
+            anchor_threads = self._anchor_threads(context)
+            anchor_cost = self.envelope.wall_ms * anchor_threads
+        self._anchor_threads_used = anchor_threads
         try:
             # The outward anchor spends from the same envelope as everything
             # else; reserving it first is what makes the envelope binding.
@@ -582,6 +605,14 @@ class ConservativeRouter:
         audit = self.audit
         if audit is None:
             return
+        # Native work is otherwise recorded only during checkpoints, and
+        # `_await_completion` returns without a final one once the run is
+        # cancelled -- by an external `stop`, by `on_anchor_complete: cancel`,
+        # or by a drain deadline. Everything the engines reported after the last
+        # checkpoint, including the final update before a stopped worker's
+        # `bestmove`, never reached route.json; a cancellation before the first
+        # checkpoint reported no native work at all.
+        self._record_final_native_work(context)
         for owner in list(self._reservations):
             self._settle_owner(context, owner)
         if self._anchor_reservation is not None:
@@ -815,6 +846,43 @@ class ConservativeRouter:
         for reservation in self._reservations.pop(owner, []):
             self.ledger.settle(reservation, actual_cpu_ms=measured)
 
+    def _record_final_native_work(self, context: Any) -> None:
+        """Reconstruct each worker's last reported counter before finalizing."""
+        if self.ledger is None:
+            return
+        try:
+            owners = tuple(context.dispatchable_owners())
+        except AttributeError:  # pragma: no cover - older contexts
+            owners = tuple(getattr(context, "owners", ()))
+        for owner in owners:
+            trajectory = self._live_trajectory(context, owner)
+            if trajectory is None:
+                continue
+            work = trajectory.work_at(trajectory.span_ms)
+            if work is None:
+                continue
+            value, semantics = work[0], work[1]
+            if not semantics:
+                continue
+            try:
+                stages = int(context.owner_stages(owner))
+            except (AttributeError, TypeError, ValueError):
+                stages = 0
+            self.ledger.record_native_work(
+                f"shadow:{owner}",
+                value=value,
+                semantics=semantics,
+                stage=f"{owner}#{stages}",
+            )
+
+    @staticmethod
+    def _anchor_threads(context: Any) -> int:
+        """Declared `Threads` for the outward anchor, defaulting to one."""
+        try:
+            return max(1, int(context.anchor_threads()))
+        except (AttributeError, TypeError, ValueError):
+            return 1
+
     @staticmethod
     def _owner_threads(context: Any, owner: str) -> int:
         """Declared thread count for this worker, defaulting to one."""
@@ -869,12 +937,30 @@ class ConservativeRouter:
                 # earned the right to license a shortcut, however confident its
                 # in-sample buckets look.
                 held_out = int(self.calibration.evaluation.get("test_rows") or 0)
+                # `test_rows > 0` only says the model saw *some* held-out data.
+                # A bucket can be well supported in training while every held-out
+                # row landed in unrelated buckets, so the risk estimate actually
+                # being served was never evaluated out of sample at all. The
+                # reliability table records which buckets had held-out counts;
+                # authorization requires this one to be among them.
+                reliability = self.calibration.evaluation.get("reliability") or []
+                served_bucket = bucket_key(
+                    observation.calibration_features(), scope=observation.owner
+                )
+                evaluated = {
+                    str(entry.get("bucket"))
+                    for entry in reliability
+                    if isinstance(entry, dict) and int(entry.get("count") or 0) > 0
+                }
                 gates.append(
                     Gate(
                         "calibration_validated",
-                        held_out > 0,
-                        f"held-out rows {held_out}; a model with no out-of-sample "
-                        "evaluation cannot authorize suppression",
+                        held_out > 0 and served_bucket in evaluated,
+                        (
+                            f"held-out rows {held_out}; bucket {served_bucket!r} "
+                            f"{'has' if served_bucket in evaluated else 'has no'} "
+                            "out-of-sample evaluation of its own"
+                        ),
                     )
                 )
                 verdict = self.calibration.evaluate(

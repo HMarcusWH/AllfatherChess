@@ -89,6 +89,11 @@ class ShadowSettings:
     #: been asked to. Using the drain bound for both imposed an undocumented
     #: runtime limit on every node-limited stage.
     stage_timeout_s: float
+    #: Hard bound on the replay filesystem setup that runs BEFORE the outward
+    #: anchor is dispatched. Observational infrastructure may not delay the
+    #: decision path by more than this; past it the run proceeds without a
+    #: bundle rather than making the anchor wait.
+    prepare_budget_s: float
     on_anchor_complete: str
 
     def instance(self, owner: str) -> str:
@@ -411,6 +416,9 @@ def _load_shadow_settings(
         drain_timeout_s=_require_positive_number(raw.get("drain_timeout_s", 5.0), "shadow.drain_timeout_s"),
         stage_timeout_s=_require_positive_number(
             raw.get("stage_timeout_s", 120.0), "shadow.stage_timeout_s"
+        ),
+        prepare_budget_s=_require_positive_number(
+            raw.get("prepare_budget_s", 0.25), "shadow.prepare_budget_s"
         ),
         on_anchor_complete=str(on_anchor_complete),
     )

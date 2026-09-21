@@ -617,6 +617,44 @@ correct and closes a real hole, but it moved nothing here. That is now the third
 guard in this document that is correct and untested by real data, alongside the
 telemetry-backlog gate and the stream-eligibility filter.
 
+## Five more findings from a seventh review
+
+**One is the round-zero finding, in a different disguise.** The self-audit that
+opened this milestone caught engine binaries being sha256-hashed inside
+`prepare_run`, which the frontend calls before `start_anchor_search` -- about
+700 ms of observational work in front of the outward decision. `prepare_run`
+still does a `mkdir`, opens a JSONL file and starts a writer thread on that same
+pre-anchor path, and its docstring claimed it "performs no engine IO, so it
+cannot delay the outward search". Filesystem IO delays it just as effectively on
+a slow or blocked `replay_root`. The directory work now runs off the calling
+thread under a declared `shadow.prepare_budget_s`, and past that bound the
+search proceeds with no bundle rather than waiting. The docstring was wrong and
+is corrected rather than softened.
+
+**One is a gate I added that never meant what it said.** `calibration_validated`
+required `test_rows > 0` -- that the model had seen *some* held-out data. A
+bucket can be well supported in training while every held-out row landed in
+unrelated buckets, so the risk estimate actually being served had never been
+evaluated out of sample at all. The gate now requires held-out evidence in the
+bucket being served, read from the model's own reliability table.
+
+**Two are round-five and round-six debt.** Thread scaling reached the shadow
+workers in rounds five and six and never reached the anchor: `anchor_cost` falls
+back to `wall_ms`, which is a *duration*, so a four-thread `go movetime 1000`
+reserved 1000 CPU-ms for roughly 4000 spent. And the `observation_floors`
+mapping introduced in round six was never range-checked -- a floor of `-1` makes
+`minimum_observation` pass for any tagged observation. Round three range-checked
+every routing threshold precisely because an out-of-range value deletes a gate
+rather than misconfiguring it; adding a new threshold in round six without that
+check is the same defect re-entering through a new field.
+
+**One accounting gap.** Native work was recorded only inside routing
+checkpoints, and `_await_completion` returns without a final one once a run is
+cancelled. Everything the engines reported after the last checkpoint -- including
+the final update before a stopped worker's `bestmove` -- never reached
+`route.json`, and a cancellation before the first checkpoint reported no native
+work at all. It is now reconstructed at run end.
+
 ## Residual concerns worth carrying forward
 
 1. **Fast searches collect nothing.** With `on_anchor_complete: drain`, a very
@@ -675,14 +713,15 @@ telemetry-backlog gate and the stream-eligibility filter.
     sources, parameters and `EXTRACTOR_VERSION`. That makes the version bump
     load-bearing: any future change to extraction logic that forgets it
     reintroduces the collision found this round.
-16. **Six review rounds have not converged.** Rounds three, four, five and six
+16. **Seven review rounds have not converged.** Rounds three, four, five and six
     each found defects introduced or left incomplete by the round before -- four
-    in round five, four again in round six. No threshold or support floor has
-    been moved in any round and the claim firewall has held, but the defect rate
-    is not falling, and that is a property of the change's size rather than of
-    any individual fix. This is the strongest argument in this document for
-    landing the overlap phase separately rather than growing this branch
-    further.
+    in round five, four again in round six, two in round seven, plus a round-zero
+    finding that reappeared in a different disguise. No threshold or support
+    floor has been moved in any round and the claim firewall has held, but the
+    defect rate is not falling, and that is a property of the change's size
+    rather than of any individual fix. This is the strongest argument in this
+    document for landing the overlap phase separately rather than growing this
+    branch further.
 17. **The bestmove-reversal label is untested by real data.** 0 of 133
     trajectories exercise it here. So are the telemetry-backlog gate and the
     stream-eligibility filter. Three correctness guards in this milestone are
@@ -690,3 +729,11 @@ telemetry-backlog gate and the stream-eligibility filter.
 18. **`stage_timeout_s` is now per owner but still one declared constant.**
     Nothing measures what a legitimate stage needs, so a worker that genuinely
     wants longer than the configured budget is still cut off.
+19. **`prepare_budget_s` is another declared constant.** Nothing measures what
+    a healthy `replay_root` needs. Abandoning a bundle is the safe direction
+    when the filesystem is slow, but a busy disk will now cost observations.
+    An abandoned setup thread can also create its directory afterwards; nothing
+    references it, so it is inert leftover rather than state a run relies on.
+20. **Anchor CPU is still an estimate.** Scaling `wall_ms` by the configured
+    thread count is much closer than not scaling it, but a config that
+    misstates `Threads`, or an anchor that finishes early, is not detected.

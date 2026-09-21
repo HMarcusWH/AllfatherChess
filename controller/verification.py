@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from common.search_request import parse_go_request
-from controller.replay import TelemetryStreamWriter, load_manifest, sha256_file
+from controller.replay import ReplayError, TelemetryStreamWriter, load_manifest, sha256_file
 from controller.runtime import VerificationSettings
 
 
@@ -353,9 +353,7 @@ def verify_verification_integrity(run_dir: Path | str) -> list[str]:
     try:
         parent = load_manifest(run_dir)
         manifest = load_verification_manifest(run_dir)
-    except (VerificationError, Exception) as exc:
-        # load_manifest raises ReplayError; keeping this helper dependency-light
-        # is more useful than rewrapping the same diagnostic type.
+    except (VerificationError, ReplayError) as exc:
         return [str(exc)]
 
     source = manifest.get("source", {})
@@ -370,13 +368,57 @@ def verify_verification_integrity(run_dir: Path | str) -> list[str]:
                 f"manifest={source.get('manifest_sha256')}, actual={actual_parent_hash}"
             )
 
+    if manifest.get("generation") != parent.get("generation"):
+        problems.append("verification generation does not match parent replay")
+    if manifest.get("position_id") != (parent.get("position") or {}).get("position_id"):
+        problems.append("verification position_id does not match parent replay")
+
     candidates = tuple(manifest.get("nomination", {}).get("candidate_roots", []))
     candidate_set = set(candidates)
     if len(candidates) != 3 or len(candidate_set) != 3:
         problems.append("verification candidate set is not exactly three distinct roots")
 
+    participants = manifest.get("participants")
+    if not isinstance(participants, dict) or set(participants) != {
+        "stockfish", "reckless", "lc0"
+    }:
+        problems.append("verification participants are not exactly the three solver owners")
+        participants = {}
+
+    streams = manifest.get("streams", [])
+    stream_instances = [record.get("instance") for record in streams if isinstance(record, dict)]
+    expected_instances = list(participants.values())
+    if len(stream_instances) != 3 or set(stream_instances) != set(expected_instances):
+        problems.append(
+            "verification stream instances do not match the three declared participants"
+        )
+
+    stages = manifest.get("stages", [])
+    if len(stages) != 3:
+        problems.append("verification manifest does not contain exactly three stages")
+    seen_stage_owners: set[str] = set()
+    seen_search_ids: set[str] = set()
+    for stage in stages:
+        if not isinstance(stage, dict):
+            problems.append("verification stage is not an object")
+            continue
+        owner = stage.get("owner")
+        instance = stage.get("instance")
+        search_id = stage.get("search_id")
+        if owner in seen_stage_owners:
+            problems.append(f"verification owner {owner!r} appears in multiple stages")
+        seen_stage_owners.add(owner)
+        if participants.get(owner) != instance:
+            problems.append(
+                f"verification stage {owner!r} uses instance {instance!r}, "
+                f"expected {participants.get(owner)!r}"
+            )
+        if search_id in seen_search_ids:
+            problems.append(f"duplicate verification search_id: {search_id!r}")
+        seen_search_ids.add(search_id)
+
     verification_dir = run_dir / "verification"
-    for record in manifest.get("streams", []):
+    for record in streams:
         path = verification_dir / record.get("path", "")
         if not path.is_file():
             problems.append(f"missing verification stream file: {record.get('path')}")
@@ -428,7 +470,7 @@ def verify_verification_integrity(run_dir: Path | str) -> list[str]:
                         f"{record.get('instance')}: bestmove {move!r} escaped VERIFY roots"
                     )
 
-    for stage in manifest.get("stages", []):
+    for stage in stages:
         if tuple(stage.get("candidate_roots", [])) != candidates:
             problems.append(
                 f"{stage.get('instance')}: stage candidate roots differ from VERIFY plan"

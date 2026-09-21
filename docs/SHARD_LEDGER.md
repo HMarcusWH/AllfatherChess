@@ -284,3 +284,20 @@ Notes on live use:
 
 Active-mode routing changes only *how much compute* an owner receives. It never
 mutates ownership.
+
+
+## PR #16 recursive successor
+
+`RootShardLedger` v1 remains byte-for-byte the live root ownership primitive.
+PR #16 adds a separate `PrefixShardLedger` v2 in
+`controller/prefix_shards.py` rather than changing v1 underneath the hardened
+shadow/replay runtime.
+
+v2 adds deterministic full-prefix identities, per-shard activation/sealing,
+`SEALED -> RETIRED + LEASED children` atomic split, atomic leased-frontier
+transfer, and a prefix-free frontier invariant. `common/prefix_dispatch.py`
+compiles a qualified prefix into descendant `position` plus the final
+`searchmoves` root.
+
+The live controller still consumes only RootShardLedger v1. See
+`docs/PREFIX_SHARDS.md`.

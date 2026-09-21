@@ -29,7 +29,7 @@ Root-v1 states are deliberately limited to:
 UNASSIGNED -> LEASED -> ACTIVE -> SEALED
 ```
 
-Recursive parents/children, budgets, evidence, transfer, split, and VERIFY overlap remain later extensions. See `docs/SHARD_LEDGER.md`.
+The live controller still uses this root-v1 shape. PR #16 separately qualifies recursive parent/child, split, and transfer semantics in `PrefixShardLedger` v2 without mutating the live v1 ledger. Budgets, evidence-triggered refinement, and active-mode VERIFY remain later integration work. See `docs/SHARD_LEDGER.md` and `docs/PREFIX_SHARDS.md`.
 
 ## Hard exploration invariant
 
@@ -112,8 +112,9 @@ historical result, policy probability, residual, or heuristic may alter it.
 pins its exact output.
 
 Active-mode routing changes **how much compute** an owner receives. It never
-changes **which roots** an owner owns. Recursive splitting and shard transfer
-remain later milestones.
+changes **which roots** an owner owns. PrefixShardLedger v2 now qualifies
+recursive split/transfer as standalone structural primitives, but no live router
+or shadow path invokes them yet.
 
 ### Cost of disjointness
 
@@ -125,4 +126,4 @@ requires the explicit overlap phase below, not a weakening of the invariant.
 
 Malformed-input behavior remains backend-specific, so controller dispatches must remain canonical, legal, deduplicated, and non-empty.
 
-Root-prefix separation also does not imply disjoint internal board-state expansion: independently owned prefixes may transpose later. PR #10 establishes assigned-prefix ownership only. Recursive prefixes, measured transposition duplication, shard transfer, derived RELOCK analysis, and **active-mode** VERIFY budget accounting remain later milestones; shadow VERIFY v1 already exists as a separate, deliberately over-budget research artifact.
+Root-prefix separation also does not imply disjoint internal board-state expansion: independently owned prefixes may transpose later. RootShardLedger v1 establishes assigned-root ownership; PrefixShardLedger v2 extends that structural claim to a prefix-free recursive frontier and atomic transfer. Neither claims global position-level non-overlap. Measured transposition duplication, evidence-triggered live refinement, and **active-mode** VERIFY budget accounting remain later milestones; shadow VERIFY v1 already exists as a separate, deliberately over-budget research artifact.

@@ -137,3 +137,29 @@ three-way state over the common active controller-clock window, candidate
 adoption from EXPLORE to VERIFY, and a frozen terminal-suffix RELOCK descriptor.
 The output is written under `build/verification-derived/` and is not read by
 `shadow.py`, `routing.py`, `budget.py`, or the UCI frontend.
+
+
+## Recursive PrefixShardLedger v2
+
+Recursive search-space geometry is qualified in a separate substrate rather than
+being inserted into the current shadow lifecycle.
+
+```text
+RootShardLedger v1
+    -> live EXPLORE root partition
+
+PrefixShardLedger v2
+    -> recursive prefix tree
+    -> prefix-free frontier
+    -> atomic split / transfer
+    -> descendant UCI request compiler
+    -> no live consumer yet
+```
+
+For prefix `(m1,...,mn)`, `common/prefix_dispatch.py` preserves the external
+position history, appends `prefix[:-1]`, and restricts the descendant search to
+`prefix[-1]`. Exact child legality is certified externally with the existing
+Stockfish `go perft 1` oracle.
+
+This milestone does not alter replay v1, routing, VERIFY, budget accounting, or
+outward decision authority.

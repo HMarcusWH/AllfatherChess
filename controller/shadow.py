@@ -1216,6 +1216,12 @@ class ShadowRunCoordinator:
                             stage.target_id, "incomplete", message
                         )
                         active.refinement.set_disposition("incomplete", message)
+                if (
+                    active.refinement is not None
+                    and not active.refinement.active_stages()
+                    and active.refinement_positioned
+                ):
+                    self._restore_all_refinement_positions(active)
             except Exception as cleanup_exc:  # pragma: no cover - defensive
                 active.run.note(
                     f"could not drain dispatched stages after a worker error: "
@@ -1268,6 +1274,12 @@ class ShadowRunCoordinator:
                         active.run.note(
                             f"router finalization error: {type(exc).__name__}: {exc}"
                         )
+                if (
+                    active.refinement is not None
+                    and not active.refinement.active_stages()
+                    and active.refinement_positioned
+                ):
+                    self._restore_all_refinement_positions(active)
                 if active.ledger is not None:
                     active.run.post_ledger_snapshot = active.ledger.snapshot()
                 active.run.shadow_health = {
@@ -2412,6 +2424,31 @@ class ShadowRunCoordinator:
                 with self._lock:
                     active.refinement_positioned.discard(instance)
         return restored
+
+    def _restore_all_refinement_positions(self, active: _ActiveRun) -> bool:
+        """Best-effort generation cleanup for temporarily repositioned shadows."""
+
+        ok = True
+        with self._lock:
+            instances = list(active.refinement_positioned)
+        for instance in instances:
+            try:
+                if not self.runtime.shadow_available(instance):
+                    ok = False
+                    continue
+                self.runtime.restore_shadow_position(instance)
+            except ControllerRuntimeError as exc:
+                ok = False
+                if active.refinement is not None:
+                    message = (
+                        f"REFINE cleanup could not restore {instance}: {exc}"
+                    )
+                    active.refinement.note(message)
+                    active.refinement.set_disposition("incomplete", message)
+            finally:
+                with self._lock:
+                    active.refinement_positioned.discard(instance)
+        return ok
 
     def _dispatch_stage(self, active: _ActiveRun, state: _OwnerState, *, limit: dict[str, Any]) -> bool:
         if active.cancelled or self._closed:

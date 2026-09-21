@@ -85,8 +85,10 @@ search carries an explicit generation token and every callback checks it.
 ## What the controller still does not do
 
 No voting, no cross-engine score conversion, no recursive shard split or
-transfer, no VERIFY/RELOCK overlap, no cross-feed, no native integration, and no
-strength claim. The outward move is the unrestricted anchor's in every mode.
+transfer, no RELOCK conclusion, no VERIFY-based decision influence, no
+cross-feed, no native integration, and no strength claim. Explicit VERIFY
+overlap is observational only; the outward move is the unrestricted anchor's in
+every mode.
 
 
 ## Explicit VERIFY evidence

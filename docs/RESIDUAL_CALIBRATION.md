@@ -72,7 +72,9 @@ unrestricted anchor, over that worker's own region. Those are recorded under
 The cross-engine library is nevertheless correct for overlapping regions: the
 synthetic fixtures include scenarios where workers share a region, and the tests
 exercise leader agreement, top-k overlap, rank agreement, and PV divergence
-there. A later overlap-capable COMPARE/VERIFY phase can use them unchanged.
+there. The explicit VERIFY evidence plane now produces live common-support
+streams; consuming those streams into cross-engine derived features and RELOCK
+descriptors is the next analysis milestone rather than part of raw VERIFY execution.
 
 Note also that with the anchor at `MultiPV = 1`, the anchor only ever reports
 one move, so `anchor_vs_owner` is defined only for the owner holding the

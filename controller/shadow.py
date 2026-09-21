@@ -36,6 +36,7 @@ from adapters.telemetry import (
     RecklessTelemetryAdapter,
     StockfishTelemetryAdapter,
 )
+from common.prefix_dispatch import compile_descendant_region
 from common.search_request import (
     PositionRequest,
     SearchRequestError,
@@ -44,6 +45,13 @@ from common.search_request import (
     parse_position_command,
 )
 from controller.replay import ReplayRun, StageRecord, TelemetryStreamWriter, sha256_file
+from controller.prefix_shards import PrefixShardLedger, PrefixShardLedgerError
+from controller.refinement import (
+    RefinementError,
+    RefinementRun,
+    build_refinement_plan,
+    partition_children,
+)
 from controller.runtime import BackendManager, RuntimeError as ControllerRuntimeError
 from controller.verification import (
     VerificationError,
@@ -284,6 +292,7 @@ class _ActiveRun:
     anchor_stream: TelemetryStreamWriter | None = None
     ledger: RootShardLedger | None = None
     verification: VerificationRun | None = None
+    refinement: RefinementRun | None = None
     cancelled: bool = False
     cancel_reason: str | None = None
     worker: threading.Thread | None = None

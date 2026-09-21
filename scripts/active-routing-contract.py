@@ -56,6 +56,10 @@ EVIDENCE_CASES = (
     "kiwipete_castling",
 )
 ACTIVE_CASES = ("startpos", "history_ruy_lopez", "perft_position_5", "perft_position_6")
+#: Two passes over the corpus. Removing right-censored labels made each run
+#: contribute far fewer honest rows, so bucket support has to come from more
+#: evidence rather than from a lower support floor.
+EVIDENCE_PASSES = 2
 EVIDENCE_MOVETIME_MS = 500
 ACTIVE_MOVETIME_MS = 1200
 FIXED_NODES = 512
@@ -139,17 +143,18 @@ def main() -> int:
         )
         drive(
             evidence_config,
-            [position_payload(corpus[case]) for case in EVIDENCE_CASES],
+            [position_payload(corpus[case]) for case in EVIDENCE_CASES] * EVIDENCE_PASSES,
             EVIDENCE_MOVETIME_MS,
         )
         evidence_runs = sorted(path for path in evidence_root.iterdir() if path.is_dir())
-        if len(evidence_runs) < len(EVIDENCE_CASES):
+        expected = len(EVIDENCE_CASES) * EVIDENCE_PASSES
+        if len(evidence_runs) < expected:
             raise ContractError(
-                f"evidence sweep produced {len(evidence_runs)} bundles for "
-                f"{len(EVIDENCE_CASES)} positions"
+                f"evidence sweep produced {len(evidence_runs)} bundles, expected {expected}"
             )
         report["stages"]["evidence"] = {
             "cases": list(EVIDENCE_CASES),
+            "passes": EVIDENCE_PASSES,
             "movetime_ms": EVIDENCE_MOVETIME_MS,
             "bundles": len(evidence_runs),
         }
@@ -337,6 +342,18 @@ def main() -> int:
             "active_mode_bestmove": active_fixed,
             "equivalent": True,
             "nodes": FIXED_NODES,
+        }
+        report["evidence_sufficiency"] = {
+            # Recorded, not asserted. A contract that required authorized stops
+            # would be a contract that rewards loosening the gate.
+            "authorized_stops": granted_stops,
+            "denied_stops": denied_stops,
+            "in_domain_rate": model.evaluation.get("in_domain_rate"),
+            "note": (
+                "Zero authorized stops means the evidence collected here does not "
+                "support suppression under the declared thresholds. That is the "
+                "policy working, not failing."
+            ),
         }
         report["not_claimed"] = [
             "no strength or Elo result: the outward move is still the unrestricted anchor's",

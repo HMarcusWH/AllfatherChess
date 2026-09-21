@@ -118,12 +118,20 @@ class UciFrontend:
 
         A prior shadow generation must never be able to observe the next
         position, so state synchronization waits for the previous run to drain.
+
+        A worker that misses the drain deadline is recorded as a shadow failure
+        by the coordinator, which removes it from synchronization and dispatch.
+        The mutation that follows therefore never reaches a process still
+        executing the previous generation.
         """
         if self.shadow is None:
             return
         try:
             if not self.shadow.quiesce():
-                self._diagnostic("previous shadow generation did not drain before state change")
+                self._diagnostic(
+                    "previous shadow generation did not drain; the affected shadow "
+                    "workers are recorded as failed and excluded from this state change"
+                )
         except Exception as exc:  # pragma: no cover - shadow control is non-authoritative
             self._diagnostic(f"shadow quiesce failed: {exc}")
 

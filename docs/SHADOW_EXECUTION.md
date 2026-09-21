@@ -251,8 +251,16 @@ ordering for every stage.
 
 One consequence is recorded honestly rather than hidden: if the anchor's search
 is very short, it can complete before shadow qualification finishes, and the run
-is recorded as `cancelled` with little or no shadow evidence. Evidence density
-therefore depends on the time control.
+is then recorded with a note and **no** shadow stages at all. Evidence density
+therefore depends on the time control, and a fixed-node regression run is not a
+useful observatory run.
+
+If the external request carries `searchmoves`, the shadow universe is
+intersected with it before partitioning. The anchor searches only what the
+caller asked for, and shadow evidence has to describe the same request; owning
+roots the caller excluded would make the streams and the manifest describe two
+different searches. The manifest records the oracle count, the dispatched count,
+and the restriction.
 
 ## Stop, ponder, quit, and failures
 
@@ -261,7 +269,9 @@ The outward UCI lifecycle remains authoritative.
 - `stop` must unblock the outward anchor and terminate/drain shadow work for the same run.
 - `quit` must close every managed process without orphans.
 - any state mutation (`position`, `ucinewgame`, `setoption UCI_Chess960`) passes through a quiesce barrier that cancels and joins the previous generation first, so no stale generation can observe the next position.
-- when the anchor completes, `shadow.on_anchor_complete` declares what happens to an in-flight node-limited stage: `drain` (default) lets it finish, `cancel` kills it. Either way no *new* stage may open once the outward decision has been emitted.
+- when the anchor completes, `shadow.on_anchor_complete` declares what happens to an in-flight node-limited stage: `drain` (default) lets it finish, `cancel` kills it. Either way no *new* stage may open once the outward decision has been emitted — including the first stage of a run whose qualification lost the race to a short anchor search. The check and the dispatch are committed under one lock, so the window between them cannot leak a stage.
+- a worker that ignores `stop` and misses the drain deadline is recorded as a shadow failure, which removes it from synchronization and dispatch and releases the run's bundle. A stuck worker degrades to evidence, exactly like a crashed one; it never leaves the caller free to synchronize state into a process still executing the previous generation.
+- a `go` that arrives while a previous generation is still draining waits for that generation to drain before a new run is installed. Replacing the run without waiting would orphan the old worker, whose own drain deadline could then stop a process the new generation is already using.
 - `ponderhit` semantics belong to the outward anchor unless and until a later shadow policy explicitly qualifies equivalent behavior.
 - an unexpected shadow exit is recorded as a shadow failure;
 - an unexpected anchor failure retains the existing fail-closed outward behavior;

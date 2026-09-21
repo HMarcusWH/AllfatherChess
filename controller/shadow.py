@@ -188,6 +188,24 @@ class RunContext:
             return []
         return state.stream.tracked_events()
 
+    def owner_events_truncated(self, owner: str) -> bool:
+        """True when this worker's live event view has stopped tracking."""
+        state = self._coordinator._owner_state(self.generation, owner)
+        if state is None or state.stream is None:
+            return False
+        return state.stream.tracked_events_truncated
+
+    def owner_elapsed_stage_ms(self, owner: str) -> float | None:
+        """Time since the current stage was dispatched, for an unfinished stage."""
+        state = self._coordinator._owner_state(self.generation, owner)
+        if state is None or state.stage is None:
+            return None
+        stage = state.stage
+        if stage.completed_ms is not None:
+            return max(0.0, stage.completed_ms - stage.dispatched_ms)
+        elapsed = (time.monotonic() - self.started_monotonic) * 1000.0
+        return max(0.0, elapsed - stage.dispatched_ms)
+
 
 @dataclass
 class _ActiveRun:
@@ -309,9 +327,24 @@ class ShadowRunCoordinator:
         with self._lock:
             if self._closed:
                 return False
-            if self._run is not None and not self._run.finished.is_set():
-                # Defensive: the frontend rejects overlapping searches.
-                self._cancel_locked(self._run, reason="superseded")
+            previous = self._run
+            superseded = previous is not None and not previous.finished.is_set()
+
+        if superseded:
+            # A prior generation may still be draining: the anchor can return
+            # while its shadows run on, and the next `go` needs no intervening
+            # `position`. Replacing `_run` without waiting would orphan the old
+            # worker, whose drain deadline could then call stop_instance on a
+            # process the new generation is already using. Joining must happen
+            # outside self._lock, because the worker needs that same lock to
+            # finish.
+            if not self.quiesce(reason="superseded"):
+                self._diagnostic(
+                    "previous shadow generation did not drain; skipping shadow "
+                    "observation for this search"
+                )
+                return False
+
         position_command = self.runtime.position_command
         variant = self._variant()
         try:
@@ -543,10 +576,17 @@ class ShadowRunCoordinator:
                 except ControllerRuntimeError:  # pragma: no cover - shadow stop is non-authoritative
                     pass
 
-    def quiesce(self, *, timeout: float | None = None) -> bool:
+    def quiesce(self, *, timeout: float | None = None, reason: str = "quiesce") -> bool:
         """Guarantee no prior shadow generation can observe the next state.
 
         Callers must invoke this before any position/game synchronization.
+
+        If a worker ignores `stop` and misses the drain deadline, returning a
+        bare False would leave the caller free to synchronize state into a
+        process still executing the previous generation. Instead the offending
+        instances are recorded as shadow failures, which removes them from
+        synchronization and dispatch through the existing observational-health
+        path: a stuck worker degrades to evidence, exactly like a crashed one.
         """
         if timeout is None:
             timeout = self.settings.drain_timeout_s
@@ -554,7 +594,7 @@ class ShadowRunCoordinator:
             active = self._run
             if active is None:
                 return True
-            self._cancel_locked(active, reason="quiesce")
+            self._cancel_locked(active, reason=reason)
             worker = active.worker
             finished = active.finished
         if worker is not None:
@@ -562,6 +602,32 @@ class ShadowRunCoordinator:
         drained = finished.wait(timeout=max(0.0, timeout))
         if not drained:
             self._diagnostic("shadow generation did not drain within the configured timeout")
+            stuck = [
+                state
+                for state in list(active.owners.values())
+                if state.dispatched and not state.done.is_set()
+            ]
+            for state in stuck:
+                message = (
+                    f"shadow instance {state.instance} did not drain within "
+                    f"{timeout}s and is excluded from further synchronization"
+                )
+                self.runtime.record_shadow_failure(
+                    state.instance, message, generation=active.generation
+                )
+                active.run.note(message)
+                if state.stage is not None:
+                    active.run.record_completion(
+                        state.stage,
+                        completed_ms=(time.monotonic() - active.started_monotonic) * 1000.0,
+                        disposition="failed",
+                        failure=message,
+                    )
+                # A worker recorded as failed is no longer awaited. Without
+                # this the run's worker thread would stay blocked until its own
+                # drain deadline, so the bundle -- including the evidence of the
+                # failure itself -- would not be written for many seconds.
+                state.done.set()
         return drained
 
     def close(self) -> None:
@@ -623,6 +689,29 @@ class ShadowRunCoordinator:
             run.terminal_universe = True
             run.note("terminal position: empty legal-root universe, no shadow dispatch")
             return "terminal_no_dispatch", None
+
+        # The anchor searches only what the caller asked for. If the external
+        # request carries `searchmoves`, shadow evidence must describe the same
+        # request; partitioning roots the caller excluded would make the streams
+        # and the manifest describe two different searches.
+        requested = parse_go_request(active.context.external_go_command).get("root_moves")
+        if requested:
+            allowed = set(requested)
+            restricted = tuple(move for move in roots if move in allowed)
+            unknown = sorted(allowed - set(roots))
+            if unknown:
+                run.note(f"external searchmoves named roots outside the legal universe: {unknown}")
+            run.external_root_restriction = sorted(allowed)
+            run.note(
+                f"external searchmoves restricted the shadow universe from "
+                f"{len(roots)} to {len(restricted)} roots"
+            )
+            roots = restricted
+            if not roots:
+                run.note("external searchmoves left no legal root to observe")
+                return "external_restriction_empty", None
+        run.dispatch_root_count = len(roots)
+
         if active.cancelled:
             return "cancelled", active.cancel_reason
 
@@ -721,11 +810,17 @@ class ShadowRunCoordinator:
     def _dispatch_stage(self, active: _ActiveRun, state: _OwnerState, *, limit: dict[str, Any]) -> bool:
         if active.cancelled or self._closed:
             return False
-        if state.stage_index > 0 and active.anchor_completed.is_set():
-            # Extension stages exist to inform a decision. Once the outward
-            # decision is emitted there is nothing left for them to inform.
+        if active.anchor_completed.is_set():
+            # Stages exist to inform a decision. Once the outward decision has
+            # been emitted there is nothing left for any stage to inform, and in
+            # active mode it would spend envelope budget on an observation that
+            # cannot matter. This applies to the first stage too: a short
+            # fixed-node anchor routinely finishes before root qualification
+            # does, and `drain` means "let work already in flight finish", not
+            # "start new work afterwards".
+            kind = "extension" if state.stage_index > 0 else "initial dispatch"
             active.run.note(
-                f"owner {state.owner} extension suppressed: outward decision already emitted"
+                f"owner {state.owner} {kind} suppressed: outward decision already emitted"
             )
             return False
         run = active.run
@@ -755,33 +850,6 @@ class ShadowRunCoordinator:
             state.done.set()
             return False
 
-        state.stream.begin_stage(
-            search_id=search_id,
-            position=active.context.position.telemetry_position(),
-            request=parse_go_request(command),
-            controller={
-                "execution_mode": self.runtime.config.telemetry_execution_mode,
-                "phase": "EXPLORE",
-                "instance_role": "shadow",
-                "owner": state.owner,
-                "decision_authority": False,
-            },
-        )
-        elapsed = (time.monotonic() - active.started_monotonic) * 1000.0
-        stage = run.record_dispatch(
-            instance=state.instance,
-            family=state.family,
-            role="shadow",
-            owner=state.owner,
-            search_id=search_id,
-            command=command,
-            dispatched_roots=state.roots,
-            dispatched_ms=elapsed,
-            stage_index=state.stage_index,
-        )
-        state.stage = stage
-        state.done.clear()
-
         generation = active.generation
 
         def on_info(token: int, line: str) -> None:
@@ -790,13 +858,54 @@ class ShadowRunCoordinator:
         def on_complete(token: int, line: str) -> None:
             self._on_shadow_complete(generation, state.owner, token, line)
 
-        dispatched = self.runtime.start_shadow_search(
-            state.instance,
-            command,
-            token=generation,
-            on_info=on_info,
-            on_complete=on_complete,
-        )
+        # Commit under the coordinator lock, which `note_anchor_complete` also
+        # takes. Checking the flag only at the top of this method leaves a real
+        # window: stream creation is not free, and the anchor can return inside
+        # it, so a stage could still be launched against a decision that had
+        # already been emitted.
+        with self._lock:
+            if active.cancelled or active.anchor_completed.is_set():
+                run.note(
+                    f"owner {state.owner} dispatch abandoned: outward decision "
+                    "was emitted while the stage was being prepared"
+                )
+                state.done.set()
+                return False
+
+            state.stream.begin_stage(
+                search_id=search_id,
+                position=active.context.position.telemetry_position(),
+                request=parse_go_request(command),
+                controller={
+                    "execution_mode": self.runtime.config.telemetry_execution_mode,
+                    "phase": "EXPLORE",
+                    "instance_role": "shadow",
+                    "owner": state.owner,
+                    "decision_authority": False,
+                },
+            )
+            elapsed = (time.monotonic() - active.started_monotonic) * 1000.0
+            stage = run.record_dispatch(
+                instance=state.instance,
+                family=state.family,
+                role="shadow",
+                owner=state.owner,
+                search_id=search_id,
+                command=command,
+                dispatched_roots=state.roots,
+                dispatched_ms=elapsed,
+                stage_index=state.stage_index,
+            )
+            state.stage = stage
+            state.done.clear()
+
+            dispatched = self.runtime.start_shadow_search(
+                state.instance,
+                command,
+                token=generation,
+                on_info=on_info,
+                on_complete=on_complete,
+            )
         if not dispatched:
             state.failed = True
             run.record_completion(

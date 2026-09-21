@@ -14,6 +14,7 @@ sys.path.insert(0, str(ROOT))
 
 from common.residuals import (
     Margin,
+    past_only_features,
     ResidualError,
     ScaleMixingError,
     TaggedValue,
@@ -43,6 +44,7 @@ from controller.replay_analysis import (
     load_bundle,
     summarize_trajectory,
 )
+from controller.calibration import FEATURE_NAMES
 from controller.residuals import (
     EXTRACTOR_VERSION,
     FeatureExtractionError,
@@ -154,7 +156,7 @@ class ScenarioFeatureTests(unittest.TestCase):
 
     def test_stable_agreement_never_reverses(self):
         run = self.features("stable_agreement")
-        for instance, summary in run["summaries"].items():
+        for instance, summary in run["summaries_by_instance"].items():
             self.assertEqual(summary["leader_flips"], 0, instance)
         for labels in run["counterfactual_labels"].values():
             for label in labels:
@@ -164,9 +166,9 @@ class ScenarioFeatureTests(unittest.TestCase):
 
     def test_transient_disagreement_flips_then_recovers(self):
         run = self.features("transient_disagreement")
-        anchor = run["summaries"]["stockfish-anchor"]
+        anchor = run["summaries_by_instance"]["stockfish-anchor"]
         self.assertGreater(anchor["leader_flips"], 0)
-        labels = run["counterfactual_labels"]["stockfish-anchor"]
+        labels = run["counterfactual_labels_by_instance"]["stockfish-anchor"]
         self.assertTrue(any(label["reversal_within_horizon"] for label in labels))
         # The wobble resolves: the final leader is the one it started with.
         self.assertEqual(anchor["final_leader"], "e2e4")
@@ -174,8 +176,8 @@ class ScenarioFeatureTests(unittest.TestCase):
 
     def test_late_reversal_marks_early_checkpoints_as_changed(self):
         run = self.features("late_reversal")
-        labels = run["counterfactual_labels"]["stockfish-anchor"]
-        self.assertEqual(run["summaries"]["stockfish-anchor"]["final_leader"], "d2d4")
+        labels = run["counterfactual_labels_by_instance"]["stockfish-anchor"]
+        self.assertEqual(run["summaries_by_instance"]["stockfish-anchor"]["final_leader"], "d2d4")
         # A checkpoint before the first observation has no leader, so every
         # outcome there is undefined rather than assumed.
         for label in labels:
@@ -238,8 +240,8 @@ class ScenarioFeatureTests(unittest.TestCase):
         self.assertIsNone(lc0.bestmove)
         self.assertIsNotNone(lc0.final_leader)
         run = extract_features(bundle)
-        self.assertFalse(run["summaries"]["lc0-shadow"]["complete"])
-        self.assertTrue(run["summaries"]["stockfish-shadow"]["complete"])
+        self.assertFalse(run["summaries_by_instance"]["lc0-shadow"]["complete"])
+        self.assertTrue(run["summaries_by_instance"]["stockfish-shadow"]["complete"])
 
     def test_missing_stream_is_reported_not_imputed(self):
         bundle = load_bundle(self.paths["missing_shadow_stream"])
@@ -247,7 +249,7 @@ class ScenarioFeatureTests(unittest.TestCase):
         self.assertIsNone(bundle.by_owner("lc0"))
         run = extract_features(bundle)
         self.assertEqual(run["missing_streams"], ["lc0-shadow"])
-        self.assertNotIn("lc0-shadow", run["summaries"])
+        self.assertNotIn("lc0-shadow", run["summaries_by_instance"])
         for checkpoint in run["checkpoints"]:
             self.assertNotIn("lc0", checkpoint["per_owner"])
 
@@ -268,15 +270,15 @@ class ScenarioFeatureTests(unittest.TestCase):
             self.assertEqual(trajectory.variant, "chess960")
         run = extract_features(bundle)
         self.assertEqual(run["variant"], "chess960")
-        self.assertIn("g1h1", run["summaries"]["stockfish-shadow"]["final_leader"])
+        self.assertIn("g1h1", run["summaries_by_instance"]["stockfish-shadow"]["final_leader"])
 
     def test_malformed_telemetry_does_not_corrupt_features(self):
         bundle = load_bundle(self.paths["malformed_telemetry"])
         run = extract_features(bundle)
         # Unparseable lines were preserved as native evidence, so they produce
         # no candidate observations and no fabricated leader.
-        self.assertEqual(run["summaries"]["stockfish-shadow"]["final_leader"], "e2e4")
-        self.assertEqual(run["summaries"]["stockfish-shadow"]["leader_flips"], 0)
+        self.assertEqual(run["summaries_by_instance"]["stockfish-shadow"]["final_leader"], "e2e4")
+        self.assertEqual(run["summaries_by_instance"]["stockfish-shadow"]["leader_flips"], 0)
         self.assertEqual(bundle.load_errors, ())
 
     def test_within_engine_margins_keep_their_own_semantics(self):
@@ -312,6 +314,107 @@ class ScenarioFeatureTests(unittest.TestCase):
         discoverer = run["first_discoverer_of_anchor_move"]
         self.assertEqual(discoverer["move"], "e2e4")
         self.assertEqual(sorted(discoverer["eligible"]), ["stockfish-anchor", "stockfish-shadow"])
+
+
+class ReviewRegressionTests(unittest.TestCase):
+    """Regressions for the defects found in code review."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+        self.paths = replay_fixtures.write_all(self.root)
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def test_truncated_reversal_horizon_is_unlabelled_not_negative(self):
+        # A horizon running past the end of the observed trajectory is
+        # right-censored. Labelling it False would fill the late, settled
+        # buckets -- the ones that authorize suppression -- with guaranteed
+        # negatives and understate real reversal risk.
+        bundle = load_bundle(self.paths["stable_agreement"])
+        trajectory = bundle.anchor
+        checkpoints = bundle.checkpoints()
+        labels = counterfactual_labels(trajectory, checkpoints, horizon_fraction=0.25)
+
+        self.assertFalse(labels[-1].horizon_observed)
+        self.assertIsNone(labels[-1].reversal_within_horizon)
+
+        observed = [item for item in labels if item.horizon_observed]
+        self.assertTrue(observed, "no checkpoint had a fully observed horizon")
+        for item in observed:
+            self.assertIsNotNone(item.reversal_within_horizon)
+
+    def test_censored_checkpoints_do_not_become_training_rows(self):
+        artifact = build_derived_artifact(sorted(self.paths.values()))
+        rows = training_rows_from_derived(artifact.as_dict())
+        self.assertTrue(rows)
+        censored = 0
+        for run in artifact.as_dict()["runs"]:
+            for labels in run["counterfactual_labels"].values():
+                censored += sum(1 for item in labels if not item["horizon_observed"])
+        self.assertGreater(censored, 0, "the fixtures exercise no censored checkpoint")
+
+    def test_training_and_live_features_share_one_definition(self):
+        # The model is only meaningful if an online decision and a later
+        # offline audit bucket the same search state identically.
+        bundle = load_bundle(self.paths["transient_disagreement"])
+        trajectory = bundle.by_family("stockfish", role="shadow")
+        self.assertIsNotNone(trajectory)
+
+        checkpoints = bundle.checkpoints()
+        labels = counterfactual_labels(trajectory, checkpoints)
+        for label, point in zip(labels, checkpoints):
+            offline = label.features
+            live = past_only_features(trajectory.primary_moves_until(point)).as_dict()
+            self.assertEqual(offline, live)
+            for name in FEATURE_NAMES:
+                self.assertIn(name, offline)
+
+    def test_multi_stage_worker_keeps_every_stage(self):
+        bundle = load_bundle(self.paths["multi_stage_worker"])
+        self.assertEqual(len(bundle.shadow_stages()), 4)
+        self.assertEqual(len(bundle.shadows()), 3, "worker views must collapse to one per instance")
+
+        run = extract_features(bundle)
+        stage_ids = [t.search_id for t in bundle.trajectories]
+        self.assertEqual(sorted(run["summaries"]), sorted(stage_ids))
+        self.assertEqual(len(run["summaries"]), len(bundle.trajectories))
+
+        # The latest stage is what a worker-level view reports.
+        latest = run["summaries_by_instance"]["stockfish-shadow"]
+        self.assertEqual(latest["final_leader"], "b1c3")
+
+    def test_multi_stage_worker_never_compares_against_itself(self):
+        run = extract_features(load_bundle(self.paths["multi_stage_worker"]))
+        for checkpoint in run["checkpoints"]:
+            pairs = checkpoint["intra_alpha_beta"] + checkpoint["cross_paradigm"]
+            for comparison in pairs:
+                self.assertNotEqual(
+                    comparison["left"],
+                    comparison["right"],
+                    "two stages of one instance were compared as separate workers",
+                )
+
+    def test_tampered_bundle_is_refused_before_any_feature_is_derived(self):
+        run_dir = self.paths["stable_agreement"]
+        target = run_dir / "stockfish-shadow.jsonl"
+        target.write_text(target.read_text(encoding="utf-8") + "\n", encoding="utf-8")
+        with self.assertRaises(FeatureExtractionError) as ctx:
+            build_derived_artifact([run_dir])
+        self.assertIn("integrity", str(ctx.exception))
+
+    def test_derived_id_covers_every_extraction_parameter(self):
+        runs = [self.paths["late_reversal"]]
+        base = build_derived_artifact(runs).derived_id
+        self.assertNotEqual(base, build_derived_artifact(runs, top_k=5).derived_id)
+        self.assertNotEqual(
+            base, build_derived_artifact(runs, horizon_fraction=0.5).derived_id
+        )
+        self.assertNotEqual(
+            base, build_derived_artifact(runs, fractions=(0.5, 1.0)).derived_id
+        )
+        self.assertEqual(base, build_derived_artifact(runs).derived_id)
 
 
 class DerivedArtifactTests(unittest.TestCase):
@@ -368,30 +471,38 @@ class CalibrationTests(unittest.TestCase):
                 TrainingRow(
                     run_id=f"run-{index % 8}",
                     instance="stockfish-shadow",
-                    elapsed_fraction=(index % 10) / 10.0,
-                    stable_run_fraction=((index * 3) % 10) / 10.0,
+                    observation_count=index % 14,
                     leader_flips=index % 3,
+                    stable_run_fraction=((index * 3) % 10) / 10.0,
                     label=(index % label_every == 0),
                 )
             )
         return rows
 
     def test_bucket_key_is_stable_and_bounded(self):
-        key = bucket_key({"elapsed_fraction": 0.99, "stable_run_fraction": 1.0, "leader_flips": 5})
-        self.assertEqual(key, "e3|s3|f2")
+        key = bucket_key(
+            {"observation_count": 40, "stable_run_fraction": 1.0, "leader_flips": 5}
+        )
+        self.assertEqual(key, "n3|s3|f2")
         self.assertEqual(
-            bucket_key({"elapsed_fraction": 0.0, "stable_run_fraction": 0.0, "leader_flips": 0}),
-            "e0|s0|f0",
+            bucket_key({"observation_count": 0, "stable_run_fraction": 0.0, "leader_flips": 0}),
+            "n0|s0|f0",
         )
         with self.assertRaises(CalibrationError):
-            bucket_key({"elapsed_fraction": 0.5})
+            bucket_key({"observation_count": 5})
         with self.assertRaises(CalibrationError):
-            bucket_key({"elapsed_fraction": 0.5, "stable_run_fraction": 0.5, "leader_flips": -1})
+            bucket_key(
+                {"observation_count": 5, "stable_run_fraction": 0.5, "leader_flips": -1}
+            )
+        with self.assertRaises(CalibrationError):
+            bucket_key(
+                {"observation_count": -1, "stable_run_fraction": 0.5, "leader_flips": 0}
+            )
 
     def test_low_support_buckets_are_out_of_domain_and_conservative(self):
         model = ReversalRiskModel.fit(self.rows(400), min_support=1000)
         verdict = model.evaluate(
-            {"elapsed_fraction": 0.5, "stable_run_fraction": 0.5, "leader_flips": 0}
+            {"observation_count": 6, "stable_run_fraction": 0.5, "leader_flips": 0}
         )
         self.assertFalse(verdict.in_domain)
         self.assertIn("support", verdict.reason)
@@ -401,7 +512,7 @@ class CalibrationTests(unittest.TestCase):
         model = ReversalRiskModel.fit(self.rows(400), min_support=1)
         model.buckets.clear()
         verdict = model.evaluate(
-            {"elapsed_fraction": 0.9, "stable_run_fraction": 0.9, "leader_flips": 0}
+            {"observation_count": 12, "stable_run_fraction": 0.9, "leader_flips": 0}
         )
         self.assertFalse(verdict.in_domain)
         self.assertEqual(verdict.risk, model.prior_risk)
@@ -458,6 +569,31 @@ class CalibrationTests(unittest.TestCase):
             with self.assertRaises(CalibrationError):
                 load_calibration(path)
 
+    def test_model_id_is_addressed_by_contents_and_hyperparameters(self):
+        rows = self.rows(400)
+        base = ReversalRiskModel.fit(rows, min_support=5).model_id
+        self.assertEqual(base, ReversalRiskModel.fit(rows, min_support=5).model_id)
+        self.assertNotEqual(base, ReversalRiskModel.fit(rows, min_support=9).model_id)
+        self.assertNotEqual(
+            base, ReversalRiskModel.fit(rows, min_support=5, smoothing_alpha=2.0).model_id
+        )
+        self.assertNotEqual(
+            base, ReversalRiskModel.fit(rows, min_support=5, horizon_fraction=0.5).model_id
+        )
+        # Same row count, opposite labels: the old digest collided here.
+        flipped = [
+            TrainingRow(
+                run_id=row.run_id,
+                instance=row.instance,
+                observation_count=row.observation_count,
+                leader_flips=row.leader_flips,
+                stable_run_fraction=row.stable_run_fraction,
+                label=not row.label,
+            )
+            for row in rows
+        ]
+        self.assertNotEqual(base, ReversalRiskModel.fit(flipped, min_support=5).model_id)
+
     def test_fitting_refuses_empty_evidence(self):
         with self.assertRaises(CalibrationError):
             ReversalRiskModel.fit([])
@@ -471,8 +607,7 @@ class CalibrationTests(unittest.TestCase):
             self.assertTrue(rows)
             for row in rows:
                 # Nothing in a feature vector may come from after the checkpoint.
-                self.assertGreaterEqual(row.elapsed_fraction, 0.0)
-                self.assertLessEqual(row.elapsed_fraction, 1.0)
+                self.assertGreaterEqual(row.observation_count, 0)
                 self.assertGreaterEqual(row.stable_run_fraction, 0.0)
                 self.assertLessEqual(row.stable_run_fraction, 1.0)
                 self.assertGreaterEqual(row.leader_flips, 0)

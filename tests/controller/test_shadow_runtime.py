@@ -7,6 +7,7 @@ import json
 import os
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -40,6 +41,7 @@ def write_shadow_config(
     dispatch_nodes: int = 120,
     extra: dict | None = None,
     tag: str = "allfather-test",
+    slow_anchor: bool = True,
 ) -> Path:
     instance_args = instance_args or {}
     instances = {}
@@ -48,7 +50,7 @@ def write_shadow_config(
         if FAMILY[name] == "lc0":
             # LC0 omits the multipv token for its primary line at MultiPV=1.
             args += ["--omit-multipv-token"]
-        if name == ANCHOR:
+        if name == ANCHOR and slow_anchor:
             # A real anchor search is not instantaneous; the fake must overlap
             # shadow qualification the way a real one does.
             args += ["--info-lines", "4", "--info-delay-ms", "25"]
@@ -501,6 +503,107 @@ class ShadowExecutionTests(unittest.TestCase):
                     len({stage["search_id"].split(":")[0] for stage in manifest["stages"]}),
                     1,
                 )
+
+    def test_no_stage_is_dispatched_after_the_outward_decision(self):
+        # A short fixed-node anchor routinely finishes before root
+        # qualification does. `drain` means "let work already in flight
+        # finish", not "start new work once the decision is already made".
+        with tempfile.TemporaryDirectory() as tmp:
+            config = write_shadow_config(Path(tmp), slow_anchor=False)
+            lines = run_shell(config, ["go nodes 64", "await:bestmove "])
+            self.assertEqual(len([l for l in lines if l.startswith("bestmove ")]), 1)
+
+            manifest = read_only_manifest(Path(tmp) / "replays")
+            anchor = next(s for s in manifest["stages"] if s["role"] == "anchor")
+            self.assertIsNotNone(anchor["completed_ms"])
+
+            # Whether qualification or the anchor wins this race varies, so the
+            # invariant is asserted rather than one side of the race: no stage
+            # may be dispatched after the outward decision was emitted.
+            for stage in manifest["stages"]:
+                if stage["role"] != "shadow":
+                    continue
+                self.assertLessEqual(
+                    stage["dispatched_ms"],
+                    anchor["completed_ms"],
+                    f"{stage['instance']} was dispatched after the outward decision",
+                )
+
+    def test_external_searchmoves_restricts_the_shadow_universe(self):
+        # The anchor searches only what the caller asked for. Shadow evidence
+        # must describe the same request, not a wider one.
+        with tempfile.TemporaryDirectory() as tmp:
+            config = write_shadow_config(Path(tmp))
+            run_shell(config, ["go nodes 64 searchmoves e2e4 d2d4", "await:bestmove "])
+            manifest = read_only_manifest(Path(tmp) / "replays")
+
+            oracle = manifest["legal_root_oracle"]
+            self.assertEqual(oracle["root_count"], 6)
+            self.assertEqual(oracle["dispatch_root_count"], 2)
+            self.assertEqual(oracle["external_root_restriction"], ["d2d4", "e2e4"])
+
+            owned: list[str] = []
+            for moves in manifest["ledger"]["owner_roots"].values():
+                owned += moves
+            self.assertEqual(sorted(owned), ["d2d4", "e2e4"])
+            for stage in manifest["stages"]:
+                if stage["role"] == "shadow":
+                    for move in stage["dispatched_roots"]:
+                        self.assertIn(move, ("e2e4", "d2d4"))
+
+    def test_stuck_shadow_is_failed_by_the_quiesce_barrier(self):
+        # A worker that ignores `stop` must not simply be abandoned: the state
+        # mutation that follows would reach a process still executing the
+        # previous generation. It is recorded as a shadow failure instead.
+        with tempfile.TemporaryDirectory() as tmp:
+            config = write_shadow_config(
+                Path(tmp),
+                instance_args={
+                    "reckless-shadow": [
+                        "--ignore-stop",
+                        "--info-lines",
+                        "400",
+                        "--info-delay-ms",
+                        "50",
+                    ]
+                },
+            )
+            with UciSession(
+                Path(sys.executable),
+                cwd=ROOT,
+                timeout=40.0,
+                args=["-m", "controller", "--config", str(config)],
+            ) as session:
+                session.configure({"UCI_Chess960": False})
+                session.set_position({"startpos_moves": []})
+                session.send("go nodes 64")
+                session.read_until(
+                    lambda line: line.startswith("bestmove "),
+                    label="first bestmove",
+                    timeout=20.0,
+                )
+                # Forces the drain barrier while the stuck worker is running.
+                session.set_position({"startpos_moves": ["e2e4"]})
+                session.send("isready")
+                session.read_until(
+                    lambda line: line == "readyok", label="readyok", timeout=20.0
+                )
+
+            replay_root = Path(tmp) / "replays"
+            first_run = sorted(p for p in replay_root.iterdir() if p.is_dir())[0]
+            manifest_path = first_run / "manifest.json"
+            deadline = time.monotonic() + 20.0
+            while not manifest_path.is_file() and time.monotonic() < deadline:
+                time.sleep(0.05)
+            self.assertTrue(
+                manifest_path.is_file(),
+                "a stuck worker must still release its bundle once it is failed",
+            )
+            first = json.loads(manifest_path.read_text())
+            self.assertTrue(
+                any("did not drain" in note for note in first["notes"]), first["notes"]
+            )
+            self.assertFalse(first["shadow_health"]["reckless-shadow"]["alive"])
 
     def test_quit_leaves_no_orphan_processes(self):
         import subprocess

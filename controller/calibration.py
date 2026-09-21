@@ -27,10 +27,14 @@ from controller.residuals import EXTRACTOR_VERSION
 
 
 CALIBRATION_SCHEMA_VERSION = 1
-MODEL_KIND = "bucketed_reversal_risk_v1"
+#: v2: features come from the single shared past-only definition, so training
+#: and live serving cannot disagree about which bucket a search state is in.
+MODEL_KIND = "bucketed_reversal_risk_v2"
 
 #: Feature names the model consumes. Changing this list changes the model kind.
-FEATURE_NAMES = ("elapsed_fraction", "stable_run_fraction", "leader_flips")
+#: All three are computed by `common.residuals.past_only_features` from one
+#: input, the primary-line history, so there is no train/serve skew to manage.
+FEATURE_NAMES = ("observation_count", "leader_flips", "stable_run_fraction")
 
 
 class CalibrationError(RuntimeError):
@@ -43,16 +47,16 @@ class TrainingRow:
 
     run_id: str
     instance: str
-    elapsed_fraction: float
-    stable_run_fraction: float
+    observation_count: int
     leader_flips: int
+    stable_run_fraction: float
     label: bool
 
     def features(self) -> dict[str, float]:
         return {
-            "elapsed_fraction": self.elapsed_fraction,
-            "stable_run_fraction": self.stable_run_fraction,
+            "observation_count": float(self.observation_count),
             "leader_flips": float(self.leader_flips),
+            "stable_run_fraction": self.stable_run_fraction,
         }
 
 
@@ -68,13 +72,24 @@ def bucket_key(features: dict[str, Any]) -> str:
             raise CalibrationError("calibration features must be finite")
         return int(max(0.0, min(0.999, number)) * 4)
 
-    elapsed = quartile(features["elapsed_fraction"])
+    observations = int(features["observation_count"])
+    if observations < 0:
+        raise CalibrationError("observation_count must be non-negative")
+    if observations <= 2:
+        observed = 0
+    elif observations <= 5:
+        observed = 1
+    elif observations <= 11:
+        observed = 2
+    else:
+        observed = 3
+
     stable = quartile(features["stable_run_fraction"])
     flips = int(features["leader_flips"])
     if flips < 0:
         raise CalibrationError("leader_flips must be non-negative")
     flip_bucket = 0 if flips == 0 else (1 if flips <= 2 else 2)
-    return f"e{elapsed}|s{stable}|f{flip_bucket}"
+    return f"n{observed}|s{stable}|f{flip_bucket}"
 
 
 @dataclass(frozen=True)
@@ -176,13 +191,39 @@ class ReversalRiskModel:
         buckets = _fit_buckets(train, smoothing_alpha=smoothing_alpha)
         moment = now or _dt.datetime.now(_dt.timezone.utc)
         if model_id is None:
+            # Address the model by everything that determines it: provenance,
+            # every hyperparameter, and the fitted contents themselves. Hashing
+            # only sources plus a row count lets two different models -- even
+            # ones with opposite labels -- collide on one model.json.
             digest = hashlib.sha256()
-            for record in sources:
-                digest.update(str(record.get("derived_id", "")).encode("utf-8"))
-                digest.update(str(record.get("sha256", "")).encode("utf-8"))
-            digest.update(MODEL_KIND.encode("ascii"))
-            digest.update(EXTRACTOR_VERSION.encode("ascii"))
-            digest.update(str(len(train)).encode("ascii"))
+            digest.update(
+                json.dumps(
+                    {
+                        "model_kind": MODEL_KIND,
+                        "schema_version": CALIBRATION_SCHEMA_VERSION,
+                        "extractor_version": EXTRACTOR_VERSION,
+                        "feature_names": list(FEATURE_NAMES),
+                        "min_support": min_support,
+                        "smoothing_alpha": smoothing_alpha,
+                        "horizon_fraction": horizon_fraction,
+                        "train_rows": len(train),
+                        "test_rows": len(test),
+                        "sources": [
+                            [str(record.get("derived_id", "")), str(record.get("sha256", ""))]
+                            for record in sources
+                        ],
+                        "buckets": {
+                            key: [
+                                int(record["support"]),
+                                int(record["positives"]),
+                                round(float(record["risk"]), 9),
+                            ]
+                            for key, record in sorted(buckets.items())
+                        },
+                    },
+                    sort_keys=True,
+                ).encode("utf-8")
+            )
             model_id = f"calib-{digest.hexdigest()[:16]}"
 
         model = cls(
@@ -383,33 +424,31 @@ def training_rows_from_derived(derived: dict[str, Any]) -> list[TrainingRow]:
     rows: list[TrainingRow] = []
     for run in derived.get("runs", []):
         run_id = str(run["run_id"])
-        leaders_by_instance: dict[str, list[tuple[float, str | None]]] = {}
-        for instance, labels in run.get("counterfactual_labels", {}).items():
-            leaders_by_instance[instance] = [
-                (float(item["checkpoint_fraction"]), item["leader"]) for item in labels
-            ]
-        for instance, labels in run.get("counterfactual_labels", {}).items():
-            history = leaders_by_instance[instance]
-            for index, item in enumerate(labels):
+        # Keyed by search id, so every dispatched stage contributes its own rows
+        # instead of a later stage overwriting an earlier one.
+        for labels in run.get("counterfactual_labels", {}).values():
+            for item in labels:
                 label = item.get("reversal_within_horizon")
+                # A None label is either "no leader yet" or a right-censored
+                # horizon. Neither is an observation, so neither becomes a row.
                 if label is None or item.get("leader") is None:
                     continue
-                past = [leader for _, leader in history[: index + 1] if leader is not None]
-                flips = sum(1 for a, b in zip(past, past[1:]) if a != b)
-                stable_run = 0
-                for leader in reversed(past[:-1]):
-                    if leader != past[-1]:
-                        break
-                    stable_run += 1
-                elapsed = float(item["checkpoint_fraction"])
-                denominator = max(1, index)
+                features = item.get("features")
+                if not isinstance(features, dict):
+                    raise CalibrationError(
+                        "derived checkpoint is missing its past-only feature vector; "
+                        "re-derive the bundle with this build"
+                    )
+                missing = [name for name in FEATURE_NAMES if name not in features]
+                if missing:
+                    raise CalibrationError(f"derived features are missing {missing}")
                 rows.append(
                     TrainingRow(
                         run_id=run_id,
-                        instance=instance,
-                        elapsed_fraction=elapsed,
-                        stable_run_fraction=stable_run / denominator,
-                        leader_flips=flips,
+                        instance=str(item.get("instance", "")),
+                        observation_count=int(features["observation_count"]),
+                        leader_flips=int(features["leader_flips"]),
+                        stable_run_fraction=float(features["stable_run_fraction"]),
                         label=bool(label),
                     )
                 )

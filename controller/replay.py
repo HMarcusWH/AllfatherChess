@@ -30,6 +30,10 @@ REPLAY_SCHEMA_VERSION = 1
 #: overflow is recorded as explicit truncation evidence instead of back-pressure.
 _STREAM_QUEUE_MAXSIZE = 200_000
 
+#: Upper bound on the in-memory live event view used by active routing. The
+#: JSONL file is unaffected; only the live view is capped.
+_TRACKED_EVENT_LIMIT = 50_000
+
 _SENTINEL = object()
 
 
@@ -130,6 +134,7 @@ class TelemetryStreamWriter:
         # never disagree about what the engine reported.
         self._track_events = track_events
         self._events: list[dict[str, Any]] = []
+        self._events_truncated = False
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._handle = self.path.open("w", encoding="utf-8")
         self._thread = threading.Thread(
@@ -223,13 +228,24 @@ class TelemetryStreamWriter:
         self._event_count += 1
         if self._track_events:
             with self._lock:
-                if len(self._events) < 50_000:
+                if len(self._events) < _TRACKED_EVENT_LIMIT:
                     self._events.append(event)
+                else:
+                    # The live view stops growing here. Say so, so a consumer
+                    # cannot mistake a frozen prefix for the current state of
+                    # the search and decide from stale evidence.
+                    self._events_truncated = True
 
     def tracked_events(self) -> list[dict[str, Any]]:
         """Copy of the events written so far; empty unless tracking is enabled."""
         with self._lock:
             return list(self._events)
+
+    @property
+    def tracked_events_truncated(self) -> bool:
+        """True once the live event view has stopped tracking the stream."""
+        with self._lock:
+            return self._events_truncated
 
     # -- lifecycle -----------------------------------------------------------
 
@@ -277,6 +293,7 @@ class TelemetryStreamWriter:
             "dropped_events": dropped,
             "post_complete_lines": post_complete,
             "queued_peak": self._queued_peak,
+            "live_view_truncated": self._events_truncated,
             "adapter_errors": errors,
         }
 
@@ -311,6 +328,10 @@ class ReplayRun:
     run_stop_reason: str | None = None
     notes: list[str] = field(default_factory=list)
     oracle_root_count: int | None = None
+    #: Roots actually partitioned, which is smaller than the oracle count when
+    #: the external request carried a `searchmoves` restriction.
+    dispatch_root_count: int | None = None
+    external_root_restriction: list[str] | None = None
     oracle_instance: str | None = None
     terminal_universe: bool = False
     finalized: bool = False
@@ -449,6 +470,8 @@ class ReplayRun:
             "legal_root_oracle": {
                 "instance": self.oracle_instance,
                 "root_count": self.oracle_root_count,
+                "dispatch_root_count": self.dispatch_root_count,
+                "external_root_restriction": self.external_root_restriction,
                 "terminal_universe": self.terminal_universe,
             },
             "ledger": {

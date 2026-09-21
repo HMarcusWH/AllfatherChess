@@ -94,6 +94,7 @@ source, so no label is named or usable as correctness.
 | Label | Meaning |
 | --- | --- |
 | `later_leader_changed` | the engine's own preference changed after this checkpoint |
+| `horizon_observed` | whether the requested horizon fitted inside the observed trajectory |
 | `later_pv_changed` | its principal variation differed at the end |
 | `stable_to_end` | its leader never changed again |
 | `reversal_within_horizon` | its leader changed within the next horizon fraction |
@@ -103,19 +104,51 @@ source, so no label is named or usable as correctness.
 `later_leader_changed = true` means the engine changed its mind. It does not
 mean the earlier move was wrong.
 
+### Right-censored horizons are unlabelled
+
+If the requested horizon runs past the end of the observed trajectory, the
+search simply stopped: "no reversal happened" is not an observation. v1 labelled
+those rows `False`, which filled exactly the late, settled buckets — the ones
+that authorize live suppression — with guaranteed negatives and understated real
+reversal risk. v2 emits `None` and `horizon_observed: false`, and those rows
+never become training rows.
+
+The correction is visible in the numbers: on the same 36-run sweep the labelled
+row count falls from 1200 to 387, and the in-domain rate falls with it, because
+the remaining evidence is thinner and more of it is honestly out of domain. That
+is the calibration getting smaller and more conservative, not worse.
+
 ## Calibration model
 
-`bucketed_reversal_risk_v1` estimates the probability that an engine's own
+`bucketed_reversal_risk_v2` estimates the probability that an engine's own
 leader still reverses within the horizon, from **past-only** features:
 
 ```text
-elapsed_fraction      how far into the declared wall budget we are
-stable_run_fraction   how long the current leader has held
+observation_count     how many primary-line updates have been seen
 leader_flips          how often the leader has changed so far
+stable_run_fraction   how long the current leader has held
 ```
 
-Past-only matters: the same feature function serves training and live routing,
-so an online decision and a later offline audit cannot disagree.
+All three come from `common.residuals.past_only_features`, which takes one
+input: the ordered primary-line moves observed so far. Offline extraction and
+live routing call that same function on the same input, so an online decision
+and a later offline audit cannot land in different buckets.
+
+### Why there is no time-relative feature
+
+v1 used `elapsed_fraction`, and it was broken in a way that is worth recording.
+Offline its denominator was the observed replay span; online it was the declared
+wall envelope. `stable_run_fraction` and `leader_flips` had the same problem from
+the other direction: training computed them over ten sampled checkpoint leaders,
+serving over every raw primary update. A search with forty updates therefore
+produced a flip count over ten points during training and over forty points
+during serving. The buckets were not comparable, so an "in-domain, low-risk"
+verdict was not in fact calibrated for the state it was being asked about.
+
+A feature that cannot be computed identically in both paths cannot serve a
+calibration, so the time-relative feature was removed rather than patched.
+`elapsed_fraction` is still recorded on each routing observation for the audit
+trail; it is simply not a model input.
 
 Bucketing is deliberately coarse and auditable: each continuous feature is cut
 into quartiles, flips into `{0, 1-2, 3+}`, giving keys like `e2|s3|f0`. Risk is
@@ -147,9 +180,22 @@ table of predicted versus observed rates per bucket.
 ## Provenance
 
 A derived artifact records each source run id, the manifest sha256, and each
-stream sha256. A calibration records the derived artifact id and its sha256.
-Every derived artifact is content-addressed, so re-deriving the same runs with
-the same parameters yields the same id.
+stream sha256. Before extracting anything, `build_derived_artifact` re-verifies
+every bundle: provenance is only meaningful if the bytes still match the
+manifest the provenance points at.
+
+Both ids are content addresses over everything that determines the artifact. The
+derived id covers the extractor version, the checkpoint fractions, `top_k`,
+`horizon_fraction`, and the source manifest and stream hashes. The model id
+covers its provenance, every hyperparameter, the train/test sizes, and the
+fitted bucket contents — so two models with the same row count but opposite
+labels cannot collide on one `model.json`.
+
+Per-stage evidence is keyed by search id, because active routing can dispatch
+several stages to one worker and keying by instance would let a later stage
+overwrite every earlier one. `summaries_by_instance` and
+`counterfactual_labels_by_instance` expose the latest stage for worker-level
+views.
 
 ## Claim status
 

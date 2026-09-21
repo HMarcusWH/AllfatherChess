@@ -55,7 +55,7 @@ separately from `cpu_ms`; exhausting it triggers anchor-only fallback.
 | Lane | Charge |
 | --- | --- |
 | `anchor` | its full declared reservation. Shadow finalization happens before the anchor completes, so the controller cannot measure the real figure at settle time; charging the reservation errs toward over-counting, the safe direction for an envelope claim. |
-| `shadow:<owner>` | the measured duration of each dispatched stage |
+| `shadow:<owner>` | the measured duration of each dispatched stage, including a stage ended early by a stop — the worker burned that CPU producing the observations that authorized the stop, so only the unspent remainder is released |
 | `controller` | measured metareasoning time |
 | `verify` | reserved, unused in this milestone |
 
@@ -94,7 +94,12 @@ calibration_present    AND calibration_validated
                        AND support       >= stop_min_support
                        AND reversal_risk <= stop_max_reversal_risk
                        AND observed_work >= min_observation_nodes
+                       AND observation_current
 ```
+
+`observation_current` fails when the live event view has stopped tracking the
+stream. A frozen prefix always looks maximally stable, so a truncated view is
+exactly the state in which a stability-based stop would be most wrong.
 
 `calibration_validated` requires the model to carry a non-empty held-out
 evaluation. A model whose deterministic split left zero test rows reports
@@ -153,6 +158,25 @@ denial list — the unresolved-stress memory.
 
 `route.json` is deliberately **not** part of the raw manifest. A test scans the
 serialized manifest for routing vocabulary and fails if any appears.
+
+## The envelope claim is separate from the accounting
+
+Reservations staying inside `B` is necessary but not sufficient. If the outward
+request is not itself bounded by the envelope — `go infinite`, a `movetime`
+larger than `wall_ms`, a GUI clock, or a node limit that bounds work but not
+wall time — then the search as a whole was not bounded either, however tidy the
+budget snapshot looks.
+
+The controller must not respond by constraining the anchor: the external request
+is the caller's, and narrowing it would breach the decision firewall. What it
+does instead is refuse to *claim* compliance. `route.json` carries:
+
+```text
+envelope_claim.anchor_request_bounded   was the outward request within the envelope
+envelope_claim.anchor_request_reason    why, in words
+envelope_claim.reservations_within_envelope
+envelope_claim.claimed                  both of the above, and nothing less
+```
 
 ## Authority boundary
 

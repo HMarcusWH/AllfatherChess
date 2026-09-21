@@ -228,6 +228,55 @@ def pv_persistence(pvs: Sequence[Sequence[str]]) -> float | None:
     return sum(ratios) / len(ratios)
 
 
+@dataclass(frozen=True)
+class LeaderHistoryFeatures:
+    """Past-only summary of one engine's primary-line history.
+
+    This is the **single** definition consumed by offline calibration fitting
+    and by live routing. Both receive the same input -- the ordered primary-line
+    moves observed so far -- so an online decision and a later offline audit
+    cannot land in different buckets for the same search state.
+
+    There is deliberately no wall-clock or budget-relative feature here. Offline
+    the denominator would be the observed replay span; online it would be the
+    declared wall envelope. Those are different quantities, so a feature built
+    on either cannot be shared, and an unshared feature silently breaks the
+    calibration it is supposed to serve.
+    """
+
+    observation_count: int
+    leader_flips: int
+    stable_run_fraction: float
+
+    def as_dict(self) -> dict[str, float]:
+        return {
+            "observation_count": self.observation_count,
+            "leader_flips": self.leader_flips,
+            "stable_run_fraction": self.stable_run_fraction,
+        }
+
+
+def past_only_features(leaders: Sequence[str | None]) -> LeaderHistoryFeatures:
+    """Summarize a primary-line history using nothing from after its end."""
+    observed = [leader for leader in leaders if leader is not None]
+    if not observed:
+        return LeaderHistoryFeatures(
+            observation_count=0, leader_flips=0, stable_run_fraction=0.0
+        )
+    flips = sum(1 for a, b in zip(observed, observed[1:]) if a != b)
+    stable_run = 0
+    for leader in reversed(observed[:-1]):
+        if leader != observed[-1]:
+            break
+        stable_run += 1
+    denominator = len(observed) - 1
+    return LeaderHistoryFeatures(
+        observation_count=len(observed),
+        leader_flips=flips,
+        stable_run_fraction=0.0 if denominator <= 0 else stable_run / denominator,
+    )
+
+
 def unresolved_set(
     ranked_moves: Sequence[str],
     margins: Sequence[Margin],

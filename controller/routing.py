@@ -45,6 +45,8 @@ from controller.calibration import (
     ReversalRiskModel,
     load_calibration,
 )
+from common.residuals import past_only_features
+from common.search_request import SearchRequestError, parse_go_request
 from controller.replay_analysis import SearchTrajectory, reconstruct_stream
 from controller.shadow import RouterCommand
 
@@ -83,12 +85,22 @@ class OwnerObservation:
     stable_run_fraction: float
     work_value: float | None
     work_semantics: str | None
+    #: True when the live event view stopped growing, so the observation is a
+    #: stale prefix rather than the current state of the search.
+    observation_truncated: bool = False
 
     def calibration_features(self) -> dict[str, float]:
+        """Exactly the shared past-only feature set the model was fitted on.
+
+        `elapsed_fraction` is recorded on the observation for the audit trail
+        but is deliberately **not** a calibration feature: offline its
+        denominator is the observed replay span and online it is the declared
+        wall envelope, so it cannot be computed identically in both paths.
+        """
         return {
-            "elapsed_fraction": self.elapsed_fraction,
-            "stable_run_fraction": self.stable_run_fraction,
+            "observation_count": float(self.observation_count),
             "leader_flips": float(self.leader_flips),
+            "stable_run_fraction": self.stable_run_fraction,
         }
 
     def as_dict(self) -> dict[str, Any]:
@@ -104,6 +116,7 @@ class OwnerObservation:
             "stable_run_fraction": round(self.stable_run_fraction, 6),
             "work_value": self.work_value,
             "work_semantics": self.work_semantics,
+            "observation_truncated": self.observation_truncated,
         }
 
 
@@ -250,6 +263,7 @@ def observe_owner(
     stages_dispatched: int,
     elapsed_ms: float,
     wall_ms: float,
+    truncated: bool = False,
 ) -> OwnerObservation:
     """Cheap observation. It nominates; it does not decide."""
     elapsed_fraction = 0.0 if wall_ms <= 0 else max(0.0, min(1.0, elapsed_ms / wall_ms))
@@ -266,18 +280,12 @@ def observe_owner(
             stable_run_fraction=0.0,
             work_value=None,
             work_semantics=None,
+            observation_truncated=truncated,
         )
 
-    primary = [item for item in trajectory.observations if item.multipv_index == 1]
-    leaders = [item.move for item in primary]
-    flips = sum(1 for a, b in zip(leaders, leaders[1:]) if a != b)
-    stable_run = 0
-    if leaders:
-        for move in reversed(leaders[:-1]):
-            if move != leaders[-1]:
-                break
-            stable_run += 1
-    stable_fraction = 0.0 if len(leaders) <= 1 else stable_run / (len(leaders) - 1)
+    # The same function the calibration was fitted with, over the same input.
+    leaders = trajectory.primary_moves_until(trajectory.span_ms)
+    features = past_only_features(leaders)
     work = trajectory.work_at(trajectory.span_ms)
     return OwnerObservation(
         owner=owner,
@@ -285,12 +293,13 @@ def observe_owner(
         active=active,
         stages_dispatched=stages_dispatched,
         leader=leaders[-1] if leaders else None,
-        leader_flips=flips,
-        observation_count=len(primary),
+        leader_flips=features.leader_flips,
+        observation_count=features.observation_count,
         elapsed_fraction=elapsed_fraction,
-        stable_run_fraction=stable_fraction,
+        stable_run_fraction=features.stable_run_fraction,
         work_value=None if work is None else work[0],
         work_semantics=None if work is None else work[1],
+        observation_truncated=truncated,
     )
 
 
@@ -362,6 +371,7 @@ class ConservativeRouter:
         self._reservations: dict[str, list[Reservation]] = {}
         self._anchor_reservation: Reservation | None = None
         self._fallback = False
+        self._anchor_bound: tuple[bool, str] = (False, "not evaluated")
 
     @property
     def checkpoint_interval_s(self) -> float:
@@ -370,6 +380,39 @@ class ConservativeRouter:
     # ------------------------------------------------------------------
     # lifecycle
     # ------------------------------------------------------------------
+
+    def _classify_anchor_request(self, command: str) -> tuple[bool, str]:
+        """Is the outward request actually bounded by the declared envelope?
+
+        The controller must never constrain the anchor: the external request is
+        the caller's, and narrowing it would breach the decision firewall. What
+        it can do is refuse to *claim* envelope compliance for a search whose
+        own request is unbounded, rather than quietly settling an estimate and
+        printing a tidy budget snapshot.
+        """
+        try:
+            request = parse_go_request(command)
+        except SearchRequestError as exc:
+            return False, f"external request could not be parsed: {exc}"
+        limits = {item["name"]: item["value"] for item in request.get("limits", [])}
+        if "infinite" in limits or "ponder" in limits:
+            return False, "external request is unbounded (infinite/ponder)"
+        if "movetime" in limits:
+            movetime = float(limits["movetime"])
+            if movetime <= self.envelope.wall_ms:
+                return True, f"movetime {movetime:.0f}ms within wall envelope {self.envelope.wall_ms:.0f}ms"
+            return False, (
+                f"movetime {movetime:.0f}ms exceeds the declared wall envelope "
+                f"{self.envelope.wall_ms:.0f}ms"
+            )
+        if "wtime" in limits or "btime" in limits:
+            return False, "external request defers timing to the GUI clock"
+        if "nodes" in limits or "depth" in limits or "mate" in limits:
+            return False, (
+                "external request bounds work but not wall time, so wall-envelope "
+                "compliance cannot be asserted"
+            )
+        return False, "external request declares no limit"
 
     def on_run_start(self, context: Any) -> None:
         self.ledger = BudgetLedger(self.envelope, clock=self._clock)
@@ -381,6 +424,12 @@ class ConservativeRouter:
             self.audit.note(
                 "no calibration is loaded: this run may not authorize any suppression, "
                 "so every stop proposal will be denied"
+            )
+        self._anchor_bound = self._classify_anchor_request(context.external_go_command)
+        if not self._anchor_bound[0]:
+            self.audit.note(
+                f"outward request is not bounded by the declared envelope: {self._anchor_bound[1]}; "
+                "this run cannot claim envelope compliance"
             )
         anchor_cost = self.policy.anchor_cpu_ms_estimate or self.envelope.wall_ms
         try:
@@ -435,6 +484,15 @@ class ConservativeRouter:
             "envelope": self.envelope.as_dict(),
             "calibration": self._calibration_provenance(),
             "budget": self.ledger.snapshot(),
+            "envelope_claim": {
+                # Reservation accounting staying inside B is necessary but not
+                # sufficient: if the outward request itself is not bounded by the
+                # envelope, the search as a whole was not either.
+                "anchor_request_bounded": self._anchor_bound[0],
+                "anchor_request_reason": self._anchor_bound[1],
+                "reservations_within_envelope": self.ledger.within_envelope(),
+                "claimed": self._anchor_bound[0] and self.ledger.within_envelope(),
+            },
             "decisions": audit.decisions,
             "denials": audit.denials,
             "notes": audit.notes,
@@ -490,6 +548,16 @@ class ConservativeRouter:
 
             for owner in context.owners:
                 trajectory = self._live_trajectory(context, owner)
+                truncated = False
+                try:
+                    truncated = bool(context.owner_events_truncated(owner))
+                except AttributeError:  # pragma: no cover - older contexts
+                    truncated = False
+                if truncated:
+                    audit.note(
+                        f"owner {owner} live observation view is truncated; "
+                        "suppression is withheld for this worker"
+                    )
                 observation = observe_owner(
                     owner=owner,
                     instance=context.owner_instance(owner),
@@ -498,6 +566,7 @@ class ConservativeRouter:
                     stages_dispatched=context.owner_stages(owner),
                     elapsed_ms=elapsed,
                     wall_ms=wall,
+                    truncated=truncated,
                 )
                 if not observation.active and self._reservations.get(owner):
                     # The stage finished: convert its reservation into measured
@@ -506,7 +575,7 @@ class ConservativeRouter:
                 proposal = propose(observation, self.policy)
                 decision = self._authorize(proposal, observation, elapsed)
                 audit.record(decision)
-                command = self._to_command(decision)
+                command = self._to_command(decision, context)
                 if command is not None:
                     commands.append(command)
         return commands
@@ -603,6 +672,14 @@ class ConservativeRouter:
                     f"work {observation.work_value} vs floor {self.policy.min_observation_nodes}",
                 )
             )
+            gates.append(
+                Gate(
+                    "observation_current",
+                    not observation.observation_truncated,
+                    "the live event view stopped tracking this stream, so the "
+                    "observation is a stale prefix",
+                )
+            )
 
         elif proposal.action in (RouteAction.EXTEND, RouteAction.ABSTAIN_BUY_COMPUTE):
             gates.append(
@@ -655,12 +732,31 @@ class ConservativeRouter:
             budget=budget_snapshot,
         )
 
-    def _to_command(self, decision: RouteDecision) -> RouterCommand | None:
+    @staticmethod
+    def _consumed_ms(context: Any, owner: str | None = None) -> float | None:
+        if owner is None:
+            return None
+        try:
+            return context.owner_elapsed_stage_ms(owner)
+        except AttributeError:  # pragma: no cover - older contexts
+            return None
+
+    def _to_command(self, decision: RouteDecision, context: Any = None) -> RouterCommand | None:
         owner = decision.observation.owner
         if decision.action is RouteAction.STOP_WORKER and decision.granted:
-            # Stopping returns unspent capacity to the shared envelope.
-            for reservation in self._reservations.pop(owner, []):
-                self.ledger.release(reservation)
+            # The worker already burned CPU producing the observations that
+            # authorized this stop. Releasing the whole reservation would record
+            # none of it, free capacity that was in fact consumed, and let
+            # route.json claim envelope compliance while omitting the work.
+            consumed = self._consumed_ms(context, owner)
+            reservations = self._reservations.pop(owner, [])
+            for index, reservation in enumerate(reservations):
+                if index == len(reservations) - 1 and consumed is not None:
+                    self.ledger.settle(
+                        reservation, actual_cpu_ms=min(consumed, reservation.cpu_ms)
+                    )
+                else:
+                    self.ledger.release(reservation)
             return RouterCommand(action="stop_worker", owner=owner, reason=decision.reason)
         if (
             decision.action in (RouteAction.EXTEND, RouteAction.ABSTAIN_BUY_COMPUTE)

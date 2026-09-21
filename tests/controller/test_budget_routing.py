@@ -88,9 +88,9 @@ def confident_model(risk: float = 0.01, support: int = 500) -> ReversalRiskModel
         TrainingRow(
             run_id=f"run-{index % 16}",
             instance="stockfish-shadow",
-            elapsed_fraction=(index % 10) / 10.0,
-            stable_run_fraction=((index * 7) % 10) / 10.0,
+            observation_count=index % 14,
             leader_flips=index % 3,
+            stable_run_fraction=((index * 7) % 10) / 10.0,
             label=False,
         )
         for index in range(support)
@@ -327,6 +327,92 @@ class AuthorizationTests(unittest.TestCase):
         self.assertTrue(router.audit.notes)
 
 
+class ReviewRegressionTests(unittest.TestCase):
+    """Regressions for the defects found in code review."""
+
+    def test_truncated_live_view_cannot_authorize_suppression(self):
+        # Once the live event view stops tracking, the observation is a stale
+        # prefix. A stale prefix always looks maximally stable.
+        router = ConservativeRouter(
+            envelope=envelope(),
+            policy=policy(),
+            calibration=confident_model(risk=0.01),
+            clock=lambda: 0.0,
+        )
+        router.on_run_start(_FakeContext())
+
+        fresh = observation(observation_truncated=False)
+        allowed = router._authorize(propose(fresh, router.policy), fresh, 100.0)
+        self.assertTrue(allowed.granted)
+
+        stale = observation(observation_truncated=True)
+        denied = router._authorize(propose(stale, router.policy), stale, 100.0)
+        self.assertFalse(denied.granted)
+        self.assertIs(denied.action, RouteAction.CONTINUE)
+        self.assertIn("observation_current", denied.reason)
+
+    def test_stop_settles_consumed_work_instead_of_releasing_all_of_it(self):
+        # The worker burned CPU producing the observations that authorized the
+        # stop. Releasing the whole reservation would free capacity that was in
+        # fact consumed and let route.json under-report the run.
+        router = ConservativeRouter(
+            envelope=envelope(),
+            policy=policy(stage_cpu_ms_estimate=400.0),
+            calibration=confident_model(risk=0.01),
+            clock=lambda: 0.0,
+        )
+        context = _FakeContext()
+        context.stage_elapsed_ms = 250.0
+        router.on_run_start(context)
+        self.assertTrue(router.authorize_initial(context, "stockfish"))
+
+        subject = observation()
+        decision = router._authorize(propose(subject, router.policy), subject, 100.0)
+        self.assertTrue(decision.granted)
+        command = router._to_command(decision, context)
+        self.assertIsNotNone(command)
+        self.assertEqual(command.action, "stop_worker")
+
+        lane = router.ledger.snapshot()["lanes"]["shadow:stockfish"]
+        self.assertEqual(lane["spent_cpu_ms"], 250.0, "consumed work was not charged")
+        self.assertEqual(lane["reserved_cpu_ms"], 0.0, "unspent capacity was not returned")
+
+        # The anchor reservation is still open here; it settles at run end.
+        router.on_run_end(context)
+        self.assertEqual(router.ledger.snapshot()["open_reservations"], 0)
+
+    def test_unbounded_outward_request_cannot_claim_envelope_compliance(self):
+        router = ConservativeRouter(
+            envelope=envelope(wall_ms=2000.0), policy=policy(), clock=lambda: 0.0
+        )
+        bounded, reason = router._classify_anchor_request("go movetime 1500")
+        self.assertTrue(bounded, reason)
+
+        for command in (
+            "go infinite",
+            "go ponder",
+            "go movetime 9999",
+            "go nodes 100000",
+            "go wtime 60000 btime 60000",
+            "go",
+        ):
+            bounded, reason = router._classify_anchor_request(command)
+            self.assertFalse(bounded, f"{command!r} was treated as envelope-bounded")
+            self.assertTrue(reason)
+
+    def test_unbounded_request_is_recorded_on_the_run(self):
+        router = ConservativeRouter(
+            envelope=envelope(wall_ms=2000.0), policy=policy(), clock=lambda: 0.0
+        )
+        context = _FakeContext()
+        context.external_go_command = "go infinite"
+        router.on_run_start(context)
+        self.assertTrue(
+            any("not bounded by the declared envelope" in note for note in router.audit.notes),
+            router.audit.notes,
+        )
+
+
 class RouterConfigTests(unittest.TestCase):
     def test_active_config_builds_a_fail_closed_router(self):
         path = ROOT / "config" / "allfather.active.validation.json"
@@ -509,6 +595,8 @@ class _FakeContext:
     run_dir = Path("/nonexistent")
     owners = ("stockfish", "reckless", "lc0")
     owner_roots: dict[str, tuple[str, ...]] = {}
+    external_go_command = "go movetime 1000"
+    stage_elapsed_ms: float | None = None
 
     def elapsed_ms(self) -> float:
         return 0.0
@@ -533,6 +621,12 @@ class _FakeContext:
 
     def owner_last_stage_ms(self, owner: str) -> float | None:
         return None
+
+    def owner_elapsed_stage_ms(self, owner: str) -> float | None:
+        return self.stage_elapsed_ms
+
+    def owner_events_truncated(self, owner: str) -> bool:
+        return False
 
 
 if __name__ == "__main__":

@@ -23,6 +23,7 @@ from common.residuals import (
     ResidualError,
     TaggedValue,
     leader_flip_count,
+    past_only_features,
     pv_persistence,
     stabilization_index,
     within_engine_margin,
@@ -99,6 +100,18 @@ class SearchTrajectory:
             if item.multipv_index == 1:
                 leader = item.move
         return leader
+
+    def primary_moves_until(self, observed_ms: float) -> tuple[str, ...]:
+        """Ordered primary-line moves observed at or before `observed_ms`.
+
+        This is the exact input the shared past-only feature function takes, so
+        offline extraction and live routing summarize the same thing.
+        """
+        return tuple(
+            item.move
+            for item in self.observations
+            if item.observed_ms <= observed_ms and item.multipv_index == 1
+        )
 
     def pv_at(self, observed_ms: float) -> tuple[str, ...]:
         pv: tuple[str, ...] = ()
@@ -210,20 +223,37 @@ class ReplayBundle:
                 return trajectory
         return None
 
-    def shadows(self) -> tuple[SearchTrajectory, ...]:
+    def shadow_stages(self) -> tuple[SearchTrajectory, ...]:
+        """Every dispatched shadow stage, including repeats on one instance."""
         return tuple(item for item in self.trajectories if item.role == "shadow")
 
+    def shadows(self) -> tuple[SearchTrajectory, ...]:
+        """The latest stage per shadow instance.
+
+        Active routing can dispatch several stages to one worker. Treating each
+        stage as a separate worker would produce same-engine "cross-engine"
+        comparisons, so worker-level views collapse to the latest stage.
+        """
+        latest: dict[str, SearchTrajectory] = {}
+        for item in self.trajectories:
+            if item.role == "shadow":
+                latest[item.instance] = item
+        return tuple(latest[name] for name in sorted(latest))
+
     def by_owner(self, owner: str) -> SearchTrajectory | None:
+        """The latest stage owned by `owner`."""
+        found: SearchTrajectory | None = None
         for trajectory in self.trajectories:
             if trajectory.owner == owner:
-                return trajectory
-        return None
+                found = trajectory
+        return found
 
     def by_family(self, family: str, *, role: str = "shadow") -> SearchTrajectory | None:
+        found: SearchTrajectory | None = None
         for trajectory in self.trajectories:
             if trajectory.family == family and trajectory.role == role:
-                return trajectory
-        return None
+                found = trajectory
+        return found
 
     @property
     def span_ms(self) -> float:
@@ -447,6 +477,11 @@ class CounterfactualLabels:
     reversal_within_horizon: bool | None
     work_at_checkpoint: float | None
     work_semantics: str | None
+    #: Past-only feature vector at this checkpoint, from the shared definition.
+    features: dict[str, float]
+    #: False when the requested horizon extended past the observed trajectory,
+    #: in which case `reversal_within_horizon` is None rather than a negative.
+    horizon_observed: bool
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -460,8 +495,10 @@ class CounterfactualLabels:
             "later_pv_changed": self.later_pv_changed,
             "stable_to_end": self.stable_to_end,
             "reversal_within_horizon": self.reversal_within_horizon,
+            "horizon_observed": self.horizon_observed,
             "work_at_checkpoint": self.work_at_checkpoint,
             "work_semantics": self.work_semantics,
+            "features": dict(self.features),
         }
 
 
@@ -505,8 +542,14 @@ def counterfactual_labels(
             stable = all(move == leader for move in later) and not changed
             pv_changed = tuple(pv) != tuple(final_pv)
 
-        horizon_end = min(span, point + span * horizon_fraction)
-        if leader is None:
+        # A horizon that runs past the end of the observed trajectory is
+        # right-censored: the search simply stopped, so "no reversal happened"
+        # is not an observation. Labelling those rows False would fill exactly
+        # the late, settled buckets -- the ones that authorize live suppression
+        # -- with guaranteed negatives and understate the real risk.
+        horizon_end = point + span * horizon_fraction
+        horizon_observed = horizon_end <= span
+        if leader is None or not horizon_observed:
             reversal: bool | None = None
         else:
             within = [
@@ -530,6 +573,8 @@ def counterfactual_labels(
                 reversal_within_horizon=reversal,
                 work_at_checkpoint=None if work is None else work[0],
                 work_semantics=None if work is None else work[1],
+                features=past_only_features(trajectory.primary_moves_until(point)).as_dict(),
+                horizon_observed=horizon_observed,
             )
         )
     return tuple(labels)

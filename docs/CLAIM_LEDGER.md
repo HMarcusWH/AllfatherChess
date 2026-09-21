@@ -124,10 +124,13 @@ Deterministic calculations from the measured data, versioned as
 
 ## CALIBRATED
 
-- `bucketed_reversal_risk_v1` fitted from 1200 rows over a 36-run sweep:
-  16 buckets, 960 train / 240 held-out rows, Brier 0.057, in-domain rate 0.89.
-  The routing contract independently fits its own model over 10 runs: 400 rows,
-  21 buckets, 280 train / 120 held-out rows, Brier 0.026, in-domain rate 0.85.
+- `bucketed_reversal_risk_v2` fitted from 382 rows over a 36-run sweep:
+  11 buckets, 275 train / 107 held-out rows, Brier 0.033, in-domain rate 0.54.
+  The routing contract independently fits its own model over 20 runs: 272 rows,
+  12 buckets, 201 train / 71 held-out rows, Brier 0.083, in-domain rate 0.86.
+- The fitted signal is interpretable: a worker with many observations, three or
+  more leader flips and no stable run carries ~0.42 reversal risk, while one
+  with a fully stable leader carries ~0.03. Base rate 0.12.
 - The fitted relationship is monotone in the expected direction: predicted
   reversal risk falls from 0.082 in the least-settled bucket to 0.011 in the
   most-settled one, and the held-out reliability table agrees in direction

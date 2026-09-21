@@ -44,6 +44,11 @@ def main() -> int:
     parser.add_argument("--multipv", type=int, default=0, help="emit N MultiPV lines per iteration")
     parser.add_argument("--tag", default="", help="opaque marker so a test can identify its own processes")
     parser.add_argument(
+        "--ignore-stop",
+        action="store_true",
+        help="do not honor `stop`, simulating a worker that misses the drain deadline",
+    )
+    parser.add_argument(
         "--omit-multipv-token",
         action="store_true",
         help="emit the primary PV without a multipv token, the way LC0 does at MultiPV=1",
@@ -196,7 +201,8 @@ def main() -> int:
                 os._exit(9)
             start_search(command)
         elif command == "stop":
-            stop_event.set()
+            if not args.ignore_stop:
+                stop_event.set()
         elif command == "ponderhit":
             stop_event.set()
         elif command == "quit":

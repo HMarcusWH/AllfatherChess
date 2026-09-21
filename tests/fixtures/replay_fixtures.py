@@ -48,6 +48,9 @@ class EngineScript:
     pv_tail: tuple[str, ...] = ("e7e5", "g1f3")
     bestmove: str | None = None
     complete: bool = True
+    #: Stage ordinal on this instance. Active routing can dispatch more than
+    #: one, and every stage of an instance shares a single JSONL file.
+    stage_index: int = 0
     #: Emit this many raw lines then stop, simulating a crashed worker.
     truncate_after: int | None = None
     malformed_lines: tuple[str, ...] = ()
@@ -87,7 +90,29 @@ def _adapter(script: EngineScript, *, search_id: str, position_id: str, variant:
     return cls(**kwargs)
 
 
-def _write_stream(path: Path, script: EngineScript, *, search_id: str, position_id: str, variant: str) -> int:
+def _write_stages(
+    path: Path,
+    scripts: Sequence["EngineScript"],
+    *,
+    run_id: str,
+    position_id: str,
+    variant: str,
+) -> int:
+    """Write every stage of one instance into a single telemetry file."""
+    total = 0
+    chunks: list[str] = []
+    for script in scripts:
+        search_id = f"{run_id}:{script.instance}:{script.stage_index}"
+        events = _stage_events(
+            script, search_id=search_id, position_id=position_id, variant=variant
+        )
+        total += len(events)
+        chunks.append("".join(json.dumps(event, sort_keys=True) + "\n" for event in events))
+    path.write_text("".join(chunks), encoding="utf-8")
+    return total
+
+
+def _stage_events(script: EngineScript, *, search_id: str, position_id: str, variant: str) -> list:
     adapter = _adapter(script, search_id=search_id, position_id=position_id, variant=variant)
     request: dict[str, Any] = {
         "limits": [{"name": "nodes", "value": 20000, "semantics": "uci.go.nodes"}],
@@ -125,8 +150,7 @@ def _write_stream(path: Path, script: EngineScript, *, search_id: str, position_
                 f"score cp {score - 5 * (multipv - 1)} pv {move} {' '.join(script.pv_tail)}"
             )
             if script.truncate_after is not None and emitted >= script.truncate_after:
-                path.write_text("".join(json.dumps(e, sort_keys=True) + "\n" for e in events), encoding="utf-8")
-                return len(events)
+                return events
             events.extend(adapter.consume(line, observed_ms=observed))
             emitted += 1
 
@@ -139,10 +163,31 @@ def _write_stream(path: Path, script: EngineScript, *, search_id: str, position_
         bestmove = script.bestmove or (script.rankings[-1][0] if script.rankings else "0000")
         events.extend(adapter.consume(f"bestmove {bestmove}", observed_ms=observed))
 
-    path.write_text(
-        "".join(json.dumps(event, sort_keys=True) + "\n" for event in events), encoding="utf-8"
-    )
-    return len(events)
+    return events
+
+
+def _stage_record(engine: "EngineScript", *, search_id: str, order: int) -> dict[str, Any]:
+    return {
+        "stage_index": engine.stage_index,
+        "instance": engine.instance,
+        "engine": engine.family,
+        "role": engine.role,
+        "owner": engine.owner,
+        "search_id": search_id,
+        "command": "go nodes 20000"
+        + (f" searchmoves {' '.join(engine.roots)}" if engine.roots else ""),
+        "request": {"limits": [], "raw": "go nodes 20000"},
+        "dispatched_roots": list(engine.roots),
+        "dispatch_order": order,
+        "dispatched_ms": float(order),
+        "completed_ms": 100.0 + order,
+        "completion_order": order,
+        "disposition": "completed" if engine.complete else "failed",
+        "stop_reason": None,
+        "bestmove": engine.bestmove
+        or (engine.rankings[-1][0] if engine.rankings and engine.complete else None),
+        "failure": None if engine.complete else "synthetic shadow failure",
+    }
 
 
 def _base_fen_for(script: EngineScript, variant: str) -> str:
@@ -172,15 +217,25 @@ def write_bundle(script: BundleScript, root: Path) -> Path:
         all_roots += list(moves)
     universe = sorted(set(all_roots))
 
+    by_instance: dict[str, list[EngineScript]] = {}
+    for engine in script.scripts:
+        by_instance.setdefault(engine.instance, []).append(engine)
+
     streams: list[dict[str, Any]] = []
     stages: list[dict[str, Any]] = []
     for order, engine in enumerate(script.scripts, start=1):
-        search_id = f"{script.run_id}:{engine.instance}:0"
+        search_id = f"{script.run_id}:{engine.instance}:{engine.stage_index}"
         path = run_dir / f"{engine.instance}.jsonl"
-        count = _write_stream(
+        siblings = by_instance[engine.instance]
+        if engine is not siblings[0]:
+            # Every stage of an instance already went into the file written for
+            # its first stage; only one stream record exists per instance.
+            stages.append(_stage_record(engine, search_id=search_id, order=order))
+            continue
+        count = _write_stages(
             path,
-            engine,
-            search_id=search_id,
+            siblings,
+            run_id=script.run_id,
             position_id=position_id,
             variant=script.variant,
         )
@@ -190,41 +245,24 @@ def write_bundle(script: BundleScript, root: Path) -> Path:
                 "engine": engine.family,
                 "role": engine.role,
                 "path": path.name,
-                "search_ids": [search_id],
+                "search_ids": [
+                    f"{script.run_id}:{item.instance}:{item.stage_index}" for item in siblings
+                ],
                 "event_count": count,
                 "sha256": _sha256(path),
                 "bytes": path.stat().st_size,
-                "complete": engine.complete,
-                "contract_validatable": engine.complete and not engine.malformed_lines,
+                "complete": siblings[-1].complete,
+                "contract_validatable": all(
+                    item.complete and not item.malformed_lines for item in siblings
+                ),
                 "dropped_events": 0,
                 "post_complete_lines": 0,
                 "queued_peak": 0,
+                "live_view_truncated": False,
                 "adapter_errors": [],
             }
         )
-        stages.append(
-            {
-                "stage_index": 0,
-                "instance": engine.instance,
-                "engine": engine.family,
-                "role": engine.role,
-                "owner": engine.owner,
-                "search_id": search_id,
-                "command": "go nodes 20000"
-                + (f" searchmoves {' '.join(engine.roots)}" if engine.roots else ""),
-                "request": {"limits": [], "raw": "go nodes 20000"},
-                "dispatched_roots": list(engine.roots),
-                "dispatch_order": order,
-                "dispatched_ms": float(order),
-                "completed_ms": 100.0 + order,
-                "completion_order": order,
-                "disposition": "completed" if engine.complete else "failed",
-                "stop_reason": None,
-                "bestmove": engine.bestmove
-                or (engine.rankings[-1][0] if engine.rankings and engine.complete else None),
-                "failure": None if engine.complete else "synthetic shadow failure",
-            }
-        )
+        stages.append(_stage_record(engine, search_id=search_id, order=order))
 
     for instance in script.missing_stream_instances:
         streams = [record for record in streams if record["instance"] != instance]
@@ -601,6 +639,36 @@ def malformed_telemetry(root: Path) -> Path:
     )
 
 
+def multi_stage_worker(root: Path) -> Path:
+    """One worker dispatched twice, as active routing does when it extends."""
+    return write_bundle(
+        BundleScript(
+            run_id="synthetic-multi-stage",
+            scripts=[
+                _anchor((("e2e4",),) * 4),
+                EngineScript(
+                    "stockfish-shadow", "stockfish", "shadow", "stockfish",
+                    ("e2e4", "b1c3"), (("e2e4", "b1c3"),) * 3, stage_index=0,
+                ),
+                EngineScript(
+                    "stockfish-shadow", "stockfish", "shadow", "stockfish",
+                    ("e2e4", "b1c3"), (("b1c3", "e2e4"),) * 3,
+                    stage_index=1, bestmove="b1c3",
+                ),
+                EngineScript(
+                    "reckless-shadow", "reckless", "shadow", "reckless",
+                    ("d2d4", "c2c4"), (("d2d4", "c2c4"),) * 3,
+                ),
+                EngineScript(
+                    "lc0-shadow", "lc0", "shadow", "lc0",
+                    ("g1f3", "g2g3"), (("g1f3", "g2g3"),) * 3,
+                ),
+            ],
+        ),
+        root,
+    )
+
+
 SCENARIOS = {
     "stable_agreement": stable_agreement,
     "transient_disagreement": transient_disagreement,
@@ -612,6 +680,7 @@ SCENARIOS = {
     "terminal_position": terminal_position,
     "chess960_run": chess960_run,
     "malformed_telemetry": malformed_telemetry,
+    "multi_stage_worker": multi_stage_worker,
 }
 
 

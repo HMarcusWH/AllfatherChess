@@ -60,7 +60,7 @@ cancelled before dispatch leaves no empty artifact pretending to be evidence.
 | `position.*` | variant, move encoding, base FEN, move list, position id, reconstructed command |
 | `external_request` | the external `go` command and its parsed limits |
 | `engines.<instance>` | solver family, process role, binary path, binary sha256, args, options |
-| `legal_root_oracle` | oracle instance, root count, terminal-universe flag |
+| `legal_root_oracle` | oracle instance, root count, dispatched root count, external `searchmoves` restriction, terminal-universe flag |
 | `ledger.owners`, `ledger.owner_roots` | authorized owners and their exact regions |
 | `ledger.pre_dispatch_snapshot` | ledger state at dispatch time |
 | `ledger.post_run_snapshot` | ledger state after sealing |
@@ -104,6 +104,7 @@ contract_validatable complete AND no adapter errors AND no dropped events
 dropped_events       telemetry lost to queue overflow, recorded not hidden
 post_complete_lines  engine output observed after search.complete
 queued_peak          high-water mark of the capture queue
+live_view_truncated  the in-memory view used by active routing stopped growing
 adapter_errors[]     bounded list of translation failures
 ```
 

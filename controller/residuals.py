@@ -35,7 +35,7 @@ from common.residuals import (
     rank_agreement,
     top_k_overlap,
 )
-from controller.replay import sha256_file
+from controller.replay import sha256_file, verify_bundle_integrity
 from controller.replay_analysis import (
     DEFAULT_CHECKPOINT_FRACTIONS,
     ReplayBundle,
@@ -50,7 +50,11 @@ FEATURES_SCHEMA_VERSION = 1
 
 #: Bump when a feature's definition changes, so calibrated models cannot be
 #: silently applied to features that no longer mean the same thing.
-EXTRACTOR_VERSION = "residuals-v1"
+#: v2: truncated reversal horizons are unlabelled rather than negative, each
+#: checkpoint carries the shared past-only feature vector, and per-stage
+#: evidence is keyed by search id so a multi-stage worker cannot overwrite
+#: itself.
+EXTRACTOR_VERSION = "residuals-v2"
 
 DEFAULT_TOP_K = 3
 
@@ -206,12 +210,15 @@ def extract_features(
     anchor = bundle.anchor
     shadows = bundle.shadows()
 
-    per_instance_summary = {
-        trajectory.instance: summarize_trajectory(trajectory).as_dict()
+    # Keyed by search id: active routing can dispatch several stages to one
+    # instance, and keying by instance would let a later stage overwrite every
+    # earlier stage's evidence.
+    per_stage_summary = {
+        trajectory.search_id: summarize_trajectory(trajectory).as_dict()
         for trajectory in bundle.trajectories
     }
-    per_instance_labels = {
-        trajectory.instance: [
+    per_stage_labels = {
+        trajectory.search_id: [
             label.as_dict()
             for label in counterfactual_labels(
                 trajectory,
@@ -221,6 +228,17 @@ def extract_features(
             )
         ]
         for trajectory in bundle.trajectories
+    }
+    latest_by_instance: dict[str, str] = {}
+    for trajectory in bundle.trajectories:
+        latest_by_instance[trajectory.instance] = trajectory.search_id
+    summaries_by_instance = {
+        instance: per_stage_summary[search_id]
+        for instance, search_id in sorted(latest_by_instance.items())
+    }
+    labels_by_instance = {
+        instance: per_stage_labels[search_id]
+        for instance, search_id in sorted(latest_by_instance.items())
     }
 
     checkpoint_rows: list[CheckpointFeatures] = []
@@ -286,8 +304,10 @@ def extract_features(
         "load_errors": list(bundle.load_errors),
         "anchor_instance": None if anchor is None else anchor.instance,
         "anchor_bestmove": None if anchor is None else anchor.final_leader,
-        "summaries": per_instance_summary,
-        "counterfactual_labels": per_instance_labels,
+        "summaries": per_stage_summary,
+        "summaries_by_instance": summaries_by_instance,
+        "counterfactual_labels": per_stage_labels,
+        "counterfactual_labels_by_instance": labels_by_instance,
         "checkpoints": [row.as_dict() for row in checkpoint_rows],
         "first_discoverer_of_anchor_move": first_discoverer(bundle),
     }
@@ -381,6 +401,15 @@ def build_derived_artifact(
     sources: list[dict[str, Any]] = []
     runs: list[dict[str, Any]] = []
     for run_dir in sorted(Path(item) for item in run_dirs):
+        # Provenance is only meaningful if the bytes still match the manifest
+        # the provenance points at. Extracting first and recording the declared
+        # hashes afterwards would let altered evidence masquerade as original.
+        problems = verify_bundle_integrity(run_dir)
+        if problems:
+            raise FeatureExtractionError(
+                f"refusing to derive features from {run_dir.name}: "
+                f"bundle integrity failed: {problems}"
+            )
         bundle = load_bundle(run_dir)
         sources.append(_source_record(run_dir, bundle))
         runs.append(
@@ -393,11 +422,23 @@ def build_derived_artifact(
         )
 
     if derived_id is None:
+        # Every input that can change the artifact's contents must enter its
+        # content address, or two different artifacts collide on one directory.
         digest = hashlib.sha256()
-        for record in sources:
-            digest.update(record["manifest_sha256"].encode("ascii"))
-        digest.update(EXTRACTOR_VERSION.encode("ascii"))
-        digest.update(json.dumps(list(fractions), sort_keys=True).encode("ascii"))
+        digest.update(
+            json.dumps(
+                {
+                    "extractor_version": EXTRACTOR_VERSION,
+                    "schema_version": FEATURES_SCHEMA_VERSION,
+                    "checkpoint_fractions": list(fractions),
+                    "top_k": top_k,
+                    "horizon_fraction": horizon_fraction,
+                    "sources": [record["manifest_sha256"] for record in sources],
+                    "streams": [record["streams"] for record in sources],
+                },
+                sort_keys=True,
+            ).encode("utf-8")
+        )
         derived_id = f"derived-{digest.hexdigest()[:16]}"
 
     return DerivedArtifact(

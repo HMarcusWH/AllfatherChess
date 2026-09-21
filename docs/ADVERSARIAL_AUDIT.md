@@ -192,6 +192,54 @@ sorted run ids, which is deterministic and guarantees a non-empty holdout from
 two runs upward. A gate is only as good as the determinism of the evidence it
 reads.
 
+## Fourteen findings from code review
+
+An automated review found fourteen defects after the first push. All fourteen
+were verified against the code and fixed; none was waved off. The ones that
+mattered most were not the crashes but the quiet ones:
+
+1. **Train/serve feature skew.** Training computed `elapsed_fraction` against
+   the observed replay span and stability over ten sampled checkpoints; serving
+   computed them against the declared wall envelope and over every raw update.
+   The buckets were not comparable, so "in-domain, low-risk" did not mean what
+   it claimed. There is now one shared `past_only_features` function over one
+   input, and the feature that could not be computed identically in both paths
+   was removed rather than patched.
+2. **Right-censored labels.** A horizon running past the end of a trajectory was
+   labelled "no reversal". Every completed search therefore donated guaranteed
+   negatives to exactly the settled buckets that authorize suppression. Fixing
+   it cut the sweep from 1200 rows to 382 and raised the measured base rate from
+   0.030 to 0.119 — the previous model understated reversal risk fourfold.
+3. **A dispatch race.** Checking "has the anchor finished?" at the top of the
+   dispatch path left a real window: stream creation is not free, and a stage
+   could still be launched against a decision already emitted. The check and the
+   dispatch are now committed under one lock.
+4. **A stuck worker was abandoned rather than handled.** A worker ignoring
+   `stop` left the caller free to synchronize state into a process still running
+   the previous generation, and its run never finalized. It is now recorded as a
+   shadow failure, excluded from synchronization, and its bundle released.
+5. **Budget under-reporting.** A stop released the worker's whole reservation,
+   recording none of the CPU it had just spent producing the observations that
+   authorized the stop. Only the unspent remainder is released now.
+6. **Envelope claims without a bounded request.** `go infinite` produced a tidy
+   in-envelope budget snapshot for an unbounded search. The controller still
+   does not constrain the anchor — that would breach the decision firewall — but
+   it now refuses to *claim* compliance and records why.
+7. **Colliding content addresses.** Neither the derived id nor the model id
+   covered all of their inputs, so different artifacts could overwrite each
+   other. Both are now addressed over everything that determines them, and
+   feature extraction re-verifies bundle hashes before trusting provenance.
+8. **Multi-stage workers overwrote themselves** in the derived layer, and two
+   stages of one instance were compared as if they were different engines.
+
+Two further items — an external `searchmoves` restriction being ignored by
+shadow qualification, and a live event view that froze silently at its cap —
+were also real and are fixed.
+
+The uncomfortable part is that several of these were in code this audit had
+already reviewed once and passed. An adversarial checklist written by the same
+author who wrote the code will miss what that author did not think to doubt.
+
 ## Residual concerns worth carrying forward
 
 1. **Fast searches collect nothing.** With `on_anchor_complete: drain`, a very

@@ -26,6 +26,7 @@ from controller.verification_analysis import (
 from tests.fixtures.verification_fixtures import (
     all_different,
     anchor_outside_candidates,
+    bestmove_only_relock,
     incomplete_verifier,
     late_relock,
     temporary_unanimity_then_diverge,
@@ -90,6 +91,18 @@ class VerificationAnalysisTests(unittest.TestCase):
             all(
                 relock.terminal_lock_start_by_owner[owner] is not None
                 for owner in ("stockfish", "reckless", "lc0")
+            )
+        )
+
+    def test_bestmove_only_terminal_lock_starts_at_completion(self):
+        run = bestmove_only_relock(self.root)
+        relock = derive_relock(load_verification_bundle(run))
+        self.assertEqual(relock.status, "RELOCK_OBSERVED")
+        self.assertEqual(relock.move, "d2d4")
+        self.assertTrue(
+            all(
+                value == 0.0
+                for value in relock.post_lock_observed_ms_by_owner.values()
             )
         )
 

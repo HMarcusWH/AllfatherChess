@@ -525,6 +525,7 @@ class RefinementRun:
                 "targets": [target.root_move for target in self.plan.targets],
                 "max_targets": self.plan.max_targets,
             },
+            "owners": list(self.plan.owners),
             "participants": dict(self.plan.participants),
             "dispatch_limit": dict(self.plan.dispatch_limit),
             "child_partition_method": self.plan.child_partition,
@@ -641,12 +642,20 @@ def verify_refinement_integrity(run_dir: Path | str) -> list[str]:
     if nomination.get("verify_final_by_owner") != expected_finals:
         problems.append("refinement VERIFY-final provenance differs from source artifact")
 
+    owners = manifest.get("owners")
+    if owners != ["stockfish", "reckless", "lc0"]:
+        problems.append("refinement owners are not the frozen three-owner order")
+        owners = ["stockfish", "reckless", "lc0"]
+
     participants = manifest.get("participants")
-    if not isinstance(participants, dict) or set(participants) != {
-        "stockfish", "reckless", "lc0"
-    }:
+    if not isinstance(participants, dict) or set(participants) != set(owners):
         problems.append("refinement participants are not exactly the three solver owners")
         participants = {}
+
+    prefix_ledger = manifest.get("prefix_ledger") or {}
+    source_root_snapshot = prefix_ledger.get("source_root_v1_snapshot")
+    if source_root_snapshot != (parent.get("ledger") or {}).get("post_run_snapshot"):
+        problems.append("refinement root-v1 source snapshot differs from finalized parent")
 
     target_rows = manifest.get("targets") or []
     if [row.get("root_move") for row in target_rows if isinstance(row, dict)] != expected_targets:
@@ -668,8 +677,13 @@ def verify_refinement_integrity(run_dir: Path | str) -> list[str]:
             problems.append(f"{row.get('target_id')}: terminal flag disagrees with child set")
 
         partition = row.get("child_partition") or {}
+        try:
+            expected_partition = partition_children(children, tuple(owners))
+        except RefinementError as exc:
+            problems.append(f"{row.get('target_id')}: invalid oracle child set: {exc}")
+            expected_partition = {owner: () for owner in owners}
         union: list[str] = []
-        for owner in participants:
+        for owner in owners:
             moves = partition.get(owner)
             if not isinstance(moves, list):
                 problems.append(
@@ -677,11 +691,15 @@ def verify_refinement_integrity(run_dir: Path | str) -> list[str]:
                 )
                 moves = []
             union.extend(moves)
+            if tuple(moves) != expected_partition.get(owner, ()):
+                problems.append(
+                    f"{row.get('target_id')}:{owner}: child partition differs from child_index_modulo"
+                )
         if len(union) != len(set(union)):
             problems.append(f"{row.get('target_id')}: child partition overlaps")
-        if union != list(children):
+        if set(union) != set(children) or len(union) != len(children):
             problems.append(
-                f"{row.get('target_id')}: child partition does not preserve exact oracle universe"
+                f"{row.get('target_id')}: child partition does not cover exact oracle universe"
             )
 
         stage_by_instance: dict[str, dict[str, Any]] = {}

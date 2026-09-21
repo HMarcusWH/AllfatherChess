@@ -773,6 +773,12 @@ class ShadowRunCoordinator:
                 return
             stage = active.anchor_stage
             elapsed = (time.monotonic() - active.started_monotonic) * 1000.0
+            # Publish the decision boundary while holding the exact lock used
+            # by EXPLORE/VERIFY dispatch commits. The old placement set this
+            # flag after releasing the lock, leaving a window in which the
+            # anchor callback had already begun but a new observational stage
+            # could still acquire the lock and launch.
+            active.anchor_completed.set()
         if stage is not None:
             bestmove = line.split()[1] if line.startswith("bestmove ") and len(line.split()) > 1 else None
             active.run.record_completion(
@@ -781,7 +787,8 @@ class ShadowRunCoordinator:
                 disposition="completed",
                 bestmove=bestmove,
             )
-        active.anchor_completed.set()
+        # Finalization waits on anchor_done, not merely anchor_completed. Keep
+        # this second event after the authority StageRecord is complete.
         active.anchor_done.set()
         # The outward answer is already emitted. No *new* observational stage
         # may be opened against a decision that has already been made. Whether
@@ -1553,13 +1560,18 @@ class ShadowRunCoordinator:
 
         stream = verification.stream(stage.instance)
         if failure is None and stream is not None:
-            if not stream.drain_barrier(0.05):
+            if not stream.drain_barrier(0.25):
                 failure = (
                     f"verification telemetry for {stage.instance} did not drain before "
                     "the completion audit"
                 )
             elif stream.evidence_lossy:
                 failure = f"verification telemetry for {stage.instance} lost evidence"
+            elif stream.tracked_events_truncated:
+                failure = (
+                    f"verification live evidence for {stage.instance} exceeded the "
+                    "tracked-event limit before the completion audit"
+                )
             else:
                 for event in stream.tracked_events():
                     if event.get("event_type") != "candidate.update":

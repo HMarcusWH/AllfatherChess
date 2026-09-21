@@ -717,6 +717,91 @@ reverted. That is the third time in three rounds a regression test had to be
 rewritten because it could not fail. The discipline of reverting each fix and
 re-running is the only reason any of them were caught.
 
+## Four more findings from a ninth review, all four mine
+
+Every finding this round is a consequence of the pre-anchor preparation budget
+I introduced in round seven and extended in round eight. Two were reported;
+the other two I found while checking the blast radius of the second.
+
+**The envelope clock skipped the preparation it is supposed to bound.**
+`started_monotonic` was captured *after* `_make_run_dir_within_budget()`
+returned, so every millisecond of pre-anchor filesystem work sat outside the
+wall envelope and outside the controller-overhead charge. A slow `mkdir` ahead
+of a search that nearly fills the envelope could still report
+`wall_within_envelope: true` and `claimed: true`. The run clock now starts
+before any preparation, and `prepare_ms`, `qualification_ms`,
+`started_monotonic` and the ledger's seed all share that one origin.
+
+MEASURED on this machine: `prepare_ms` is 1.5-1.8 ms, so the interval that was
+invisible is small in practice. It is bounded by `shadow.prepare_budget_s`
+(0.25 s as shipped), not by what a healthy filesystem happens to do -- the
+directory `mkdir` may take up to the full budget and still succeed, and all of
+it was previously uncounted.
+
+**An abandoned writer kept a thread and a descriptor.** When the timed work was
+`TelemetryStreamWriter(...)` and its file open finished after the budget, the
+timeout path dropped the constructor's result. That result was not inert: the
+constructor had already opened the file and started a writer thread, which then
+blocked on its queue forever with nothing to drain it. A repeatedly slow
+`replay_root` leaked one thread and one descriptor per search until the
+controller ran out. The budget helper now takes a `discard` callback and the
+worker thread closes its own late result.
+
+**An abandoned `mkdir` left a directory that is not a bundle.** The same
+timeout path can leave an empty, manifest-less directory under `replay_root`
+after the late `mkdir` completes. Round seven's docstring called abandoned
+results "inert leftover"; this one is not. Offline derivation walks every
+directory under `replay_root`, and
+`build_derived_artifact` raises `ReplayError: cannot load replay manifest` on a
+directory with no manifest rather than skipping it -- so one timeout during a
+game would break the entire derivation pass afterwards. MEASURED directly. The
+late `mkdir` is now taken back with `rmdir`, which removes only an empty
+directory and raises rather than deleting anything else.
+
+**And the ordinary stream-failure path left the same directory.** Found while
+writing the test for the one above. `prepare_run` creates the bundle directory
+first and the stream second, so *every* way the stream can fail -- a timeout, or
+a constructor that simply raises `OSError` on a full disk -- returns with the
+directory already created and no run that will ever finalize into it.
+`ReplayRun.finalize` writes a manifest for every disposition, `aborted` and
+`cancelled` included, so a manifest-less directory is never a run that lost its
+evidence: it is a run that never started. Fixing only the abandoned-thread case
+would have been round eight's mistake again -- bounding the first call and not
+the next. Every path that can leave one now takes it back.
+
+### A test that proved nothing, twice in one round
+
+The writer-leak test had to be rewritten twice, for two different reasons, and
+both times it passed with the fix reverted.
+
+The first version checked for leaked threads immediately after `prepare_run`
+returned -- which is 0.25 s in, while the constructor is still sleeping in
+`open` and no thread exists yet. Nothing had leaked because nothing had been
+built.
+
+The second version waited, but stalled the constructor *before* its `open`. By
+the time that open ran, the directory cleanup added for the finding above had
+already removed the directory, so the constructor raised, no writer was ever
+built, and again there was nothing to leak. The fix for one finding had made
+the test for another unfalsifiable. The test now opens the handle first and
+stalls afterwards, which is what a slow filesystem does to a constructor that
+succeeds -- the only shape in which the leak exists at all.
+
+That is five regression tests in four rounds that could not fail as first
+written. Every one was caught by reverting the fix and re-running, and by
+nothing else. The two leak tests now also assert that the abandoned work
+really happened, so a test that silently stops exercising its path fails
+instead of passing.
+
+### A test that was never run at all
+
+The three new tests were appended to the end of `test_shadow_runtime.py`,
+below its `if __name__ == "__main__": unittest.main()` block. `make
+controller-tests` runs each file as a script, so the class was defined after
+the run had already finished: the suite reported 39 tests and "OK" while three
+brand-new tests sat in the file untouched. Caught only because the count did
+not go up. Green CI would have said nothing.
+
 ## Residual concerns worth carrying forward
 
 1. **Fast searches collect nothing.** With `on_anchor_complete: drain`, a very
@@ -775,15 +860,18 @@ re-running is the only reason any of them were caught.
     sources, parameters and `EXTRACTOR_VERSION`. That makes the version bump
     load-bearing: any future change to extraction logic that forgets it
     reintroduces the collision found this round.
-16. **Eight review rounds have not converged, and round eight was the worst.** Rounds three, four, five and six
-    each found defects introduced or left incomplete by the round before -- four
-    in round five, four again in round six, two in round seven, plus a round-zero
-    finding that reappeared in a different disguise, and then **six of nine in
-    round eight**, three of them created by the round-seven fixes specifically.
-    One was created by two correct fixes combining. No threshold or support
-    floor has been moved in any round and the claim firewall has held, but the
-    defect rate is not falling, and that is a property of the change's size
-    rather than of any individual fix. This is the strongest argument in this
+16. **Nine review rounds have not converged, and every round-nine finding was
+    mine.** Rounds three through six each found defects introduced or left
+    incomplete by the round before -- four in round five, four again in round
+    six, two in round seven, plus a round-zero finding that reappeared in a
+    different disguise, then **six of nine in round eight** and **four of
+    four in round nine**. Round eight's worst case came from two individually
+    correct fixes combining; all of round nine came from one mechanism I added
+    in round seven and extended in round eight. The absolute count is falling
+    (9 -> 4) but the self-inflicted *fraction* is now 100%, which is the same
+    signal in a different form: the last three rounds have been spent repairing
+    repairs. No threshold or support floor has been moved in any round and the
+    claim firewall has held. This remains the strongest argument in this
     document for landing the overlap phase separately rather than growing this
     branch further.
 17. **The bestmove-reversal label is untested by real data.** 0 of 133
@@ -794,10 +882,38 @@ re-running is the only reason any of them were caught.
     Nothing measures what a legitimate stage needs, so a worker that genuinely
     wants longer than the configured budget is still cut off.
 19. **`prepare_budget_s` is another declared constant.** Nothing measures what
-    a healthy `replay_root` needs. Abandoning a bundle is the safe direction
-    when the filesystem is slow, but a busy disk will now cost observations.
-    An abandoned setup thread can also create its directory afterwards; nothing
-    references it, so it is inert leftover rather than state a run relies on.
+    a healthy `replay_root` needs (`prepare_ms` is 1.5-1.8 ms on this machine,
+    against a 0.25 s budget). Abandoning a bundle is the safe direction when
+    the filesystem is slow, but a busy disk will now cost observations. The
+    claim this entry used to make -- that whatever an abandoned setup thread
+    finishes is "inert leftover" -- was wrong twice over, and round nine
+    measured both: a completed writer holds a thread and a descriptor, and a
+    completed `mkdir` leaves a manifest-less directory that breaks offline
+    derivation. Both are released now -- as is the same directory on the
+    ordinary stream-failure path, which needed no abandoned thread at all --
+    but the general shape of the risk stands: anything added to this path has to say what happens when it
+    finishes late, and "nothing" needs proving rather than assuming.
 20. **Anchor CPU is still an estimate.** Scaling `wall_ms` by the configured
     thread count is much closer than not scaling it, but a config that
     misstates `Threads`, or an anchor that finishes early, is not detected.
+21. **The wall envelope now includes preparation, but not the quiesce barrier.**
+    The run clock starts at the top of `prepare_run`'s own work. Time spent in
+    `quiesce()` draining the *previous* generation still sits outside this
+    run's envelope. That is a deliberate attribution choice -- the previous
+    generation's compute was charged to the previous generation's ledger, and
+    charging it twice would inflate B -- but it does mean a search that waits
+    on a slow drain took longer in wall-clock terms than its own
+    `wall_ms_elapsed` reports. POLICY, not a measurement gap.
+22. **Bundle discovery still treats every directory as a bundle, and this was
+    not fixed.** Five places enumerate `replay_root` with
+    `path for path in replay_root.iterdir() if path.is_dir()`, and
+    `build_derived_artifact` raises on a directory with no `manifest.json`
+    rather than skipping it (MEASURED). Round nine removed every orphan the
+    controller itself can create, but a SIGKILL or a full disk between the
+    `mkdir` and `finalize` still leaves one, and no cleanup path runs then.
+    The robust fix -- select directories that contain a manifest, and report
+    what was skipped rather than ignoring it -- is sound and provably hides
+    nothing, because `finalize` writes a manifest for every disposition. It
+    touches five scripts including two contract harnesses, and this branch's
+    own defect history is the argument against making that change here. Left
+    OPEN deliberately, not overlooked.

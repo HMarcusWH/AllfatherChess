@@ -366,7 +366,46 @@ class ShadowRunCoordinator:
         except OSError:  # pragma: no cover - identity is best effort
             return None
 
-    def _within_prepare_budget(self, label: str, work: Callable[[], Any]) -> tuple[bool, Any]:
+    @staticmethod
+    def _discard_run_dir(run_dir: Path) -> None:
+        """Take back a bundle directory no run will ever use.
+
+        `rmdir` removes only an EMPTY directory -- it raises rather than
+        deleting anything else -- so this can never destroy evidence. It is
+        best effort because an abandoned setup thread may still be creating its
+        stream file in there; that thread releases the directory itself once
+        its writer is closed, so a failure here is covered rather than final.
+        """
+        try:
+            run_dir.rmdir()
+        except OSError:  # pragma: no cover - covered by the late release path
+            pass
+
+    def _release_late_stream(self, run_dir: Path, stream: Any) -> None:
+        """Release a stream setup whose run already gave up waiting for it.
+
+        A constructed writer owns a running thread and an open file handle. Its
+        queue is empty -- nothing was ever submitted to a stream no run holds --
+        so the writer takes the sentinel and exits at once, and the short
+        timeout only bounds a pathological case. A constructor that raised
+        after opening its file leaves the same directory behind with no writer,
+        which is why `stream` may be `None` here.
+        """
+        if stream is not None:
+            stream.close(timeout=1.0)
+            try:
+                stream.path.unlink()
+            except OSError:  # pragma: no cover - best effort
+                pass
+        self._discard_run_dir(run_dir)
+
+    def _within_prepare_budget(
+        self,
+        label: str,
+        work: Callable[[], Any],
+        *,
+        discard: Callable[[Any], None] | None = None,
+    ) -> tuple[bool, Any]:
         """Run pre-anchor filesystem work without letting it block a search.
 
         A blocked or very slow `replay_root` would otherwise hold the calling
@@ -377,26 +416,62 @@ class ShadowRunCoordinator:
         unbounded delay one call later.
 
         The work happens on a short-lived thread and is abandoned at the
-        declared budget. An abandoned thread may still finish afterwards;
-        nothing references what it produces, so it is inert leftover rather
-        than state this run relies on.
+        declared budget. An abandoned thread may still finish afterwards, and
+        what it finishes is not always inert: a constructed
+        `TelemetryStreamWriter` owns a running writer thread blocked on its
+        queue and an open file handle, so a run that went on without it leaks
+        both -- once per timeout, until a repeatedly slow `replay_root`
+        exhausts the controller's descriptors. `discard` releases such a late
+        result, on the abandoned thread that produced it. Work whose result is
+        genuinely inert (a `mkdir` returning `None`) passes none.
         """
         budget = max(0.001, float(self.settings.prepare_budget_s))
         outcome: dict[str, Any] = {}
+        guard = threading.Lock()
+        abandoned = False
 
         def _run() -> None:
+            value: Any = None
+            failure: str | None = None
             try:
-                outcome["value"] = work()
-                outcome["ok"] = True
+                value = work()
             except Exception as exc:  # noqa: BLE001 - reported, never raised here
-                outcome["error"] = f"{type(exc).__name__}: {exc}"
+                failure = f"{type(exc).__name__}: {exc}"
+            with guard:
+                late = abandoned
+                if not late:
+                    if failure is None:
+                        outcome["value"] = value
+                        outcome["ok"] = True
+                    else:
+                        outcome["error"] = failure
+            if not late or discard is None:
+                return
+            # A late failure still needs releasing: a constructor that opened a
+            # file and then raised leaves the same partial state behind as one
+            # that succeeded, so `discard` runs either way and takes `None`.
+            try:
+                discard(value)
+            except Exception as exc:  # noqa: BLE001 - no run is left to fail
+                self._diagnostic(
+                    f"replay setup ({label}) could not release its late result: "
+                    f"{type(exc).__name__}: {exc}"
+                )
 
         worker = threading.Thread(
             target=_run, name=f"allfather-prepare-{label}", daemon=True
         )
         worker.start()
         worker.join(timeout=budget)
-        if worker.is_alive():
+        with guard:
+            # Decide on the published outcome, not on `is_alive()`: the flag the
+            # worker reads and the result this returns have to be the same
+            # decision, taken once, or a result could be both used here and
+            # discarded there.
+            settled = "ok" in outcome or "error" in outcome
+            if not settled:
+                abandoned = True
+        if not settled:
             self._diagnostic(
                 f"replay setup ({label}) exceeded its {budget}s pre-anchor budget; this "
                 "search runs without a shadow bundle rather than delaying the outward "
@@ -409,8 +484,17 @@ class ShadowRunCoordinator:
         return bool(outcome.get("ok")), outcome.get("value")
 
     def _make_run_dir_within_budget(self, run_dir: Path) -> bool:
+        """Create the bundle directory, or give up on it inside the budget.
+
+        A directory the abandoned thread creates afterwards is not inert
+        leftover: offline derivation walks every directory under `replay_root`
+        and one with no manifest is not a bundle, so a single timeout during a
+        game would break the whole derivation pass. It is taken back here.
+        """
         ok, _ = self._within_prepare_budget(
-            run_dir.name, lambda: run_dir.mkdir(parents=True, exist_ok=False)
+            run_dir.name,
+            lambda: run_dir.mkdir(parents=True, exist_ok=False),
+            discard=lambda _value: self._discard_run_dir(run_dir),
         )
         return ok
 
@@ -475,6 +559,13 @@ class ShadowRunCoordinator:
                 )
                 return False
 
+        # The run clock starts HERE, before any preparation. Capturing it after
+        # `_make_run_dir_within_budget` returned put every millisecond of
+        # pre-anchor filesystem work outside the wall envelope: a 200 ms `mkdir`
+        # ahead of a 900 ms anchor search still reported `wall_within_envelope`
+        # against a 1000 ms envelope, and the same milliseconds went uncharged
+        # as controller overhead. Preparation is bounded, not free.
+        started = time.monotonic()
         position_command = self.runtime.position_command
         variant = self._variant()
         try:
@@ -487,14 +578,12 @@ class ShadowRunCoordinator:
             self._diagnostic(f"shadow run not started: {exc}")
             return False
 
-        prepare_started = time.monotonic()
         now = _dt.datetime.now(_dt.timezone.utc)
         run_id = f"{now.strftime('%Y%m%dT%H%M%S%fZ')}-g{generation:06d}-{uuid.uuid4().hex[:8]}"
         run_dir = self.settings.replay_root / run_id
         if not self._make_run_dir_within_budget(run_dir):
             return False
 
-        started = time.monotonic()
         run = ReplayRun(
             run_id=run_id,
             generation=generation,
@@ -518,7 +607,8 @@ class ShadowRunCoordinator:
         # pre-anchor filesystem work and belongs inside the same bound.
         opened, anchor_stream = self._within_prepare_budget(
             f"{run_id}-anchor-stream",
-            lambda: TelemetryStreamWriter(
+            discard=lambda stream: self._release_late_stream(run_dir, stream),
+            work=lambda: TelemetryStreamWriter(
                 instance=anchor_name,
                 family=anchor_spec.family,
                 role=anchor_spec.role,
@@ -532,6 +622,11 @@ class ShadowRunCoordinator:
             ),
         )
         if not opened or anchor_stream is None:
+            # The directory exists and no run will ever finalize into it, so no
+            # manifest will ever be written there. Take it back here; on the
+            # timeout path an abandoned thread may still be opening its stream
+            # file, and that thread releases the directory itself afterwards.
+            self._discard_run_dir(run_dir)
             return False
         run.register_stream(anchor_stream)
         anchor_search_id = f"{run_id}:{anchor_name}:0"
@@ -582,7 +677,7 @@ class ShadowRunCoordinator:
         )
         # Controller overhead is recorded, never hidden. This is the only work
         # that happens between the external `go` and the anchor dispatch.
-        run.prepare_ms = (time.monotonic() - prepare_started) * 1000.0
+        run.prepare_ms = (time.monotonic() - started) * 1000.0
         with self._lock:
             self._run = active
             self._history.append(run_dir)

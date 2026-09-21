@@ -258,6 +258,14 @@ self-started clock would hand a slow oracle a second full envelope. That
 already-elapsed preparation and qualification time is charged to its own
 `qualification` lane rather than left outside the accounting.
 
+"From the external `go`" means from the start of the run's own preparation,
+which is where the run clock is taken. Until round nine it was taken *after*
+the replay directory was created, so pre-anchor filesystem work -- bounded by
+`shadow.prepare_budget_s`, and so up to 0.25 s as shipped -- was invisible to
+`wall_ms_elapsed` and uncharged. One exception remains and is deliberate: time
+spent in the quiesce barrier draining the previous generation is not charged
+here, because that generation's compute was already charged to its own ledger.
+
 ## Authority boundary
 
 Routing governs shadow observation compute. The unrestricted anchor remains the

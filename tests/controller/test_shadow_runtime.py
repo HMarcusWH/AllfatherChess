@@ -1027,6 +1027,241 @@ class ReviewRegressionRoundEightTests(unittest.TestCase):
             self.assertIn("decision authority", str(ctx.exception))
 
 
+class ReviewRegressionRoundNineTests(unittest.TestCase):
+    """Round-nine findings, all three on the pre-anchor preparation path."""
+
+    @staticmethod
+    def _telemetry_threads() -> set:
+        return {
+            thread
+            for thread in threading.enumerate()
+            if thread.name.startswith("allfather-telemetry-")
+        }
+
+    def test_the_run_clock_starts_before_replay_preparation(self):
+        """Preparation is bounded, not free, and the envelope has to see it.
+
+        `started_monotonic` was captured after the run directory was created,
+        so every millisecond of pre-anchor filesystem work sat outside the wall
+        envelope and outside the controller-overhead charge: a 200 ms `mkdir`
+        ahead of a 900 ms anchor search still reported `wall_within_envelope`
+        against a 1000 ms envelope.
+        """
+        import controller.shadow as shadow_module
+
+        delay_s = 0.06
+        with tempfile.TemporaryDirectory() as tmp:
+            manager = BackendManager.from_path(write_shadow_config(Path(tmp)))
+            manager.start()
+            coordinator = shadow_module.ShadowRunCoordinator(runtime=manager)
+            real_mkdir = shadow_module.Path.mkdir
+            try:
+                def _slow_mkdir(self, *args, **kwargs):
+                    # Only the run bundle's own directory, so the delay is the
+                    # preparation this test is about and nothing else.
+                    if "-g0000" in self.name:
+                        time.sleep(delay_s)
+                    return real_mkdir(self, *args, **kwargs)
+
+                shadow_module.Path.mkdir = _slow_mkdir  # type: ignore[assignment]
+                ok = coordinator.prepare_run(generation=1, go_command="go nodes 64")
+                active = coordinator._run
+                elapsed_ms = None if active is None else active.context.elapsed_ms()
+                prepare_ms = None if active is None else active.run.prepare_ms
+            finally:
+                shadow_module.Path.mkdir = real_mkdir  # type: ignore[assignment]
+                coordinator.close()
+                manager.close()
+
+            self.assertTrue(ok, "a 60ms mkdir is well inside the pre-anchor budget")
+            self.assertIsNotNone(elapsed_ms)
+            self.assertGreaterEqual(
+                elapsed_ms,
+                delay_s * 1000.0 * 0.9,
+                "the run clock did not include the preparation it is meant to bound",
+            )
+            self.assertGreaterEqual(
+                elapsed_ms,
+                prepare_ms,
+                "the run clock started later than the preparation it measures",
+            )
+
+    def test_a_late_stream_writer_is_closed_rather_than_leaked(self):
+        """A writer finishing after the budget owns a thread and a descriptor.
+
+        The timeout path dropped the constructor's result. The completed
+        writer's thread stayed blocked on its queue forever and its file handle
+        stayed open, so a repeatedly slow `replay_root` leaked one of each per
+        search until the controller ran out.
+        """
+        import controller.shadow as shadow_module
+
+        with tempfile.TemporaryDirectory() as tmp:
+            manager = BackendManager.from_path(write_shadow_config(Path(tmp)))
+            manager.start()
+            coordinator = shadow_module.ShadowRunCoordinator(runtime=manager)
+            replay_root = coordinator.settings.replay_root
+
+            def entries() -> set:
+                if not replay_root.exists():
+                    return set()
+                return set(replay_root.iterdir())
+
+            before_dirs = entries()
+            before = self._telemetry_threads()
+            real_open = shadow_module.Path.open
+            late_opens: list[str] = []
+            try:
+                def _slow_open(self, *args, **kwargs):
+                    if self.suffix != ".jsonl":
+                        return real_open(self, *args, **kwargs)
+                    # Open FIRST, then stall. Stalling before the open makes the
+                    # constructor fail outright once the directory is taken
+                    # back, so no writer is ever built and the leak this test
+                    # is about cannot occur -- the test would pass whatever the
+                    # code did. The leak needs a constructor that SUCCEEDS
+                    # after the budget, holding a handle and a live thread.
+                    handle = real_open(self, *args, **kwargs)
+                    time.sleep(0.6)
+                    late_opens.append(self.name)
+                    return handle
+
+                shadow_module.Path.open = _slow_open  # type: ignore[assignment]
+                ok = coordinator.prepare_run(generation=1, go_command="go nodes 64")
+                # `prepare_run` gives up at the budget, 0.25s in, while the
+                # writer is still being constructed. Checking now would find no
+                # thread yet and pass whatever the code does; wait until the
+                # constructor has certainly finished and started one.
+                time.sleep(1.5)
+                leaked = self._telemetry_threads() - before
+                orphans = entries() - before_dirs
+            finally:
+                shadow_module.Path.open = real_open  # type: ignore[assignment]
+                coordinator.close()
+                manager.close()
+
+            self.assertFalse(ok, "a stream past its budget must not yield a bundle")
+            self.assertTrue(
+                late_opens,
+                "the stream file was never opened, so nothing was left to leak "
+                "and this test proved nothing",
+            )
+            self.assertEqual(
+                sorted(thread.name for thread in leaked),
+                [],
+                "the late stream writer's thread and descriptor were never released",
+            )
+            self.assertEqual(
+                sorted(path.name for path in orphans),
+                [],
+                "the abandoned stream setup left its bundle directory behind",
+            )
+
+    def test_a_failed_stream_open_leaves_no_bundle_directory(self):
+        """The run directory is created before the stream, and outlives it.
+
+        `prepare_run` returns as soon as the stream cannot be opened, having
+        already created the bundle directory. No run finalizes into it, so no
+        manifest is ever written there, and `build_derived_artifact` raises on
+        a manifest-less directory rather than skipping it.
+        """
+        import controller.shadow as shadow_module
+
+        with tempfile.TemporaryDirectory() as tmp:
+            manager = BackendManager.from_path(write_shadow_config(Path(tmp)))
+            manager.start()
+            coordinator = shadow_module.ShadowRunCoordinator(runtime=manager)
+            replay_root = coordinator.settings.replay_root
+
+            def entries() -> set:
+                if not replay_root.exists():
+                    return set()
+                return set(replay_root.iterdir())
+
+            before = entries()
+            real_open = shadow_module.Path.open
+            refused: list[str] = []
+            try:
+                def _refuse_open(self, *args, **kwargs):
+                    if self.suffix == ".jsonl":
+                        refused.append(self.name)
+                        raise OSError(28, "No space left on device")
+                    return real_open(self, *args, **kwargs)
+
+                shadow_module.Path.open = _refuse_open  # type: ignore[assignment]
+                ok = coordinator.prepare_run(generation=1, go_command="go nodes 64")
+                orphans = entries() - before
+            finally:
+                shadow_module.Path.open = real_open  # type: ignore[assignment]
+                coordinator.close()
+                manager.close()
+
+            self.assertFalse(ok, "an unopenable stream must not yield a bundle")
+            self.assertTrue(
+                refused, "the stream was never opened, so this test proved nothing"
+            )
+            self.assertEqual(
+                sorted(path.name for path in orphans),
+                [],
+                "a failed stream open left a manifest-less directory behind",
+            )
+
+    def test_a_late_run_directory_is_not_left_under_the_replay_root(self):
+        """An empty, manifest-less bundle directory is not inert leftover.
+
+        Offline derivation walks every directory under `replay_root`, and one
+        with no manifest raises rather than being skipped, so a directory the
+        abandoned thread created after its run gave up would break the whole
+        derivation pass.
+        """
+        import controller.shadow as shadow_module
+
+        with tempfile.TemporaryDirectory() as tmp:
+            manager = BackendManager.from_path(write_shadow_config(Path(tmp)))
+            manager.start()
+            coordinator = shadow_module.ShadowRunCoordinator(runtime=manager)
+            replay_root = coordinator.settings.replay_root
+
+            def entries() -> set:
+                if not replay_root.exists():
+                    return set()
+                return set(replay_root.iterdir())
+
+            before = entries()
+            real_mkdir = shadow_module.Path.mkdir
+            late_dirs: list[str] = []
+            try:
+                def _slow_mkdir(self, *args, **kwargs):
+                    if "-g0000" not in self.name:
+                        return real_mkdir(self, *args, **kwargs)
+                    time.sleep(0.6)
+                    result = real_mkdir(self, *args, **kwargs)
+                    late_dirs.append(self.name)
+                    return result
+
+                shadow_module.Path.mkdir = _slow_mkdir  # type: ignore[assignment]
+                ok = coordinator.prepare_run(generation=1, go_command="go nodes 64")
+                # The abandoned thread's `mkdir` returns 0.6s in; wait past
+                # that so the directory has certainly been created, and its
+                # release has certainly had its chance to run.
+                time.sleep(1.5)
+                orphans = entries() - before
+            finally:
+                shadow_module.Path.mkdir = real_mkdir  # type: ignore[assignment]
+                coordinator.close()
+                manager.close()
+
+            self.assertFalse(ok, "a run directory past its budget must not yield a bundle")
+            self.assertTrue(
+                late_dirs,
+                "no directory was ever created, so this test proved nothing",
+            )
+            self.assertEqual(
+                sorted(path.name for path in orphans),
+                [],
+                "the abandoned thread left a manifest-less directory behind",
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

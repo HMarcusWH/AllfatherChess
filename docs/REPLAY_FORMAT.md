@@ -55,8 +55,8 @@ cancelled before dispatch leaves no empty artifact pretending to be evidence.
 | `controller.telemetry_execution_mode` | the value shadow streams carry |
 | `controller.config_path`, `controller.config_sha256` | exact runtime configuration |
 | `controller.partition_method` | how roots were allocated (`root_index_modulo`) |
-| `controller.overhead.prepare_ms` | controller work performed **before** the anchor was dispatched |
-| `controller.overhead.qualification_ms` | controller work before the first shadow dispatch |
+| `controller.overhead.prepare_ms` | controller work performed **before** the anchor was dispatched, measured from the start of the run's own preparation |
+| `controller.overhead.qualification_ms` | controller work before the first shadow dispatch, measured from the same origin — it therefore **contains** `prepare_ms` rather than sitting beside it |
 | `position.*` | variant, move encoding, base FEN, move list, position id, reconstructed command |
 | `external_request` | the external `go` command and its parsed limits |
 | `engines.<instance>` | solver family, process role, binary path, binary sha256, args, options |

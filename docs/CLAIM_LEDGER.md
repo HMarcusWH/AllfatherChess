@@ -119,7 +119,13 @@ Enforced by `tests/controller/*`, `scripts/shadow-execution-contract.py`, and
 - A calibration's **evaluation** is content-addressed alongside its buckets,
   because authorization reads held-out evidence out of it.
 - Every piece of pre-anchor filesystem work is inside `prepare_budget_s`, not
-  just the first.
+  just the first, and is inside the wall envelope: the run clock starts before
+  preparation, so `prepare_ms`, `qualification_ms`, `started_monotonic` and the
+  budget ledger's seed all share one origin.
+- Pre-anchor work abandoned at the budget is released, not leaked: a writer
+  that finishes late is closed and its file removed, and every path that can
+  leave a bundle directory no run will finalize into -- a late `mkdir`, a
+  stream timeout, or a stream constructor that raises -- takes it back.
 - A declared `stage_timeout_s` is used exactly as configured.
 - The authority stream stays open until the anchor answers, the anchor dies, or
   the controller closes. No shadow-side timeout can close it early.
@@ -137,9 +143,18 @@ are observations, not guarantees.
 
 - Concurrent shadow execution works on real engines: three restricted workers
   overlapped a 1.5 s anchor search, all three dispatched ~3 ms after run start.
-- Controller overhead before anchor dispatch (`prepare_ms`) is ~0.6 ms. It was
-  ~700 ms before this PR's fix to per-run binary hashing — that regression was
-  found by this milestone's own audit discipline.
+- Controller overhead before anchor dispatch (`prepare_ms`) is 1.5–1.8 ms. It
+  was ~700 ms before this PR's fix to per-run binary hashing — that regression
+  was found by this milestone's own audit discipline. The figure rose from
+  ~0.6 ms when the measurement's origin moved ahead of preparation in round
+  nine; the extra ~1 ms was always being spent, and was previously outside both
+  `prepare_ms` and the wall envelope.
+- A 1200 ms `go movetime` under a 4000 ms declared envelope reports
+  `wall_ms_elapsed` of 1204–1206 ms with the clock now starting before
+  preparation.
+- An empty, manifest-less directory under `replay_root` makes
+  `build_derived_artifact` raise rather than skip it, so an abandoned setup
+  thread's leftover directory is not inert.
 - A 36-bundle sweep over the frozen corpus completed in ~25 s and produced 11
   completed, 19 cancelled (superseded by the next position), and 6 terminal
   runs.

@@ -215,7 +215,11 @@ Two additions the implementation makes to the frozen list:
 
 - `controller.overhead.prepare_ms` and `controller.overhead.qualification_ms`
   record the controller work performed before the anchor dispatch and before the
-  first shadow dispatch, so controller overhead cannot hide;
+  first shadow dispatch, so controller overhead cannot hide. Both are measured
+  from the same origin as the run clock the wall envelope uses, which is taken
+  before any preparation: preparation is bounded by `shadow.prepare_budget_s`,
+  not free, and an envelope that started counting after it would have been
+  claiming compliance it had not measured;
 - each stream record carries `contract_validatable`, which is false for an
   incomplete or lossy stream. Such a stream is kept as evidence and is *not*
   given a fabricated `search.complete`.

@@ -184,7 +184,9 @@ class ReplayDiscoveryTests(unittest.TestCase):
     def test_manifestless_directory_is_reported_and_skipped(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            run_dir, _ = single_run(root / "valid")
+            valid = root / "valid"
+            valid.mkdir()
+            run_dir, _ = single_run(valid)
             replay_root = run_dir.parent
             orphan = replay_root / "orphan-run"
             orphan.mkdir()
@@ -199,7 +201,9 @@ class ReplayDiscoveryTests(unittest.TestCase):
     def test_invalid_manifest_is_reported_without_poisoning_valid_bundles(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            run_dir, _ = single_run(root / "valid")
+            valid = root / "valid"
+            valid.mkdir()
+            run_dir, _ = single_run(valid)
             replay_root = run_dir.parent
             broken = replay_root / "broken-run"
             broken.mkdir()

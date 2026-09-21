@@ -48,7 +48,9 @@ position_id
 
 `sequence` is authoritative ordering within one search. `observed_ms` is adapter monotonic receipt/observation time, not an engine-reported clock and not a wall-clock timestamp.
 
-`engine` identifies the solver family (`stockfish`, `reckless`, or `lc0`). `engine_instance` identifies the concrete managed role/process. In PR #11 this distinction is required because both `stockfish-anchor` and `stockfish-shadow` are Stockfish instances with different authority and dispatch contracts. A consumer must not infer authority from the solver family alone.
+`engine` identifies the solver family (`stockfish`, `reckless`, or `lc0`). `engine_instance` identifies the concrete managed role/process. This distinction is required because both `stockfish-anchor` and `stockfish-shadow` are Stockfish instances with different authority and dispatch contracts. A consumer must not infer authority from the solver family alone.
+
+`observed_ms` in a controller-produced stream is measured from the **start of the run**, not from the start of that individual search. Every stream in one replay bundle therefore shares a time origin, which is what makes `observed_ms` the one quantity comparable across instances. Engine-native work counters are not comparable and never become so without a fitted calibration.
 
 `search.started` additionally records enough position information for replay. Request limits may carry non-negative numeric values or boolean UCI flags such as `infinite` / `ponder`:
 
@@ -144,7 +146,14 @@ execution_mode = baseline | shadow | active
 phase = EXPLORE | COMPARE | REFINE | VERIFY | RELOCK | STOP
 ```
 
-`shadow` is an execution mode, not a controller phase. PR #11 shadow worker streams use `execution_mode = shadow`; the unrestricted anchor may be recorded separately as reference/authority evidence but remains outside shard ownership. Shadow telemetry does not grant decision authority.
+`shadow` is an execution mode, not a controller phase.
+
+The implemented convention is that `execution_mode` describes **what produced this stream**, not merely which mode the controller was in:
+
+- shadow worker streams use `execution_mode = shadow` (or `active`), plus `instance_role = shadow`, `decision_authority = false`, and the ledger `owner`;
+- the unrestricted anchor stream uses `execution_mode = baseline` with `instance_role = anchor` and `decision_authority = true`, because the anchor path is the unmodified baseline search in every mode.
+
+The controller mode for the run as a whole is recorded in the replay manifest under `controller.mode`, so the two are never confused. Shadow telemetry does not grant decision authority in any mode.
 
 ## Raw versus derived
 
@@ -162,7 +171,9 @@ This separation is an architectural invariant, not a naming preference.
 
 ## Replay binding
 
-Telemetry v1 remains a per-search raw event contract. PR #11 does not add run-level orchestration fields to every event. Instead, a separate replay manifest binds the synchronized position/request, engine instances, ledger snapshots, exact authorized shadow root sets, telemetry stream identities/paths, and completion/failure dispositions for one shadow experiment. This preserves raw telemetry v1 while making the multi-process experiment reconstructable.
+Telemetry v1 remains a per-search raw event contract and is **unchanged** by the immediate controller stack: `schemas/telemetry/v1.contract.json` is byte-identical to its previous state. No run-level orchestration field was added to any event. Instead, a separate replay manifest binds the synchronized position/request, engine instances, ledger snapshots, exact authorized shadow root sets, telemetry stream identities/paths, and completion/failure dispositions for one experiment. See `docs/REPLAY_FORMAT.md`.
+
+A stream that never reaches `search.complete` — for example because its worker crashed — is retained as evidence and marked `contract_validatable: false` in the manifest. It is never given a fabricated completion event to make it validate.
 
 ## Versioning
 

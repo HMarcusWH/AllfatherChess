@@ -60,19 +60,23 @@ Create `allfather-chess` as the only externally visible UCI endpoint and process
 
 Partition legal root moves into pairwise-disjoint controller-owned regions. Assert that every active legal move has exactly one exploration owner.
 
-### M5 — Shadow three-engine search
+### M5 — Shadow three-engine search (implemented)
 
 Run synchronized restricted Stockfish, Reckless, and LC0 shadow searches while a separate unrestricted Stockfish anchor remains the sole outward bestmove authority. Capture raw trajectories, exact owned root sets, run metadata, and ledger snapshots for deterministic replay and later counterfactual stopping analysis.
 
 The shadow milestone is permitted to use extra research compute. It does not yet implement residual calibration, voting, routing, or an equal-budget strength claim.
 
-### M6 — Residual geometry
+### M6 — Residual geometry (implemented, partially answerable)
 
-Calibrate Stockfish-vs-Reckless disagreement, LC0-vs-alpha-beta-family disagreement, leader stability, top-k overlap, PV divergence, budget sensitivity, and reversal risk.
+Calibrate leader stability, top-k overlap, PV divergence, budget sensitivity, and reversal risk. Implemented in `controller/residuals.py` and `controller/calibration.py`.
 
-### M7 — Adaptive compute routing
+Stockfish-vs-Reckless and LC0-vs-alpha-beta disagreement have **empty shared support** under the pairwise-disjoint observation partition: those workers are never authorized to search a common root within a run. The feature library computes them correctly and is tested on overlapping synthetic regions, but answering them on live evidence requires M9's explicit overlap phase. This is reported as undefined-with-a-reason rather than fabricated.
 
-Route CPU/GPU/time budgets according to expected marginal decision value rather than fixed equal shares.
+### M7 — Adaptive compute routing (implemented for observation compute)
+
+Route CPU/GPU/time budgets according to expected marginal decision value rather than fixed equal shares. Implemented in `controller/budget.py` and `controller/routing.py` as `mode: "active"`.
+
+Scope limit: the router allocates **shadow observation compute**. The unrestricted anchor remains the sole outward decision authority, so no routing decision can change the move. Extending routing to the decision itself requires evidence this milestone does not have.
 
 ### M8 — Recursive shard splitting
 
@@ -110,9 +114,7 @@ Run fixed-node, fixed-time, self-play, SPRT-style, and external-engine compariso
 8. **PR #8 — Historical Codex review hardening**: retire actionable review debt before introducing the hybrid process shell. **Merged.**
 9. **PR #9 — Hybrid UCI shell**: one external UCI endpoint plus three backend process adapters. **Merged.**
 10. **PR #10 — Root ShardLedger**: pairwise-disjoint exploration allocation. **Merged.**
-11. **PR #11 — Shadow execution and replay**: unrestricted Stockfish anchor plus three restricted shadow workers, replay bundles, and no routing intervention. **Current.**
-12. **PR #12 — Residual calibration**: disagreement/convergence features and counterfactual stop labels.
-13. **PR #13 — Adaptive budget routing**: active CPU/GPU/time allocation.
+11. **PR #11-#13 — Immediate controller stack** (landed together): shadow execution and replay, residual/counterfactual calibration, and active adaptive budget routing. **Current.** The three were built in one PR because the later two are meaningless without the evidence the first produces, and because splitting them would have frozen an interface before its consumer existed. They remain three separate layers in the code, with separate artifacts, separate documents, and separate test suites.
 14. **PR #14 — Recursive shard splitting**.
 15. **PR #15 — Explicit VERIFY / RELOCK**.
 16. **PR #16 — CPU/GPU resource scheduler**.
@@ -259,9 +261,11 @@ PR #10 is complete only when:
 - every pre-existing baseline, restricted-root, telemetry, controller-shell, and Reckless portability/hardening gate remains green.
 
 
-## Shadow execution and replay acceptance gate
+## Immediate controller stack acceptance gate
 
-PR #11 is complete only when:
+### Shadow execution and replay
+
+Complete only when:
 
 - the external UCI decision path remains unrestricted Stockfish-anchor authority; no shadow observation may alter, replace, vote on, or otherwise select the outward bestmove;
 - shadow execution uses distinct managed engine instances: `stockfish-anchor` for outward authority and `stockfish-shadow`, `reckless-shadow`, and `lc0-shadow` for restricted evidence collection;
@@ -275,6 +279,38 @@ PR #11 is complete only when:
 - shadow process failure is recorded explicitly and never silently promotes another backend to outward authority;
 - stop/quit lifecycle terminates all active shadow work without orphaned processes, while the outward UCI frontend still emits at most the anchor's single bestmove for the search;
 - fixed-node validation proves semantic non-intervention at the outward Stockfish decision boundary; no timed-search equivalence claim is made unless CPU/GPU resource isolation is separately established;
-- PR #11 introduces no residual calibration, candidate voting, adaptive routing, recursive shard transfer/split, VERIFY / RELOCK overlap, cross-feed, or strength claim;
+- shadow execution introduces no candidate voting, recursive shard transfer/split, VERIFY / RELOCK overlap, cross-feed, or strength claim;
 - shadow runs are explicitly marked as research evidence that may exceed the eventual competitive resource envelope;
 - every pre-existing baseline, restricted-root, telemetry, controller-shell, ShardLedger, and portability/hardening gate remains green.
+
+### Residual and counterfactual calibration
+
+Complete only when:
+
+- residual features are derived from replay bundles only, never written into raw telemetry or a replay manifest;
+- combining two differently-tagged engine values is a runtime error, not a convention: Stockfish cp minus Reckless cp, and LC0 scalar against alpha-beta cp, both raise;
+- cross-engine features carry their shared-support size and report undefined-with-a-reason when the support is empty;
+- within-engine margins and engine-native work counters always carry their semantics tags;
+- counterfactual labels are descriptive and no label is named or usable as correctness;
+- derived artifacts are content-addressed and record the exact run ids and content hashes they came from;
+- calibration features are past-only, so the same function serves training and live routing;
+- calibration is evaluated out of sample on a split by run identity and carries a reliability table;
+- calibration fails closed on unknown buckets, low support, foreign extractor versions, mismatched feature sets, and empty evidence;
+- synthetic fixtures cover stable agreement, transient disagreement, late reversal, LC0-only divergence, alpha-beta-only divergence, failed and missing streams, terminal positions, Chess960, and malformed telemetry.
+
+### Active adaptive budget routing
+
+Complete only when:
+
+- all solver work, verification reserve, and controller overhead spend from one declared envelope;
+- compute is reserved before it is spent so concurrency cannot exceed the envelope;
+- controller overhead is charged with a monotonic clock and appears in the ledger;
+- engine-native counters are kept per semantics with no scalar total;
+- an instability signal may nominate computation but only a calibrated, in-domain, sufficiently supported, low-risk verdict may authorize suppression;
+- a denied proposal degrades to continued observation or a hold, never to an improvised action;
+- missing calibration, out-of-domain calibration, an exhausted wall budget, or a refused reservation all resolve conservatively;
+- a declared but unloadable calibration refuses to construct a router rather than degrading silently;
+- routing decisions are deterministic under fixed evidence and a fixed clock;
+- every decision is written as an audit certificate with its proposal, gates, calibration verdict, thresholds, and budget snapshot, outside the raw bundle;
+- no routing decision can change outward decision authority, proved by fixed-node equivalence with direct Stockfish;
+- no Elo or strength claim is made anywhere.

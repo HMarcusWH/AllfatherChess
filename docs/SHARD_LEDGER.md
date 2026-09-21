@@ -249,3 +249,38 @@ PR #10 does not implement:
 - VERIFY / RELOCK overlap;
 - automatic fallback;
 - resource scheduling.
+
+
+## Live consumers
+
+`RootShardLedger` v1 is **unchanged** by the immediate controller stack. It
+gained no residuals, budgets, rankings, children, recursive split, verification
+overlap, or score calibration.
+
+Its live consumer is `controller/shadow.py`, which per external search:
+
+```text
+roots   = runtime.legal_root_moves()          # from stockfish-shadow, not the anchor
+ledger  = RootShardLedger(roots, owners=<healthy shadow families>, generation=<search generation>)
+ledger.assign_partition(root_index % owner_count)
+for each non-empty owner:
+    ledger.activate_owner(owner)
+    dispatch exactly ledger.active_roots(owner) via searchmoves
+    ...
+    ledger.seal_owner(owner)
+```
+
+Notes on live use:
+
+- the ledger's `owners` are restricted to shadow instances that are healthy at
+  qualification time; an excluded owner is recorded in the manifest's `notes`,
+  so coverage is always exact over the owners the run actually authorized;
+- `generation` is the external search generation, so a ledger belongs to exactly
+  one synchronized position;
+- an empty owner region is never activated and never dispatched;
+- a terminal position yields an empty universe and no ledger dispatch at all;
+- pre-dispatch and post-run snapshots are both written into the replay manifest,
+  so the partition is reconstructable without live controller state.
+
+Active-mode routing changes only *how much compute* an owner receives. It never
+mutates ownership.

@@ -31,7 +31,7 @@ Anchor-mode Generation 1 provides four process boundaries:
 - Reckless managed backend;
 - LC0 managed backend.
 
-PR #11 shadow mode adds a second Stockfish process. The controller therefore manages four engine instances while preserving one external UCI identity:
+Shadow mode adds a second Stockfish process. The controller therefore manages four engine instances while preserving one external UCI identity:
 
 - `stockfish-anchor` — unrestricted outward decision authority;
 - `stockfish-shadow` — restricted Stockfish evidence worker;
@@ -40,9 +40,44 @@ PR #11 shadow mode adds a second Stockfish process. The controller therefore man
 
 The controller communicates with engine processes through a production UCI process adapter with one permanent stdout reader per backend. In the first Generation-1 implementation all three engines are launched, configured, synchronized, and health-checked, while Stockfish alone acts as the transparent search anchor.
 
-PR #10 adds a controller-owned legal-root oracle and `RootShardLedger`. Stockfish `go perft 1` provides the canonical live legal-root universe; the ledger can atomically assign those roots into pairwise-disjoint owner regions for Stockfish, Reckless, and LC0.
+PR #10 adds a controller-owned legal-root oracle and `RootShardLedger`. Stockfish `go perft 1` provides the canonical live legal-root universe; the ledger can atomically assign those roots into pairwise-disjoint owner regions for Stockfish, Reckless, and LC0. In shadow/active mode that oracle runs on `stockfish-shadow`, so root qualification can never block the outward anchor.
 
-PR #11 consumes that ownership in **shadow mode**. The three shadow workers search their pairwise-disjoint `active_roots(owner)` regions concurrently and emit raw telemetry/replay evidence. The unrestricted `stockfish-anchor` is intentionally outside the exploration ledger and remains the only outward bestmove authority. Shadow evidence cannot influence move selection in this milestone.
+Shadow mode consumes that ownership. The three shadow workers search their pairwise-disjoint `active_roots(owner)` regions concurrently and emit raw telemetry plus a run-level replay bundle. The unrestricted `stockfish-anchor` is intentionally outside the exploration ledger and remains the only outward bestmove authority.
+
+### Layering
+
+```text
+raw telemetry v1          what each engine observed        controller/replay.py
+    |
+replay bundle             what experiment was executed      controller/replay.py
+    |
+residual features         derived disagreement geometry     controller/residuals.py
+    |
+calibrated risk model     fitted, out-of-sample validated   controller/calibration.py
+    |
+routing policy            proposal -> gate -> action        controller/routing.py
+    |
+dispatch                  restricted searchmoves            controller/shadow.py
+```
+
+Each layer is independently testable and no layer may reach upward. Residuals never appear in raw telemetry; routing decisions never appear in a replay manifest.
+
+### Execution modes
+
+| Mode | Instances | Ledger | Routing | Outward authority |
+| --- | --- | --- | --- | --- |
+| `anchor` | 3, legacy profile | unused live | none | Stockfish anchor |
+| `shadow` | 4 | 3 shadow owners | none | `stockfish-anchor` |
+| `active` | 4 | 3 shadow owners | conservative policy inside a declared envelope | `stockfish-anchor` |
+
+Active routing allocates **shadow observation compute**. It cannot change, delay, or veto the outward move. See `docs/BUDGET_ROUTING.md`.
+
+### Generation 1.5 — measured control
+
+Generations 2-4 remain as below. The immediate stack adds the measurement,
+calibration, and authorization machinery those later generations require:
+without replay evidence and an out-of-sample calibration there is no honest way
+to decide that a shortcut is safe.
 
 ### Generation 2 — structured local adapters
 

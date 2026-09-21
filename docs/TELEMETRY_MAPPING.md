@@ -67,11 +67,17 @@ Do not promote `leader_move_raw` or `runner_up_move_raw` into common UCI moves. 
 
 ## Shadow instance mapping
 
-PR #11 reuses the same solver-family adapters for distinct managed process roles. The common `engine` field continues to identify semantic provenance (`stockfish`, `reckless`, `lc0`), while `engine_instance` distinguishes concrete roles such as `stockfish-anchor`, `stockfish-shadow`, `reckless-shadow`, and `lc0-shadow`.
+Shadow and active mode reuse the same solver-family adapters for distinct managed process roles, with no adapter change. The common `engine` field continues to identify semantic provenance (`stockfish`, `reckless`, `lc0`), while `engine_instance` distinguishes concrete roles such as `stockfish-anchor`, `stockfish-shadow`, `reckless-shadow`, and `lc0-shadow`.
 
 No new score conversion is introduced for shadow mode. In particular, Stockfish and Reckless centipawns remain independently tagged, LC0 score semantics remain `ScoreType`-qualified, and alpha-beta nodes remain incomparable to LC0 visit/playout-derived counts without later calibration.
 
-The run-level relationship between these independent telemetry streams belongs in the PR #11 replay manifest rather than in fabricated aggregate ranking events.
+The run-level relationship between these independent telemetry streams belongs in the replay manifest rather than in fabricated aggregate ranking events.
+
+The derived layer enforces the same separation in code: `common/residuals.py` raises `ScaleMixingError` when two differently-tagged engine values would be combined, so a Stockfish-minus-Reckless centipawn difference is a runtime error rather than a convention someone could forget.
+
+Shadow workers run at `MultiPV = 3` in the shipped shadow/active configurations so within-engine margins are observable. The anchor stays at `MultiPV = 1` so it remains the unmodified baseline search and the fixed-node decision-firewall regression stays meaningful.
+
+Live capture never runs on an engine's stdout reader thread: the reader enqueues raw lines with an observation timestamp, and a dedicated writer thread performs adapter translation and file IO. A capture-queue overflow is recorded as explicit `dropped_events` truncation evidence rather than applying back-pressure to the reader.
 
 ## Terminal facts
 

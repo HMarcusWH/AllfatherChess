@@ -1,4 +1,4 @@
-.PHONY: vendor verify-vendor build-baselines smoke-baselines golden-baselines record-golden-baselines telemetry-contract telemetry-adapters telemetry-adapter-integration controller-tests shard-ledger-tests shard-ledger-contract hybrid-shell-contract shadow-tests replay-tests residual-tests routing-tests verification-tests verification-analysis-tests shadow-execution-contract verification-execution-contract verification-analysis-contract active-routing-contract shadow-evidence-sweep verification-evidence-sweep residual-calibration verification-analysis run-allfather run-allfather-shadow run-allfather-verify
+.PHONY: vendor verify-vendor build-baselines smoke-baselines golden-baselines record-golden-baselines telemetry-contract telemetry-adapters telemetry-adapter-integration controller-tests shard-ledger-tests prefix-shard-tests shard-ledger-contract prefix-shard-contract hybrid-shell-contract shadow-tests replay-tests residual-tests routing-tests verification-tests verification-analysis-tests shadow-execution-contract verification-execution-contract verification-analysis-contract active-routing-contract shadow-evidence-sweep verification-evidence-sweep residual-calibration verification-analysis run-allfather run-allfather-shadow run-allfather-verify
 
 vendor:
 	@echo "Refusing implicit destructive vendor refresh." >&2
@@ -34,6 +34,7 @@ controller-tests:
 	python3 tests/controller/test_runtime.py
 	python3 tests/controller/test_uci_frontend.py
 	python3 tests/controller/test_shard_ledger.py
+	python3 tests/controller/test_prefix_shards.py
 	python3 tests/controller/test_shadow_runtime.py
 	python3 tests/controller/test_replay.py
 	python3 tests/controller/test_residuals.py
@@ -43,6 +44,9 @@ controller-tests:
 
 shard-ledger-tests:
 	python3 tests/controller/test_shard_ledger.py
+
+prefix-shard-tests:
+	python3 tests/controller/test_prefix_shards.py
 
 shadow-tests:
 	python3 tests/controller/test_shadow_runtime.py
@@ -64,6 +68,9 @@ verification-analysis-tests:
 
 shard-ledger-contract:
 	python3 scripts/shard-ledger-contract.py
+
+prefix-shard-contract:
+	python3 scripts/prefix-shard-contract.py
 
 hybrid-shell-contract:
 	python3 scripts/hybrid-shell-contract.py

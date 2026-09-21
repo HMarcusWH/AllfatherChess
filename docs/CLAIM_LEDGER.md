@@ -344,11 +344,32 @@ Nothing below is established by this milestone.
 - No VERIFY result changes outward decision authority; the unrestricted
   Stockfish anchor remains sole bestmove authority.
 
+## COMPARE / descriptive RELOCK derived layer
+
+### PROVED by code/contracts
+
+- completed VERIFY streams reconstruct into three trajectories with identical
+  three-root authorized support;
+- the three stable pairings reuse the scale-free residual primitives and require
+  shared support exactly 3;
+- synchronized checkpoints are defined only over the common controller-clock
+  interval in which all three VERIFY searches are observationally live;
+- each final VERIFY candidate maps back to the solver that nominated it during
+  EXPLORE, enabling deterministic candidate-adoption rows without a vote;
+- `terminal-suffix-v1` classifies complete unanimous evidence as
+  `RELOCK_OBSERVED`, complete non-unanimous evidence as `RELOCK_FAILED`, and
+  incomplete evidence as `RELOCK_UNDEFINED`;
+- the content-addressed analysis artifact binds exact parent and VERIFY raw
+  hashes and derivation does not mutate raw evidence;
+- no cross-engine numeric score subtraction, correctness label, routing action,
+  or decision-authority effect is introduced.
+
 ### OPEN
 
 - Whether common-support disagreement predicts chess error or useful marginal
   compute.
-- Whether three-way convergence is a useful RELOCK signal.
+- Whether three-way convergence or descriptive RELOCK predicts a better move or
+  useful authorization condition.
 - Whether a real LC0 network contributes complementary decision information.
 - Whether VERIFY produces enough value to repay its compute cost.
 - Any Elo or equal-resource strength gain.

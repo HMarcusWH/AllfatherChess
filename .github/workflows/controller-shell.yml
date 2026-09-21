@@ -13,7 +13,13 @@ on:
       - tests/adapters/test_uci_process.py
       - tests/controller/**
       - tests/fixtures/fake_uci_engine.py
+      - tests/harness/**
+      - common/**
       - docs/UCI_SHELL.md
+      - docs/SHADOW_EXECUTION.md
+      - docs/REPLAY_FORMAT.md
+      - docs/RESIDUAL_CALIBRATION.md
+      - docs/BUDGET_ROUTING.md
       - Makefile
       - .github/workflows/controller-shell.yml
   pull_request:
@@ -25,7 +31,13 @@ on:
       - tests/adapters/test_uci_process.py
       - tests/controller/**
       - tests/fixtures/fake_uci_engine.py
+      - tests/harness/**
+      - common/**
       - docs/UCI_SHELL.md
+      - docs/SHADOW_EXECUTION.md
+      - docs/REPLAY_FORMAT.md
+      - docs/RESIDUAL_CALIBRATION.md
+      - docs/BUDGET_ROUTING.md
       - Makefile
       - .github/workflows/controller-shell.yml
 
@@ -39,7 +51,7 @@ concurrency:
 jobs:
   validate:
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
@@ -48,8 +60,9 @@ jobs:
 
       - name: Compile controller shell
         run: |
-          python3 -m py_compile allfather-chess controller/*.py adapters/process/*.py tests/fixtures/fake_uci_engine.py tests/adapters/test_uci_process.py tests/controller/*.py
-          python3 -m json.tool config/allfather.validation.json >/dev/null
+          python3 -m py_compile allfather-chess controller/*.py common/*.py adapters/process/*.py adapters/telemetry/*.py tests/fixtures/*.py tests/harness/*.py tests/adapters/test_uci_process.py tests/controller/*.py
+          python3 -m py_compile scripts/shadow-execution-contract.py scripts/active-routing-contract.py scripts/residual-calibration.py scripts/shadow-evidence-sweep.py
+          for config in config/*.json; do python3 -m json.tool "$config" >/dev/null; done
           ./allfather-chess --help >/dev/null
 
       - name: Validate process adapter
@@ -63,3 +76,15 @@ jobs:
 
       - name: Validate Root ShardLedger invariants
         run: python3 tests/controller/test_shard_ledger.py
+
+      - name: Validate shadow execution runtime
+        run: make shadow-tests
+
+      - name: Validate replay bundles
+        run: make replay-tests
+
+      - name: Validate residual features and calibration
+        run: make residual-tests
+
+      - name: Validate budget accounting and routing policy
+        run: make routing-tests

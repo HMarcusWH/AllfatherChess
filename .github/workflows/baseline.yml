@@ -59,6 +59,10 @@ jobs:
             scripts/validate-telemetry-contract.py \
             scripts/telemetry-adapter-integration.py \
             scripts/hybrid-shell-contract.py \
+            scripts/shadow-execution-contract.py \
+            scripts/active-routing-contract.py \
+            scripts/residual-calibration.py \
+            scripts/shadow-evidence-sweep.py \
             tests/harness/*.py \
             tests/adapters/test_uci_process.py \
             tests/controller/*.py \
@@ -69,7 +73,7 @@ jobs:
             adapters/telemetry/*.py \
             adapters/process/*.py \
             tests/telemetry/test_adapters.py
-          python3 -m json.tool config/allfather.validation.json >/dev/null
+          for config in config/*.json; do python3 -m json.tool "$config" >/dev/null; done
           bash -n scripts/vendor-engines.sh
           bash -n scripts/verify-vendor.sh
           bash -n scripts/fetch-stockfish-network.sh
@@ -141,6 +145,12 @@ jobs:
       - name: Verify real-engine hybrid UCI shell
         run: python3 scripts/hybrid-shell-contract.py
 
+      - name: Verify real-engine shadow execution contract
+        run: python3 scripts/shadow-execution-contract.py
+
+      - name: Verify real-engine active routing contract
+        run: python3 scripts/active-routing-contract.py
+
       - name: Upload validation evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -152,4 +162,6 @@ jobs:
             build/test-results/shard-ledger
             build/test-results/telemetry-adapters
             build/test-results/hybrid-shell
+            build/test-results/shadow-execution
+            build/test-results/active-routing
           if-no-files-found: warn

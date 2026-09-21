@@ -224,6 +224,22 @@ class RefinementConfigTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 load_runtime_config(path)
 
+    def test_active_mode_refuses_refinement_before_budget_or_routing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write_shadow_config(Path(tmp), mode="active")
+            document = json.loads(path.read_text(encoding="utf-8"))
+            document["refinement"] = {
+                "enabled": True,
+                "nomination_method": "verify_final_disagreement_union_v1",
+                "child_partition": "child_index_modulo",
+                "dispatch_limit": {"nodes": 8},
+                "max_targets": 3,
+            }
+            path.write_text(json.dumps(document), encoding="utf-8")
+            with self.assertRaises(RuntimeError) as ctx:
+                load_runtime_config(path)
+            self.assertIn("refinement settings are supported only", str(ctx.exception))
+
     def test_refinement_rejects_bad_partition_and_target_cap(self):
         for key, value in (
             ("child_partition", "score_weighted"),
@@ -294,6 +310,80 @@ class RefinementLiveArtifactTests(unittest.TestCase):
                 (run_dir / "verification" / "manifest.json").read_text(encoding="utf-8")
             )
             self.assertNotIn("REFINE", json.dumps(verification))
+
+    def test_anchor_completion_before_refine_suppresses_new_recursive_work(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config = write_shadow_config(
+                root,
+                refinement=True,
+                slow_anchor=False,
+                dispatch_nodes=64,
+                verification_nodes=32,
+                refinement_nodes=32,
+                instance_args={
+                    "stockfish-shadow": ["--perft-delay-ms", "150"],
+                },
+            )
+            lines = run_shell(
+                config,
+                ["go nodes 64", "await:bestmove "],
+                timeout=20.0,
+            )
+            self.assertTrue(any(line.startswith("bestmove ") for line in lines))
+            runs = sorted(
+                path for path in (root / "replays").iterdir() if path.is_dir()
+            )
+            self.assertEqual(len(runs), 1)
+            self.assertFalse((runs[0] / "refinement" / "manifest.json").exists())
+
+    def test_shadow_exit_during_refine_is_incomplete_evidence_not_authority_failure(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config = write_shadow_config(
+                root,
+                refinement=True,
+                dispatch_nodes=64,
+                verification_nodes=32,
+                refinement_nodes=32,
+                instance_args={
+                    ANCHOR: ["--info-lines", "150", "--info-delay-ms", "10"],
+                    "stockfish-shadow": ["--leader-schedule", "e2e4"],
+                    "reckless-shadow": [
+                        "--leader-schedule",
+                        "d2d4",
+                        "--exit-on-go-number",
+                        "3",
+                    ],
+                    "lc0-shadow": ["--leader-schedule", "g1f3"],
+                },
+            )
+            lines = run_shell(
+                config,
+                ["go nodes 64", "await:bestmove "],
+                timeout=30.0,
+            )
+            self.assertTrue(any(line.startswith("bestmove ") for line in lines))
+            runs = sorted(
+                path for path in (root / "replays").iterdir() if path.is_dir()
+            )
+            self.assertEqual(len(runs), 1)
+            run_dir = runs[0]
+            manifest = load_refinement_manifest(run_dir)
+            self.assertEqual(manifest["disposition"]["run"], "incomplete")
+            self.assertEqual(
+                verify_refinement_integrity(run_dir),
+                [],
+                "a crashed observational worker should yield honest incomplete evidence",
+            )
+            parent = json.loads(
+                (run_dir / "manifest.json").read_text(encoding="utf-8")
+            )
+            anchor = next(
+                stage for stage in parent["stages"] if stage["role"] == "anchor"
+            )
+            self.assertEqual(anchor["disposition"], "completed")
+            self.assertTrue(anchor["bestmove"])
 
     def test_refinement_stream_tamper_is_detected(self):
         with tempfile.TemporaryDirectory() as tmp:

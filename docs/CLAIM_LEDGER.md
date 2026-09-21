@@ -373,3 +373,42 @@ Nothing below is established by this milestone.
 - Whether a real LC0 network contributes complementary decision information.
 - Whether VERIFY produces enough value to repay its compute cost.
 - Any Elo or equal-resource strength gain.
+
+
+## Recursive PrefixShardLedger v2
+
+### PROVED by code/contracts
+
+- RootShardLedger v1 remains the unchanged live EXPLORE ownership primitive.
+- PrefixShardLedger v2 deterministically identifies shards by generation + full
+  canonical move prefix.
+- The v2 root partition retains exact coverage, authorized-owner, no-duplicate,
+  no-overlap, and atomic-failure semantics.
+- A v2 frontier is prefix-free: a dispatchable prefix and one of its descendants
+  cannot coexist as frontier regions.
+- A sealed frontier leaf may be split atomically into a non-empty declared child
+  set; the parent becomes RETIRED and all children are LEASED to the inherited
+  owner in the supplied oracle order.
+- Leased frontier leaves may be transferred atomically between authorized owners;
+  active, sealed, retired, duplicate, or wrongly-owned inputs fail before any
+  ownership change.
+- Recursive snapshots preserve parent/child round trips, deterministic DFS order,
+  monotonic revisions, and JSON-serializable detached state.
+- Prefix dispatch compilation preserves existing external history and compiles
+  `prefix[:-1]` into the descendant position with `prefix[-1]` as the sole
+  restricted root.
+- The real-engine contract obtains exact child sets from Stockfish `go perft 1`
+  across two recursive levels and has Stockfish, Reckless, and LC0 sequentially
+  enforce the same certified depth-3 descendant restriction.
+- No live shadow, replay-v1, routing, budget, VERIFY, or outward-authority path
+  consumes PrefixShardLedger v2 in this milestone.
+
+### OPEN
+
+- Which COMPARE/RELOCK evidence should nominate a recursive split.
+- How recursive REFINE stages should be represented in replay evidence and
+  budget accounting.
+- Whether recursive localization reduces useful compute waste.
+- Position-level overlap after transpositions; prefix-free ownership does not
+  imply globally disjoint board-state expansion.
+- Any playing-strength or equal-resource benefit from recursive splitting.

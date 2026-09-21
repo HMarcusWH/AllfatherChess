@@ -123,3 +123,17 @@ continues to own UCI process lifecycle and the anchor-completion race.
 
 The outward move remains the unrestricted Stockfish anchor's. Active-mode
 VERIFY is rejected until verification spend is wired into `BudgetLedger`.
+
+
+## COMPARE / descriptive RELOCK derived layer
+
+The raw VERIFY child is consumed offline by
+`controller/verification_analysis.py`. The analyzer reuses the common
+`SearchTrajectory` reconstruction and `compare_at()` residual primitive; no
+new score-conversion path exists.
+
+For complete VERIFY evidence it derives the three stable pairings, synchronized
+three-way state over the common active controller-clock window, candidate
+adoption from EXPLORE to VERIFY, and a frozen terminal-suffix RELOCK descriptor.
+The output is written under `build/verification-derived/` and is not read by
+`shadow.py`, `routing.py`, `budget.py`, or the UCI frontend.

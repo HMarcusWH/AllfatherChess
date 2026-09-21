@@ -658,8 +658,15 @@ def verify_refinement_integrity(run_dir: Path | str) -> list[str]:
         problems.append("refinement root-v1 source snapshot differs from finalized parent")
 
     target_rows = manifest.get("targets") or []
-    if [row.get("root_move") for row in target_rows if isinstance(row, dict)] != expected_targets:
-        problems.append("refinement target records differ from nominated target order")
+    recorded_targets = [
+        row.get("root_move") for row in target_rows if isinstance(row, dict)
+    ]
+    run_disposition = (manifest.get("disposition") or {}).get("run")
+    if run_disposition == "completed":
+        if recorded_targets != expected_targets:
+            problems.append("completed refinement target records differ from nomination")
+    elif recorded_targets != expected_targets[: len(recorded_targets)]:
+        problems.append("incomplete refinement target records are not a nomination prefix")
 
     refinement_dir = run_dir / "refinement"
     for row in target_rows:

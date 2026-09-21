@@ -45,6 +45,8 @@ def write_shadow_config(
     tag: str = "allfather-test",
     slow_anchor: bool = True,
     drain_timeout_s: float = 3.0,
+    verification: bool = False,
+    verification_nodes: int = 80,
 ) -> Path:
     instance_args = instance_args or {}
     instances = {}
@@ -90,6 +92,12 @@ def write_shadow_config(
         },
         "instances": instances,
     }
+    if verification:
+        document["verification"] = {
+            "enabled": True,
+            "nomination_method": "owner_bestmove_union_v1",
+            "dispatch_limit": {"nodes": verification_nodes},
+        }
     if extra:
         document.update(extra)
     path = directory / "shadow.json"
@@ -751,6 +759,69 @@ class ShadowExecutionTests(unittest.TestCase):
                 text=True,
             )
             self.assertEqual(remaining.stdout.strip(), "", "shadow process outlived quit")
+
+
+class VerificationExecutionTests(unittest.TestCase):
+    def test_verify_reuses_the_three_shadows_on_one_common_candidate_set(self):
+        from controller.verification import (
+            load_verification_manifest,
+            verify_verification_integrity,
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            config = write_shadow_config(
+                Path(tmp),
+                verification=True,
+                dispatch_nodes=80,
+                instance_args={
+                    ANCHOR: ["--info-lines", "40", "--info-delay-ms", "10"],
+                },
+            )
+            run_shell(config, ["go nodes 64", "await:bestmove "], timeout=30.0)
+            replay_root = Path(tmp) / "replays"
+            run_dir = next(path for path in replay_root.iterdir() if path.is_dir())
+            parent = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
+            verify = load_verification_manifest(run_dir)
+
+            explore = [stage for stage in parent["stages"] if stage["role"] == "shadow"]
+            self.assertEqual(len(explore), 3)
+            nominees = {
+                stage["owner"]: stage["bestmove"]
+                for stage in explore
+                if stage["disposition"] == "completed"
+            }
+            self.assertEqual(len(nominees), 3)
+
+            expected = [
+                nominees["stockfish"],
+                nominees["reckless"],
+                nominees["lc0"],
+            ]
+            self.assertEqual(len(set(expected)), 3)
+            self.assertEqual(verify["nomination"]["candidate_roots"], expected)
+            self.assertEqual(verify["disposition"]["run"], "completed")
+            self.assertEqual(len(verify["stages"]), 3)
+            for stage in verify["stages"]:
+                self.assertEqual(stage["candidate_roots"], expected)
+                self.assertEqual(stage["disposition"], "completed")
+            self.assertEqual(verify_verification_integrity(run_dir), [])
+
+            # VERIFY remains outside the EXPLORE ledger/replay stage list.
+            self.assertTrue(
+                all(":verify:" not in stage["search_id"] for stage in parent["stages"])
+            )
+
+    def test_active_mode_refuses_unaccounted_verification(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write_shadow_config(
+                Path(tmp),
+                mode="active",
+                verification=True,
+                extra={"budget": {}, "routing": {}},
+            )
+            with self.assertRaises(RuntimeError) as ctx:
+                load_runtime_config(path)
+            self.assertIn("only in mode='shadow'", str(ctx.exception))
 
 
 class ReviewRegressionRoundFourTests(unittest.TestCase):

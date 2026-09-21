@@ -1,4 +1,4 @@
-.PHONY: vendor verify-vendor build-baselines smoke-baselines golden-baselines record-golden-baselines telemetry-contract telemetry-adapters telemetry-adapter-integration controller-tests shard-ledger-tests shard-ledger-contract hybrid-shell-contract shadow-tests replay-tests residual-tests routing-tests shadow-execution-contract active-routing-contract shadow-evidence-sweep residual-calibration run-allfather run-allfather-shadow
+.PHONY: vendor verify-vendor build-baselines smoke-baselines golden-baselines record-golden-baselines telemetry-contract telemetry-adapters telemetry-adapter-integration controller-tests shard-ledger-tests shard-ledger-contract hybrid-shell-contract shadow-tests replay-tests residual-tests routing-tests verification-tests shadow-execution-contract verification-execution-contract active-routing-contract shadow-evidence-sweep residual-calibration run-allfather run-allfather-shadow run-allfather-verify
 
 vendor:
 	@echo "Refusing implicit destructive vendor refresh." >&2
@@ -38,6 +38,7 @@ controller-tests:
 	python3 tests/controller/test_replay.py
 	python3 tests/controller/test_residuals.py
 	python3 tests/controller/test_budget_routing.py
+	python3 tests/controller/test_verification.py
 
 shard-ledger-tests:
 	python3 tests/controller/test_shard_ledger.py
@@ -54,6 +55,9 @@ residual-tests:
 routing-tests:
 	python3 tests/controller/test_budget_routing.py
 
+verification-tests:
+	python3 tests/controller/test_verification.py
+
 shard-ledger-contract:
 	python3 scripts/shard-ledger-contract.py
 
@@ -62,6 +66,9 @@ hybrid-shell-contract:
 
 shadow-execution-contract:
 	python3 scripts/shadow-execution-contract.py
+
+verification-execution-contract:
+	python3 scripts/verification-execution-contract.py
 
 active-routing-contract:
 	python3 scripts/active-routing-contract.py
@@ -79,3 +86,6 @@ run-allfather:
 
 run-allfather-shadow:
 	python3 -m controller --config config/allfather.shadow.validation.json
+
+run-allfather-verify:
+	python3 -m controller --config config/allfather.verify.validation.json

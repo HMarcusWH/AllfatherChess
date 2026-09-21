@@ -62,7 +62,7 @@ RELOCK    reconcile independent evidence
 STOP
 ```
 
-All verification work is separately accounted.
+All verification work is separately accounted. In VERIFY v1, overlap is represented by a separate `VerificationPlan`; `RootShardLedger` remains EXPLORE-only and is never weakened or mutated to create duplicate owners. A clean three-owner EXPLORE run yields three distinct nominees because each final move must remain inside a pairwise-disjoint owned root region. Those three moves become the exact common VERIFY root set.
 
 ## Transpositions
 
@@ -125,4 +125,4 @@ requires the explicit overlap phase below, not a weakening of the invariant.
 
 Malformed-input behavior remains backend-specific, so controller dispatches must remain canonical, legal, deduplicated, and non-empty.
 
-Root-prefix separation also does not imply disjoint internal board-state expansion: independently owned prefixes may transpose later. PR #10 establishes assigned-prefix ownership only; recursive prefixes, measured transposition duplication, transfer, and VERIFY / RELOCK accounting remain later milestones.
+Root-prefix separation also does not imply disjoint internal board-state expansion: independently owned prefixes may transpose later. PR #10 establishes assigned-prefix ownership only. Recursive prefixes, measured transposition duplication, shard transfer, derived RELOCK analysis, and **active-mode** VERIFY budget accounting remain later milestones; shadow VERIFY v1 already exists as a separate, deliberately over-budget research artifact.

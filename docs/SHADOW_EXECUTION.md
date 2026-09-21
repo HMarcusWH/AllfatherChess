@@ -306,7 +306,7 @@ Still not implemented anywhere in this milestone:
 - candidate voting or any shadow influence on the outward move;
 - recursive shard splitting;
 - shard transfer;
-- VERIFY / RELOCK overlap;
+- RELOCK conclusions or any VERIFY-based decision influence;
 - cross-feed between backends;
 - native in-process engine integration;
 - an Elo or "best engine" claim.
@@ -327,9 +327,36 @@ Only after those relationships are calibrated may the controller begin turning
 observation into routing policy, which is exactly the gate structure
 `controller/routing.py` enforces.
 
-Two of those questions currently have **no answer inside a single run**: because
-the observation partition is pairwise disjoint, Stockfish and Reckless are never
-authorized to search a common root, so their direct disagreement has empty
-support. The feature library handles shared support correctly and is tested on
-overlapping synthetic regions, but answering those questions live requires an
-overlap-capable COMPARE/VERIFY phase. See `docs/RESIDUAL_CALIBRATION.md`.
+EXPLORE alone still cannot answer the direct cross-engine questions: its
+partition is pairwise-disjoint, so Stockfish, Reckless, and LC0 do not share an
+EXPLORE root. Optional shadow VERIFY now closes the **raw-support** gap by
+authorizing all three shadow processes to re-search the same three EXPLORE
+nominees and recording those trajectories in a separate child artifact.
+
+What remains unanswered is the derived question: whether that common-support
+agreement/disagreement is informative, how it changes from EXPLORE to VERIFY,
+and whether any descriptive RELOCK state is useful. Those are COMPARE/RELOCK
+analysis tasks, not facts established by raw VERIFY execution. See
+`docs/RESIDUAL_CALIBRATION.md` and `docs/VERIFY_RELOCK.md`.
+
+
+## Explicit VERIFY extension
+
+The shadow observatory now has an optional `verification` block. In
+`config/allfather.verify.validation.json`, a clean completed three-owner
+EXPLORE run is followed by deliberate common-support VERIFY:
+
+```text
+EXPLORE: three pairwise-disjoint regions -> three distinct owner bestmoves
+COMPARE v1: ordered tuple of those three bestmoves
+VERIFY: same three physical shadow processes search the same tuple
+```
+
+The VERIFY execution is still observational. It shares the existing generation
+barrier, shadow-exit handling, cancellation/quiescence and the lock that orders
+shadow dispatch against anchor completion. No new stage starts after the outward
+decision.
+
+VERIFY evidence is written under the parent replay's `verification/`
+directory and hash-binds the finalized parent manifest. See
+`docs/VERIFY_RELOCK.md`. RELOCK analysis is intentionally deferred.

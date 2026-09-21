@@ -12,7 +12,7 @@ Shadow research is intentionally different from the final competitive regime. It
 
 1. The controller is the engine; Stockfish, Reckless, and LC0 are solver backends.
 2. Exploration work is controller-owned and non-overlapping by assigned search region.
-3. Deliberate overlap is only legal in an explicit VERIFY / RELOCK phase.
+3. Deliberate overlap is legal only when explicitly tagged as VERIFY work; RELOCK is a derived/control conclusion and never weakens EXPLORE ownership.
 4. Engine-native values are not treated as interchangeable without calibration.
 5. If a shortcut is not justified, the system buys more compute or falls back.
 6. Every behavioral optimization must be ablated against reproducible baselines.
@@ -78,27 +78,31 @@ Route CPU/GPU/time budgets according to expected marginal decision value rather 
 
 Scope limit: the router allocates **shadow observation compute**. The unrestricted anchor remains the sole outward decision authority, so no routing decision can change the move. Extending routing to the decision itself requires evidence this milestone does not have.
 
-### M8 — Recursive shard splitting
+### M8 — Explicit common-support VERIFY execution
 
-Represent search regions as move-prefix shards that may be split, transferred, sealed, or retired atomically.
+Permit intentional independent re-search of the three clean EXPLORE nominees while leaving RootShardLedger ownership pairwise-disjoint. VERIFY v1 is deterministic shadow-mode instrumentation, stored in a separate raw artifact, and cannot affect the outward Stockfish anchor.
 
-### M9 — VERIFY / RELOCK
+### M9 — COMPARE / RELOCK derived analysis
 
-Permit intentional independent re-search of selected candidates. Track verification compute separately from exploration compute.
+Use the common-support VERIFY trajectories to derive cross-engine structural comparisons, EXPLORE-to-VERIFY preference changes, and a descriptive RELOCK state. Agreement is evidence, not a correctness certificate.
 
-### M10 — CPU/GPU resource scheduler
+### M10 — Recursive shard splitting
 
-Turn external resource limits into controller-wide CPU/GPU/time allocations without multiplying a GUI request independently across all three engines.
+Represent search regions as move-prefix shards that may be split, transferred, sealed, or retired atomically after common-support evidence tells us which disagreements are worth localizing.
 
-### M11 — Cross-feed
+### M11 — Active VERIFY + CPU/GPU resource scheduler
+
+Charge EXPLORE, VERIFY, controller overhead, CPU/GPU occupancy and time through one controller-wide envelope. VERIFY remains forbidden in active mode until this integration exists.
+
+### M12 — Cross-feed
 
 Ablate controlled information transfer between backends.
 
-### M12 — Native integration
+### M13 — Native integration
 
 Replace subprocess boundaries only where measured benefits justify tighter coupling.
 
-### M13 — Strength campaign
+### M14 — Strength campaign
 
 Run fixed-node, fixed-time, self-play, SPRT-style, and external-engine comparisons. The final product is promoted only on statistically credible strength gains at equal declared resources.
 
@@ -114,11 +118,14 @@ Run fixed-node, fixed-time, self-play, SPRT-style, and external-engine compariso
 8. **PR #8 — Historical Codex review hardening**: retire actionable review debt before introducing the hybrid process shell. **Merged.**
 9. **PR #9 — Hybrid UCI shell**: one external UCI endpoint plus three backend process adapters. **Merged.**
 10. **PR #10 — Root ShardLedger**: pairwise-disjoint exploration allocation. **Merged.**
-11. **PR #11-#13 — Immediate controller stack** (landed together): shadow execution and replay, residual/counterfactual calibration, and active adaptive budget routing. **Current.** The three were built in one PR because the later two are meaningless without the evidence the first produces, and because splitting them would have frozen an interface before its consumer existed. They remain three separate layers in the code, with separate artifacts, separate documents, and separate test suites.
-14. **PR #14 — Recursive shard splitting**.
-15. **PR #15 — Explicit VERIFY / RELOCK**.
-16. **PR #16 — CPU/GPU resource scheduler**.
-17. **PR #17+ — Cross-feed, native integration, and strength optimization**, each promoted only after isolated ablation.
+11. **PR #11 — Shadow/replay design contract**: freeze the four-process observatory topology, authority boundary, and replay requirements. **Merged.**
+12. **PR #12 — Immediate controller stack**: implement shadow execution/replay, residual/counterfactual calibration, and active adaptive budget routing as three separate layers with separate artifacts and test suites. **Merged.**
+13. **PR #13 — PR #12 closure and hardening**: retire replay-discovery and envelope-validation debt before adding deliberate overlap. **Merged.**
+14. **PR #14 — Explicit common-support VERIFY execution**. **Current.**
+15. **PR #15 — COMPARE / RELOCK derived analysis**.
+16. **PR #16 — Recursive shard splitting**.
+17. **PR #17 — Active VERIFY + CPU/GPU resource scheduler**.
+18. **PR #18+ — Cross-feed, native integration, and strength optimization**, each promoted only after isolated ablation.
 
 ## Foundation-hardening acceptance gate
 
@@ -279,7 +286,7 @@ Complete only when:
 - shadow process failure is recorded explicitly and never silently promotes another backend to outward authority;
 - stop/quit lifecycle terminates all active shadow work without orphaned processes, while the outward UCI frontend still emits at most the anchor's single bestmove for the search;
 - fixed-node validation proves semantic non-intervention at the outward Stockfish decision boundary; no timed-search equivalence claim is made unless CPU/GPU resource isolation is separately established;
-- shadow execution introduces no candidate voting, recursive shard transfer/split, VERIFY / RELOCK overlap, cross-feed, or strength claim;
+- base EXPLORE shadow execution introduces no candidate voting, recursive shard transfer/split, cross-feed, or strength claim; deliberate VERIFY overlap is opt-in, separately represented, and cannot affect outward decision authority;
 - shadow runs are explicitly marked as research evidence that may exceed the eventual competitive resource envelope;
 - every pre-existing baseline, restricted-root, telemetry, controller-shell, ShardLedger, and portability/hardening gate remains green.
 

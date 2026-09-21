@@ -35,13 +35,14 @@ The three engine trees were bootstrapped from exact pinned upstream snapshots an
 
 The repository foundation is reproducible: CI is read-only, engine ancestry and external NNUE inputs are pinned, and the pre-controller behavior of Stockfish, Reckless, and LC0 is frozen under `tests/baseline/golden/` and verified on every relevant CI run. Restricted-root search parity is established across all three backends, read-only telemetry maps live UCI/native evidence into telemetry v1, PR #9 added the first externally visible AllfatherChess UCI/process shell, and PR #10 added controller-owned legal-root qualification plus the root ShardLedger.
 
-The current milestone implements the complete immediate controller stack:
+The current stack includes the immediate controller layers plus an explicit common-support VERIFY evidence plane:
 
 1. **shadow execution and replay** — an unrestricted `stockfish-anchor` holds sole outward authority while `stockfish-shadow`, `reckless-shadow`, and `lc0-shadow` search pairwise-disjoint ledger-owned regions and emit replayable telemetry;
 2. **residual and counterfactual calibration** — a derived layer turns replay bundles into scale-free disagreement/stability features and a calibrated reversal-risk model, with an enforced firewall against mixing engine evaluation scales;
-3. **active adaptive compute routing** — a conservative policy allocates shadow observation compute inside one declared resource envelope, where an instability signal may nominate computation but only a calibrated, in-domain, sufficiently supported, low-risk verdict may authorize stopping.
+3. **active adaptive compute routing** — a conservative policy allocates shadow observation compute inside one declared resource envelope, where an instability signal may nominate computation but only a calibrated, in-domain, sufficiently supported, low-risk verdict may authorize stopping;
+4. **explicit VERIFY evidence** — after a clean three-owner EXPLORE run, the three distinct owner bestmoves form one deterministic common candidate set and the same three shadow processes independently re-search it. VERIFY remains shadow-only research instrumentation and cannot alter the outward move.
 
-Documentation: `docs/BUILD_PLAN.md`, `docs/ARCHITECTURE.md`, `docs/UCI_SHELL.md`, `docs/SHARD_LEDGER.md`, `docs/SHADOW_EXECUTION.md`, `docs/REPLAY_FORMAT.md`, `docs/RESIDUAL_CALIBRATION.md`, `docs/BUDGET_ROUTING.md`, `docs/SEARCH_SPACE_OWNERSHIP.md`, `docs/TELEMETRY_SCHEMA.md`, `docs/TELEMETRY_MAPPING.md`, `docs/THEORY_IMPLEMENTATION_MAP.md`, `docs/CLAIM_LEDGER.md`, `docs/ADVERSARIAL_AUDIT.md`, `docs/CODEX_REVIEW_AUDIT.md`, `docs/UPSTREAM_PROVENANCE.md`, and `LICENSES.md`.
+Documentation: `docs/BUILD_PLAN.md`, `docs/ARCHITECTURE.md`, `docs/UCI_SHELL.md`, `docs/SHARD_LEDGER.md`, `docs/SHADOW_EXECUTION.md`, `docs/REPLAY_FORMAT.md`, `docs/RESIDUAL_CALIBRATION.md`, `docs/BUDGET_ROUTING.md`, `docs/VERIFY_RELOCK.md`, `docs/SEARCH_SPACE_OWNERSHIP.md`, `docs/TELEMETRY_SCHEMA.md`, `docs/TELEMETRY_MAPPING.md`, `docs/THEORY_IMPLEMENTATION_MAP.md`, `docs/CLAIM_LEDGER.md`, `docs/ADVERSARIAL_AUDIT.md`, `docs/CODEX_REVIEW_AUDIT.md`, `docs/UPSTREAM_PROVENANCE.md`, and `LICENSES.md`.
 
 **No strength claim is made.** No Elo experiment has been run. The outward move is still the unrestricted Stockfish anchor's in every mode, routing governs observation compute only, and shadow mode deliberately overspends compute to collect evidence. `docs/CLAIM_LEDGER.md` labels every claim as PROVED, MEASURED, DERIVED, CALIBRATED, POLICY, or OPEN. The current LC0 random/backend-light validation build remains deterministic regression infrastructure only and is explicitly **not strength-qualified**; real LC0 inference/network/hardware qualification remains a later strength-campaign requirement.
 
@@ -67,6 +68,7 @@ The validation configuration exists to prove process/UCI semantics, not playing 
 
 ```bash
 make run-allfather-shadow                # four instances, one outward identity
+make run-allfather-verify                # shadow mode + explicit common-support VERIFY
 make shadow-evidence-sweep               # collect replay bundles over the frozen corpus
 make residual-calibration                # derive features, then fit a reversal-risk model
 ```
@@ -82,5 +84,6 @@ Shadow mode is a research observatory. It intentionally exceeds the eventual com
 ```bash
 make controller-tests                    # fast, no engines required
 make shadow-execution-contract           # real engines: concurrency, containment, telemetry, replay
+make verification-execution-contract     # real engines: disjoint EXPLORE -> common-support VERIFY
 make active-routing-contract             # real engines: sweep -> derive -> calibrate -> route
 ```

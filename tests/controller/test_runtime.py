@@ -12,7 +12,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from controller.runtime import BackendManager, RuntimeError
+from controller.runtime import BackendManager, RuntimeError, load_runtime_config
+from tests.controller.test_shadow_runtime import write_shadow_config
 
 
 FAKE = ROOT / "tests" / "fixtures" / "fake_uci_engine.py"
@@ -77,6 +78,25 @@ class BackendManagerTests(unittest.TestCase):
                 manager.start()
             self.assertTrue(manager.backends)
             self.assertTrue(all(not process.alive for process in manager.backends.values()))
+
+
+class VerificationRuntimeConfigTests(unittest.TestCase):
+    def test_verify_settings_are_shadow_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write_shadow_config(Path(tmp), verification=True)
+            config = load_runtime_config(path)
+            self.assertEqual(config.mode, "shadow")
+            self.assertIsNotNone(config.verification)
+            self.assertEqual(config.verification.dispatch_limit, {"nodes": 80})
+
+    def test_disabled_verification_block_does_not_enable_execution(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write_shadow_config(Path(tmp))
+            document = json.loads(path.read_text(encoding="utf-8"))
+            document["verification"] = {"enabled": False}
+            path.write_text(json.dumps(document), encoding="utf-8")
+            config = load_runtime_config(path)
+            self.assertIsNone(config.verification)
 
 
 if __name__ == "__main__":

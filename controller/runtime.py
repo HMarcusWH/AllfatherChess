@@ -101,6 +101,20 @@ class ShadowSettings:
 
 
 @dataclass(frozen=True)
+class VerificationSettings:
+    """Explicit common-support VERIFY instrumentation.
+
+    v1 is deliberately shadow-only and deterministic. It reuses the three
+    configured shadow instances after EXPLORE; it is not a routing policy and
+    does not grant decision authority.
+    """
+
+    enabled: bool
+    nomination_method: str
+    dispatch_limit: dict[str, object]
+
+
+@dataclass(frozen=True)
 class RuntimeConfig:
     path: Path
     root: Path
@@ -108,6 +122,7 @@ class RuntimeConfig:
     anchor: str
     backends: dict[str, BackendSpec]
     shadow: ShadowSettings | None = None
+    verification: VerificationSettings | None = None
     budget: dict[str, object] | None = None
     routing: dict[str, object] | None = None
 
@@ -436,6 +451,62 @@ def _load_shadow_settings(
     )
 
 
+def _load_verification_settings(
+    data: dict[str, object],
+    *,
+    mode: str,
+    shadow: ShadowSettings | None,
+) -> VerificationSettings | None:
+    raw_value = data.get("verification")
+    if raw_value is None:
+        return None
+    if mode != "shadow":
+        raise RuntimeError(
+            "verification settings are supported only in mode='shadow' until "
+            "VERIFY work is charged through the active BudgetLedger"
+        )
+    if shadow is None:  # pragma: no cover - mode validation already guarantees this
+        raise RuntimeError("verification requires shadow settings")
+
+    raw = _require_object(raw_value, "verification")
+    enabled = raw.get("enabled")
+    if not isinstance(enabled, bool):
+        raise RuntimeError("verification.enabled must be a boolean")
+    if not enabled:
+        return None
+
+    if tuple(shadow.owners) != SOLVER_FAMILIES:
+        raise RuntimeError(
+            "verification v1 requires shadow.owners exactly "
+            f"{list(SOLVER_FAMILIES)} in that order"
+        )
+
+    nomination = raw.get("nomination_method", "owner_bestmove_union_v1")
+    if nomination != "owner_bestmove_union_v1":
+        raise RuntimeError(
+            "verification.nomination_method currently supports exactly "
+            "'owner_bestmove_union_v1'"
+        )
+
+    dispatch = _require_object(
+        raw.get("dispatch_limit", {"nodes": 12000}),
+        "verification.dispatch_limit",
+    )
+    if sorted(dispatch) != ["nodes"]:
+        raise RuntimeError(
+            "verification.dispatch_limit currently supports exactly the 'nodes' key"
+        )
+    nodes = dispatch["nodes"]
+    if isinstance(nodes, bool) or not isinstance(nodes, int) or nodes < 1:
+        raise RuntimeError("verification.dispatch_limit.nodes must be a positive integer")
+
+    return VerificationSettings(
+        enabled=True,
+        nomination_method=str(nomination),
+        dispatch_limit={"nodes": int(nodes)},
+    )
+
+
 def load_runtime_config(path: Path) -> RuntimeConfig:
     path = path.resolve()
     try:
@@ -468,6 +539,8 @@ def load_runtime_config(path: Path) -> RuntimeConfig:
     elif "shadow" in data:
         raise RuntimeError("shadow settings are only valid in shadow/active mode")
 
+    verification = _load_verification_settings(data, mode=str(mode), shadow=shadow)
+
     budget = data.get("budget")
     if budget is not None:
         budget = _require_object(budget, "budget")
@@ -486,6 +559,7 @@ def load_runtime_config(path: Path) -> RuntimeConfig:
         anchor=anchor,
         backends=specs,
         shadow=shadow,
+        verification=verification,
         budget=budget,
         routing=routing,
     )

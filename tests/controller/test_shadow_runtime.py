@@ -47,6 +47,9 @@ def write_shadow_config(
     drain_timeout_s: float = 3.0,
     verification: bool = False,
     verification_nodes: int = 80,
+    refinement: bool = False,
+    refinement_nodes: int = 64,
+    refinement_max_targets: int = 3,
 ) -> Path:
     instance_args = instance_args or {}
     instances = {}
@@ -92,11 +95,19 @@ def write_shadow_config(
         },
         "instances": instances,
     }
-    if verification:
+    if verification or refinement:
         document["verification"] = {
             "enabled": True,
             "nomination_method": "owner_bestmove_union_v1",
             "dispatch_limit": {"nodes": verification_nodes},
+        }
+    if refinement:
+        document["refinement"] = {
+            "enabled": True,
+            "nomination_method": "verify_final_disagreement_union_v1",
+            "child_partition": "child_index_modulo",
+            "dispatch_limit": {"nodes": refinement_nodes},
+            "max_targets": refinement_max_targets,
         }
     if extra:
         document.update(extra)

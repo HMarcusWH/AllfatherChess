@@ -33,6 +33,7 @@ from controller.calibration import (
     ReversalRiskModel,
     TrainingRow,
     bucket_key,
+    holdout_run_ids,
     load_calibration,
     training_rows_from_derived,
     write_calibration,
@@ -405,6 +406,19 @@ class CalibrationTests(unittest.TestCase):
         self.assertFalse(verdict.in_domain)
         self.assertEqual(verdict.risk, model.prior_risk)
         self.assertEqual(verdict.support, 0)
+
+    def test_holdout_is_guaranteed_whenever_more_than_one_run_exists(self):
+        # Hashing each run id independently makes the holdout *size* a random
+        # variable: at ten runs it leaves nothing held out ~5.6% of the time,
+        # which would make the routing gate block at random. The stride is
+        # deterministic and non-empty from two runs upward.
+        self.assertEqual(holdout_run_ids(["only-one"]), frozenset())
+        for count in (2, 4, 10, 16, 36):
+            ids = [f"run-{index:03d}" for index in range(count)]
+            holdout = holdout_run_ids(ids)
+            self.assertTrue(holdout, count)
+            self.assertLess(len(holdout), count, count)
+            self.assertEqual(holdout, holdout_run_ids(reversed(ids)), count)
 
     def test_split_is_deterministic_and_by_run_identity(self):
         rows = self.rows(400)

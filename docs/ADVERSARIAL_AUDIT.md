@@ -184,6 +184,14 @@ This is recorded rather than quietly fixed because it is the exact failure mode
 the source material warns about: promoting an exploratory result to a serving
 claim without frozen criteria on untouched tests.
 
+A third fix followed from the second: the split itself hashed each run id
+independently, which makes the *size* of the holdout a random variable. At the
+contract's ten runs it would leave nothing held out about 5.6% of the time, so
+the new gate would have blocked routing at random. The split now strides over
+sorted run ids, which is deterministic and guarantees a non-empty holdout from
+two runs upward. A gate is only as good as the determinism of the evidence it
+reads.
+
 ## Residual concerns worth carrying forward
 
 1. **Fast searches collect nothing.** With `on_anchor_complete: drain`, a very

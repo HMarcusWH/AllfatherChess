@@ -131,8 +131,18 @@ Fail-closed behavior:
 - fitting from zero rows is refused.
 
 Evaluation is out of sample on a split **by run identity**, so a run cannot
-straddle the split. The artifact records the Brier score, the in-domain rate,
-and a reliability table of predicted versus observed rates per bucket.
+straddle the split. Every fourth run, by sorted run id, is held out. A stride
+rather than a per-run hash is used deliberately: hashing makes the *size* of the
+holdout a random variable, and at ten runs it leaves nothing held out about 5.6%
+of the time — which, given the `calibration_validated` routing gate, would
+silently make an otherwise fine model unable to authorize anything. The stride
+guarantees a non-empty holdout from two runs upward and, because run ids are
+timestamp-prefixed, interleaves it across the collection period. A single run
+still yields no holdout, which is correct: there is nothing to hold out from one
+run.
+
+The artifact records the Brier score, the in-domain rate, and a reliability
+table of predicted versus observed rates per bucket.
 
 ## Provenance
 

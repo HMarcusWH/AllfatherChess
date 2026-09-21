@@ -336,15 +336,40 @@ def _fit_buckets(
     }
 
 
+#: Every `HOLDOUT_STRIDE`-th run, by sorted run id, is held out.
+HOLDOUT_STRIDE = 4
+
+
+def holdout_run_ids(run_ids: Iterable[str]) -> frozenset[str]:
+    """Choose the held-out runs deterministically, without hash luck.
+
+    Hashing each run id independently makes the size of the held-out set a
+    random variable: with ten runs it leaves *nothing* held out about 5.6% of
+    the time, which would silently make a fitted model unusable for any decision
+    that requires out-of-sample validation. Striding over the sorted ids removes
+    that randomness and guarantees a non-empty split whenever there are at least
+    two distinct runs. Run ids are timestamp-prefixed, so the stride also
+    interleaves the holdout across the collection period instead of clustering
+    it at one end.
+
+    A single run still yields no holdout, which is correct: there is nothing to
+    hold out from one run.
+    """
+    ordered = sorted(set(run_ids))
+    if len(ordered) < 2:
+        return frozenset()
+    return frozenset(ordered[index] for index in range(1, len(ordered), HOLDOUT_STRIDE))
+
+
 def _deterministic_split(
     rows: Sequence[TrainingRow],
 ) -> tuple[list[TrainingRow], list[TrainingRow]]:
     """Split by run identity, never by row, so a run cannot straddle the split."""
+    holdout = holdout_run_ids(row.run_id for row in rows)
     train: list[TrainingRow] = []
     test: list[TrainingRow] = []
     for row in rows:
-        digest = hashlib.sha256(row.run_id.encode("utf-8")).digest()
-        (test if digest[0] % 4 == 0 else train).append(row)
+        (test if row.run_id in holdout else train).append(row)
     return train, test
 
 

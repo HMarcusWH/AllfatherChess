@@ -101,9 +101,9 @@ are observations, not guarantees.
   is the speculative-waste signal, measured; it is **not** evidence that the
   extra nodes were useless.
 - The active-routing contract collected 10 evidence bundles, fitted a model over
-  400 rows and 15 buckets with a 200/200 train/held-out split (Brier 0.048,
-  in-domain rate 0.90), then produced 168 routing decisions across 5 active runs
-  with 4 authorized stops and 29 denied stops. The envelope was respected in
+  400 rows and 21 buckets with a 280/120 train/held-out split (Brier 0.026,
+  in-domain rate 0.85), then produced 165 routing decisions across 5 active runs
+  with 3 authorized stops and 28 denied stops. The envelope was respected in
   every run (peak 5413 of 6000 declared CPU-ms) and measured controller overhead
   was 16-25 ms per run.
 - Every active run in that contract ends `cancelled`: the driver synchronizes
@@ -127,7 +127,7 @@ Deterministic calculations from the measured data, versioned as
 - `bucketed_reversal_risk_v1` fitted from 1200 rows over a 36-run sweep:
   16 buckets, 960 train / 240 held-out rows, Brier 0.057, in-domain rate 0.89.
   The routing contract independently fits its own model over 10 runs: 400 rows,
-  15 buckets, 200/200 split, Brier 0.048, in-domain rate 0.90.
+  21 buckets, 280 train / 120 held-out rows, Brier 0.026, in-domain rate 0.85.
 - The fitted relationship is monotone in the expected direction: predicted
   reversal risk falls from 0.082 in the least-settled bucket to 0.011 in the
   most-settled one, and the held-out reliability table agrees in direction

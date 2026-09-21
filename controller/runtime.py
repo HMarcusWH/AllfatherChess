@@ -20,6 +20,7 @@ from typing import Callable, Iterable
 
 from adapters.process import UciProcess, UciProcessError
 from adapters.telemetry import SUPPORTED_SCORE_TYPES
+from common.search_request import SearchRequestError, parse_position_command
 
 
 class RuntimeError(RuntimeError):
@@ -115,6 +116,21 @@ class VerificationSettings:
 
 
 @dataclass(frozen=True)
+class RefinementSettings:
+    """Shadow-only live recursive REFINE instrumentation.
+
+    REFINE is deliberately not active-mode work yet. It consumes finalized
+    VERIFY facts, exact Stockfish perft child sets and PrefixShardLedger v2 to
+    collect deeper observational evidence without decision authority.
+    """
+
+    enabled: bool
+    nomination_method: str
+    child_partition: str
+    dispatch_limit: dict[str, object]
+    max_targets: int
+
+@dataclass(frozen=True)
 class RuntimeConfig:
     path: Path
     root: Path
@@ -123,6 +139,7 @@ class RuntimeConfig:
     backends: dict[str, BackendSpec]
     shadow: ShadowSettings | None = None
     verification: VerificationSettings | None = None
+    refinement: RefinementSettings | None = None
     budget: dict[str, object] | None = None
     routing: dict[str, object] | None = None
 

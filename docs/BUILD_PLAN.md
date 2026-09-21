@@ -12,7 +12,7 @@ Shadow research is intentionally different from the final competitive regime. It
 
 1. The controller is the engine; Stockfish, Reckless, and LC0 are solver backends.
 2. Exploration work is controller-owned and non-overlapping by assigned search region.
-3. Deliberate overlap is only legal in an explicit VERIFY / RELOCK phase.
+3. Deliberate overlap is legal only when explicitly tagged as VERIFY work; RELOCK is a derived/control conclusion and never weakens EXPLORE ownership.
 4. Engine-native values are not treated as interchangeable without calibration.
 5. If a shortcut is not justified, the system buys more compute or falls back.
 6. Every behavioral optimization must be ablated against reproducible baselines.

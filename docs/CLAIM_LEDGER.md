@@ -331,8 +331,9 @@ Nothing below is established by this milestone.
   owner order. Because EXPLORE regions are pairwise-disjoint and each bestmove
   is containment-checked, those nominees are distinct.
 - VERIFY reuses `stockfish-shadow`, `reckless-shadow`, and `lc0-shadow`
-  sequentially after EXPLORE and gives all three the identical restricted root
-  set.
+  after EXPLORE and gives all three the identical restricted root set. The
+  three VERIFY searches are independent observational searches; their results
+  do not vote on or delay outward authority.
 - Raw VERIFY telemetry remains telemetry v1 with `phase = VERIFY` and
   `decision_authority = false`.
 - The VERIFY child artifact hash-binds the finalized parent replay and its own

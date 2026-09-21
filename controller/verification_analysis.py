@@ -319,6 +319,38 @@ def load_verification_bundle(run_dir: Path | str) -> VerificationBundle:
                 )
         trajectories.extend(reconstructed)
 
+    stage_by_owner = {
+        str(stage.get("owner")): stage
+        for stage in manifest.get("stages", [])
+        if isinstance(stage, dict)
+    }
+    for trajectory in trajectories:
+        stage = stage_by_owner.get(str(trajectory.owner))
+        if stage is None:
+            raise VerificationAnalysisError(
+                f"{trajectory.instance}: reconstructed VERIFY trajectory has no stage record"
+            )
+        if trajectory.search_id != stage.get("search_id"):
+            raise VerificationAnalysisError(
+                f"{trajectory.instance}: reconstructed search_id {trajectory.search_id!r} "
+                f"does not match stage {stage.get('search_id')!r}"
+            )
+        if trajectory.instance != stage.get("instance"):
+            raise VerificationAnalysisError(
+                f"{trajectory.owner}: stage instance {stage.get('instance')!r} "
+                f"does not match stream {trajectory.instance!r}"
+            )
+        if stage.get("disposition") == "completed":
+            if not trajectory.complete:
+                raise VerificationAnalysisError(
+                    f"{trajectory.instance}: completed stage lacks search.complete evidence"
+                )
+            if trajectory.final_leader != stage.get("bestmove"):
+                raise VerificationAnalysisError(
+                    f"{trajectory.instance}: stream final leader {trajectory.final_leader!r} "
+                    f"does not match stage bestmove {stage.get('bestmove')!r}"
+                )
+
     return VerificationBundle(
         run_dir=run_dir,
         parent=parent,

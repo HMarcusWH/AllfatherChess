@@ -316,3 +316,35 @@ Nothing below is established by this milestone.
 - **Transposition overlap.** Only assigned-prefix non-overlap is guaranteed;
   disjoint prefixes can still transpose.
 - **Whether routing overhead is worth its cost.** It is measured, not justified.
+
+
+## Explicit VERIFY evidence plane
+
+### PROVED by code/contracts
+
+- `RootShardLedger` remains the EXPLORE ownership authority; VERIFY overlap is
+  represented separately and never assigns one exploration root to two owners.
+- A clean three-owner EXPLORE run nominates exactly the three owner bestmoves in
+  owner order. Because EXPLORE regions are pairwise-disjoint and each bestmove
+  is containment-checked, those nominees are distinct.
+- VERIFY reuses `stockfish-shadow`, `reckless-shadow`, and `lc0-shadow`
+  sequentially after EXPLORE and gives all three the identical restricted root
+  set.
+- Raw VERIFY telemetry remains telemetry v1 with `phase = VERIFY` and
+  `decision_authority = false`.
+- The VERIFY child artifact hash-binds the finalized parent replay and its own
+  streams. Candidate, PV-head and final-bestmove containment is checked against
+  the declared common root set.
+- VERIFY is rejected in active mode until its compute can be settled through
+  the global budget ledger.
+- No VERIFY result changes outward decision authority; the unrestricted
+  Stockfish anchor remains sole bestmove authority.
+
+### OPEN
+
+- Whether common-support disagreement predicts chess error or useful marginal
+  compute.
+- Whether three-way convergence is a useful RELOCK signal.
+- Whether a real LC0 network contributes complementary decision information.
+- Whether VERIFY produces enough value to repay its compute cost.
+- Any Elo or equal-resource strength gain.

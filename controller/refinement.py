@@ -668,6 +668,28 @@ def verify_refinement_integrity(run_dir: Path | str) -> list[str]:
     elif recorded_targets != expected_targets[: len(recorded_targets)]:
         problems.append("incomplete refinement target records are not a nomination prefix")
 
+    final_v2 = (manifest.get("prefix_ledger") or {}).get("final_v2_snapshot") or {}
+    final_shards = {
+        item.get("id"): item
+        for item in final_v2.get("shards", [])
+        if isinstance(item, dict)
+    }
+    frontier_prefixes = [
+        tuple(final_shards[shard_id].get("prefix", []))
+        for shard_id in final_v2.get("frontier_ids", [])
+        if shard_id in final_shards
+    ]
+    for index, left in enumerate(frontier_prefixes):
+        for right in frontier_prefixes[index + 1 :]:
+            if (
+                len(left) < len(right)
+                and right[: len(left)] == left
+            ) or (
+                len(right) < len(left)
+                and left[: len(right)] == right
+            ):
+                problems.append("refinement final PrefixShardLedger frontier is not prefix-free")
+
     refinement_dir = run_dir / "refinement"
     for row in target_rows:
         if not isinstance(row, dict):
@@ -708,6 +730,27 @@ def verify_refinement_integrity(run_dir: Path | str) -> list[str]:
             problems.append(
                 f"{row.get('target_id')}: child partition does not cover exact oracle universe"
             )
+
+        child_shards = row.get("child_shards") or {}
+        for owner in owners:
+            moves = tuple(partition.get(owner) or [])
+            shard_ids = tuple(child_shards.get(owner) or [])
+            if len(shard_ids) != len(moves):
+                problems.append(
+                    f"{row.get('target_id')}:{owner}: child shard count differs from owned moves"
+                )
+                continue
+            for move, shard_id in zip(moves, shard_ids):
+                shard = final_shards.get(shard_id)
+                if shard is None:
+                    problems.append(
+                        f"{row.get('target_id')}:{owner}: missing child shard {shard_id!r}"
+                    )
+                    continue
+                if shard.get("prefix") != [root_move, move] or shard.get("owner") != owner:
+                    problems.append(
+                        f"{row.get('target_id')}:{owner}: child shard identity/owner mismatch"
+                    )
 
         stage_by_instance: dict[str, dict[str, Any]] = {}
         for stage in row.get("stages") or []:
@@ -772,6 +815,27 @@ def verify_refinement_integrity(run_dir: Path | str) -> list[str]:
                 problems.append(
                     f"{row.get('target_id')}: completed target missing required owner stages"
                 )
+            if any(
+                stage.get("disposition") != "completed"
+                for stage in row.get("stages") or []
+                if isinstance(stage, dict)
+            ):
+                problems.append(
+                    f"{row.get('target_id')}: completed target contains non-completed stage"
+                )
+            expected_stream_instances = {
+                participants[owner] for owner in expected_stage_owners
+                if owner in participants
+            }
+            actual_stream_instances = {
+                record.get("instance")
+                for record in row.get("streams") or []
+                if isinstance(record, dict)
+            }
+            if actual_stream_instances != expected_stream_instances:
+                problems.append(
+                    f"{row.get('target_id')}: completed target stream set differs from stages"
+                )
 
         for record in row.get("streams") or []:
             path = refinement_dir / str(record.get("path", ""))
@@ -813,6 +877,21 @@ def verify_refinement_integrity(run_dir: Path | str) -> list[str]:
                         problems.append(
                             f"{row.get('target_id')}:{record.get('instance')}: telemetry root set differs"
                         )
+                    if stage is not None:
+                        try:
+                            stage_position = parse_position_command(
+                                stage.get("position_command", "")
+                            )
+                        except Exception:
+                            stage_position = None
+                        event_position = event.get("position") or {}
+                        if stage_position is not None and (
+                            event_position.get("base_fen") != stage_position.base_fen
+                            or tuple(event_position.get("moves") or []) != stage_position.moves
+                        ):
+                            problems.append(
+                                f"{row.get('target_id')}:{record.get('instance')}: telemetry position differs"
+                            )
                 elif kind == "candidate.update":
                     candidate = event.get("candidate") or {}
                     move = candidate.get("move")

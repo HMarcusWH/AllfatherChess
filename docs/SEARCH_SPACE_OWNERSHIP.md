@@ -62,7 +62,7 @@ RELOCK    reconcile independent evidence
 STOP
 ```
 
-All verification work is separately accounted.
+All verification work is separately accounted. In VERIFY v1, overlap is represented by a separate `VerificationPlan`; `RootShardLedger` remains EXPLORE-only and is never weakened or mutated to create duplicate owners. A clean three-owner EXPLORE run yields three distinct nominees because each final move must remain inside a pairwise-disjoint owned root region. Those three moves become the exact common VERIFY root set.
 
 ## Transpositions
 

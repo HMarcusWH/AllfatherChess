@@ -13,7 +13,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from common.prefix_dispatch import compile_prefix_dispatch
+from common.prefix_dispatch import compile_descendant_region, compile_prefix_dispatch
 from common.search_request import SearchRequestError, parse_position_command
 from controller.prefix_shards import (
     PrefixShardLedger,
@@ -414,6 +414,35 @@ class PrefixDispatchTests(unittest.TestCase):
             ("e1h1",),
         )
         self.assertEqual(dispatch.searchmoves, ("e8a8",))
+
+    def test_sibling_descendant_region_preserves_parent_and_children(self):
+        base = parse_position_command("position startpos moves d2d4")
+        dispatch = compile_descendant_region(
+            base,
+            parent_prefix=("d7d5",),
+            child_moves=("c2c4", "g1f3"),
+            limit={"nodes": 96},
+        )
+        self.assertEqual(
+            dispatch.position_command,
+            "position startpos moves d2d4 d7d5",
+        )
+        self.assertEqual(dispatch.searchmoves, ("c2c4", "g1f3"))
+        self.assertEqual(
+            dispatch.go_command,
+            "go nodes 96 searchmoves c2c4 g1f3",
+        )
+
+    def test_sibling_descendant_region_rejects_empty_or_duplicate_children(self):
+        base = parse_position_command("position startpos")
+        for children in ((), ("e7e5", "e7e5"), ("E7E5",)):
+            with self.assertRaises(SearchRequestError):
+                compile_descendant_region(
+                    base,
+                    parent_prefix=("e2e4",),
+                    child_moves=children,
+                    limit={"nodes": 8},
+                )
 
     def test_invalid_or_empty_prefix_fails_without_mutating_base(self):
         base = parse_position_command("position startpos moves e2e4")

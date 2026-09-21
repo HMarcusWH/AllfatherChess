@@ -1063,6 +1063,50 @@ class ShadowRunCoordinator:
                     instances = self._cancel_locked(active, reason="worker_error")
                 if instances:
                     self._stop_instances(instances)
+
+                deadline = time.monotonic() + self.settings.drain_timeout_s
+                for state in list(active.owners.values()):
+                    if not state.dispatched or state.done.is_set():
+                        continue
+                    state.done.wait(timeout=max(0.0, deadline - time.monotonic()))
+                    if state.done.is_set():
+                        continue
+                    message = (
+                        f"shadow instance {state.instance} did not drain after a worker "
+                        "orchestration error and is excluded from further synchronization"
+                    )
+                    self.runtime.record_shadow_failure(
+                        state.instance, message, generation=active.generation
+                    )
+                    state.failed = True
+                    if state.stage is not None:
+                        active.run.record_completion(
+                            state.stage,
+                            completed_ms=(time.monotonic() - active.started_monotonic) * 1000.0,
+                            disposition="failed",
+                            failure=message,
+                        )
+                    state.done.set()
+
+                if active.verification is not None:
+                    for stage in active.verification.active_stages():
+                        stage.done.wait(timeout=max(0.0, deadline - time.monotonic()))
+                        if stage.done.is_set():
+                            continue
+                        message = (
+                            f"verification instance {stage.instance} did not drain after "
+                            "a worker orchestration error and is excluded from further synchronization"
+                        )
+                        self.runtime.record_shadow_failure(
+                            stage.instance, message, generation=active.generation
+                        )
+                        active.verification.record_completion(
+                            stage,
+                            completed_ms=(time.monotonic() - active.started_monotonic) * 1000.0,
+                            disposition="failed",
+                            failure=message,
+                        )
+                        active.verification.set_disposition("incomplete", message)
             except Exception as cleanup_exc:  # pragma: no cover - defensive
                 active.run.note(
                     f"could not drain dispatched stages after a worker error: "

@@ -216,6 +216,7 @@ class RoutingPolicy:
     stop_min_stability_fraction: float
     stage_cpu_ms_estimate: float
     anchor_cpu_ms_estimate: float
+    stage_gpu_ms_estimate: float
 
     @classmethod
     def from_config(cls, config: dict[str, Any] | None) -> "RoutingPolicy":
@@ -235,6 +236,7 @@ class RoutingPolicy:
                 stop_min_stability_fraction=float(config.get("stop_min_stability_fraction", 0.6)),
                 stage_cpu_ms_estimate=float(config.get("stage_cpu_ms_estimate", 400.0)),
                 anchor_cpu_ms_estimate=float(config.get("anchor_cpu_ms_estimate", 0.0)),
+                stage_gpu_ms_estimate=float(config.get("stage_gpu_ms_estimate", 0.0)),
             )
         except (TypeError, ValueError) as exc:
             raise RoutingError(f"invalid routing configuration: {exc}") from exc
@@ -251,6 +253,7 @@ class RoutingPolicy:
             "stop_min_stability_fraction": self.stop_min_stability_fraction,
             "stage_cpu_ms_estimate": self.stage_cpu_ms_estimate,
             "anchor_cpu_ms_estimate": self.anchor_cpu_ms_estimate,
+            "stage_gpu_ms_estimate": self.stage_gpu_ms_estimate,
         }
 
 
@@ -372,6 +375,7 @@ class ConservativeRouter:
         self._anchor_reservation: Reservation | None = None
         self._fallback = False
         self._anchor_bound: tuple[bool, str] = (False, "not evaluated")
+        self._anchor_reserved = False
 
     @property
     def checkpoint_interval_s(self) -> float:
@@ -415,11 +419,32 @@ class ConservativeRouter:
         return False, "external request declares no limit"
 
     def on_run_start(self, context: Any) -> None:
-        self.ledger = BudgetLedger(self.envelope, clock=self._clock)
+        # Measure the envelope from the external `go`, not from here: legal-root
+        # qualification runs before the router is involved, so a self-started
+        # clock would hand a slow oracle a second full envelope.
+        started = getattr(context, "started_monotonic", None)
+        self.ledger = BudgetLedger(self.envelope, clock=self._clock, started=started)
         self.audit = RouteAudit(run_id=context.run_id, policy=POLICY_NAME)
         self._reservations = {}
         self._anchor_reservation = None
         self._fallback = False
+        self._anchor_reserved = False
+
+        # Controller work already done for this run -- run preparation and the
+        # legal-root oracle -- happened before any reservation existed. Charging
+        # it now keeps it inside B instead of outside the accounting.
+        already_elapsed = 0.0
+        try:
+            already_elapsed = max(0.0, float(context.elapsed_ms()))
+        except Exception:  # pragma: no cover - defensive against older contexts
+            already_elapsed = 0.0
+        if already_elapsed > 0.0:
+            self.ledger.charge_elapsed(
+                "qualification",
+                cpu_ms=already_elapsed,
+                note="controller.qualification_ms",
+            )
+
         if self.calibration is None:
             self.audit.note(
                 "no calibration is loaded: this run may not authorize any suppression, "
@@ -438,8 +463,15 @@ class ConservativeRouter:
             self._anchor_reservation = self.ledger.reserve(
                 "anchor", cpu_ms=anchor_cost, purpose="anchor"
             )
+            self._anchor_reserved = True
         except BudgetExceeded as exc:
-            self.audit.note(f"anchor reservation exceeded the declared envelope: {exc}")
+            # The anchor is already searching and cannot be recalled. Its cost is
+            # therefore an unrecorded obligation, and a run carrying one may not
+            # report itself compliant however tidy the rest of the ledger looks.
+            self.audit.note(
+                f"anchor reservation exceeded the declared envelope: {exc}; "
+                "this run cannot claim envelope compliance"
+            )
             self._fallback = True
 
     def authorize_initial(self, context: Any, owner: str) -> bool:
@@ -453,7 +485,9 @@ class ConservativeRouter:
                 return False
             try:
                 reservation = self.ledger.reserve(
-                    f"shadow:{owner}", cpu_ms=self.policy.stage_cpu_ms_estimate
+                    f"shadow:{owner}",
+                    cpu_ms=self.policy.stage_cpu_ms_estimate,
+                    gpu_ms=self.policy.stage_gpu_ms_estimate,
                 )
             except BudgetExceeded as exc:
                 audit.note(f"initial dispatch for {owner} refused by the envelope: {exc}")
@@ -490,8 +524,15 @@ class ConservativeRouter:
                 # envelope, the search as a whole was not either.
                 "anchor_request_bounded": self._anchor_bound[0],
                 "anchor_request_reason": self._anchor_bound[1],
+                "anchor_cost_reserved": self._anchor_reserved,
+                "gpu_accounted": self._gpu_accounted(),
                 "reservations_within_envelope": self.ledger.within_envelope(),
-                "claimed": self._anchor_bound[0] and self.ledger.within_envelope(),
+                "claimed": (
+                    self._anchor_bound[0]
+                    and self._anchor_reserved
+                    and self._gpu_accounted()
+                    and self.ledger.within_envelope()
+                ),
             },
             "decisions": audit.decisions,
             "denials": audit.denials,
@@ -507,6 +548,16 @@ class ConservativeRouter:
             )
         except OSError:  # pragma: no cover - routing evidence is best effort
             pass
+
+    def _gpu_accounted(self) -> bool:
+        """A declared GPU envelope with no per-stage estimate accounts nothing.
+
+        Reserving only CPU would let a GPU-backed worker consume arbitrary
+        accelerator time while the ledger reported itself inside the envelope.
+        """
+        if self.envelope.gpu_ms <= 0.0:
+            return True
+        return self.policy.stage_gpu_ms_estimate > 0.0
 
     def _calibration_provenance(self) -> dict[str, Any] | None:
         if self.calibration is None:
@@ -546,7 +597,11 @@ class ConservativeRouter:
                     )
                 return commands
 
-            for owner in context.owners:
+            try:
+                owners = tuple(context.dispatchable_owners())
+            except AttributeError:  # pragma: no cover - defensive against older contexts
+                owners = tuple(context.owners)
+            for owner in owners:
                 trajectory = self._live_trajectory(context, owner)
                 truncated = False
                 try:
@@ -568,6 +623,15 @@ class ConservativeRouter:
                     wall_ms=wall,
                     truncated=truncated,
                 )
+                if observation.work_value is not None and observation.work_semantics:
+                    # Tagged per semantics and never summed across them: the
+                    # audit format promises these counters, so a real run has to
+                    # actually carry them.
+                    self.ledger.record_native_work(
+                        f"shadow:{owner}",
+                        value=observation.work_value,
+                        semantics=observation.work_semantics,
+                    )
                 if not observation.active and self._reservations.get(owner):
                     # The stage finished: convert its reservation into measured
                     # spend before deciding whether to buy any more.
@@ -643,7 +707,9 @@ class ConservativeRouter:
                         "evaluation cannot authorize suppression",
                     )
                 )
-                verdict = self.calibration.evaluate(observation.calibration_features())
+                verdict = self.calibration.evaluate(
+                    observation.calibration_features(), scope=observation.owner
+                )
                 gates.append(
                     Gate(
                         "calibration_in_domain",
@@ -689,7 +755,10 @@ class ConservativeRouter:
                     f"stages {observation.stages_dispatched} vs max {self.policy.max_stages_per_owner}",
                 )
             )
-            affordable = self.ledger.can_afford(cpu_ms=self.policy.stage_cpu_ms_estimate)
+            affordable = self.ledger.can_afford(
+                cpu_ms=self.policy.stage_cpu_ms_estimate,
+                gpu_ms=self.policy.stage_gpu_ms_estimate,
+            )
             gates.append(
                 Gate(
                     "envelope",
@@ -752,9 +821,11 @@ class ConservativeRouter:
             reservations = self._reservations.pop(owner, [])
             for index, reservation in enumerate(reservations):
                 if index == len(reservations) - 1 and consumed is not None:
-                    self.ledger.settle(
-                        reservation, actual_cpu_ms=min(consumed, reservation.cpu_ms)
-                    )
+                    # Unclamped on purpose: a stage that outran its estimate
+                    # really did consume that CPU, and BudgetLedger.settle
+                    # supports charging above the reservation. Clamping would
+                    # free capacity that was spent and understate the run.
+                    self.ledger.settle(reservation, actual_cpu_ms=consumed)
                 else:
                     self.ledger.release(reservation)
             return RouterCommand(action="stop_worker", owner=owner, reason=decision.reason)
@@ -765,7 +836,9 @@ class ConservativeRouter:
             try:
                 self._reservations.setdefault(owner, []).append(
                     self.ledger.reserve(
-                        f"shadow:{owner}", cpu_ms=self.policy.stage_cpu_ms_estimate
+                        f"shadow:{owner}",
+                        cpu_ms=self.policy.stage_cpu_ms_estimate,
+                        gpu_ms=self.policy.stage_gpu_ms_estimate,
                     )
                 )
             except BudgetExceeded:

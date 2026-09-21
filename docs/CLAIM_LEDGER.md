@@ -73,8 +73,9 @@ Enforced by `tests/controller/*`, `scripts/shadow-execution-contract.py`, and
 - Verification and controller-overhead reserves are withheld from solver work.
 - Controller overhead is charged to the envelope with a monotonic clock.
 - A stop is impossible without calibration present, **validated out of sample**,
-  in domain, sufficiently supported, below the risk threshold, and past the
-  minimum observation. A model whose deterministic split left zero held-out rows
+  in domain **for that worker's own solver family**, sufficiently supported,
+  below the risk threshold, past the minimum observation, and reading a live
+  observation view that is still current. A model whose deterministic split left zero held-out rows
   may be consulted but may not license suppression.
 - A denied stop degrades to continued observation, never to an improvised
   action.
@@ -124,19 +125,41 @@ Deterministic calculations from the measured data, versioned as
 
 ## CALIBRATED
 
-- `bucketed_reversal_risk_v2` fitted from 382 rows over a 36-run sweep:
-  11 buckets, 275 train / 107 held-out rows, Brier 0.033, in-domain rate 0.54.
-  The routing contract independently fits its own model over 20 runs: 272 rows,
-  12 buckets, 201 train / 71 held-out rows, Brier 0.083, in-domain rate 0.86.
-- The fitted signal is interpretable: a worker with many observations, three or
-  more leader flips and no stable run carries ~0.42 reversal risk, while one
-  with a fully stable leader carries ~0.03. Base rate 0.12.
-- The fitted relationship is monotone in the expected direction: predicted
-  reversal risk falls from 0.082 in the least-settled bucket to 0.011 in the
-  most-settled one, and the held-out reliability table agrees in direction
-  (0.125 to 0.034).
-- The model under-predicts slightly in its largest buckets, which is visible in
-  the reliability table and is not corrected away.
+- `bucketed_reversal_risk_v3` fitted from 150 rows over a 36-run sweep:
+  8 buckets, 111 train / 39 held-out rows, Brier 0.030, in-domain rate 0.26.
+  The routing contract independently fits its own model over 20 runs: 121 rows,
+  11 buckets, 85 train / 36 held-out rows, Brier 0.060, in-domain rate 0.36.
+  Base rate 0.097.
+- **The evidence is almost entirely LC0.** Once buckets were scoped by solver
+  family and anchor rows excluded, every well-supported bucket turned out to be
+  `lc0|…`: the alpha-beta shadow workers finish their node-limited stages too
+  quickly to contribute many labelled checkpoints. So there is currently **no
+  usable calibration evidence for Stockfish or Reckless workers**, and the
+  router correctly authorizes nothing for them. Before the fix, stops for those
+  workers were being authorized from LC0-derived buckets.
+- **The fitted relationship is not monotone in the assumed direction, and the
+  sign is the opposite of the one the routing gate assumes.** Of the two
+  buckets with enough support to serve a decision (`stop_min_support = 25`):
+
+  | bucket | meaning | support | fitted risk |
+  | --- | --- | ---: | ---: |
+  | `lc0\|n3\|s3\|f0` | has never flipped its leader | 32 | **0.265** |
+  | `lc0\|n3\|s0\|f1` | flipped recently, current run < 25% of history | 28 | **0.033** |
+
+  A worker that has never flipped is measured as ~8x *more* likely to flip
+  within the next horizon than one that just flipped. The v2 entry that stood
+  here claimed the opposite ("risk falls from 0.082 in the least-settled bucket
+  to 0.011 in the most-settled"); that reading was an artifact of pooling anchor
+  and cross-family rows into shared buckets, and it does not survive scoping.
+- **Consequence: zero authorized stops is structural here, not a near miss.**
+  Each servable bucket fails exactly one of the two remaining gates —
+  `s0|f1` clears the risk gate (0.033 <= 0.05) and fails
+  `stop_min_stability_fraction = 0.6`; `s3|f0` clears the stability gate and
+  fails the risk gate (0.265 > 0.05). Under this evidence the conjunction
+  cannot be satisfied by any well-supported bucket. The thresholds were **not**
+  moved to produce stops.
+- The reliability table agrees on the held-out rows where it has counts, and the
+  model under-predicts slightly in its largest buckets; that is left uncorrected.
 
 This is calibrated **about an engine's own leader stability**. It is not a
 statement about chess correctness.
@@ -172,6 +195,17 @@ Nothing below is established by this milestone.
   hardware, and engine builds it was fitted on.
 - **Whether reversal risk predicts move quality.** It predicts an engine
   changing its own mind. That is not the same question.
+- **Why never-flipped buckets carry the higher measured reversal risk.** Two
+  readings fit the data equally well and this milestone separates neither: it
+  may be a real property of MCTS leader dynamics, or it may be an artifact of
+  *when* each bucket is populated. A worker that has never flipped is
+  disproportionately early in its search, and right-censoring keeps only
+  checkpoints in the first `1 - horizon_fraction` of a trajectory, so the
+  never-flipped population skews toward the part of a search where the leader
+  is still moving. The feature vector is deliberately past-only and carries no
+  checkpoint position, so the fit cannot tell the two apart. Adding a position
+  feature would resolve it and would also reintroduce the train/serve skew that
+  was removed in round 1; that trade was not taken here.
 - **Direct Stockfish-vs-Reckless disagreement.** Disjoint ownership gives it
   empty support within a run; an overlap-capable COMPARE/VERIFY phase is needed.
 - **Whether LC0 disagreement carries information beyond Stockfish-vs-Reckless

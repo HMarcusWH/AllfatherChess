@@ -217,9 +217,20 @@ def extract_features(
         trajectory.search_id: summarize_trajectory(trajectory).as_dict()
         for trajectory in bundle.trajectories
     }
+    # A stream the manifest marks not contract-validatable stays available for
+    # analysis, but its labels may not train a model: dropped events and failed
+    # adapter translation both remove observations, and a removed leader flip
+    # reads as stability.
+    eligible_by_instance = {
+        record["instance"]: bool(record.get("contract_validatable"))
+        for record in bundle.manifest.get("streams", [])
+    }
     per_stage_labels = {
         trajectory.search_id: [
-            label.as_dict()
+            dict(
+                label.as_dict(),
+                calibration_eligible=eligible_by_instance.get(trajectory.instance, False),
+            )
             for label in counterfactual_labels(
                 trajectory,
                 checkpoints,

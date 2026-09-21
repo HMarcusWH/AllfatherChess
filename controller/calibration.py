@@ -19,6 +19,7 @@ from __future__ import annotations
 import datetime as _dt
 import hashlib
 import json
+import math
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable, Sequence
@@ -27,9 +28,11 @@ from controller.residuals import EXTRACTOR_VERSION
 
 
 CALIBRATION_SCHEMA_VERSION = 1
-#: v2: features come from the single shared past-only definition, so training
-#: and live serving cannot disagree about which bucket a search state is in.
-MODEL_KIND = "bucketed_reversal_risk_v2"
+#: v3: buckets are scoped to one solver family and fitted from shadow workers
+#: only, so evidence from a different engine -- or from the unrestricted anchor,
+#: about which the router never decides -- cannot supply another worker's
+#: support.
+MODEL_KIND = "bucketed_reversal_risk_v3"
 
 #: Feature names the model consumes. Changing this list changes the model kind.
 #: All three are computed by `common.residuals.past_only_features` from one
@@ -47,10 +50,16 @@ class TrainingRow:
 
     run_id: str
     instance: str
+    #: Solver family this row describes. Buckets are scoped by it: alpha-beta
+    #: and MCTS evidence are not interchangeable.
+    owner: str
     observation_count: int
     leader_flips: int
     stable_run_fraction: float
     label: bool
+
+    def bucket(self) -> str:
+        return bucket_key(self.features(), scope=self.owner)
 
     def features(self) -> dict[str, float]:
         return {
@@ -60,8 +69,16 @@ class TrainingRow:
         }
 
 
-def bucket_key(features: dict[str, Any]) -> str:
-    """Deterministic, auditable discretization of the past-only features."""
+def bucket_key(features: dict[str, Any], *, scope: str) -> str:
+    """Deterministic, auditable discretization, scoped to one solver family.
+
+    The scope is not a feature; it is the population the bucket describes.
+    Without it, observations of an unrestricted Stockfish anchor could satisfy
+    the support floor and supply a low risk estimate for stopping an LC0 worker
+    that has almost no evidence of its own.
+    """
+    if not isinstance(scope, str) or not scope:
+        raise CalibrationError("bucket scope must be a non-empty solver family")
     missing = [name for name in FEATURE_NAMES if name not in features]
     if missing:
         raise CalibrationError(f"missing calibration features: {missing}")
@@ -89,7 +106,7 @@ def bucket_key(features: dict[str, Any]) -> str:
     if flips < 0:
         raise CalibrationError("leader_flips must be non-negative")
     flip_bucket = 0 if flips == 0 else (1 if flips <= 2 else 2)
-    return f"n{observed}|s{stable}|f{flip_bucket}"
+    return f"{scope}|n{observed}|s{stable}|f{flip_bucket}"
 
 
 @dataclass(frozen=True)
@@ -132,12 +149,12 @@ class ReversalRiskModel:
 
     # -- serving -------------------------------------------------------------
 
-    def evaluate(self, features: dict[str, Any]) -> CalibrationEvaluation:
+    def evaluate(self, features: dict[str, Any], *, scope: str) -> CalibrationEvaluation:
         """Return a risk estimate, or an explicitly out-of-domain verdict.
 
         Out-of-domain returns the conservative prior, never an optimistic guess.
         """
-        key = bucket_key(features)
+        key = bucket_key(features, scope=scope)
         record = self.buckets.get(key)
         if record is None:
             return CalibrationEvaluation(
@@ -257,7 +274,7 @@ class ReversalRiskModel:
         in_domain = 0
         reliability: dict[str, dict[str, float]] = {}
         for row in test:
-            verdict = self.evaluate(row.features())
+            verdict = self.evaluate(row.features(), scope=row.owner)
             squared += (verdict.risk - (1.0 if row.label else 0.0)) ** 2
             if verdict.in_domain:
                 in_domain += 1
@@ -338,18 +355,52 @@ class ReversalRiskModel:
             min_support=int(parameters.get("min_support", 25)),
             smoothing_alpha=float(parameters.get("smoothing_alpha", 1.0)),
             horizon_fraction=float(parameters.get("horizon_fraction", 0.25)),
-            buckets={
-                key: {
-                    "risk": float(record["risk"]),
-                    "support": int(record["support"]),
-                    "positives": int(record["positives"]),
-                }
-                for key, record in data.get("buckets", {}).items()
-            },
+            buckets=_validated_buckets(data.get("buckets", {})),
             sources=list(data.get("sources", [])),
             evaluation=dict(data.get("evaluation", {})),
-            prior_risk=float(data.get("prior_risk", 1.0)),
+            prior_risk=_validated_probability(data.get("prior_risk", 1.0), "prior_risk"),
         )
+
+
+def _validated_probability(value: Any, label: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise CalibrationError(f"{label} must be a number")
+    number = float(value)
+    if not math.isfinite(number) or not 0.0 <= number <= 1.0:
+        raise CalibrationError(f"{label} must be a probability in [0, 1], got {value!r}")
+    return number
+
+
+def _validated_buckets(raw: Any) -> dict[str, dict[str, float]]:
+    """Refuse a calibration whose stored buckets cannot be true.
+
+    A file can be syntactically valid and still describe an impossible model --
+    a negative risk, a fabricated support count, more positives than
+    observations. Every one of those passes each suppression gate unchallenged,
+    so they are rejected at load rather than trusted at decision time.
+    """
+    if not isinstance(raw, dict):
+        raise CalibrationError("calibration buckets must be an object")
+    validated: dict[str, dict[str, float]] = {}
+    for key, record in raw.items():
+        if not isinstance(key, str) or not key:
+            raise CalibrationError("calibration bucket keys must be non-empty strings")
+        if not isinstance(record, dict):
+            raise CalibrationError(f"calibration bucket {key!r} must be an object")
+        risk = _validated_probability(record.get("risk"), f"bucket {key!r} risk")
+        support = record.get("support")
+        positives = record.get("positives")
+        for name, value in (("support", support), ("positives", positives)):
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise CalibrationError(
+                    f"bucket {key!r} {name} must be a non-negative integer, got {value!r}"
+                )
+        if positives > support:
+            raise CalibrationError(
+                f"bucket {key!r} claims {positives} positives from {support} observations"
+            )
+        validated[key] = {"risk": risk, "support": int(support), "positives": int(positives)}
+    return validated
 
 
 def _base_rate(rows: Sequence[TrainingRow], alpha: float) -> float:
@@ -362,7 +413,7 @@ def _fit_buckets(
 ) -> dict[str, dict[str, float]]:
     counts: dict[str, list[int]] = {}
     for row in rows:
-        key = bucket_key(row.features())
+        key = row.bucket()
         entry = counts.setdefault(key, [0, 0])
         entry[0] += 1
         if row.label:
@@ -433,6 +484,19 @@ def training_rows_from_derived(derived: dict[str, Any]) -> list[TrainingRow]:
                 # horizon. Neither is an observation, so neither becomes a row.
                 if label is None or item.get("leader") is None:
                     continue
+                owner = item.get("owner")
+                if not owner:
+                    # The unrestricted anchor. The router never decides whether
+                    # to stop the anchor, so anchor rows would train a decision
+                    # that is never made -- and would pool their support with
+                    # the shadow workers the router does decide about.
+                    continue
+                if item.get("calibration_eligible") is False:
+                    # The stream this came from is not a valid telemetry v1
+                    # stream: it dropped events or failed adapter translation.
+                    # A dropped leader flip reads as stability, which is exactly
+                    # the direction that authorizes suppression.
+                    continue
                 features = item.get("features")
                 if not isinstance(features, dict):
                     raise CalibrationError(
@@ -446,6 +510,7 @@ def training_rows_from_derived(derived: dict[str, Any]) -> list[TrainingRow]:
                     TrainingRow(
                         run_id=run_id,
                         instance=str(item.get("instance", "")),
+                        owner=str(owner),
                         observation_count=int(features["observation_count"]),
                         leader_flips=int(features["leader_flips"]),
                         stable_run_fraction=float(features["stable_run_fraction"]),

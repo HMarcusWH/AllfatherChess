@@ -6,6 +6,8 @@ import argparse
 import sys
 from pathlib import Path
 
+from .budget import BudgetError
+from .routing import RoutingError
 from .runtime import BackendManager, RuntimeError
 from .uci_frontend import UciFrontend
 
@@ -51,7 +53,11 @@ def main(argv: list[str] | None = None) -> int:
         frontend.shadow = shadow
         frontend.run()
         return 0
-    except (RuntimeError, OSError, ValueError) as exc:
+    except (RuntimeError, RoutingError, BudgetError, OSError, ValueError) as exc:
+        # RoutingError and BudgetError subclass the *builtin* RuntimeError, not
+        # controller.runtime.RuntimeError, so without naming them an invalid
+        # routing policy, budget, or calibration would escape with a traceback
+        # after the engine processes had already started, leaking them.
         message = " ".join(str(exc).splitlines())
         print(f"info string Allfather startup failure: {message}", flush=True)
         if shadow is not None:

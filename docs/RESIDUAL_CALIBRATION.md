@@ -104,6 +104,54 @@ source, so no label is named or usable as correctness.
 `later_leader_changed = true` means the engine changed its mind. It does not
 mean the earlier move was wrong.
 
+### Buckets are scoped to one solver family, and the anchor never trains
+
+A bucket key carries the solver family it describes: `lc0|n3|s3|f0`. Without
+that scope, support pooled across every worker, so observations of an
+unrestricted Stockfish anchor could satisfy the support floor and supply a low
+risk estimate for stopping an LC0 worker that had almost no evidence of its own.
+
+Anchor rows are excluded from training entirely. The router only ever decides
+whether to stop a *shadow worker*; an anchor row trains a decision that is never
+made. Streams the manifest marks `contract_validatable: false` are likewise
+ineligible: dropped events and failed adapter translation both remove
+observations, and a removed leader flip reads as stability.
+
+**What this exposed.** Once pooling stopped, the 36-run sweep fits only 150 rows
+across 8 buckets, and every well-supported bucket is `lc0|…`. The alpha-beta
+shadow workers finish their node-limited stages almost immediately and
+contribute very few labelled checkpoints, while the backend-light LC0 profile
+produces many. So this repository currently has **no meaningful calibration
+evidence for Stockfish or Reckless workers at all** — and previously it was
+authorizing stops for them from LC0-derived buckets. The router now refuses
+those, which is correct, and closing that gap is a data-collection problem, not
+a threshold problem.
+
+**And it inverted the fitted direction.** Under the scoped fit, the two buckets
+with enough support to serve a decision order the opposite way to the one the
+routing gate assumes:
+
+| bucket | meaning | support | fitted risk |
+| --- | --- | ---: | ---: |
+| `lc0\|n3\|s3\|f0` | has never flipped its leader | 32 | 0.265 |
+| `lc0\|n3\|s0\|f1` | flipped recently, current run < 25% of history | 28 | 0.033 |
+
+A worker that has never flipped is measured as roughly 8x *more* likely to flip
+within the next horizon than one that just flipped. The v2 pooled fit read the
+other way round, and that reading did not survive scoping.
+
+This is why the sweep authorizes zero stops, and the reason is structural rather
+than marginal: `s0|f1` clears `stop_max_reversal_risk = 0.05` but fails
+`stop_min_stability_fraction = 0.6`, and `s3|f0` clears the stability gate but
+fails the risk gate. No well-supported bucket can satisfy the conjunction. The
+thresholds were deliberately left alone; moving either one to manufacture stops
+would be fitting the policy to the evidence it is supposed to be tested against.
+
+Whether that inverted ordering is a real property of MCTS leader dynamics or an
+artifact of *when* each bucket is populated is recorded as open in
+`docs/CLAIM_LEDGER.md`; the past-only feature vector carries no checkpoint
+position, so this fit cannot distinguish them.
+
 ### Right-censored horizons are unlabelled
 
 If the requested horizon runs past the end of the observed trajectory, the
@@ -113,14 +161,21 @@ that authorize live suppression — with guaranteed negatives and understated re
 reversal risk. v2 emits `None` and `horizon_observed: false`, and those rows
 never become training rows.
 
-The correction is visible in the numbers: on the same 36-run sweep the labelled
-row count falls from 1200 to 387, and the in-domain rate falls with it, because
-the remaining evidence is thinner and more of it is honestly out of domain. That
-is the calibration getting smaller and more conservative, not worse.
+The correction is visible in the numbers. On the 36-run sweep whose artifact
+this tree carries, the pipeline produces 1260 checkpoints, of which only 360
+survive right-censoring as labelled observations. Scoping then removes the 210
+anchor rows (the router never decides whether to stop the anchor), leaving 150
+training rows. The in-domain rate falls with the row count, because the
+remaining evidence is thinner and more of it is honestly out of domain. That is
+the calibration getting smaller and more conservative, not worse.
+
+The `contract_validatable` eligibility filter removes 0 further rows on this
+sweep: every stream in it translated cleanly. The guard is there for the sweeps
+where that is not true, and on this evidence it is inert rather than load-bearing.
 
 ## Calibration model
 
-`bucketed_reversal_risk_v2` estimates the probability that an engine's own
+`bucketed_reversal_risk_v3` estimates the probability that an engine's own
 leader still reverses within the horizon, from **past-only** features:
 
 ```text
@@ -150,9 +205,17 @@ calibration, so the time-relative feature was removed rather than patched.
 `elapsed_fraction` is still recorded on each routing observation for the audit
 trail; it is simply not a model input.
 
-Bucketing is deliberately coarse and auditable: each continuous feature is cut
-into quartiles, flips into `{0, 1-2, 3+}`, giving keys like `e2|s3|f0`. Risk is
-the Laplace-smoothed empirical rate in the bucket.
+Bucketing is deliberately coarse and auditable. `stable_run_fraction` is cut
+into quartiles, `observation_count` into `{<=2, <=5, <=11, 12+}`, and
+`leader_flips` into `{0, 1-2, 3+}`. The key is prefixed with the owning solver
+family, giving keys like `lc0|n3|s3|f0`. Risk is the Laplace-smoothed empirical
+rate in the bucket.
+
+The family prefix is a **scope, not a feature**: it names the population the
+bucket describes rather than a property being regressed on. Without it, an
+alpha-beta worker's observations could satisfy the support floor and supply a
+low risk estimate for stopping an MCTS worker that has almost no evidence of
+its own — which is exactly what v2 did.
 
 Fail-closed behavior:
 

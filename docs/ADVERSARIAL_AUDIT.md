@@ -208,8 +208,10 @@ mattered most were not the crashes but the quiet ones:
 2. **Right-censored labels.** A horizon running past the end of a trajectory was
    labelled "no reversal". Every completed search therefore donated guaranteed
    negatives to exactly the settled buckets that authorize suppression. Fixing
-   it cut the sweep from 1200 rows to 382 and raised the measured base rate from
-   0.030 to 0.119 — the previous model understated reversal risk fourfold.
+   it cut the sweep from 1200 rows to 360 and raised the measured base rate from
+   0.028 to 0.094 — the previous model understated reversal risk more than
+   threefold. (These are per-sweep counts recomputed from the derived artifact
+   in this tree, not fixed constants; re-running the sweep moves them.)
 3. **A dispatch race.** Checking "has the anchor finished?" at the top of the
    dispatch path left a real window: stream creation is not free, and a stage
    could still be launched against a decision already emitted. The check and the
@@ -240,6 +242,84 @@ The uncomfortable part is that several of these were in code this audit had
 already reviewed once and passed. An adversarial checklist written by the same
 author who wrote the code will miss what that author did not think to doubt.
 
+## Fourteen more findings from a second review
+
+A second automated review of the pushed branch found fourteen further defects.
+All fourteen were verified against the code and fixed. Grouped by what they
+would actually have cost:
+
+**The calibration was trained on the wrong population.** Buckets pooled the
+unrestricted anchor with every shadow family, so a bucket could reach its
+support floor on anchor evidence and then license stopping an LC0 worker that
+had almost none of its own. Buckets are now scoped by solver family and anchor
+rows never train at all (`bucketed_reversal_risk_v3`; v2 artifacts are refused
+at load rather than reinterpreted). This is the finding that mattered most, and
+it changed the conclusions — see the entry below.
+
+**The envelope could be claimed when it had not been respected.** Four separate
+ways: the ledger clock started after legal-root qualification, so a slow oracle
+got a free extra envelope; the qualification CPU was never charged to anything;
+a failed anchor reservation was noted and then ignored, leaving the run free to
+report compliance while carrying an unrecorded obligation; and a declared GPU
+envelope was never reserved or settled against, so a GPU-backed worker could
+consume arbitrary accelerator time inside a ledger that called itself compliant.
+The ledger is now seeded from the external `go`, qualification is charged to its
+own lane, and both `anchor_cost_reserved` and `gpu_accounted` are conjuncts of
+the `claimed` flag rather than decoration beside it.
+
+**Spend was silently rounded down.** Settlement clamped measured consumption to
+the reservation, so a stage that outran its estimate freed capacity it had
+already spent. It now settles unclamped.
+
+**A stored model was trusted rather than validated.** A calibration file could
+declare a negative risk, a fabricated support count, or more positives than
+observations, and every one of those passes each suppression gate unchallenged.
+Buckets and the prior are validated at load.
+
+**Two failure paths were wired wrong.** `RoutingError` and `BudgetError` subclass
+the builtin `RuntimeError`, not the controller's, so an invalid policy escaped
+the startup handler with a traceback *after* the engine processes had started,
+leaking them. And `lc0_score_type` was unvalidated until the telemetry writer
+thread reached it, which surfaced as an adapter error after the LC0 search had
+already been dispatched — turning a typo into a run with no LC0 evidence rather
+than a refusal at startup.
+
+**Three accounting and eligibility gaps.** An infinite or NaN envelope was
+accepted, which disables the ceiling it describes while the run still reports
+itself compliant. The router's checkpoint loop visited owners with no dispatch
+state, so it could reserve an extension the coordinator would silently drop.
+`record_native_work` was never called in production, so the audit format
+promised engine-native counters that a real run did not carry. Streams the
+manifest marks `contract_validatable: false` were still feeding training rows,
+even though a dropped leader flip reads as stability — the one direction that
+authorizes suppression.
+
+**One provenance bug.** Fitting from an existing artifact recorded the CLI's
+default horizon rather than the artifact's, so the model id and provenance could
+describe a horizon its own labels never used. The horizon is now read from the
+artifact, and an explicit mismatch is rejected instead of silently recorded.
+
+### What the calibration fix cost, and why that cost was not paid down
+
+Scoping the buckets shrank per-bucket support roughly threefold, which was
+anticipated. What was not anticipated is that it also **inverted the fitted
+direction**. Of the two buckets left with enough support to serve a decision,
+the never-flipped one carries the *higher* measured reversal risk (0.265 at
+support 32) and the just-flipped one the lower (0.033 at support 28) — the
+opposite of what the routing gate assumes, and the opposite of what the pooled
+v2 fit reported.
+
+The consequence is that authorized stops went 4 → 1 → 0 across the three
+corrections, and zero is now structural rather than marginal: each servable
+bucket fails exactly one of the two remaining gates, so the conjunction cannot
+be satisfied by any well-supported bucket at all.
+
+The support floor was not lowered and neither threshold was moved. Tuning either
+one would have manufactured stops out of a model whose own held-out evidence
+does not support them, which is the specific failure this audit exists to catch.
+Whether the inverted ordering is real or an artifact of when each bucket is
+populated is recorded as open in `docs/CLAIM_LEDGER.md`.
+
 ## Residual concerns worth carrying forward
 
 1. **Fast searches collect nothing.** With `on_anchor_complete: drain`, a very
@@ -255,3 +335,16 @@ author who wrote the code will miss what that author did not think to doubt.
    engine build. It is a working pipeline, not a general model.
 5. **`stage_cpu_ms_estimate` is a declared constant.** If it is badly wrong, the
    envelope is respected but the reservations are a poor model of reality.
+6. **`stage_gpu_ms_estimate` is the same kind of constant, and it is the only
+   GPU accounting there is.** Nothing measures actual accelerator time; the
+   envelope is respected against an estimate. A GPU envelope declared without an
+   estimate now fails `gpu_accounted` rather than quietly claiming compliance,
+   but that is a refusal to claim, not a measurement.
+7. **The alpha-beta workers contribute almost no labelled evidence.** They
+   finish node-limited stages too fast to produce many checkpoints, so the
+   calibration is LC0-shaped by accident of timing rather than by design.
+   Collecting usable Stockfish and Reckless evidence needs longer stages, not a
+   lower support floor.
+8. **The eligibility filter is currently inert.** `contract_validatable` removes
+   zero rows on this sweep because every stream translated cleanly. It is
+   correct and untested by real data.

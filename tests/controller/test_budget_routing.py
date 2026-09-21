@@ -19,6 +19,8 @@ from controller.budget import (
     BudgetLedger,
     ResourceEnvelope,
 )
+from adapters.telemetry import Lc0TelemetryAdapter
+from common.telemetry import STARTPOS_FEN
 from controller.calibration import ReversalRiskModel, TrainingRow
 from controller.routing import (
     ConservativeRouter,
@@ -59,6 +61,7 @@ def policy(**overrides) -> RoutingPolicy:
         "stop_min_stability_fraction": 0.5,
         "stage_cpu_ms_estimate": 400.0,
         "anchor_cpu_ms_estimate": 1000.0,
+        "stage_gpu_ms_estimate": 0.0,
     }
     values.update(overrides)
     return RoutingPolicy(**values)
@@ -88,6 +91,7 @@ def confident_model(risk: float = 0.01, support: int = 500) -> ReversalRiskModel
         TrainingRow(
             run_id=f"run-{index % 16}",
             instance="stockfish-shadow",
+            owner="stockfish",
             observation_count=index % 14,
             leader_flips=index % 3,
             stable_run_fraction=((index * 7) % 10) / 10.0,
@@ -413,6 +417,168 @@ class ReviewRegressionTests(unittest.TestCase):
         )
 
 
+class ReviewRegressionRoundTwoTests(unittest.TestCase):
+    """Regressions for the second round of code-review findings."""
+
+    def test_envelope_rejects_infinite_and_nan_dimensions(self):
+        for bad in (
+            {"wall_ms": float("inf"), "cpu_ms": 10.0},
+            {"wall_ms": 10.0, "cpu_ms": float("nan")},
+            {"wall_ms": 10.0, "cpu_ms": 10.0, "gpu_ms": float("inf")},
+            {"wall_ms": 10.0, "cpu_ms": 10.0, "verification_reserve_fraction": float("nan")},
+        ):
+            with self.assertRaises(BudgetError, msg=bad):
+                ResourceEnvelope(**bad)
+        # JSON has no infinity literal, but 1e309 decodes to one.
+        with self.assertRaises(BudgetError):
+            ResourceEnvelope.from_config({"wall_ms": 1e309, "cpu_ms": 10.0})
+
+    def test_ledger_measures_from_the_external_go_not_from_router_start(self):
+        # Legal-root qualification happens before the router exists. A
+        # self-started clock would hand a slow oracle a second full envelope.
+        clock = _Clock(100.0)
+        router = ConservativeRouter(
+            envelope=envelope(wall_ms=2000.0), policy=policy(), clock=clock
+        )
+        context = _FakeContext()
+        context.started_monotonic = 100.0  # the external `go`
+        context.elapsed = 1900.0           # spent qualifying before the router ran
+        router.on_run_start(context)
+
+        clock.now = 100.0 + 2.5  # 2500ms after the `go`, past the 2000ms envelope
+        self.assertTrue(
+            router.ledger.wall_exhausted(),
+            "the wall deadline ignored time spent before the router started",
+        )
+
+        # Without the seed the same elapsed time reads as no time at all.
+        unseeded = BudgetLedger(envelope(wall_ms=2000.0), clock=clock)
+        self.assertFalse(unseeded.wall_exhausted())
+
+    def test_qualification_time_is_charged_to_the_envelope(self):
+        router = ConservativeRouter(
+            envelope=envelope(), policy=policy(), clock=lambda: 0.0
+        )
+        context = _FakeContext()
+        context.elapsed = 250.0
+        router.on_run_start(context)
+        lane = router.ledger.snapshot()["lanes"]["qualification"]
+        self.assertEqual(lane["spent_cpu_ms"], 250.0)
+        self.assertIn("controller.qualification_ms", lane["native_work"])
+
+    def test_a_stage_that_outruns_its_estimate_is_charged_in_full(self):
+        router = ConservativeRouter(
+            envelope=envelope(),
+            policy=policy(stage_cpu_ms_estimate=400.0),
+            calibration=confident_model(risk=0.01),
+            clock=lambda: 0.0,
+        )
+        context = _FakeContext()
+        context.stage_elapsed_ms = 900.0  # more than the 400ms reservation
+        router.on_run_start(context)
+        self.assertTrue(router.authorize_initial(context, "stockfish"))
+
+        subject = observation()
+        decision = router._authorize(propose(subject, router.policy), subject, 100.0)
+        self.assertTrue(decision.granted)
+        router._to_command(decision, context)
+
+        lane = router.ledger.snapshot()["lanes"]["shadow:stockfish"]
+        self.assertEqual(lane["spent_cpu_ms"], 900.0, "the overrun was clamped away")
+
+    def test_a_failed_anchor_reservation_forbids_an_envelope_claim(self):
+        router = ConservativeRouter(
+            envelope=envelope(
+                wall_ms=2000.0,
+                cpu_ms=500.0,
+                verification_reserve_fraction=0.0,
+                controller_overhead_reserve_ms=0.0,
+            ),
+            policy=policy(anchor_cpu_ms_estimate=5000.0),
+            clock=lambda: 0.0,
+        )
+        context = _FakeContext()
+        router.on_run_start(context)
+        self.assertFalse(router._anchor_reserved)
+        self.assertTrue(
+            any("cannot claim envelope compliance" in n for n in router.audit.notes),
+            router.audit.notes,
+        )
+        self.assertFalse(
+            router._anchor_bound[0] and router._anchor_reserved,
+            "a run with an unrecorded anchor obligation must not claim compliance",
+        )
+
+    def test_a_gpu_envelope_without_a_stage_estimate_accounts_nothing(self):
+        unaccounted = ConservativeRouter(
+            envelope=envelope(gpu_ms=5000.0),
+            policy=policy(stage_gpu_ms_estimate=0.0),
+            clock=lambda: 0.0,
+        )
+        self.assertFalse(unaccounted._gpu_accounted())
+
+        accounted = ConservativeRouter(
+            envelope=envelope(gpu_ms=5000.0),
+            policy=policy(stage_gpu_ms_estimate=100.0),
+            clock=lambda: 0.0,
+        )
+        self.assertTrue(accounted._gpu_accounted())
+        # No GPU declared is trivially accounted.
+        self.assertTrue(
+            ConservativeRouter(
+                envelope=envelope(gpu_ms=0.0), policy=policy(), clock=lambda: 0.0
+            )._gpu_accounted()
+        )
+
+    def test_gpu_estimates_are_reserved_and_bind(self):
+        router = ConservativeRouter(
+            envelope=envelope(gpu_ms=150.0),
+            policy=policy(stage_gpu_ms_estimate=100.0, anchor_cpu_ms_estimate=1.0),
+            clock=lambda: 0.0,
+        )
+        context = _FakeContext()
+        router.on_run_start(context)
+        self.assertTrue(router.authorize_initial(context, "lc0"))
+        self.assertEqual(router.ledger.snapshot()["committed_gpu_ms"], 100.0)
+        # The second worker cannot fit in the remaining 50ms of GPU envelope.
+        self.assertFalse(router.authorize_initial(context, "stockfish"))
+
+    def test_checkpoints_skip_owners_with_no_dispatch_state(self):
+        # An owner excluded for an unhealthy process, or holding an empty root
+        # region, has no state. It would look merely idle and could collect a
+        # reservation the coordinator silently drops.
+        router = ConservativeRouter(
+            envelope=envelope(), policy=policy(), clock=lambda: 0.0
+        )
+        context = _FakeContext()
+        context.dispatchable = ("stockfish",)
+        router.on_run_start(context)
+        router.on_checkpoint(context)
+        owners = {d["observation"]["owner"] for d in router.audit.decisions}
+        self.assertEqual(owners, {"stockfish"})
+
+    def test_engine_native_work_reaches_the_budget_snapshot(self):
+        router = ConservativeRouter(
+            envelope=envelope(), policy=policy(), clock=lambda: 0.0
+        )
+        context = _WorkContext()
+        router.on_run_start(context)
+        router.on_checkpoint(context)
+        totals = router.ledger.native_work_by_semantics()
+        self.assertEqual(totals.get("lc0.uci_nodes"), 4242.0)
+        self.assertNotIn("nodes", totals)
+
+    def test_routing_and_budget_errors_are_not_controller_runtime_errors(self):
+        # This is why controller/__main__.py has to name them explicitly: they
+        # are siblings of controller.runtime.RuntimeError, not subclasses.
+        from controller.runtime import RuntimeError as ControllerRuntimeError
+
+        self.assertFalse(issubclass(RoutingError, ControllerRuntimeError))
+        self.assertFalse(issubclass(BudgetError, ControllerRuntimeError))
+        self.assertTrue(issubclass(RoutingError, RuntimeError))
+        self.assertTrue(issubclass(BudgetError, RuntimeError))
+
+
 class RouterConfigTests(unittest.TestCase):
     def test_active_config_builds_a_fail_closed_router(self):
         path = ROOT / "config" / "allfather.active.validation.json"
@@ -590,6 +756,82 @@ class ActiveModeEndToEndTests(unittest.TestCase):
             self.assertFalse(manifest["shadow_health"]["lc0-shadow"]["alive"])
 
 
+class _Clock:
+    """A clock a test can advance deliberately."""
+
+    def __init__(self, now: float = 0.0) -> None:
+        self.now = now
+
+    def __call__(self) -> float:
+        return self.now
+
+
+def _lc0_events() -> list[dict]:
+    """A minimal real LC0 telemetry stream reporting engine-native work."""
+    adapter = Lc0TelemetryAdapter(
+        score_type="centipawn",
+        search_id="unit:lc0-shadow:0",
+        engine_instance="lc0-shadow",
+        position_id="pos-unit",
+    )
+    events = [
+        adapter.start(
+            position={"base_fen": STARTPOS_FEN, "moves": []},
+            request={"limits": [], "raw": "go nodes 20000", "root_moves": ["g1f3"]},
+            observed_ms=0,
+            controller={"execution_mode": "active", "owner": "lc0"},
+        )
+    ]
+    events += adapter.consume(
+        "info depth 3 multipv 1 nodes 4242 score cp 12 pv g1f3 g8f6", observed_ms=10.0
+    )
+    return events
+
+
+class _WorkContext:
+    """A context whose single worker reports engine-native work."""
+
+    run_id = "unit-test-work"
+    run_dir = Path("/nonexistent")
+    owners = ("lc0",)
+    owner_roots: dict[str, tuple[str, ...]] = {"lc0": ("g1f3",)}
+    external_go_command = "go movetime 1000"
+    started_monotonic = 0.0
+
+    def elapsed_ms(self) -> float:
+        return 0.0
+
+    def dispatchable_owners(self) -> tuple[str, ...]:
+        return self.owners
+
+    def active_owners(self) -> tuple[str, ...]:
+        return ()
+
+    def owner_instance(self, owner: str) -> str:
+        return "lc0-shadow"
+
+    def owner_family(self, owner: str) -> str:
+        return "lc0"
+
+    def owner_events(self, owner: str) -> list[dict]:
+        return _lc0_events()
+
+    def owner_active(self, owner: str) -> bool:
+        return False
+
+    def owner_stages(self, owner: str) -> int:
+        return 1
+
+    def owner_last_stage_ms(self, owner: str) -> float | None:
+        return None
+
+    def owner_elapsed_stage_ms(self, owner: str) -> float | None:
+        return None
+
+    def owner_events_truncated(self, owner: str) -> bool:
+        return False
+
+
 class _FakeContext:
     run_id = "unit-test-run"
     run_dir = Path("/nonexistent")
@@ -597,9 +839,14 @@ class _FakeContext:
     owner_roots: dict[str, tuple[str, ...]] = {}
     external_go_command = "go movetime 1000"
     stage_elapsed_ms: float | None = None
+    elapsed = 0.0
+    dispatchable: tuple[str, ...] | None = None
 
     def elapsed_ms(self) -> float:
-        return 0.0
+        return self.elapsed
+
+    def dispatchable_owners(self) -> tuple[str, ...]:
+        return self.owners if self.dispatchable is None else self.dispatchable
 
     def active_owners(self) -> tuple[str, ...]:
         return ()

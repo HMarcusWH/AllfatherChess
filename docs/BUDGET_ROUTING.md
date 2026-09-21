@@ -174,9 +174,24 @@ does instead is refuse to *claim* compliance. `route.json` carries:
 ```text
 envelope_claim.anchor_request_bounded   was the outward request within the envelope
 envelope_claim.anchor_request_reason    why, in words
+envelope_claim.anchor_cost_reserved     was the anchor's cost actually recorded
+envelope_claim.gpu_accounted            does a declared GPU envelope have a per-stage estimate
 envelope_claim.reservations_within_envelope
-envelope_claim.claimed                  both of the above, and nothing less
+envelope_claim.claimed                  all of the above, and nothing less
 ```
+
+`anchor_cost_reserved` matters because the anchor is already searching by the
+time the router runs: if its reservation is refused, the cost becomes an
+unrecorded obligation that no later settlement can capture. `gpu_accounted` is
+false when a GPU envelope is declared with no per-stage GPU estimate, since
+reserving only CPU would let a GPU-backed worker consume arbitrary accelerator
+time while the ledger reported itself compliant.
+
+The ledger's clock is seeded from the external `go`, not from the router's own
+construction: legal-root qualification runs before the router exists, and a
+self-started clock would hand a slow oracle a second full envelope. That
+already-elapsed preparation and qualification time is charged to its own
+`qualification` lane rather than left outside the accounting.
 
 ## Authority boundary
 

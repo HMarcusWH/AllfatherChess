@@ -53,7 +53,12 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--fit", action="store_true", help="fit a reversal-risk calibration")
     parser.add_argument("--derived-id", default=None)
     parser.add_argument("--min-support", type=int, default=25)
-    parser.add_argument("--horizon-fraction", type=float, default=0.25)
+    parser.add_argument(
+        "--horizon-fraction",
+        type=float,
+        default=None,
+        help="default 0.25 when deriving; when fitting alone it is read from the artifact",
+    )
     parser.add_argument("--top-k", type=int, default=3)
     return parser
 
@@ -83,7 +88,7 @@ def main(argv: list[str] | None = None) -> int:
         artifact = build_derived_artifact(
             runs,
             top_k=args.top_k,
-            horizon_fraction=args.horizon_fraction,
+            horizon_fraction=0.25 if args.horizon_fraction is None else args.horizon_fraction,
             derived_id=args.derived_id,
         )
         derived_path = write_derived_artifact(artifact, derived_root)
@@ -99,6 +104,15 @@ def main(argv: list[str] | None = None) -> int:
                 raise SystemExit(f"no derived artifacts under {derived_root}")
             derived_path = candidates[-1]
         derived = load_derived_artifact(derived_path)
+        # The labels were produced with the artifact's horizon. Recording the
+        # CLI default instead would make the model's id and provenance describe
+        # a horizon its own labels never used.
+        artifact_horizon = float(derived.get("parameters", {}).get("horizon_fraction", 0.25))
+        if args.horizon_fraction is not None and args.horizon_fraction != artifact_horizon:
+            raise SystemExit(
+                f"--horizon-fraction {args.horizon_fraction} does not match the derived "
+                f"artifact's {artifact_horizon}; re-derive or drop the flag"
+            )
         rows = training_rows_from_derived(derived)
         if not rows:
             raise SystemExit(
@@ -108,7 +122,7 @@ def main(argv: list[str] | None = None) -> int:
         model = ReversalRiskModel.fit(
             rows,
             min_support=args.min_support,
-            horizon_fraction=args.horizon_fraction,
+            horizon_fraction=artifact_horizon,
             sources=[
                 {
                     "derived_id": derived["derived_id"],

@@ -20,6 +20,7 @@ not the same quantity.
 from __future__ import annotations
 
 import itertools
+import math
 import threading
 import time
 from contextlib import contextmanager
@@ -52,9 +53,24 @@ class ResourceEnvelope:
     controller_overhead_reserve_ms: float = 0.0
 
     def __post_init__(self) -> None:
-        for name in ("wall_ms", "cpu_ms", "gpu_ms"):
+        # `value < 0` alone accepts both infinity and NaN. An infinite budget
+        # silently disables the deadline or the ceiling it describes while the
+        # run still reports itself compliant, and NaN makes every comparison
+        # false, so the accounting stops meaning anything at all.
+        for name in (
+            "wall_ms",
+            "cpu_ms",
+            "gpu_ms",
+            "verification_reserve_fraction",
+            "controller_overhead_reserve_ms",
+        ):
             value = getattr(self, name)
-            if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0:
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise BudgetError(f"{name} must be a number")
+            if not math.isfinite(float(value)):
+                raise BudgetError(f"{name} must be finite, got {value!r}")
+        for name in ("wall_ms", "cpu_ms", "gpu_ms"):
+            if getattr(self, name) < 0:
                 raise BudgetError(f"{name} must be a non-negative number")
         if not 0.0 <= self.verification_reserve_fraction < 1.0:
             raise BudgetError("verification_reserve_fraction must be in [0, 1)")
@@ -67,6 +83,9 @@ class ResourceEnvelope:
     def from_config(cls, config: dict[str, Any] | None) -> "ResourceEnvelope":
         if not config:
             raise BudgetError("active mode requires an explicit budget configuration")
+        for key in ("wall_ms", "cpu_ms", "gpu_ms"):
+            if key in config and isinstance(config[key], str):
+                raise BudgetError(f"budget.{key} must be a number, not a string")
         return cls(
             wall_ms=float(config.get("wall_ms", 0.0)),
             cpu_ms=float(config.get("cpu_ms", 0.0)),
@@ -135,6 +154,7 @@ class BudgetLedger:
         envelope: ResourceEnvelope,
         *,
         clock: Callable[[], float] | None = None,
+        started: float | None = None,
     ) -> None:
         self.envelope = envelope
         self._clock = clock or time.monotonic
@@ -142,7 +162,11 @@ class BudgetLedger:
         self._lanes: dict[str, LaneAccount] = {}
         self._ids = itertools.count(1)
         self._open: dict[int, Reservation] = {}
-        self._started = self._clock()
+        # `started` lets the ledger measure from the external `go` rather than
+        # from its own construction. Legal-root qualification happens before the
+        # router exists, so a self-started clock would hand a slow oracle a free
+        # extra envelope.
+        self._started = self._clock() if started is None else started
         self._denials: list[dict[str, Any]] = []
 
     # -- clock ---------------------------------------------------------------
@@ -279,6 +303,21 @@ class BudgetLedger:
             account = self._lane(reservation.lane)
             account.reserved_cpu_ms = max(0.0, account.reserved_cpu_ms - reservation.cpu_ms)
             account.reserved_gpu_ms = max(0.0, account.reserved_gpu_ms - reservation.gpu_ms)
+
+    def charge_elapsed(self, lane: str, *, cpu_ms: float, note: str = "") -> None:
+        """Record work that happened before the ledger could reserve it.
+
+        Controller startup work — notably the legal-root oracle — runs before
+        any reservation exists. Charging it after the fact keeps it inside `B`
+        instead of leaving it outside the accounting entirely.
+        """
+        if cpu_ms < 0 or not math.isfinite(cpu_ms):
+            raise BudgetError("charged elapsed time must be finite and non-negative")
+        with self._lock:
+            account = self._lane(lane)
+            account.spent_cpu_ms += cpu_ms
+            if note:
+                account.native_work[note] = account.native_work.get(note, 0.0) + cpu_ms
 
     def record_native_work(self, lane: str, *, value: float, semantics: str) -> None:
         """Record an engine-native counter under its own semantics tag."""

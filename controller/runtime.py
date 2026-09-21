@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Callable, Iterable
 
 from adapters.process import UciProcess, UciProcessError
+from adapters.telemetry import SUPPORTED_SCORE_TYPES
 
 
 class RuntimeError(RuntimeError):
@@ -315,6 +316,15 @@ def _load_shadow_settings(
     score_type = raw.get("lc0_score_type", "centipawn")
     if not isinstance(score_type, str) or not score_type:
         raise RuntimeError("shadow.lc0_score_type must be a non-empty string")
+    if score_type not in SUPPORTED_SCORE_TYPES:
+        # Caught here rather than inside the telemetry writer thread, where a
+        # typo would surface as an adapter error after every engine had already
+        # started and the LC0 search had been dispatched, leaving the run with
+        # no usable LC0 evidence instead of a refusal.
+        raise RuntimeError(
+            f"shadow.lc0_score_type {score_type!r} is not a supported LC0 ScoreType; "
+            f"supported: {sorted(SUPPORTED_SCORE_TYPES)}"
+        )
 
     replay_value = raw.get("replay_root", "build/replays")
     if not isinstance(replay_value, str) or not replay_value:

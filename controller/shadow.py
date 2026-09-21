@@ -156,6 +156,18 @@ class RunContext:
     def active_owners(self) -> tuple[str, ...]:
         return tuple(owner for owner in self.owners if self.owner_active(owner))
 
+    def dispatchable_owners(self) -> tuple[str, ...]:
+        """Owners that actually hold a dispatch state for this run.
+
+        An owner excluded for an unhealthy process, or assigned an empty root
+        region, never gets an entry. It would otherwise look merely idle to the
+        router, which could reserve an extension the coordinator silently drops.
+        """
+        state = self._coordinator._run_snapshot(self.generation)
+        if state is None:
+            return ()
+        return tuple(owner for owner in self.owners if owner in state)
+
     def owner_instance(self, owner: str) -> str:
         state = self._coordinator._owner_state(self.generation, owner)
         if state is not None:
@@ -543,6 +555,13 @@ class ShadowRunCoordinator:
             )
         active.run.note(f"shadow instance {instance} exited unexpectedly (rc={rc}); evidence only")
         state.done.set()
+
+    def _run_snapshot(self, generation: int) -> dict[str, _OwnerState] | None:
+        with self._lock:
+            active = self._run
+            if active is None or active.generation != generation:
+                return None
+            return dict(active.owners)
 
     def _owner_state(self, generation: int, owner: str) -> _OwnerState | None:
         with self._lock:

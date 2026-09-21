@@ -44,7 +44,7 @@ from controller.replay_analysis import (
     load_bundle,
     summarize_trajectory,
 )
-from controller.calibration import FEATURE_NAMES
+from controller.calibration import FEATURE_NAMES, load_calibration, write_calibration
 from controller.residuals import (
     EXTRACTOR_VERSION,
     FeatureExtractionError,
@@ -404,6 +404,73 @@ class ReviewRegressionTests(unittest.TestCase):
             build_derived_artifact([run_dir])
         self.assertIn("integrity", str(ctx.exception))
 
+    def test_anchor_rows_never_train_the_router(self):
+        # The router only ever decides whether to stop a shadow worker, so
+        # anchor observations would train a decision that is never made -- and
+        # would pool their support with the workers it does decide about.
+        artifact = build_derived_artifact(sorted(self.paths.values()))
+        rows = training_rows_from_derived(artifact.as_dict())
+        self.assertTrue(rows)
+        self.assertNotIn(
+            "stockfish-anchor", {row.instance for row in rows}, "anchor rows leaked into training"
+        )
+        self.assertTrue(all(row.owner for row in rows))
+        self.assertTrue({row.owner for row in rows} <= {"stockfish", "reckless", "lc0"})
+
+    def test_one_family_cannot_supply_another_family_support(self):
+        rows = [
+            TrainingRow(
+                run_id=f"run-{index % 8}",
+                instance="stockfish-shadow",
+                owner="stockfish",
+                observation_count=9,
+                leader_flips=0,
+                stable_run_fraction=1.0,
+                label=False,
+            )
+            for index in range(400)
+        ]
+        model = ReversalRiskModel.fit(rows, min_support=5)
+        features = {"observation_count": 9, "leader_flips": 0, "stable_run_fraction": 1.0}
+
+        owned = model.evaluate(features, scope="stockfish")
+        self.assertTrue(owned.in_domain)
+        self.assertGreaterEqual(owned.support, 5)
+
+        borrowed = model.evaluate(features, scope="lc0")
+        self.assertFalse(
+            borrowed.in_domain, "LC0 borrowed support from Stockfish observations"
+        )
+        self.assertEqual(borrowed.support, 0)
+        self.assertGreaterEqual(borrowed.risk, model.prior_risk)
+
+    def test_streams_that_are_not_contract_valid_cannot_train(self):
+        # Dropped events and failed adapter translation both remove
+        # observations, and a removed leader flip reads as stability.
+        run_dir = self.paths["failed_shadow_stream"]
+        artifact = build_derived_artifact([run_dir]).as_dict()
+        run = artifact["runs"][0]
+
+        ineligible = {
+            label["instance"]
+            for labels in run["counterfactual_labels"].values()
+            for label in labels
+            if label["calibration_eligible"] is False
+        }
+        self.assertIn("lc0-shadow", ineligible)
+
+        rows = training_rows_from_derived(artifact)
+        self.assertNotIn("lc0-shadow", {row.instance for row in rows})
+        self.assertTrue(rows, "eligible streams still produced no rows")
+
+    def test_derived_artifact_publishes_the_horizon_it_used(self):
+        # The fit step reads this rather than a CLI default, so a model cannot
+        # record a horizon its own labels never used.
+        artifact = build_derived_artifact(
+            [self.paths["late_reversal"]], horizon_fraction=0.4
+        )
+        self.assertEqual(artifact.as_dict()["parameters"]["horizon_fraction"], 0.4)
+
     def test_derived_id_covers_every_extraction_parameter(self):
         runs = [self.paths["late_reversal"]]
         base = build_derived_artifact(runs).derived_id
@@ -471,6 +538,7 @@ class CalibrationTests(unittest.TestCase):
                 TrainingRow(
                     run_id=f"run-{index % 8}",
                     instance="stockfish-shadow",
+                    owner="stockfish",
                     observation_count=index % 14,
                     leader_flips=index % 3,
                     stable_run_fraction=((index * 3) % 10) / 10.0,
@@ -481,28 +549,42 @@ class CalibrationTests(unittest.TestCase):
 
     def test_bucket_key_is_stable_and_bounded(self):
         key = bucket_key(
-            {"observation_count": 40, "stable_run_fraction": 1.0, "leader_flips": 5}
+            {"observation_count": 40, "stable_run_fraction": 1.0, "leader_flips": 5},
+            scope="stockfish",
         )
-        self.assertEqual(key, "n3|s3|f2")
+        self.assertEqual(key, "stockfish|n3|s3|f2")
         self.assertEqual(
-            bucket_key({"observation_count": 0, "stable_run_fraction": 0.0, "leader_flips": 0}),
-            "n0|s0|f0",
+            bucket_key(
+                {"observation_count": 0, "stable_run_fraction": 0.0, "leader_flips": 0},
+                scope="lc0",
+            ),
+            "lc0|n0|s0|f0",
+        )
+        # The same search state in two families is two populations.
+        features = {"observation_count": 9, "stable_run_fraction": 0.8, "leader_flips": 1}
+        self.assertNotEqual(
+            bucket_key(features, scope="stockfish"), bucket_key(features, scope="lc0")
         )
         with self.assertRaises(CalibrationError):
-            bucket_key({"observation_count": 5})
+            bucket_key({"observation_count": 5}, scope="stockfish")
         with self.assertRaises(CalibrationError):
             bucket_key(
-                {"observation_count": 5, "stable_run_fraction": 0.5, "leader_flips": -1}
+                {"observation_count": 5, "stable_run_fraction": 0.5, "leader_flips": -1},
+                scope="stockfish",
             )
         with self.assertRaises(CalibrationError):
             bucket_key(
-                {"observation_count": -1, "stable_run_fraction": 0.5, "leader_flips": 0}
+                {"observation_count": -1, "stable_run_fraction": 0.5, "leader_flips": 0},
+                scope="stockfish",
             )
+        with self.assertRaises(CalibrationError):
+            bucket_key(features, scope="")
 
     def test_low_support_buckets_are_out_of_domain_and_conservative(self):
         model = ReversalRiskModel.fit(self.rows(400), min_support=1000)
         verdict = model.evaluate(
-            {"observation_count": 6, "stable_run_fraction": 0.5, "leader_flips": 0}
+            {"observation_count": 6, "stable_run_fraction": 0.5, "leader_flips": 0},
+            scope="stockfish",
         )
         self.assertFalse(verdict.in_domain)
         self.assertIn("support", verdict.reason)
@@ -512,7 +594,8 @@ class CalibrationTests(unittest.TestCase):
         model = ReversalRiskModel.fit(self.rows(400), min_support=1)
         model.buckets.clear()
         verdict = model.evaluate(
-            {"observation_count": 12, "stable_run_fraction": 0.9, "leader_flips": 0}
+            {"observation_count": 12, "stable_run_fraction": 0.9, "leader_flips": 0},
+            scope="stockfish",
         )
         self.assertFalse(verdict.in_domain)
         self.assertEqual(verdict.risk, model.prior_risk)
@@ -569,6 +652,31 @@ class CalibrationTests(unittest.TestCase):
             with self.assertRaises(CalibrationError):
                 load_calibration(path)
 
+    def test_impossible_stored_models_are_refused_at_load(self):
+        # A file can be syntactically valid and still describe a model that
+        # cannot be true. Every one of these passes each suppression gate.
+        model = ReversalRiskModel.fit(self.rows(400), min_support=5)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write_calibration(model, Path(tmp))
+            good = json.loads(path.read_text())
+            key = sorted(good["buckets"])[0]
+
+            for mutate in (
+                lambda d: d["buckets"][key].__setitem__("risk", -1.0),
+                lambda d: d["buckets"][key].__setitem__("risk", 1.5),
+                lambda d: d["buckets"][key].__setitem__("support", -3),
+                lambda d: d["buckets"][key].__setitem__(
+                    "positives", d["buckets"][key]["support"] + 1
+                ),
+                lambda d: d.__setitem__("prior_risk", -0.5),
+                lambda d: d.__setitem__("prior_risk", 2.0),
+            ):
+                broken = json.loads(json.dumps(good))
+                mutate(broken)
+                path.write_text(json.dumps(broken), encoding="utf-8")
+                with self.assertRaises(CalibrationError):
+                    load_calibration(path)
+
     def test_model_id_is_addressed_by_contents_and_hyperparameters(self):
         rows = self.rows(400)
         base = ReversalRiskModel.fit(rows, min_support=5).model_id
@@ -585,6 +693,7 @@ class CalibrationTests(unittest.TestCase):
             TrainingRow(
                 run_id=row.run_id,
                 instance=row.instance,
+                owner=row.owner,
                 observation_count=row.observation_count,
                 leader_flips=row.leader_flips,
                 stable_run_fraction=row.stable_run_fraction,
@@ -608,6 +717,7 @@ class CalibrationTests(unittest.TestCase):
             for row in rows:
                 # Nothing in a feature vector may come from after the checkpoint.
                 self.assertGreaterEqual(row.observation_count, 0)
+                self.assertTrue(row.owner, "every training row must name its solver family")
                 self.assertGreaterEqual(row.stable_run_fraction, 0.0)
                 self.assertLessEqual(row.stable_run_fraction, 1.0)
                 self.assertGreaterEqual(row.leader_flips, 0)

@@ -1079,6 +1079,30 @@ class ShadowRunCoordinator:
                         stage.target_id, "incomplete", message
                     )
                     active.refinement.set_disposition("incomplete", message)
+            for instance in sorted(active.refinement_positioned):
+                message = (
+                    f"REFINE-positioned shadow {instance} did not restore within "
+                    f"{timeout}s and is excluded from further synchronization"
+                )
+                self.runtime.record_shadow_failure(
+                    instance, message, generation=active.generation
+                )
+                if active.refinement is not None:
+                    active.refinement.note(message)
+                    active.refinement.set_disposition("incomplete", message)
+            active.refinement_positioned.clear()
+            if active.refinement_oracle_active:
+                oracle = self.settings.oracle
+                message = (
+                    f"REFINE child oracle {oracle} did not return within {timeout}s and is "
+                    "excluded from further synchronization"
+                )
+                self.runtime.record_shadow_failure(
+                    oracle, message, generation=active.generation
+                )
+                if active.refinement is not None:
+                    active.refinement.note(message)
+                    active.refinement.set_disposition("incomplete", message)
             if active.qualifying:
                 # No owner state exists yet while the oracle is answering, so
                 # the loop above found nothing to fail. The oracle is still

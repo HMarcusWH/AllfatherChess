@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import io
 import json
 import os
 import sys
@@ -1260,6 +1261,353 @@ class ReviewRegressionRoundNineTests(unittest.TestCase):
                 sorted(path.name for path in orphans),
                 [],
                 "the abandoned thread left a manifest-less directory behind",
+            )
+
+
+class ReviewRegressionRoundTenTests(unittest.TestCase):
+    """Round-ten findings: authority isolation, shared deadlines, gate binding."""
+
+    @staticmethod
+    def _install_owners(coordinator, active) -> list:
+        """Populate owner state the way qualification does, without an oracle.
+
+        `prepare_run` creates the run; owners appear later, when the legal-root
+        oracle answers. These tests are about what happens to a DISPATCHED
+        owner, so they install that state directly and leave every other path
+        untouched.
+        """
+        import controller.shadow as shadow_module
+
+        states = []
+        for index, owner in enumerate(coordinator.settings.owners):
+            instance = coordinator.settings.instance_by_owner[owner]
+            state = shadow_module._OwnerState(
+                owner=owner,
+                instance=instance,
+                family=coordinator.runtime.spec(instance).family,
+                roots=("e2e4",),
+            )
+            state.dispatched = True
+            active.owners[owner] = state
+            states.append(state)
+        return states
+
+    def test_the_stop_command_reaches_the_anchor_before_any_shadow(self):
+        """A blocked shadow must not swallow the GUI's `stop`.
+
+        `_shadow_cancel` ran first and sends `stop` to every dispatched shadow.
+        One blocked shadow stdin therefore meant `stop_anchor()` was never
+        reached and the anchor's already-computed `bestmove` was never asked
+        for -- observation holding up decision authority, which the authority
+        firewall does not permit.
+        """
+        import controller.uci_frontend as frontend_module
+
+        order: list[str] = []
+        released = threading.Event()
+
+        class _BlockingShadow:
+            def cancel(self, generation=None, *, reason, detach=False):
+                order.append("shadow")
+                released.wait(timeout=5.0)
+
+            def quiesce(self, *args, **kwargs):
+                return True
+
+            def close(self):
+                pass
+
+        class _Runtime:
+            healthy = True
+
+            def stop_anchor(self):
+                order.append("anchor")
+
+        shell = frontend_module.UciFrontend.__new__(frontend_module.UciFrontend)
+        shell.runtime = _Runtime()
+        shell.shadow = _BlockingShadow()
+        shell.output = io.StringIO()
+        shell._write_lock = threading.Lock()
+        shell._state_lock = threading.RLock()
+        shell._state = frontend_module.ShellState.SEARCHING
+        shell._active_generation = 1
+
+        try:
+            worker = threading.Thread(target=shell.handle_command, args=("stop",), daemon=True)
+            worker.start()
+            worker.join(timeout=3.0)
+            self.assertEqual(
+                order[:1],
+                ["anchor"],
+                "the shadow layer was contacted before decision authority was",
+            )
+        finally:
+            released.set()
+
+    def test_cancelling_shadows_does_not_hold_the_coordinator_lock(self):
+        """`stop` writes happen outside `self._lock`.
+
+        Writing to an engine's stdin can block on a full pipe. Doing it under
+        the coordinator lock blocks `note_anchor_complete`, which is the path
+        that records the anchor's own completion.
+        """
+        import controller.shadow as shadow_module
+
+        with tempfile.TemporaryDirectory() as tmp:
+            manager = BackendManager.from_path(write_shadow_config(Path(tmp)))
+            manager.start()
+            coordinator = shadow_module.ShadowRunCoordinator(runtime=manager)
+            released = threading.Event()
+            blocked = threading.Event()
+            real_stop = manager.stop_instance
+            try:
+                self.assertTrue(
+                    coordinator.prepare_run(generation=1, go_command="go nodes 64")
+                )
+                active = coordinator._run
+                self._install_owners(coordinator, active)
+
+                def _blocking_stop(instance):
+                    blocked.set()
+                    released.wait(timeout=5.0)
+
+                manager.stop_instance = _blocking_stop  # type: ignore[assignment]
+                canceller = threading.Thread(
+                    target=coordinator.cancel,
+                    kwargs={"generation": 1, "reason": "test"},
+                    daemon=True,
+                )
+                canceller.start()
+                if not blocked.wait(timeout=3.0):
+                    self.skipTest("no dispatched owner to stop")
+                # This needs `self._lock`. If the blocked write holds it, the
+                # coordinator is wedged and so is the anchor's completion path.
+                reader = threading.Thread(
+                    target=coordinator._run_snapshot, args=(1,), daemon=True
+                )
+                reader.start()
+                reader.join(timeout=2.0)
+                still_locked = reader.is_alive()
+            finally:
+                released.set()
+                manager.stop_instance = real_stop  # type: ignore[assignment]
+                coordinator.close()
+                manager.close()
+
+            self.assertFalse(
+                still_locked,
+                "a blocking engine write held the coordinator lock",
+            )
+
+    def test_every_preparation_step_shares_one_pre_anchor_deadline(self):
+        """`prepare_budget_s` is the cap for ALL pre-anchor setup.
+
+        Giving the directory creation and the stream open a full window each
+        let both finish just inside their own bound and delay the outward
+        anchor by nearly twice the declared hard cap.
+        """
+        import controller.shadow as shadow_module
+
+        budget_s = 0.30
+        step_s = 0.20
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write_shadow_config(Path(tmp))
+            document = json.loads(path.read_text())
+            document["shadow"]["prepare_budget_s"] = budget_s
+            path.write_text(json.dumps(document), encoding="utf-8")
+
+            manager = BackendManager.from_path(path)
+            manager.start()
+            coordinator = shadow_module.ShadowRunCoordinator(runtime=manager)
+            # `mkdir(parents=True)` retries itself after creating a missing
+            # parent, so an unconditional sleep fires TWICE and blows the whole
+            # budget inside the first step -- the second step is then never
+            # reached and this test cannot tell the two behaviours apart.
+            # Pre-create the root and only slow a `mkdir` that really creates.
+            coordinator.settings.replay_root.mkdir(parents=True, exist_ok=True)
+            real_mkdir = shadow_module.Path.mkdir
+            real_open = shadow_module.Path.open
+            try:
+                def _slow_mkdir(self, *args, **kwargs):
+                    if "-g0000" in self.name and not self.exists():
+                        time.sleep(step_s)
+                    return real_mkdir(self, *args, **kwargs)
+
+                def _slow_open(self, *args, **kwargs):
+                    if self.suffix == ".jsonl":
+                        time.sleep(step_s)
+                    return real_open(self, *args, **kwargs)
+
+                shadow_module.Path.mkdir = _slow_mkdir  # type: ignore[assignment]
+                shadow_module.Path.open = _slow_open  # type: ignore[assignment]
+                started = time.monotonic()
+                coordinator.prepare_run(generation=1, go_command="go nodes 64")
+                elapsed = time.monotonic() - started
+            finally:
+                shadow_module.Path.mkdir = real_mkdir  # type: ignore[assignment]
+                shadow_module.Path.open = real_open  # type: ignore[assignment]
+                coordinator.close()
+                manager.close()
+
+            # Each step alone (0.20s) fits inside the budget; only their SUM
+            # does not. With a window each, both succeed and the outward anchor
+            # waits ~0.40s for a bound declared as 0.30s.
+            self.assertLess(
+                elapsed,
+                budget_s + 0.06,
+                "pre-anchor setup exceeded the single declared budget "
+                f"({elapsed:.3f}s against {budget_s}s)",
+            )
+
+    def test_one_wait_per_checkpoint_interval_not_one_per_owner(self):
+        """Three owners must not make every check happen three intervals apart."""
+        import controller.shadow as shadow_module
+
+        interval = 0.15
+        pending = [
+            shadow_module._OwnerState(
+                owner=f"o{i}", instance=f"i{i}", family="stockfish", roots=("e2e4",)
+            )
+            for i in range(3)
+        ]
+        started = time.monotonic()
+        shadow_module.ShadowRunCoordinator._wait_slice(pending, interval)
+        elapsed = time.monotonic() - started
+        self.assertLess(
+            elapsed,
+            interval * 1.8,
+            f"one slice waited {elapsed:.3f}s for {len(pending)} owners at {interval}s",
+        )
+
+    def test_quiescence_uses_one_deadline_for_both_waits(self):
+        """`drain_timeout_s` is the hard bound, not the bound per wait."""
+        import controller.shadow as shadow_module
+
+        with tempfile.TemporaryDirectory() as tmp:
+            manager = BackendManager.from_path(write_shadow_config(Path(tmp)))
+            manager.start()
+            coordinator = shadow_module.ShadowRunCoordinator(runtime=manager)
+            timeout = 0.4
+            try:
+                self.assertTrue(
+                    coordinator.prepare_run(generation=1, go_command="go nodes 64")
+                )
+                active = coordinator._run
+                # A worker that never finishes: both waits must share one
+                # deadline rather than each granting a fresh full window.
+                active.worker = threading.Thread(
+                    target=lambda: time.sleep(10.0), daemon=True
+                )
+                active.worker.start()
+                started = time.monotonic()
+                drained = coordinator.quiesce(timeout=timeout)
+                elapsed = time.monotonic() - started
+            finally:
+                coordinator.close()
+                manager.close()
+
+            self.assertFalse(drained, "a worker that never finishes did not drain")
+            self.assertLess(
+                elapsed,
+                timeout * 1.6,
+                f"quiesce blocked for {elapsed:.3f}s against a {timeout}s bound",
+            )
+
+    def test_a_blocked_shadow_stream_is_bounded_like_the_anchor_one(self):
+        """Stream setup at dispatch time was the one unbounded open left.
+
+        Opening a later owner's telemetry file blocks the coordinator after
+        earlier owners may already be searching: `_await_completion` is never
+        reached, so no stage deadline and no active-routing wall check runs
+        while those engines keep spending envelope, and a later quiesce cannot
+        finish either. This exercises `_dispatch_stage` directly because that
+        is where the unbounded call is; `_execute` reaches it for every stage.
+        """
+        import controller.shadow as shadow_module
+
+        budget_s = 0.2
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write_shadow_config(Path(tmp))
+            document = json.loads(path.read_text())
+            document["shadow"]["prepare_budget_s"] = budget_s
+            path.write_text(json.dumps(document), encoding="utf-8")
+
+            manager = BackendManager.from_path(path)
+            manager.start()
+            coordinator = shadow_module.ShadowRunCoordinator(runtime=manager)
+            real_open = shadow_module.Path.open
+            try:
+                self.assertTrue(
+                    coordinator.prepare_run(generation=1, go_command="go nodes 64")
+                )
+                active = coordinator._run
+                state = self._install_owners(coordinator, active)[0]
+                state.dispatched = False
+                blocked_name = f"{state.instance}.jsonl"
+
+                def _slow_open(self, *args, **kwargs):
+                    if self.name == blocked_name:
+                        time.sleep(5.0)
+                    return real_open(self, *args, **kwargs)
+
+                shadow_module.Path.open = _slow_open  # type: ignore[assignment]
+                started = time.monotonic()
+                dispatched = coordinator._dispatch_stage(
+                    active, state, limit={"nodes": 64}
+                )
+                elapsed = time.monotonic() - started
+            finally:
+                shadow_module.Path.open = real_open  # type: ignore[assignment]
+                coordinator.close()
+                manager.close()
+
+            self.assertLess(
+                elapsed,
+                budget_s + 0.4,
+                f"a blocked shadow stream held the coordinator for {elapsed:.3f}s",
+            )
+            self.assertFalse(
+                dispatched,
+                "a stage was dispatched with no telemetry stream behind it",
+            )
+
+    def test_a_quiescence_timeout_marks_the_owner_failed(self):
+        """A stuck owner's region may not be sealed as normally completed.
+
+        The timeout path released the waiter without setting `state.failed`, so
+        `_execute` still called `seal_owner` for it and the manifest carried a
+        failed stage whose region was represented as complete.
+        """
+        import controller.shadow as shadow_module
+
+        with tempfile.TemporaryDirectory() as tmp:
+            manager = BackendManager.from_path(write_shadow_config(Path(tmp)))
+            manager.start()
+            coordinator = shadow_module.ShadowRunCoordinator(runtime=manager)
+            try:
+                self.assertTrue(
+                    coordinator.prepare_run(generation=1, go_command="go nodes 64")
+                )
+                active = coordinator._run
+                self._install_owners(coordinator, active)
+                active.worker = threading.Thread(
+                    target=lambda: time.sleep(10.0), daemon=True
+                )
+                active.worker.start()
+                coordinator.quiesce(timeout=0.3)
+                stuck = [s for s in active.owners.values() if s.dispatched]
+                failed = [s.owner for s in stuck if s.failed]
+                released = [s.owner for s in stuck if s.done.is_set()]
+            finally:
+                coordinator.close()
+                manager.close()
+
+            self.assertTrue(released, "the stuck owners were never released")
+            self.assertEqual(
+                sorted(failed),
+                sorted(released),
+                "an owner released by the quiescence timeout was not marked failed, "
+                "so its region would still be sealed as completed",
             )
 
 

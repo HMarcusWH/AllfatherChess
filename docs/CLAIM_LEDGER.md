@@ -121,7 +121,22 @@ Enforced by `tests/controller/*`, `scripts/shadow-execution-contract.py`, and
 - Every piece of pre-anchor filesystem work is inside `prepare_budget_s`, not
   just the first, and is inside the wall envelope: the run clock starts before
   preparation, so `prepare_ms`, `qualification_ms`, `started_monotonic` and the
-  budget ledger's seed all share one origin.
+  budget ledger's seed all share one origin. `prepare_budget_s` is ONE deadline
+  shared by every step, not a window per step.
+- Decision authority never waits on observation: the GUI's `stop` reaches the
+  anchor before any shadow is contacted, `stop` writes to a shadow never happen
+  under the coordinator lock, and cancellations raised on an authority thread
+  are detached and joined by the quiesce barrier.
+- Stream creation is bounded everywhere it happens, at dispatch as well as
+  before the anchor.
+- `drain_timeout_s` bounds the whole quiesce barrier, not each wait within it.
+- An owner released by the quiescence timeout is marked failed, so its region
+  is never sealed as normally completed.
+- A routing threshold must be a number: a JSON boolean is refused rather than
+  coerced to a value that silently satisfies its own gate.
+- The wall envelope binds the first shadow stage, not only extensions.
+- Closing a telemetry stream is bounded by its declared timeout even when the
+  queue is full.
 - Pre-anchor work abandoned at the budget is released, not leaked: a writer
   that finishes late is closed and its file removed, and every path that can
   leave a bundle directory no run will finalize into -- a late `mkdir`, a
@@ -162,6 +177,17 @@ are observations, not guarantees.
   observation trajectory and ~99.5 % of nodes were spent after that point. This
   is the speculative-waste signal, measured; it is **not** evidence that the
   extra nodes were useless.
+- The active-routing contract verifies the FULL `envelope_claim`, not just the
+  CPU/GPU reservation bit. Measured on this checkout: **0 of 4 movetime runs
+  achieve the full claim**, all 4 short on wall time by up to 7.0 ms, because
+  that fixture declares `budget.wall_ms` equal to the anchor's own `movetime`
+  and the outward search alone saturates it. 1 fixed-node run correctly claims
+  nothing. Earlier revisions of this PR reported "envelope respected in 5 runs"
+  on the strength of the reservation bit alone; that sentence was stronger than
+  what was asserted and has been withdrawn.
+- Routing decisions per contract run rose from 141 to 237 once the checkpoint
+  wait stopped scaling with the owner count. Same policy, same thresholds; the
+  router now looks as often as it was configured to.
 - The active-routing contract collected 10 evidence bundles, fitted a model over
   400 rows and 21 buckets with a 280/120 train/held-out split (Brier 0.026,
   in-domain rate 0.85), then produced 165 routing decisions across 5 active runs

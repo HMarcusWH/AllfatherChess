@@ -258,6 +258,17 @@ self-started clock would hand a slow oracle a second full envelope. That
 already-elapsed preparation and qualification time is charged to its own
 `qualification` lane rather than left outside the accounting.
 
+The envelope binds the FIRST shadow stage, not only extensions: preparation
+and legal-root qualification can spend the wall envelope before any stage
+exists, and an initial dispatch is refused once it has.
+
+Note what the audit certificate's `claimed` field actually requires: a bounded
+outward request, a reserved anchor cost, GPU accounting, reservations inside
+the CPU/GPU envelope, AND wall-time compliance. `budget.within_envelope` is
+only the reservation part. A report that asserts the latter and describes the
+former is claiming more than it checked; the active contract now asserts every
+component.
+
 "From the external `go`" means from the start of the run's own preparation,
 which is where the run clock is taken. Until round nine it was taken *after*
 the replay directory was created, so pre-anchor filesystem work -- bounded by

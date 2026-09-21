@@ -246,18 +246,35 @@ class RoutingPolicy:
         policy = config.get("policy", POLICY_NAME)
         if policy != POLICY_NAME:
             raise RoutingError(f"unsupported routing policy: {policy!r}")
+        def number(key: str, default: float) -> float:
+            """Read one threshold, refusing anything that is not a number.
+
+            `int()` and `float()` accept `bool`, so `min_observation_nodes:
+            false` became 0 and passed every range check -- the alpha-beta
+            minimum-work gate then succeeded on any reported counter -- while
+            `stop_max_reversal_risk: true` became 1.0 and admitted every
+            bucket. A gate deleted by a JSON boolean is not a misconfiguration
+            the range checks can catch, because the coerced value is in range.
+            """
+            raw = config.get(key, default)
+            if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+                raise RoutingError(
+                    f"routing.{key} must be a number, got {type(raw).__name__}: {raw!r}"
+                )
+            return raw
+
         try:
             return cls(
-                min_observation_nodes=int(config.get("min_observation_nodes", 4000)),
-                checkpoint_interval_ms=float(config.get("checkpoint_interval_ms", 120)),
-                max_stages_per_owner=int(config.get("max_stages_per_owner", 3)),
-                extend_nodes=int(config.get("extend_nodes", 8000)),
-                stop_max_reversal_risk=float(config.get("stop_max_reversal_risk", 0.05)),
-                stop_min_support=int(config.get("stop_min_support", 25)),
-                stop_min_stability_fraction=float(config.get("stop_min_stability_fraction", 0.6)),
-                stage_cpu_ms_estimate=float(config.get("stage_cpu_ms_estimate", 400.0)),
-                anchor_cpu_ms_estimate=float(config.get("anchor_cpu_ms_estimate", 0.0)),
-                stage_gpu_ms_estimate=float(config.get("stage_gpu_ms_estimate", 0.0)),
+                min_observation_nodes=int(number("min_observation_nodes", 4000)),
+                checkpoint_interval_ms=float(number("checkpoint_interval_ms", 120)),
+                max_stages_per_owner=int(number("max_stages_per_owner", 3)),
+                extend_nodes=int(number("extend_nodes", 8000)),
+                stop_max_reversal_risk=float(number("stop_max_reversal_risk", 0.05)),
+                stop_min_support=int(number("stop_min_support", 25)),
+                stop_min_stability_fraction=float(number("stop_min_stability_fraction", 0.6)),
+                stage_cpu_ms_estimate=float(number("stage_cpu_ms_estimate", 400.0)),
+                anchor_cpu_ms_estimate=float(number("anchor_cpu_ms_estimate", 0.0)),
+                stage_gpu_ms_estimate=float(number("stage_gpu_ms_estimate", 0.0)),
                 observation_floors=dict(config.get("observation_floors") or {}),
             )
         except (TypeError, ValueError) as exc:
@@ -588,6 +605,21 @@ class ConservativeRouter:
         with self.ledger.controller_overhead("authorize_initial"):
             if self._fallback:
                 audit.note(f"initial dispatch for {owner} refused: anchor-only fallback is active")
+                return False
+            if self.ledger.wall_exhausted():
+                # The extension path has always checked this; the initial one
+                # did not. Preparation and legal-root qualification can consume
+                # the wall envelope while the anchor is still searching, and
+                # every initial stage was then reserved and dispatched past the
+                # declared deadline, running until some later checkpoint
+                # noticed. An envelope that binds only after the first stage is
+                # not the envelope that was declared.
+                audit.note(
+                    f"initial dispatch for {owner} refused: the wall envelope was "
+                    f"already exhausted ({self.ledger.elapsed_ms():.0f}ms of "
+                    f"{self.envelope.wall_ms:.0f}ms) before any stage was dispatched"
+                )
+                self._fallback = True
                 return False
             try:
                 reservation = self.ledger.reserve(

@@ -311,6 +311,9 @@ class ShadowRunCoordinator:
         self.settings = runtime.config.shadow
         self.router = router
         self._diagnostic = diagnostic or (lambda message: None)
+        #: Detached `stop` writers started by authority-path cancellations.
+        #: `quiesce()` joins them so none can reach a later generation.
+        self._stop_threads: list[threading.Thread] = []
         self._lock = threading.RLock()
         self._run: _ActiveRun | None = None
         self._closed = False
@@ -381,7 +384,7 @@ class ShadowRunCoordinator:
         except OSError:  # pragma: no cover - covered by the late release path
             pass
 
-    def _release_late_stream(self, run_dir: Path, stream: Any) -> None:
+    def _release_late_stream(self, run_dir: Path | None, stream: Any) -> None:
         """Release a stream setup whose run already gave up waiting for it.
 
         A constructed writer owns a running thread and an open file handle. Its
@@ -397,7 +400,11 @@ class ShadowRunCoordinator:
                 stream.path.unlink()
             except OSError:  # pragma: no cover - best effort
                 pass
-        self._discard_run_dir(run_dir)
+        # `run_dir` is None when the run that gave up on this stream is still
+        # live and using that directory for its other streams; only a directory
+        # no run will ever finalize into is taken back.
+        if run_dir is not None:
+            self._discard_run_dir(run_dir)
 
     def _within_prepare_budget(
         self,
@@ -405,6 +412,7 @@ class ShadowRunCoordinator:
         work: Callable[[], Any],
         *,
         discard: Callable[[Any], None] | None = None,
+        deadline: float | None = None,
     ) -> tuple[bool, Any]:
         """Run pre-anchor filesystem work without letting it block a search.
 
@@ -425,7 +433,15 @@ class ShadowRunCoordinator:
         result, on the abandoned thread that produced it. Work whose result is
         genuinely inert (a `mkdir` returning `None`) passes none.
         """
-        budget = max(0.001, float(self.settings.prepare_budget_s))
+        # `prepare_budget_s` is documented as the cap for ALL pre-anchor replay
+        # setup, so every step shares one deadline. Giving each step its own
+        # full window let the directory creation and the stream open each
+        # finish just inside their own bound and delay the outward anchor by
+        # nearly twice the declared hard cap.
+        if deadline is None:
+            budget = max(0.001, float(self.settings.prepare_budget_s))
+        else:
+            budget = max(0.001, deadline - time.monotonic())
         outcome: dict[str, Any] = {}
         guard = threading.Lock()
         abandoned = False
@@ -483,7 +499,7 @@ class ShadowRunCoordinator:
             return False, None
         return bool(outcome.get("ok")), outcome.get("value")
 
-    def _make_run_dir_within_budget(self, run_dir: Path) -> bool:
+    def _make_run_dir_within_budget(self, run_dir: Path, deadline: float) -> bool:
         """Create the bundle directory, or give up on it inside the budget.
 
         A directory the abandoned thread creates afterwards is not inert
@@ -495,6 +511,7 @@ class ShadowRunCoordinator:
             run_dir.name,
             lambda: run_dir.mkdir(parents=True, exist_ok=False),
             discard=lambda _value: self._discard_run_dir(run_dir),
+            deadline=deadline,
         )
         return ok
 
@@ -566,6 +583,9 @@ class ShadowRunCoordinator:
         # against a 1000 ms envelope, and the same milliseconds went uncharged
         # as controller overhead. Preparation is bounded, not free.
         started = time.monotonic()
+        # One deadline for every pre-anchor filesystem step, taken from the
+        # same origin as the run clock.
+        prepare_deadline = started + max(0.001, float(self.settings.prepare_budget_s))
         position_command = self.runtime.position_command
         variant = self._variant()
         try:
@@ -581,7 +601,7 @@ class ShadowRunCoordinator:
         now = _dt.datetime.now(_dt.timezone.utc)
         run_id = f"{now.strftime('%Y%m%dT%H%M%S%fZ')}-g{generation:06d}-{uuid.uuid4().hex[:8]}"
         run_dir = self.settings.replay_root / run_id
-        if not self._make_run_dir_within_budget(run_dir):
+        if not self._make_run_dir_within_budget(run_dir, prepare_deadline):
             return False
 
         run = ReplayRun(
@@ -608,6 +628,7 @@ class ShadowRunCoordinator:
         opened, anchor_stream = self._within_prepare_budget(
             f"{run_id}-anchor-stream",
             discard=lambda stream: self._release_late_stream(run_dir, stream),
+            deadline=prepare_deadline,
             work=lambda: TelemetryStreamWriter(
                 instance=anchor_name,
                 family=anchor_spec.family,
@@ -707,9 +728,13 @@ class ShadowRunCoordinator:
             if active is None or active.generation != generation:
                 return
             if active.worker is not None:
-                self._cancel_locked(active, reason=reason)
-                return
-            self._run = None
+                instances = self._cancel_locked(active, reason=reason)
+            else:
+                instances = None
+                self._run = None
+        if instances is not None:
+            self._stop_instances(instances)
+            return
         active.run.finalize(disposition="aborted", stop_reason=reason)
         active.finished.set()
 
@@ -752,7 +777,11 @@ class ShadowRunCoordinator:
         # an in-flight node-limited stage is drained or killed is a declared
         # configuration choice, never an implicit one.
         if self.settings.on_anchor_complete == "cancel":
-            self.cancel(generation, reason="anchor_complete")
+            # This runs on the ANCHOR's stdout reader thread, which is the
+            # thread that carries the outward `bestmove`. A shadow whose stdin
+            # blocks must not be able to stall it, so the `stop` writes are
+            # detached; `quiesce()` joins them before any state change.
+            self.cancel(generation, reason="anchor_complete", detach=True)
 
     def _on_shadow_exit(self, instance: str, rc: int | None, token: int | None) -> None:
         with self._lock:
@@ -792,26 +821,79 @@ class ShadowRunCoordinator:
     # cancellation and draining
     # ------------------------------------------------------------------
 
-    def cancel(self, generation: int | None = None, *, reason: str) -> None:
+    def cancel(
+        self, generation: int | None = None, *, reason: str, detach: bool = False
+    ) -> None:
+        """Cancel the active generation and stop its dispatched shadows.
+
+        `detach=True` performs the `stop` writes on a short-lived thread. It is
+        for callers on an AUTHORITY path -- the frontend's `stop` handler and
+        the anchor's own stdout reader -- because writing to a shadow's stdin
+        can block on a full pipe, and neither the outward `bestmove` nor the
+        reader thread that carries it may ever wait on an observational
+        process. A detached stop is tracked and joined by `quiesce()`, so it
+        can never land on a later generation that reuses the same process.
+        """
         with self._lock:
             active = self._run
             if active is None:
                 return
             if generation is not None and active.generation != generation:
                 return
-            self._cancel_locked(active, reason=reason)
+            instances = self._cancel_locked(active, reason=reason)
+        if not instances:
+            return
+        if not detach:
+            self._stop_instances(instances)
+            return
+        worker = threading.Thread(
+            target=self._stop_instances,
+            args=(instances,),
+            name=f"allfather-shadow-stop-g{active.generation:06d}",
+            daemon=True,
+        )
+        with self._lock:
+            self._stop_threads = [t for t in self._stop_threads if t.is_alive()]
+            self._stop_threads.append(worker)
+        worker.start()
 
-    def _cancel_locked(self, active: _ActiveRun, *, reason: str) -> None:
+    def _cancel_locked(self, active: _ActiveRun, *, reason: str) -> list[str]:
+        """Mark the run cancelled and report which instances still need `stop`.
+
+        The `stop` writes are deliberately NOT done here. Three of this
+        method's four callers hold `self._lock`, and an engine's stdin can
+        block on a full pipe: holding the coordinator lock across that write
+        blocks `note_anchor_complete`, which is the path that records the
+        anchor's own completion. Observation may never hold up authority.
+        Callers release the lock and pass this list to `_stop_instances`.
+        """
         if not active.cancelled:
             active.cancelled = True
             active.cancel_reason = reason
-        states = list(active.owners.values())
-        for state in states:
-            if state.dispatched and not state.done.is_set():
-                try:
-                    self.runtime.stop_instance(state.instance)
-                except ControllerRuntimeError:  # pragma: no cover - shadow stop is non-authoritative
-                    pass
+        return [
+            state.instance
+            for state in active.owners.values()
+            if state.dispatched and not state.done.is_set()
+        ]
+
+    def _stop_instances(self, instances: list[str]) -> None:
+        """Send `stop` to each instance. Never called with `self._lock` held."""
+        for instance in instances:
+            try:
+                self.runtime.stop_instance(instance)
+            except ControllerRuntimeError:  # pragma: no cover - shadow stop is non-authoritative
+                pass
+
+    def _join_stop_threads(self, deadline: float) -> bool:
+        """Wait for detached `stop` writers, so none outlives its generation."""
+        with self._lock:
+            workers = [t for t in self._stop_threads if t.is_alive()]
+        for worker in workers:
+            worker.join(timeout=max(0.0, deadline - time.monotonic()))
+        outstanding = [t for t in workers if t.is_alive()]
+        with self._lock:
+            self._stop_threads = [t for t in self._stop_threads if t.is_alive()]
+        return not outstanding
 
     def quiesce(self, *, timeout: float | None = None, reason: str = "quiesce") -> bool:
         """Guarantee no prior shadow generation can observe the next state.
@@ -827,16 +909,33 @@ class ShadowRunCoordinator:
         """
         if timeout is None:
             timeout = self.settings.drain_timeout_s
+        # ONE deadline for the whole barrier. Passing `timeout` to each wait in
+        # turn granted the worker a fresh full window at every step, so a
+        # setting documented as the hard bound for draining after `stop` could
+        # hold state-changing UCI commands for a multiple of itself.
+        deadline = time.monotonic() + max(0.0, float(timeout))
         with self._lock:
             active = self._run
             if active is None:
-                return True
-            self._cancel_locked(active, reason=reason)
+                # Even with no active run, a detached `stop` from the
+                # generation just cancelled may still be in flight; it must not
+                # reach the process the caller is about to synchronize.
+                return self._join_stop_threads(deadline)
+            instances = self._cancel_locked(active, reason=reason)
             worker = active.worker
             finished = active.finished
+        self._stop_instances(instances)
+        detached = self._join_stop_threads(deadline)
         if worker is not None:
-            worker.join(timeout=timeout)
-        drained = finished.wait(timeout=max(0.0, timeout))
+            worker.join(timeout=max(0.0, deadline - time.monotonic()))
+        drained = finished.wait(timeout=max(0.0, deadline - time.monotonic()))
+        if not detached:
+            self._diagnostic(
+                "a detached shadow `stop` did not complete within the configured "
+                "timeout; this state change is refused rather than risking it "
+                "landing on the next generation"
+            )
+            drained = False
         if not drained:
             self._diagnostic("shadow generation did not drain within the configured timeout")
             stuck = [
@@ -860,6 +959,12 @@ class ShadowRunCoordinator:
                         disposition="failed",
                         failure=message,
                     )
+                # Recorded as failed BEFORE it is released. `_execute` seals
+                # an owner whose state is `dispatched and not failed`, so
+                # releasing the waiter without this flag left the manifest
+                # carrying a failed stage whose region was nevertheless sealed
+                # as normally completed.
+                state.failed = True
                 # A worker recorded as failed is no longer awaited. Without
                 # this the run's worker thread would stay blocked until its own
                 # drain deadline, so the bundle -- including the evidence of the
@@ -1166,20 +1271,40 @@ class ShadowRunCoordinator:
         if state.stream is None:
             # Create the stream only when a stage is actually dispatched, so a
             # cancelled run never leaves an empty telemetry artifact behind.
+            #
+            # BOUNDED, like the pre-anchor path. A blocking open here stalls the
+            # coordinator after earlier owners may already be searching:
+            # `_await_completion` is never reached, so no stage deadline and no
+            # active-routing wall check runs while those engines keep spending
+            # envelope, and a later quiesce cannot finish either. Past the bound
+            # this owner contributes no evidence rather than freezing the ones
+            # that do.
             spec = self.runtime.spec(state.instance)
-            state.stream = TelemetryStreamWriter(
-                instance=state.instance,
-                family=spec.family,
-                role=spec.role,
-                path=run.run_dir / f"{state.instance}.jsonl",
-                adapter_factory=self._adapter_factory(
-                    family=spec.family,
+            stream_path = run.run_dir / f"{state.instance}.jsonl"
+            opened, stream = self._within_prepare_budget(
+                f"{run.run_id}-{state.instance}-stream",
+                discard=lambda late: self._release_late_stream(None, late),
+                work=lambda: TelemetryStreamWriter(
                     instance=state.instance,
-                    position_id=active.context.position.position_id,
-                    variant=active.context.position.variant,
+                    family=spec.family,
+                    role=spec.role,
+                    path=stream_path,
+                    adapter_factory=self._adapter_factory(
+                        family=spec.family,
+                        instance=state.instance,
+                        position_id=active.context.position.position_id,
+                        variant=active.context.position.variant,
+                    ),
+                    track_events=self.router is not None,
                 ),
-                track_events=self.router is not None,
             )
+            if not opened or stream is None:
+                run.note(
+                    f"owner {state.owner} was not dispatched: its telemetry stream "
+                    f"could not be opened within {self.settings.prepare_budget_s}s"
+                )
+                return False
+            state.stream = stream
             run.register_stream(state.stream)
         try:
             command = build_go_command(limit=limit, searchmoves=state.roots)
@@ -1357,8 +1482,7 @@ class ShadowRunCoordinator:
                 # left running while the run finalized and cleared `_run`.
                 self._cut_loose_overrunning(active, pending, overrun=overrun)
                 return
-            for state in pending:
-                state.done.wait(timeout=interval)
+            self._wait_slice(pending, interval)
             if (
                 self.router is not None
                 and not active.cancelled
@@ -1371,6 +1495,27 @@ class ShadowRunCoordinator:
                 # declared policy and truncating evidence for an action that
                 # could no longer inform anything.
                 self._router_checkpoint(active)
+
+    @staticmethod
+    def _wait_slice(pending: list, interval: float) -> None:
+        """Wait at most `interval` in total for any pending owner to finish.
+
+        ONE wait per checkpoint interval, not one per owner. Waiting `interval`
+        on each pending owner in turn made routing checkpoints and stage
+        deadline checks run every `len(pending) * interval`, so an authorized
+        stop arrived late and the wall envelope or a per-stage budget could
+        overrun by a multiple of the configured interval before anything
+        looked.
+        """
+        slice_end = time.monotonic() + interval
+        for state in pending:
+            remaining = slice_end - time.monotonic()
+            if remaining <= 0.0:
+                return
+            if state.done.wait(timeout=remaining):
+                # An owner finished: reevaluate every owner now rather than
+                # spending the rest of this slice waiting on the others.
+                return
 
     def _stage_budget(self) -> float:
         """The declared per-stage cap, used exactly as configured.
@@ -1398,7 +1543,7 @@ class ShadowRunCoordinator:
                 f"owner {state.owner} exceeded the declared stage budget "
                 f"({self.settings.stage_timeout_s}s)"
             )
-        self._cancel_locked(active, reason="stage_deadline")
+        self._stop_instances(self._cancel_locked(active, reason="stage_deadline"))
         for state in pending:
             if state.done.wait(timeout=self.settings.drain_timeout_s):
                 continue

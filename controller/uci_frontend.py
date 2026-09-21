@@ -106,10 +106,19 @@ class UciFrontend:
         self._write(line)
 
     def _shadow_cancel(self, reason: str, generation: int | None = None) -> None:
+        """Cancel shadow observation without ever waiting on it.
+
+        Every call here is on an authority path -- the command loop or a
+        runtime-failure handler -- and cancellation writes `stop` to each
+        dispatched shadow's stdin, which can block on a full pipe. `detach`
+        keeps that write off this thread entirely; the coordinator's quiesce
+        barrier joins the detached writer before any state change, so a late
+        `stop` can never reach the next generation.
+        """
         if self.shadow is None:
             return
         try:
-            self.shadow.cancel(generation, reason=reason)
+            self.shadow.cancel(generation, reason=reason, detach=True)
         except Exception as exc:  # pragma: no cover - shadow control is non-authoritative
             self._diagnostic(f"shadow cancel failed: {exc}")
 
@@ -285,12 +294,18 @@ class UciFrontend:
 
         if command == "stop":
             if self.state == ShellState.SEARCHING:
-                self._shadow_cancel("stop", self._active_generation)
+                # AUTHORITY FIRST. Cancelling shadows ahead of this sent `stop`
+                # to every dispatched observational process, so one blocked
+                # shadow stdin meant `stop_anchor()` was never reached and the
+                # anchor's already-computed `bestmove` was never requested. The
+                # GUI's `stop` is a decision-authority command; observation is
+                # torn down afterwards and off this thread.
                 try:
                     self.runtime.stop_anchor()
                 except RuntimeError as exc:
                     if self.state != ShellState.UNHEALTHY:
                         self._runtime_failed(str(exc), self._active_generation)
+                self._shadow_cancel("stop", self._active_generation)
             return True
 
         if command == "ponderhit":

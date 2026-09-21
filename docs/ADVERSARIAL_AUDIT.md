@@ -802,6 +802,110 @@ the run had already finished: the suite reported 39 tests and "OK" while three
 brand-new tests sat in the file untouched. Caught only because the count did
 not go up. Green CI would have said nothing.
 
+## Ten more findings from a tenth review, and a claim this PR had been overstating
+
+The most important thing this round produced is not a fix. It is a correction:
+**every earlier report of this branch, including the PR description and four of
+my own PR comments, said the active contract showed "envelope respected in N
+runs". It did not.** The contract asserted `budget.within_envelope`, which is
+the CPU/GPU *reservation* bit alone, while the sentence it printed described
+`envelope_claim.claimed`, which additionally requires a bounded outward
+request, a reserved anchor cost, GPU accounting and wall-time compliance. That
+is exactly the silent upgrade -- MEASURED reported as something stronger -- that
+`docs/CLAIM_LEDGER.md` exists to prevent, and it survived nine rounds.
+
+With the full claim asserted, the measured truth is:
+
+```
+envelope components verified in 4 movetime run(s) (0 full claim, 4 short on
+wall by up to 7.0ms against a wall_ms declared equal to the movetime),
+1 wall-unbounded run(s) correctly claimed nothing
+```
+
+**Zero runs achieve the full claim.** The contract's active fixture declares
+`budget.wall_ms` EQUAL to the anchor's own `movetime`, so the outward search
+alone saturates the wall envelope and the ~5-7 ms of controller work can never
+fit. Raising that figure would make the claim true, so it was left exactly as
+declared and the shortfall is measured and printed instead. The contract now
+asserts each component that must hold, and fails if the claim is false for any
+reason *other* than that wall shortfall.
+
+The other nine findings:
+
+**The GUI's `stop` could be swallowed by a blocked shadow (P1).** The `stop`
+handler cancelled shadow observation *before* calling `stop_anchor()`, and
+cancellation writes `stop` to every dispatched shadow process. One blocked
+shadow stdin meant the anchor was never asked for its already-computed
+`bestmove`. Two more paths had the same shape: `_cancel_locked` performed those
+writes while three of its four callers held the coordinator lock -- which also
+blocks `note_anchor_complete`, the path that records the anchor's completion --
+and `on_anchor_complete: cancel` ran them on the anchor's own stdout reader
+thread. Authority now goes first, the writes happen outside the lock, and
+authority-path cancellations detach them onto a short-lived thread that
+`quiesce()` joins, so a detached `stop` can never land on a later generation.
+
+**Closing a telemetry stream could block forever.** `close()` enqueued its
+sentinel with a blocking `put()`. On a full queue with the writer stalled that
+waited without bound *before* either timed `join()` was reached, so the
+advertised timeout bounded nothing. The sentinel is now offered without
+waiting and a flag ends the writer loop when there was no room for it.
+
+**`prepare_budget_s` was two budgets, not one.** Round eight bounded the run
+`mkdir` and the anchor stream open separately, so each got a full window and
+the outward anchor could be delayed by nearly twice the declared hard cap.
+One deadline is now computed in `prepare_run` and every step gets only what
+remains of it.
+
+**A JSON boolean could delete a routing gate.** `int()` and `float()` accept
+`bool`, so `min_observation_nodes: false` became 0 -- which is IN range, so
+`__post_init__` passed it -- and the alpha-beta minimum-work gate then
+succeeded for any counter. `stop_max_reversal_risk: true` became 1.0 and
+admitted every bucket. Types are checked before coercion now.
+
+**Routing checkpoints ran at N times the configured interval.** The wait loop
+waited `interval` on each pending owner in turn, so with three owners every
+routing decision and stage-deadline check happened roughly every
+`3 * checkpoint_interval_ms`. One slice now bounds the whole iteration. This
+is why the contract's decision count rose from 141 to 237 with no policy
+change: the router is now looking as often as it was configured to.
+
+**The wall envelope did not bind the first stage.** `authorize_extension`
+checked `wall_exhausted()`; `authorize_initial` never did, so preparation and
+qualification could spend the envelope and every initial stage was still
+reserved and dispatched past the declared deadline.
+
+**One unbounded filesystem open was left.** Creating a later owner's telemetry
+stream at dispatch time blocked the coordinator after earlier owners were
+already searching, so no stage deadline and no wall check ran while those
+engines kept spending envelope. It is bounded like the pre-anchor path now;
+past the bound that owner contributes no evidence rather than freezing the ones
+that do.
+
+**`drain_timeout_s` was two timeouts, not one.** `quiesce()` passed the full
+timeout to the worker join and then again to the finished-event wait, so a
+setting documented as the hard bound for draining could hold state-changing UCI
+commands for nearly twice itself.
+
+**A stuck owner's region was sealed as complete.** The quiescence-timeout path
+released the waiter without setting `state.failed`, and `_execute` seals an
+owner that is `dispatched and not failed` -- so the manifest carried a failed
+stage whose region was nevertheless represented as normally completed.
+
+### A test that proved nothing, for the sixth time
+
+The shared-deadline test could not fail as first written. `Path.mkdir(parents=True)`
+retries itself after creating a missing parent, so the patched sleep fired
+twice and consumed the entire budget inside the FIRST step -- the second step
+was never reached, and both behaviours produced an identical 0.301 s. Caught by
+measuring both configurations directly and finding them equal, then
+instrumenting the fixture to see why. The test now pre-creates the replay root
+and only slows a `mkdir` that really creates, so each step fits the budget and
+only their sum does not.
+
+That is six regression tests in five rounds that could not fail as first
+written. Every one was caught by reverting the fix and re-running, and by
+nothing else.
+
 ## Residual concerns worth carrying forward
 
 1. **Fast searches collect nothing.** With `on_anchor_complete: drain`, a very
@@ -860,20 +964,21 @@ not go up. Green CI would have said nothing.
     sources, parameters and `EXTRACTOR_VERSION`. That makes the version bump
     load-bearing: any future change to extraction logic that forgets it
     reintroduces the collision found this round.
-16. **Nine review rounds have not converged, and every round-nine finding was
-    mine.** Rounds three through six each found defects introduced or left
-    incomplete by the round before -- four in round five, four again in round
-    six, two in round seven, plus a round-zero finding that reappeared in a
-    different disguise, then **six of nine in round eight** and **four of
-    four in round nine**. Round eight's worst case came from two individually
-    correct fixes combining; all of round nine came from one mechanism I added
-    in round seven and extended in round eight. The absolute count is falling
-    (9 -> 4) but the self-inflicted *fraction* is now 100%, which is the same
-    signal in a different form: the last three rounds have been spent repairing
-    repairs. No threshold or support floor has been moved in any round and the
-    claim firewall has held. This remains the strongest argument in this
-    document for landing the overlap phase separately rather than growing this
-    branch further.
+16. **Ten review rounds have not converged.** Rounds three through six each
+    found defects introduced or left incomplete by the round before -- four in
+    round five, four again in round six, two in round seven, plus a round-zero
+    finding that reappeared in a different disguise, then **six of nine in
+    round eight**, **four of four in round nine**, and **ten in round ten**.
+    Round eight's worst case came from two individually correct fixes
+    combining; all of round nine came from one mechanism I added in round seven
+    and extended in round eight; round ten found that mechanism split into two
+    budgets, three more places where observation could block authority, and a
+    claim this PR had been overstating since before the first review. The count
+    went 9 -> 4 -> 10. It is not converging. No threshold, support floor or
+    declared budget has been moved in any round and the claim firewall held in
+    the sense that it caught the overstatement -- late, but it caught it. This
+    remains the strongest argument in this document for landing the overlap
+    phase separately rather than growing this branch further.
 17. **The bestmove-reversal label is untested by real data.** 0 of 133
     trajectories exercise it here. So are the telemetry-backlog gate and the
     stream-eligibility filter. Three correctness guards in this milestone are
@@ -904,6 +1009,22 @@ not go up. Green CI would have said nothing.
     charging it twice would inflate B -- but it does mean a search that waits
     on a slow drain took longer in wall-clock terms than its own
     `wall_ms_elapsed` reports. POLICY, not a measurement gap.
+23. **No real-engine run has ever demonstrated a full envelope claim.** The
+    active contract's fixture declares `budget.wall_ms` equal to the anchor's
+    own `movetime`, so the outward search alone saturates the wall envelope and
+    `claimed` is structurally false for every run it produces (measured: short
+    by up to 7.0 ms). The TRUE branch of that conjunction is covered by a unit
+    test with a headroom envelope, and the contract asserts every other
+    component plus that the wall shortfall is the ONLY failing one. Raising the
+    declared figure would make the claim true, which is why it was not raised.
+    Adding a second contract run under a headroom envelope would close this
+    honestly; it was not done here because this branch is already too large.
+24. **Routing now checkpoints roughly three times as often as it did.** Fixing
+    the per-owner wait raised the contract's decision count from 141 to 237
+    with no policy change. That is the configured cadence finally being
+    honoured, not new behaviour -- but every cadence-sensitive figure measured
+    before round ten was measured against a router that looked a third as
+    often, and none of those earlier numbers were re-measured.
 22. **Bundle discovery still treats every directory as a bundle, and this was
     not fixed.** Five places enumerate `replay_root` with
     `path for path in replay_root.iterdir() if path.is_dir()`, and

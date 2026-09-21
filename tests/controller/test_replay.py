@@ -16,6 +16,7 @@ sys.path.insert(0, str(ROOT))
 from controller.replay import (
     REPLAY_SCHEMA_VERSION,
     ReplayError,
+    TelemetryStreamWriter,
     load_manifest,
     sha256_file,
     verify_bundle_integrity,
@@ -581,6 +582,73 @@ class ShadowTelemetryContractTests(unittest.TestCase):
                 blob = (run_dir / record["path"]).read_text(encoding="utf-8").lower()
                 for needle in ("residual", "top_k_overlap", "rank_correlation", "routing_decision"):
                     self.assertNotIn(needle, blob)
+
+
+class ReviewRegressionRoundTenTests(unittest.TestCase):
+    """Round-ten finding: shutdown may not depend on room in a bounded queue."""
+
+    def test_closing_does_not_block_on_a_full_queue(self):
+        """The advertised close timeout has to bound finalization.
+
+        `close()` enqueued its sentinel with a blocking `put()`. On a full
+        queue with the writer stalled in adapter or filesystem work that waited
+        without bound, BEFORE either timed `join()` was reached, so the timeout
+        bounded nothing and a replay run could stay active forever.
+        """
+        import threading
+
+        import controller.replay as replay_module
+
+        real_max = replay_module._STREAM_QUEUE_MAXSIZE
+        blocked = threading.Event()
+        release = threading.Event()
+        closed = threading.Event()
+        with tempfile.TemporaryDirectory() as tmp:
+            # A small queue so it can actually be filled; the defect is in
+            # `close()`, which does not care how large the queue is.
+            replay_module._STREAM_QUEUE_MAXSIZE = 4
+            try:
+                writer = TelemetryStreamWriter(
+                    instance="stockfish-shadow",
+                    family="stockfish",
+                    role="shadow",
+                    path=Path(tmp) / "stream.jsonl",
+                    adapter_factory=_SlowAdapter,
+                )
+
+                def _stall(item):
+                    blocked.set()
+                    release.wait(timeout=10.0)
+
+                writer._apply = _stall  # type: ignore[assignment]
+                writer.begin_stage(
+                    search_id="run:stockfish-shadow:0",
+                    position={"variant": "standard"},
+                    request={"limits": {"nodes": 64}},
+                    controller=None,
+                )
+                self.assertTrue(
+                    blocked.wait(timeout=5.0), "the writer never reached the stall"
+                )
+                for _ in range(32):
+                    writer.submit("info depth 1 score cp 10 nodes 1 pv e2e4", 1.0)
+                self.assertTrue(writer._queue.full(), "the queue was not filled")
+
+                def _close() -> None:
+                    writer.close(timeout=0.2)
+                    closed.set()
+
+                closer = threading.Thread(target=_close, daemon=True)
+                closer.start()
+                finished = closed.wait(timeout=5.0)
+            finally:
+                release.set()
+                replay_module._STREAM_QUEUE_MAXSIZE = real_max
+
+        self.assertTrue(
+            finished,
+            "close() blocked enqueueing its sentinel instead of honouring its timeout",
+        )
 
 
 if __name__ == "__main__":

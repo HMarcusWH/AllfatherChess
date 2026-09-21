@@ -219,7 +219,8 @@ Two additions the implementation makes to the frozen list:
   from the same origin as the run clock the wall envelope uses, which is taken
   before any preparation: preparation is bounded by `shadow.prepare_budget_s`,
   not free, and an envelope that started counting after it would have been
-  claiming compliance it had not measured;
+  claiming compliance it had not measured. That budget is ONE deadline for the
+  whole pre-anchor path, not a window per step;
 - each stream record carries `contract_validatable`, which is false for an
   incomplete or lossy stream. Such a stream is kept as evidence and is *not*
   given a fabricated `search.complete`.

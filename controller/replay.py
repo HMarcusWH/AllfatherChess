@@ -147,6 +147,9 @@ class TelemetryStreamWriter:
         #: True once the handle is closed or being closed while the writer
         #: thread may still be running.
         self._abandoned = False
+        #: Set by `close()` so the writer stops even when the bounded queue had
+        #: no room for the sentinel.
+        self._stopping = threading.Event()
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._handle = self.path.open("w", encoding="utf-8")
         self._thread = threading.Thread(
@@ -207,7 +210,15 @@ class TelemetryStreamWriter:
 
     def _drain(self) -> None:
         while True:
-            item = self._queue.get()
+            if self._stopping.is_set() and self._queue.empty():
+                # The sentinel could not be enqueued because the queue was
+                # full. Shutdown may not depend on room in a bounded queue, so
+                # the flag ends the loop once the backlog is gone.
+                return
+            try:
+                item = self._queue.get(timeout=0.05)
+            except queue.Empty:
+                continue
             if item is _SENTINEL:
                 self._queue.task_done()
                 return
@@ -354,7 +365,15 @@ class TelemetryStreamWriter:
             if self._closed:
                 return
             self._closed = True
-        self._queue.put(_SENTINEL)
+        # NOT a blocking `put`. On a full queue with a writer stalled in adapter
+        # or filesystem work this waited without bound, before either timed
+        # `join` below was reached, so the advertised close timeout bounded
+        # nothing at all and a replay run could stay active forever.
+        self._stopping.set()
+        try:
+            self._queue.put_nowait(_SENTINEL)
+        except queue.Full:  # pragma: no cover - the flag ends the loop instead
+            pass
         self._thread.join(timeout=timeout)
         if self._thread.is_alive():
             # The writer is still draining. Closing the handle now would make

@@ -249,6 +249,10 @@ def main() -> int:
         granted_stops = 0
         denied_stops = 0
         decisions = 0
+        claimed_runs = 0
+        unclaimable_runs = 0
+        wall_short_runs = 0
+        wall_overshoot_ms = 0.0
         max_stages = json.loads(active_config.read_text())["routing"]["max_stages_per_owner"]
         per_run: list[dict[str, Any]] = []
 
@@ -262,6 +266,62 @@ def main() -> int:
             budget = route["budget"]
             if not budget["within_envelope"]:
                 raise ContractError(f"{run_dir.name}: routing exceeded the declared envelope")
+
+            # `within_envelope` is the CPU/GPU RESERVATION bit alone. The claim
+            # the report makes is `envelope_claim.claimed`, which additionally
+            # requires a bounded outward request, a reserved anchor cost, GPU
+            # accounting and wall-time compliance. Asserting the weaker bit and
+            # reporting the stronger sentence is exactly the silent upgrade the
+            # claim ledger forbids.
+            claim = route["envelope_claim"]
+            # `limits` is a LIST of {name, value, semantics}, not a mapping.
+            limits = manifest["external_request"]["request"].get("limits", [])
+            claimable = any(entry.get("name") == "movetime" for entry in limits)
+            if not claimable:
+                # The fixed-node firewall search bounds work but not wall time,
+                # so it CANNOT claim wall compliance and must not be counted as
+                # if it had. Assert that it says so rather than letting it pass
+                # silently into the total.
+                if claim["anchor_request_bounded"] or claim["claimed"]:
+                    raise ContractError(
+                        f"{run_dir.name}: a wall-unbounded request claimed envelope "
+                        f"compliance: {json.dumps(claim, sort_keys=True)}"
+                    )
+                unclaimable_runs += 1
+            else:
+                for component in (
+                    "anchor_request_bounded",
+                    "anchor_cost_reserved",
+                    "gpu_accounted",
+                    "reservations_within_envelope",
+                ):
+                    if not claim[component]:
+                        raise ContractError(
+                            f"{run_dir.name}: envelope claim component {component} is "
+                            f"false: {json.dumps(claim, sort_keys=True)}"
+                        )
+                if claim["claimed"]:
+                    claimed_runs += 1
+                else:
+                    # The ONLY shortfall this contract tolerates is wall time,
+                    # and only because this configuration declares
+                    # `budget.wall_ms` EQUAL to the anchor's own `movetime`:
+                    # the outward search alone saturates the envelope, leaving
+                    # nothing for controller overhead. That figure is left as
+                    # declared -- raising it to make the claim true would be
+                    # manufacturing the result -- so the shortfall is measured
+                    # and reported instead. Any OTHER reason the claim is false
+                    # is a regression and fails here.
+                    if claim["wall_within_envelope"]:
+                        raise ContractError(
+                            f"{run_dir.name}: the envelope claim is false although every "
+                            f"component is true: {json.dumps(claim, sort_keys=True)}"
+                        )
+                    wall_short_runs += 1
+                    wall_overshoot_ms = max(
+                        wall_overshoot_ms,
+                        claim["wall_ms_elapsed"] - route["envelope"]["wall_ms"],
+                    )
             if budget["open_reservations"] != 0:
                 raise ContractError(f"{run_dir.name}: reservations were left open")
             if budget["committed_cpu_ms"] > budget["envelope"]["cpu_ms"]:
@@ -336,6 +396,17 @@ def main() -> int:
             "decisions": decisions,
             "granted_stops": granted_stops,
             "denied_stops": denied_stops,
+            "envelope_claimed_runs": claimed_runs,
+            "envelope_unclaimable_runs": unclaimable_runs,
+            "envelope_wall_short_runs": wall_short_runs,
+            "envelope_wall_overshoot_ms": round(wall_overshoot_ms, 3),
+            "envelope_wall_note": (
+                "budget.wall_ms is declared EQUAL to the anchor's own movetime in this "
+                "configuration, so the outward search alone saturates the wall envelope "
+                "and no run can claim wall compliance. The reservation, anchor-bound, "
+                "anchor-cost and GPU components are asserted; the wall shortfall is "
+                "measured rather than removed by raising the declared figure."
+            ),
         }
         report["stages"]["decision_firewall"] = {
             "direct_stockfish_bestmove": direct_move,
@@ -369,7 +440,10 @@ def main() -> int:
         "active routing contract passed: "
         f"{report['stages']['active']['decisions']} decisions, "
         f"{granted_stops} authorized stops, {denied_stops} denied stops, "
-        f"envelope respected in {len(per_run)} runs, "
+        f"envelope components verified in {claimed_runs + wall_short_runs} movetime run(s) "
+        f"({claimed_runs} full claim, {wall_short_runs} short on wall by up to "
+        f"{wall_overshoot_ms:.1f}ms against a wall_ms declared equal to the movetime), "
+        f"{unclaimable_runs} wall-unbounded run(s) correctly claimed nothing, "
         f"fixed-node firewall {direct_move}=={active_fixed}"
     )
     return 0

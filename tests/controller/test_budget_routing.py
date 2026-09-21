@@ -1386,5 +1386,102 @@ class _FakeContext:
     stage_ms: float | None = None
 
 
+class ReviewRegressionRoundTenTests(unittest.TestCase):
+    """Round-ten routing findings: boolean thresholds and the first stage."""
+
+    def test_a_json_boolean_is_not_a_routing_threshold(self):
+        """`int()` and `float()` accept `bool`, and the range checks cannot help.
+
+        `min_observation_nodes: false` coerced to 0, which is IN range, so
+        `__post_init__` passed it and the alpha-beta minimum-work gate then
+        succeeded for any reported counter. `stop_max_reversal_risk: true`
+        became 1.0 and admitted every bucket. A gate deleted this way looks
+        like a valid configuration.
+        """
+        for key, value in (
+            ("min_observation_nodes", False),
+            ("stop_max_reversal_risk", True),
+            ("stop_min_support", False),
+            ("stop_min_stability_fraction", True),
+            ("checkpoint_interval_ms", True),
+            ("max_stages_per_owner", True),
+            ("extend_nodes", False),
+        ):
+            with self.subTest(key=key):
+                config = {"policy": "conservative_v1", key: value}
+                with self.assertRaises(RoutingError) as ctx:
+                    RoutingPolicy.from_config(config)
+                self.assertIn(key, str(ctx.exception))
+
+    def test_a_real_number_is_still_accepted(self):
+        built = RoutingPolicy.from_config(
+            {"policy": "conservative_v1", "min_observation_nodes": 4000}
+        )
+        self.assertEqual(built.min_observation_nodes, 4000)
+
+    def test_the_wall_envelope_binds_the_first_stage_too(self):
+        """Preparation and qualification can spend the envelope before any stage.
+
+        `authorize_extension` has always checked `wall_exhausted()`;
+        `authorize_initial` did not, so every initial stage was reserved and
+        dispatched past the declared deadline and ran until some later
+        checkpoint noticed.
+        """
+        clock = _Clock()
+        router = ConservativeRouter(
+            envelope=envelope(wall_ms=1000.0),
+            policy=policy(),
+            calibration=None,
+            clock=clock,
+        )
+        context = _FakeContext()
+        # The controller spent the whole wall envelope before the router
+        # existed: preparation and legal-root qualification, on the run clock
+        # the ledger is seeded from.
+        context.started_monotonic = clock.now
+        context.elapsed = 1200.0
+        router.on_run_start(context)
+        clock.now += 1.2
+        authorized = router.authorize_initial(context, "stockfish")
+        self.assertFalse(
+            authorized,
+            "an initial stage was dispatched after the wall envelope was spent",
+        )
+        notes = " ".join(router.audit.notes)
+        self.assertIn("wall envelope", notes)
+
+    def test_a_wall_unbounded_request_claims_nothing(self):
+        """`within_envelope` is the reservation bit; `claimed` is the claim.
+
+        A fixed-node request bounds work but not wall time, so it cannot claim
+        envelope compliance however tidy the ledger is. The active contract
+        asserted only the reservation bit while its report said the envelope
+        was respected.
+        """
+        clock = _Clock()
+        bounded = ConservativeRouter(
+            envelope=envelope(wall_ms=5000.0), policy=policy(), calibration=None, clock=clock
+        )
+        context = _FakeContext()
+        context.external_go_command = "go movetime 1000"
+        bounded.on_run_start(context)
+        claim = _end_and_read_claim(bounded, context)
+        self.assertTrue(claim["anchor_request_bounded"])
+        self.assertTrue(claim["claimed"])
+
+        unbounded = ConservativeRouter(
+            envelope=envelope(wall_ms=5000.0), policy=policy(), calibration=None, clock=_Clock()
+        )
+        fixed = _FakeContext()
+        fixed.external_go_command = "go nodes 200000"
+        unbounded.on_run_start(fixed)
+        fixed_claim = _end_and_read_claim(unbounded, fixed)
+        self.assertFalse(fixed_claim["anchor_request_bounded"])
+        self.assertFalse(
+            fixed_claim["claimed"],
+            "a wall-unbounded request claimed envelope compliance",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

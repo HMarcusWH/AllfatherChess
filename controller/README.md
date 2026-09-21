@@ -10,6 +10,7 @@ uci_frontend.py      the single external UCI identity and its lifecycle barriers
 shards.py            RootShardLedger v1 (unchanged by this milestone)
 shadow.py            concurrent restricted dispatch, run lifecycle, replay binding
 replay.py            run-level replay bundles and non-blocking telemetry capture
+verification.py      explicit common-support VERIFY plan/artifact/integrity
 replay_analysis.py   trajectory reconstruction and counterfactual stopping labels
 residuals.py         derived residual geometry with explicit shared support
 calibration.py       fitted, out-of-sample-validated reversal-risk models
@@ -86,3 +87,15 @@ search carries an explicit generation token and every callback checks it.
 No voting, no cross-engine score conversion, no recursive shard split or
 transfer, no VERIFY/RELOCK overlap, no cross-feed, no native integration, and no
 strength claim. The outward move is the unrestricted anchor's in every mode.
+
+
+## Explicit VERIFY evidence
+
+`config/allfather.verify.validation.json` remains `mode: shadow`. After a
+clean three-owner EXPLORE run, the three owner bestmoves become one ordered
+three-root candidate set and the same three shadow processes re-search exactly
+that set under telemetry phase `VERIFY`. `RootShardLedger` is not mutated:
+the overlap is represented by a separate `VerificationPlan` and raw artifact.
+
+VERIFY is rejected in `mode: active` until its compute is integrated with the
+global budget ledger. It has no outward decision authority.

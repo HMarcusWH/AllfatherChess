@@ -43,8 +43,14 @@ from common.search_request import (
     parse_go_request,
     parse_position_command,
 )
-from controller.replay import ReplayRun, StageRecord, TelemetryStreamWriter
+from controller.replay import ReplayRun, StageRecord, TelemetryStreamWriter, sha256_file
 from controller.runtime import BackendManager, RuntimeError as ControllerRuntimeError
+from controller.verification import (
+    VerificationError,
+    VerificationRun,
+    VerificationStage,
+    build_verification_plan,
+)
 from controller.shards import RootShardLedger, ShardLedgerError
 
 
@@ -277,6 +283,7 @@ class _ActiveRun:
     anchor_stage: StageRecord | None = None
     anchor_stream: TelemetryStreamWriter | None = None
     ledger: RootShardLedger | None = None
+    verification: VerificationRun | None = None
     cancelled: bool = False
     cancel_reason: str | None = None
     worker: threading.Thread | None = None
@@ -748,7 +755,11 @@ class ShadowRunCoordinator:
             active = self._run
             if active is None or active.generation != token:
                 return
-            stream = active.run.stream(instance)
+            stream = None
+            if active.verification is not None:
+                stream = active.verification.observation_stream(instance)
+            if stream is None:
+                stream = active.run.stream(instance)
             t0 = active.started_monotonic
         if stream is None:
             return
@@ -789,7 +800,24 @@ class ShadowRunCoordinator:
             if active is None:
                 return
             elapsed = (time.monotonic() - active.started_monotonic) * 1000.0
+            verification_stage = (
+                None
+                if active.verification is None
+                else active.verification.stage_for_instance(instance)
+            )
             state = next((s for s in active.owners.values() if s.instance == instance), None)
+        if verification_stage is not None and not verification_stage.done.is_set():
+            if active.verification is not None:
+                active.verification.record_completion(
+                    verification_stage,
+                    completed_ms=elapsed,
+                    disposition="failed",
+                    failure=f"{instance} exited unexpectedly during VERIFY; rc={rc}",
+                )
+                active.verification.set_disposition(
+                    "incomplete", f"{instance} exited unexpectedly during VERIFY"
+                )
+            return
         if state is None:
             return
         state.failed = True
@@ -870,11 +898,14 @@ class ShadowRunCoordinator:
         if not active.cancelled:
             active.cancelled = True
             active.cancel_reason = reason
-        return [
+        instances = [
             state.instance
             for state in active.owners.values()
             if state.dispatched and not state.done.is_set()
         ]
+        if active.verification is not None:
+            instances.extend(stage.instance for stage in active.verification.active_stages())
+        return list(dict.fromkeys(instances))
 
     def _stop_instances(self, instances: list[str]) -> None:
         """Send `stop` to each instance. Never called with `self._lock` held."""
@@ -970,6 +1001,22 @@ class ShadowRunCoordinator:
                 # drain deadline, so the bundle -- including the evidence of the
                 # failure itself -- would not be written for many seconds.
                 state.done.set()
+            if active.verification is not None:
+                for stage in active.verification.active_stages():
+                    message = (
+                        f"verification instance {stage.instance} did not drain within "
+                        f"{timeout}s and is excluded from further synchronization"
+                    )
+                    self.runtime.record_shadow_failure(
+                        stage.instance, message, generation=active.generation
+                    )
+                    active.verification.record_completion(
+                        stage,
+                        completed_ms=(time.monotonic() - active.started_monotonic) * 1000.0,
+                        disposition="failed",
+                        failure=message,
+                    )
+                    active.verification.set_disposition("incomplete", message)
             if active.qualifying:
                 # No owner state exists yet while the oracle is answering, so
                 # the loop above found nothing to fail. The oracle is still
@@ -1012,13 +1059,10 @@ class ShadowRunCoordinator:
             # reach a worker still on the previous generation. Stop and drain
             # them here, on the same path `quiesce()` uses.
             try:
-                still_running = [
-                    state
-                    for state in list(active.owners.values())
-                    if state.dispatched and not state.done.is_set()
-                ]
-                if still_running:
-                    self._cut_loose_overrunning(active, still_running)
+                with self._lock:
+                    instances = self._cancel_locked(active, reason="worker_error")
+                if instances:
+                    self._stop_instances(instances)
             except Exception as cleanup_exc:  # pragma: no cover - defensive
                 active.run.note(
                     f"could not drain dispatched stages after a worker error: "
@@ -1079,6 +1123,12 @@ class ShadowRunCoordinator:
                 if active.cancelled and stop_reason is None:
                     stop_reason = active.cancel_reason
                 active.run.finalize(disposition=disposition, stop_reason=stop_reason)
+                if active.verification is not None:
+                    active.verification.finalize(
+                        source_manifest_sha256=sha256_file(
+                            active.run.run_dir / "manifest.json"
+                        )
+                    )
             except Exception as exc:  # pragma: no cover - finalization isolation
                 self._diagnostic(f"replay finalization failed: {type(exc).__name__}: {exc}")
             finally:
@@ -1234,6 +1284,11 @@ class ShadowRunCoordinator:
                 except ShardLedgerError as exc:  # pragma: no cover - defensive
                     run.note(f"owner {owner} could not be sealed: {exc}")
 
+        # 7. Deliberate common-support overlap. RootShardLedger remains frozen:
+        # VERIFY is represented by a separate artifact and never grants a second
+        # EXPLORE owner to any shard.
+        self._execute_verification(active)
+
         # The router's run is deliberately NOT closed here. `on_run_end` writes
         # the envelope claim, which now includes elapsed wall time, and the
         # anchor may still be searching: closing it at this point measured only
@@ -1249,6 +1304,300 @@ class ShadowRunCoordinator:
         if active.cancelled:
             return "cancelled", active.cancel_reason
         return "completed", None
+
+    def _execute_verification(self, active: _ActiveRun) -> None:
+        settings = self.runtime.config.verification
+        if settings is None or active.cancelled or self._closed:
+            return
+        if active.anchor_completed.is_set():
+            return
+
+        owner_bestmoves: dict[str, str | None] = {}
+        owner_roots: dict[str, tuple[str, ...]] = {}
+        for owner in self.settings.owners:
+            state = active.owners.get(owner)
+            if (
+                state is None
+                or not state.dispatched
+                or state.failed
+                or state.stopped_by_policy
+                or state.stage is None
+                or state.stage.disposition != "completed"
+            ):
+                return
+            owner_bestmoves[owner] = state.last_bestmove
+            owner_roots[owner] = state.roots
+            if not self.runtime.shadow_available(state.instance):
+                return
+
+        try:
+            plan = build_verification_plan(
+                generation=active.generation,
+                source_run_id=active.run.run_id,
+                position_id=active.context.position.position_id,
+                settings=settings,
+                owners=self.settings.owners,
+                instance_by_owner=self.settings.instance_by_owner,
+                owner_bestmoves=owner_bestmoves,
+                owner_roots=owner_roots,
+            )
+        except VerificationError:
+            return
+
+        verification = VerificationRun(plan=plan, run_dir=active.run.run_dir)
+        active.verification = verification
+
+        # Prepare all three writers before dispatching any verifier. If setup
+        # fails, v1 refuses a partial comparison instead of silently changing
+        # the experiment from three-way to two-way.
+        for owner in plan.owners:
+            if active.anchor_completed.is_set() or active.cancelled:
+                verification.set_disposition("skipped", "anchor completed or run cancelled")
+                return
+            instance = plan.participants[owner]
+            spec = self.runtime.spec(instance)
+            stream_path = verification.verification_dir / f"{instance}.jsonl"
+            opened, stream = self._within_prepare_budget(
+                f"{active.run.run_id}-verify-{instance}-stream",
+                discard=lambda late: self._release_late_stream(None, late),
+                work=lambda spec=spec, instance=instance, stream_path=stream_path: TelemetryStreamWriter(
+                    instance=instance,
+                    family=spec.family,
+                    role=spec.role,
+                    path=stream_path,
+                    adapter_factory=self._adapter_factory(
+                        family=spec.family,
+                        instance=instance,
+                        position_id=active.context.position.position_id,
+                        variant=active.context.position.variant,
+                    ),
+                    track_events=True,
+                ),
+            )
+            if not opened or stream is None:
+                verification.set_disposition(
+                    "skipped", f"verification stream setup failed for {instance}"
+                )
+                return
+            verification.register_stream(stream)
+
+        dispatched = 0
+        for owner in plan.owners:
+            if self._dispatch_verification_stage(active, owner):
+                dispatched += 1
+            else:
+                break
+
+        if dispatched != len(plan.owners):
+            verification.set_disposition(
+                "incomplete",
+                "not all verification participants were dispatched before the decision boundary",
+            )
+        self._await_verification(active)
+
+        stages = verification.stages()
+        if len(stages) == len(plan.owners) and all(
+            stage.disposition == "completed" for stage in stages
+        ):
+            verification.set_disposition("completed")
+        elif verification.disposition == "running":
+            verification.set_disposition("incomplete", "verification stages did not all complete")
+
+    def _dispatch_verification_stage(self, active: _ActiveRun, owner: str) -> bool:
+        verification = active.verification
+        settings = self.runtime.config.verification
+        if verification is None or settings is None:
+            return False
+        plan = verification.plan
+        instance = plan.participants[owner]
+        spec = self.runtime.spec(instance)
+        stream = verification.stream(instance)
+        if stream is None:
+            return False
+        try:
+            command = build_go_command(
+                limit=dict(settings.dispatch_limit),
+                searchmoves=plan.candidate_roots,
+            )
+        except SearchRequestError:
+            return False
+        search_id = f"{active.run.run_id}:verify:{instance}:0"
+        generation = active.generation
+
+        def on_info(token: int, line: str) -> None:
+            return None
+
+        def on_complete(token: int, line: str) -> None:
+            self._on_verification_complete(generation, owner, token, line)
+
+        # The final decision-boundary check and dispatch use the same lock as
+        # note_anchor_complete(). If the anchor wins the race this stage never
+        # starts; if this dispatch wins, it is already in flight and the
+        # declared drain/cancel policy applies.
+        with self._lock:
+            if (
+                active.cancelled
+                or self._closed
+                or active.anchor_completed.is_set()
+                or not self.runtime.shadow_available(instance)
+            ):
+                return False
+            verification.activate_stream(instance)
+            stream.begin_stage(
+                search_id=search_id,
+                position=active.context.position.telemetry_position(),
+                request=parse_go_request(command),
+                controller={
+                    "execution_mode": self.runtime.config.telemetry_execution_mode,
+                    "phase": "VERIFY",
+                    "instance_role": "shadow",
+                    "owner": owner,
+                    "decision_authority": False,
+                },
+                observed_ms=(time.monotonic() - active.started_monotonic) * 1000.0,
+            )
+            stage = verification.record_dispatch(
+                owner=owner,
+                instance=instance,
+                family=spec.family,
+                search_id=search_id,
+                command=command,
+                dispatched_ms=(time.monotonic() - active.started_monotonic) * 1000.0,
+            )
+            dispatched = self.runtime.start_shadow_search(
+                instance,
+                command,
+                token=generation,
+                on_info=on_info,
+                on_complete=on_complete,
+            )
+        if not dispatched:
+            verification.record_completion(
+                stage,
+                completed_ms=(time.monotonic() - active.started_monotonic) * 1000.0,
+                disposition="failed",
+                failure="verification dispatch rejected; instance unavailable",
+            )
+            verification.set_disposition(
+                "incomplete", f"verification dispatch rejected for {instance}"
+            )
+            return False
+        return True
+
+    def _on_verification_complete(
+        self, generation: int, owner: str, token: int, line: str
+    ) -> None:
+        with self._lock:
+            active = self._run
+            if active is None or active.generation != generation or token != generation:
+                return
+            verification = active.verification
+            stage = None if verification is None else verification.stage_for_owner(owner)
+            elapsed = (time.monotonic() - active.started_monotonic) * 1000.0
+        if verification is None or stage is None:
+            return
+
+        tokens = line.split()
+        bestmove = tokens[1] if line.startswith("bestmove ") and len(tokens) > 1 else None
+        failure: str | None = None
+        candidate_set = set(verification.plan.candidate_roots)
+        if bestmove is not None and bestmove not in candidate_set:
+            failure = (
+                f"verification instance {stage.instance} answered {bestmove} outside "
+                f"the common candidate set {list(verification.plan.candidate_roots)}"
+            )
+
+        stream = verification.stream(stage.instance)
+        if failure is None and stream is not None:
+            if not stream.drain_barrier(0.05):
+                failure = (
+                    f"verification telemetry for {stage.instance} did not drain before "
+                    "the completion audit"
+                )
+            elif stream.evidence_lossy:
+                failure = f"verification telemetry for {stage.instance} lost evidence"
+            else:
+                for event in stream.tracked_events():
+                    if event.get("event_type") != "candidate.update":
+                        continue
+                    candidate = event.get("candidate") or {}
+                    move = candidate.get("move")
+                    pv = candidate.get("pv") or []
+                    if move not in candidate_set or (pv and pv[0] not in candidate_set):
+                        failure = (
+                            f"verification telemetry for {stage.instance} escaped the "
+                            "declared common candidate set"
+                        )
+                        break
+
+        if failure is not None:
+            self.runtime.record_shadow_failure(
+                stage.instance, failure, generation=active.generation
+            )
+            verification.record_completion(
+                stage,
+                completed_ms=elapsed,
+                disposition="failed",
+                bestmove=bestmove,
+                stop_reason="verification_root_escape_or_loss",
+                failure=failure,
+            )
+            verification.set_disposition("incomplete", failure)
+            return
+
+        disposition = "stopped" if active.cancelled else "completed"
+        verification.record_completion(
+            stage,
+            completed_ms=elapsed,
+            disposition=disposition,
+            bestmove=bestmove,
+            stop_reason=active.cancel_reason if active.cancelled else None,
+        )
+
+    def _await_verification(self, active: _ActiveRun) -> None:
+        verification = active.verification
+        if verification is None:
+            return
+        interval = 0.02
+        stage_budget_ms = float(self.settings.stage_timeout_s) * 1000.0
+
+        while True:
+            pending = list(verification.active_stages())
+            if not pending:
+                return
+            elapsed_ms = (time.monotonic() - active.started_monotonic) * 1000.0
+            overrun = [
+                stage
+                for stage in pending
+                if elapsed_ms - stage.dispatched_ms > stage_budget_ms
+            ]
+            if overrun:
+                instances = list(dict.fromkeys(stage.instance for stage in pending))
+                self._stop_instances(instances)
+                deadline = time.monotonic() + self.settings.drain_timeout_s
+                for stage in pending:
+                    stage.done.wait(timeout=max(0.0, deadline - time.monotonic()))
+                for stage in pending:
+                    if stage.done.is_set():
+                        continue
+                    message = (
+                        f"verification instance {stage.instance} exceeded the stage "
+                        "budget and did not drain after stop"
+                    )
+                    self.runtime.record_shadow_failure(
+                        stage.instance, message, generation=active.generation
+                    )
+                    verification.record_completion(
+                        stage,
+                        completed_ms=(time.monotonic() - active.started_monotonic) * 1000.0,
+                        disposition="failed",
+                        failure=message,
+                    )
+                verification.set_disposition(
+                    "incomplete", "verification stage deadline exceeded"
+                )
+                return
+            self._wait_slice(pending, interval)
 
     def _dispatch_stage(self, active: _ActiveRun, state: _OwnerState, *, limit: dict[str, Any]) -> bool:
         if active.cancelled or self._closed:

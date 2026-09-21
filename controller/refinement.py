@@ -860,7 +860,21 @@ def verify_refinement_integrity(run_dir: Path | str) -> list[str]:
                 )
 
         for record in row.get("streams") or []:
-            path = refinement_dir / str(record.get("path", ""))
+            relative = Path(str(record.get("path", "")))
+            expected_relative = Path(str(row.get("target_id"))) / (
+                f"{record.get('instance')}.jsonl"
+            )
+            if (
+                relative.is_absolute()
+                or ".." in relative.parts
+                or relative != expected_relative
+            ):
+                problems.append(
+                    f"{row.get('target_id')}:{record.get('instance')}: "
+                    "stream path is not the canonical target-local path"
+                )
+                continue
+            path = refinement_dir / relative
             if not path.is_file():
                 problems.append(
                     f"{row.get('target_id')}: missing stream {record.get('path')!r}"

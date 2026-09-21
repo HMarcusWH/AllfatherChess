@@ -74,9 +74,16 @@ Enforced by `tests/controller/*`, `scripts/shadow-execution-contract.py`, and
 - Controller overhead is charged to the envelope with a monotonic clock.
 - A stop is impossible without calibration present, **validated out of sample**,
   in domain **for that worker's own solver family**, sufficiently supported,
-  below the risk threshold, past the minimum observation, and reading a live
-  observation view that is still current. A model whose deterministic split left zero held-out rows
-  may be consulted but may not license suppression.
+  below the risk threshold, past the minimum observation, reading a live
+  observation view that is still current, and reading one with **nothing left in
+  flight** from the engine. A model whose deterministic split left zero held-out
+  rows may be consulted but may not license suppression.
+- Every threshold in that conjunction is range-checked at startup, so a config
+  file cannot delete a gate by making it vacuously true.
+- The legal-root oracle must be an observational `shadow` instance, so its
+  failures stay evidence and can never reach outward authority.
+- The authority stream stays open until the anchor answers, the anchor dies, or
+  the controller closes. No shadow-side timeout can close it early.
 - A denied stop degrades to continued observation, never to an improvised
   action.
 - Routing decisions are byte-identical under fixed evidence and a fixed clock.

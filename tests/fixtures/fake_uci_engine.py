@@ -34,6 +34,12 @@ def main() -> int:
         help="comma-separated legal roots reported by 'go perft 1'",
     )
     parser.add_argument(
+        "--perft-delay-ms",
+        type=int,
+        default=0,
+        help="stall this long inside 'go perft 1' so a test can mutate state mid-qualification",
+    )
+    parser.add_argument(
         "--leader-schedule",
         default="",
         help="comma-separated moves; the emitted leader advances one entry per info line",
@@ -191,6 +197,8 @@ def main() -> int:
             pass
         elif command == "go perft 1":
             maybe_exit("go")
+            if args.perft_delay_ms:
+                time.sleep(args.perft_delay_ms / 1000.0)
             for move in roots:
                 emit(f"{move}: 1")
             emit(f"Nodes searched: {len(roots)}")

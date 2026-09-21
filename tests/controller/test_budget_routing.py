@@ -579,6 +579,120 @@ class ReviewRegressionRoundTwoTests(unittest.TestCase):
         self.assertTrue(issubclass(BudgetError, RuntimeError))
 
 
+class ReviewRegressionRoundThreeTests(unittest.TestCase):
+    """Round-three review findings, each reproduced before it was fixed."""
+
+    # -- R5: suppression thresholds were never range-checked ----------------
+
+    def test_a_risk_threshold_above_one_is_refused(self):
+        """`stop_max_reversal_risk: 2` does not misconfigure the gate; it deletes it."""
+        with self.assertRaises(RoutingError):
+            RoutingPolicy.from_config({"policy": "conservative_v1", "stop_max_reversal_risk": 2.0})
+
+    def test_a_negative_stability_floor_is_refused(self):
+        with self.assertRaises(RoutingError):
+            RoutingPolicy.from_config(
+                {"policy": "conservative_v1", "stop_min_stability_fraction": -1.0}
+            )
+
+    def test_a_support_floor_below_one_is_refused(self):
+        """A floor of zero authorizes suppression from a bucket with no evidence."""
+        with self.assertRaises(RoutingError):
+            RoutingPolicy.from_config({"policy": "conservative_v1", "stop_min_support": 0})
+
+    def test_a_non_finite_threshold_is_refused(self):
+        with self.assertRaises(RoutingError):
+            RoutingPolicy.from_config(
+                {"policy": "conservative_v1", "stop_max_reversal_risk": float("nan")}
+            )
+
+    def test_a_zero_checkpoint_interval_is_refused(self):
+        with self.assertRaises(RoutingError):
+            RoutingPolicy.from_config({"policy": "conservative_v1", "checkpoint_interval_ms": 0})
+
+    def test_a_shipped_active_profile_is_still_accepted(self):
+        """The validation is worthless if it rejects the profile it ships with."""
+        document = json.loads((ROOT / "config" / "allfather.active.validation.json").read_text())
+        parsed = RoutingPolicy.from_config(document["routing"])
+        self.assertEqual(parsed.stop_min_support, 25)
+        self.assertEqual(parsed.stop_max_reversal_risk, 0.05)
+
+    # -- R1: a telemetry backlog hid events from the live decision ----------
+
+    def test_c_a_backlogged_observation_may_not_authorize_a_stop(self):
+        """Events already reported but not yet translated are events not seen."""
+        router = ConservativeRouter(
+            envelope=envelope(),
+            policy=policy(),
+            calibration=confident_model(risk=0.0001, support=900),
+        )
+        router.on_run_start(_FakeContext())
+        settled = observation(active=True, leader_flips=0, stable_run_fraction=1.0)
+        allowed = router._authorize(propose(settled, router.policy), settled, 10.0)
+
+        stale = observation(
+            active=True,
+            leader_flips=0,
+            stable_run_fraction=1.0,
+            observation_backlog=3,
+        )
+        denied = router._authorize(propose(stale, router.policy), stale, 10.0)
+
+        self.assertTrue(allowed.granted, "the fixture must otherwise authorize")
+        self.assertFalse(denied.granted)
+        failed = [gate.name for gate in denied.gates if not gate.passed]
+        self.assertIn("observation_drained", failed)
+
+    def test_c_the_backlog_is_recorded_on_the_decision(self):
+        """The audit has to state how far behind the observation was."""
+        stale = observation(observation_backlog=7)
+        self.assertEqual(stale.as_dict()["observation_backlog"], 7)
+
+    def test_c_a_drained_observation_reports_no_backlog(self):
+        self.assertEqual(observation().as_dict()["observation_backlog"], 0)
+
+    # -- R6: max() across stages understated multi-stage native work --------
+
+    def test_c_native_work_sums_across_stages_and_maxes_within_one(self):
+        """A UCI node counter restarts on each `go`; two stages are not one."""
+        ledger = BudgetLedger(envelope())
+        # stage one reports a rising cumulative counter
+        ledger.record_native_work(
+            "shadow:stockfish", value=5000, semantics="stockfish.uci_nodes", stage="s1"
+        )
+        ledger.record_native_work(
+            "shadow:stockfish", value=8000, semantics="stockfish.uci_nodes", stage="s1"
+        )
+        # stage two restarts from zero
+        ledger.record_native_work(
+            "shadow:stockfish", value=3000, semantics="stockfish.uci_nodes", stage="s2"
+        )
+        ledger.record_native_work(
+            "shadow:stockfish", value=8000, semantics="stockfish.uci_nodes", stage="s2"
+        )
+        totals = ledger.native_work_by_semantics()
+        self.assertEqual(totals["stockfish.uci_nodes"], 16000.0)
+
+    def test_c_per_stage_decomposition_is_auditable(self):
+        ledger = BudgetLedger(envelope())
+        ledger.record_native_work("shadow:lc0", value=400, semantics="lc0.uci_nodes", stage="s1")
+        ledger.record_native_work("shadow:lc0", value=900, semantics="lc0.uci_nodes", stage="s2")
+        lane = ledger.snapshot()["lanes"]["shadow:lc0"]
+        self.assertEqual(
+            lane["native_work_by_stage"],
+            {"lc0.uci_nodes@s1": 400.0, "lc0.uci_nodes@s2": 900.0},
+        )
+        self.assertEqual(lane["native_work"], {"lc0.uci_nodes": 1300.0})
+
+    def test_c_different_semantics_are_still_never_summed_together(self):
+        ledger = BudgetLedger(envelope())
+        ledger.record_native_work("shadow:a", value=1000, semantics="stockfish.uci_nodes", stage="s1")
+        ledger.record_native_work("shadow:b", value=40, semantics="lc0.uci_nodes", stage="s1")
+        totals = ledger.native_work_by_semantics()
+        self.assertEqual(totals, {"stockfish.uci_nodes": 1000.0, "lc0.uci_nodes": 40.0})
+        self.assertNotIn("total", totals)
+
+
 class RouterConfigTests(unittest.TestCase):
     def test_active_config_builds_a_fail_closed_router(self):
         path = ROOT / "config" / "allfather.active.validation.json"
@@ -623,7 +737,13 @@ class RouterConfigTests(unittest.TestCase):
 
 
 class ActiveModeEndToEndTests(unittest.TestCase):
-    def run_active(self, tmp: Path, **routing_overrides) -> tuple[list[str], dict, dict]:
+    def run_active(
+        self,
+        tmp: Path,
+        *,
+        roots: str = "e2e4,d2d4,g1f3,b1c3,c2c4,g2g3",
+        **routing_overrides,
+    ) -> tuple[list[str], dict, dict]:
         routing = {
             "policy": "conservative_v1",
             "calibration": None,
@@ -641,6 +761,7 @@ class ActiveModeEndToEndTests(unittest.TestCase):
         config = write_shadow_config(
             tmp,
             mode="active",
+            roots=roots,
             dispatch_nodes=400,
             extra={
                 "budget": {
@@ -682,6 +803,31 @@ class ActiveModeEndToEndTests(unittest.TestCase):
                 self.assertIn("gates", decision)
                 self.assertIn("thresholds", decision)
                 self.assertIn("budget", decision)
+
+    def test_a_terminal_position_still_writes_a_route_audit(self):
+        """A run that dispatched no shadow work still spent the anchor's compute.
+
+        Every qualification exit -- a terminal position, a dead oracle, an
+        external `searchmoves` leaving no shadow root -- returned from `_execute`
+        before the router's run was opened, so the anchor's cost was never
+        charged, `on_run_end` never ran, and no audit certificate was written
+        for a search that really happened.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            lines, manifest, route = self.run_active(Path(tmp), roots="")
+            bestmoves = [line for line in lines if line.startswith("bestmove ")]
+            self.assertEqual(len(bestmoves), 1, "the outward search still answered")
+            self.assertTrue(manifest["legal_root_oracle"]["terminal_universe"])
+
+            # The audit exists and describes the envelope the anchor ran inside.
+            self.assertEqual(route["schema_version"], 1)
+            self.assertIn("envelope_claim", route)
+            self.assertIn("budget", route)
+            self.assertTrue(route["budget"]["envelope"]["cpu_ms"] > 0)
+            # No shadow worker was observed, so there is nothing to decide about.
+            self.assertEqual(route["decisions"], [])
+            # The anchor's reservation is still accounted for.
+            self.assertTrue(route["envelope_claim"]["anchor_cost_reserved"])
 
     def test_missing_calibration_yields_conservative_actions_only(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -874,6 +1020,11 @@ class _FakeContext:
 
     def owner_events_truncated(self, owner: str) -> bool:
         return False
+
+    pending: int = 0
+
+    def owner_events_pending(self, owner: str, *, barrier_s: float = 0.025) -> int:
+        return self.pending
 
 
 if __name__ == "__main__":

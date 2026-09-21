@@ -42,6 +42,7 @@ def write_shadow_config(
     extra: dict | None = None,
     tag: str = "allfather-test",
     slow_anchor: bool = True,
+    drain_timeout_s: float = 3.0,
 ) -> Path:
     instance_args = instance_args or {}
     instances = {}
@@ -82,7 +83,7 @@ def write_shadow_config(
             "lc0_score_type": "centipawn",
             "replay_root": "replays",
             "oracle_timeout_s": 5.0,
-            "drain_timeout_s": 3.0,
+            "drain_timeout_s": drain_timeout_s,
             "on_anchor_complete": "drain",
         },
         "instances": instances,
@@ -181,6 +182,90 @@ class ObservationPartitionTests(unittest.TestCase):
             partition_roots(("e2e4",), ())
 
 
+class ReviewRegressionRoundThreeTests(unittest.TestCase):
+    """Round-three review findings on the shadow runtime."""
+
+    def test_an_in_flight_oracle_is_caught_by_the_quiesce_barrier(self):
+        """Owner states do not exist yet while the oracle is answering.
+
+        The stuck-worker sweep iterates `active.owners`, which is populated only
+        after qualification returns. A state mutation arriving mid-qualification
+        therefore found nothing to fail and the caller was free to synchronize
+        the next position into a process still running `go perft 1`.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            config = write_shadow_config(
+                Path(tmp),
+                # quiesce() joins the worker and then waits on the run, so it
+                # tolerates up to two drain timeouts before giving up.
+                drain_timeout_s=1.0,
+                instance_args={
+                    # Outlast both, but not so far that the bundle cannot be
+                    # written before the session tears the process down.
+                    "stockfish-shadow": ["--perft-delay-ms", "3000"],
+                },
+            )
+            run_shell(
+                config,
+                [
+                    "go nodes 64",
+                    "await:bestmove ",
+                    # Mutating state mid-qualification is what the barrier is for.
+                    "position startpos moves e2e4",
+                    "isready",
+                    "await:readyok",
+                ],
+                timeout=40.0,
+            )
+            manifest = read_only_manifest(Path(tmp) / "replays")
+            notes = " ".join(manifest.get("notes", []))
+            self.assertIn("legal-root oracle", notes)
+            self.assertIn("excluded from further synchronization", notes)
+
+    def test_a_long_anchor_outlives_the_shadow_drain_timeout(self):
+        """The shadow drain bound is not an authority deadline.
+
+        Node-limited shadow stages finish in well under a second; a long anchor
+        search does not. Bounding the finalization wait by `drain_timeout_s`
+        closed the authority stream and cleared the run while the outward search
+        was still going, so the anchor's own `bestmove` had nowhere to land.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            config = write_shadow_config(
+                Path(tmp),
+                dispatch_nodes=32,
+                instance_args={
+                    # ~5s of anchor search against a 3s shadow drain timeout.
+                    ANCHOR: ["--info-lines", "50", "--info-delay-ms", "100"],
+                },
+            )
+            lines = run_shell(config, ["go nodes 64", "await:bestmove "], timeout=60.0)
+            bestmoves = [line for line in lines if line.startswith("bestmove ")]
+            self.assertEqual(len(bestmoves), 1, "the outward search must still answer once")
+
+            manifest = read_only_manifest(Path(tmp) / "replays")
+            anchor = [s for s in manifest["stages"] if s["role"] == "anchor"]
+            self.assertEqual(len(anchor), 1)
+            self.assertEqual(
+                anchor[0]["disposition"],
+                "completed",
+                "the authority stage was left unresolved by the shadow drain bound",
+            )
+            self.assertTrue(
+                anchor[0]["bestmove"],
+                "the anchor's outward decision was discarded after its stream closed",
+            )
+            self.assertEqual(bestmoves[0], f"bestmove {anchor[0]['bestmove']}")
+
+            anchor_streams = [s for s in manifest["streams"] if s["role"] == "anchor"]
+            self.assertEqual(len(anchor_streams), 1)
+            self.assertTrue(
+                anchor_streams[0]["complete"],
+                "the authority stream was closed before search.complete",
+            )
+
+
+
 class ShadowConfigTests(unittest.TestCase):
     def test_four_roles_are_distinct_and_anchor_is_unique(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -227,6 +312,35 @@ class ShadowConfigTests(unittest.TestCase):
             with self.assertRaises(RuntimeError) as ctx:
                 load_runtime_config(path)
             self.assertIn("must not be the outward anchor", str(ctx.exception))
+
+    def test_oracle_must_be_an_observational_shadow_instance(self):
+        """'Not the anchor' is not the same as 'observational'.
+
+        A `managed` instance is authority-critical: an oracle timeout on one
+        takes the authority failure path and can fail the outward search, and
+        `record_shadow_failure` would not exclude it from synchronization.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write_shadow_config(Path(tmp))
+            document = json.loads(path.read_text())
+            document["instances"]["stockfish-managed"] = dict(
+                document["instances"]["stockfish-shadow"], role="managed"
+            )
+            document["shadow"]["oracle"] = "stockfish-managed"
+            path.write_text(json.dumps(document), encoding="utf-8")
+            with self.assertRaises(RuntimeError) as ctx:
+                load_runtime_config(path)
+            message = str(ctx.exception)
+            self.assertIn("stockfish-managed", message)
+            self.assertIn("shadow", message)
+
+    def test_shipped_shadow_profile_names_a_shadow_oracle(self):
+        """The validation is worthless if it rejects the profile it ships with."""
+        for name in ("allfather.shadow.validation.json", "allfather.active.validation.json"):
+            with self.subTest(config=name):
+                document = json.loads((ROOT / "config" / name).read_text(encoding="utf-8"))
+                oracle = document["shadow"]["oracle"]
+                self.assertEqual(document["instances"][oracle]["role"], "shadow")
 
     def test_shadow_owner_family_must_match_its_instance(self):
         with tempfile.TemporaryDirectory() as tmp:

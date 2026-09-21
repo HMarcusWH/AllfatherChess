@@ -130,6 +130,12 @@ class LaneAccount:
     spent_gpu_ms: float = 0.0
     #: engine-native counters, keyed by semantics; never summed across keys.
     native_work: dict[str, float] = field(default_factory=dict)
+    #: Per-stage maxima, keyed by (semantics, stage). A UCI `nodes` counter is
+    #: cumulative *within* one search and restarts at zero on the next `go`, so
+    #: the right reduction is max inside a stage and sum across stages. Keeping
+    #: one scalar per semantics collapsed both into max and reported two
+    #: completed 8,000-node stages as 8,000.
+    stage_work: dict[tuple[str, str], float] = field(default_factory=dict)
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -138,6 +144,12 @@ class LaneAccount:
             "spent_cpu_ms": round(self.spent_cpu_ms, 3),
             "spent_gpu_ms": round(self.spent_gpu_ms, 3),
             "native_work": {key: round(value, 3) for key, value in sorted(self.native_work.items())},
+            # The per-stage decomposition the totals above are summed from, so a
+            # reader can check the arithmetic instead of trusting it.
+            "native_work_by_stage": {
+                f"{semantics}@{stage}": round(value, 3)
+                for (semantics, stage), value in sorted(self.stage_work.items())
+            },
         }
 
 
@@ -319,13 +331,32 @@ class BudgetLedger:
             if note:
                 account.native_work[note] = account.native_work.get(note, 0.0) + cpu_ms
 
-    def record_native_work(self, lane: str, *, value: float, semantics: str) -> None:
-        """Record an engine-native counter under its own semantics tag."""
+    def record_native_work(
+        self,
+        lane: str,
+        *,
+        value: float,
+        semantics: str,
+        stage: str = "",
+    ) -> None:
+        """Record an engine-native counter under its own semantics tag.
+
+        `stage` identifies the search the counter belongs to. Engine node and
+        visit counters restart at zero on each `go`, so a lane that ran several
+        stages needs the maximum within each stage summed across them. Callers
+        that genuinely have a single stage may leave it empty.
+        """
         if not isinstance(semantics, str) or not semantics:
             raise BudgetError("native work requires a semantics tag")
         with self._lock:
             account = self._lane(lane)
-            account.native_work[semantics] = max(account.native_work.get(semantics, 0.0), float(value))
+            key = (semantics, str(stage))
+            account.stage_work[key] = max(account.stage_work.get(key, 0.0), float(value))
+            account.native_work[semantics] = sum(
+                amount
+                for (tag, _stage), amount in account.stage_work.items()
+                if tag == semantics
+            )
 
     def native_work_by_semantics(self) -> dict[str, float]:
         """Per-semantics totals.

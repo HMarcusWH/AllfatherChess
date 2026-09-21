@@ -320,6 +320,75 @@ does not support them, which is the specific failure this audit exists to catch.
 Whether the inverted ordering is real or an artifact of when each bucket is
 populated is recorded as open in `docs/CLAIM_LEDGER.md`.
 
+## Eight more findings from a third review
+
+A third review of the pushed branch found eight further defects. All eight were
+reproduced against the code before anything was changed, and each carries a test
+that fails without its fix.
+
+**Two of them let the generation barrier be crossed.** The stuck-worker sweep
+iterates `active.owners`, but owner states are created only *after* legal-root
+qualification returns -- so a state mutation arriving while the oracle was still
+answering found nothing to fail, and the caller went on to send `position` to a
+process still running the previous generation's `go perft 1`. And the oracle
+itself was only required to be Stockfish-family and not the anchor. A `managed`
+instance satisfies both, but `managed` is authority-critical: its timeout takes
+the authority failure path and can fail the outward search, and
+`record_shadow_failure` would not have excluded it from synchronization anyway.
+The oracle must now have role `shadow`, which is also what makes the first fix
+work.
+
+**One discarded the outward decision.** Finalization waited for the anchor's own
+completion bounded by `drain_timeout_s` -- the *shadow* drain timeout. Shadow
+stages are node-limited and finish in well under a second; a `go movetime 60000`
+anchor does not. The wait expired, the authority stream closed and the run was
+cleared while the outward search was still going, so the anchor's `bestmove` had
+nowhere to land and a normally completed search was recorded with an unresolved
+authority stage and an invalid authority stream. The wait now lasts as long as
+the anchor can still answer -- it is alive and the coordinator is open -- with
+both polled rather than assumed, so a dead anchor or a closing controller
+releases the worker instead of hanging it.
+
+**One let the online decision and the offline audit disagree.** Engine lines are
+timestamped on the stdout reader thread and translated on the writer thread, so
+a line can be received, carry an `observed_ms` earlier than a routing
+checkpoint, and still be invisible to that checkpoint. The JSONL would later
+show a leader reversal *before* a decision that never saw it. The stream now
+keeps an enqueued-versus-applied watermark; the router drains briefly, records
+`observation_backlog` on the decision, and refuses to suppress while anything is
+in flight. Measured over 153 contract decisions the backlog was zero every time,
+so this is a real fail-closed guard rather than an always-deny in disguise. The
+`owner_events` docstring, which claimed online and offline could not disagree,
+was wrong and has been corrected rather than left standing.
+
+**One deleted the conservative policy from a config file.** The suppression
+thresholds were converted to numbers and never range-checked, so
+`stop_max_reversal_risk: 2`, `stop_min_support: -1` or
+`stop_min_stability_fraction: -1` did not misconfigure the corresponding gate --
+each made it vacuously true. Every threshold is now range-checked at startup.
+
+**One skipped the audit for a whole class of runs.** Every qualification exit --
+a terminal position, a dead oracle, an external `searchmoves` that leaves no
+shadow root -- returned before the router's run was opened. The anchor had
+already been dispatched and already spent its compute, but no ledger existed, no
+anchor cost was charged, `on_run_end` never ran and no `route.json` was written.
+The lifecycle is now idempotent and runs for every active search.
+
+**One understated the work it reported.** Engine node and visit counters restart
+at zero on each `go`, and the ledger kept one scalar per semantics reduced with
+`max`, so a lane that ran three stages reported its largest single stage as its
+whole output. Counters are now maxed within a stage and summed across them, and
+`route.json` carries the per-stage decomposition so the arithmetic can be
+checked rather than trusted. On one contract run this took a Stockfish lane from
+200,074 to 216,075 node-equivalents; the two 8,000-node extensions had been
+entirely invisible.
+
+**One selected training data silently.** In fit-only mode `--derived-id` was
+ignored and the artifact was chosen by taking the lexicographically greatest
+content-hash directory -- neither the newest nor the one that was asked for. An
+explicit id is now resolved or the run fails, and with no id the most recent
+artifact is used *and named*.
+
 ## Residual concerns worth carrying forward
 
 1. **Fast searches collect nothing.** With `on_anchor_complete: drain`, a very
@@ -348,3 +417,13 @@ populated is recorded as open in `docs/CLAIM_LEDGER.md`.
 8. **The eligibility filter is currently inert.** `contract_validatable` removes
    zero rows on this sweep because every stream translated cleanly. It is
    correct and untested by real data.
+9. **The telemetry backlog guard is also inert here.** `observation_backlog` was
+   zero on all 153 contract decisions. The writer thread keeps up on this
+   hardware at this event rate; the guard exists for when it does not, and no
+   run in this repository has exercised it.
+10. **The anchor finalization wait has no deadline of its own.** It ends when the
+    anchor answers, the anchor dies, or the controller closes. That is the right
+    set of conditions, but it means a live anchor that never answers holds the
+    worker thread until the controller shuts down. There is deliberately no
+    arbitrary timeout, because inventing one is what produced the defect it
+    replaced.

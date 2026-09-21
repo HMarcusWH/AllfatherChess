@@ -16,6 +16,7 @@ import json
 import os
 import queue
 import threading
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
@@ -135,6 +136,14 @@ class TelemetryStreamWriter:
         self._track_events = track_events
         self._events: list[dict[str, Any]] = []
         self._events_truncated = False
+        # Enqueued-vs-applied watermark. Engine lines are timestamped on the
+        # stdout reader thread and translated on the writer thread, so a line
+        # can be received and carry an earlier `observed_ms` than a routing
+        # checkpoint that never saw it. The JSONL will later show that event
+        # before the checkpoint, and the online decision and the offline audit
+        # then disagree about what the engine had reported.
+        self._enqueued = 0
+        self._applied = 0
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._handle = self.path.open("w", encoding="utf-8")
         self._thread = threading.Thread(
@@ -169,6 +178,8 @@ class TelemetryStreamWriter:
             with self._lock:
                 self._dropped += 1
             return
+        with self._lock:
+            self._enqueued += 1
         size = self._queue.qsize()
         if size > self._queued_peak:
             self._queued_peak = size
@@ -182,7 +193,11 @@ class TelemetryStreamWriter:
                 self._queue.task_done()
                 return
             try:
-                self._apply(item)
+                try:
+                    self._apply(item)
+                finally:
+                    with self._lock:
+                        self._applied += 1
             except Exception as exc:  # pragma: no cover - writer isolation
                 with self._lock:
                     if len(self._errors) < 32:
@@ -246,6 +261,31 @@ class TelemetryStreamWriter:
         """True once the live event view has stopped tracking the stream."""
         with self._lock:
             return self._events_truncated
+
+    def pending_events(self) -> int:
+        """Lines received from the engine but not yet translated to disk."""
+        with self._lock:
+            return max(0, self._enqueued - self._applied)
+
+    def drain_barrier(self, timeout: float = 0.025) -> bool:
+        """Best-effort wait for the writer thread to catch up.
+
+        Returns True when nothing is in flight. The common case costs nothing:
+        the writer keeps up, `pending_events()` is already zero, and this
+        returns on the first check without sleeping. It is deliberately short --
+        blocking the routing checkpoint on the writer thread trades a live
+        decision deadline for bookkeeping, which is the worse failure. When the
+        barrier expires with work still in flight the caller is expected to fail
+        closed rather than decide from the prefix it can see.
+        """
+        if self.pending_events() == 0:
+            return True
+        deadline = time.monotonic() + max(0.0, timeout)
+        while time.monotonic() < deadline:
+            if self.pending_events() == 0:
+                return True
+            time.sleep(0.002)
+        return self.pending_events() == 0
 
     # -- lifecycle -----------------------------------------------------------
 

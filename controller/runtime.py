@@ -301,6 +301,16 @@ def _load_shadow_settings(
         raise RuntimeError(
             "shadow.oracle must not be the outward anchor: the anchor may not be blocked by 'go perft 1'"
         )
+    if specs[oracle].role != "shadow":
+        # "not the anchor" is not the same as "observational". A `managed`
+        # instance is authority-critical, so an oracle timeout on one would take
+        # the authority failure path and could fail the outward search -- and
+        # `record_shadow_failure` would not exclude it from synchronization.
+        raise RuntimeError(
+            f"shadow.oracle {oracle!r} has role {specs[oracle].role!r}; the legal-root "
+            "oracle must be an observational shadow instance so that its failures "
+            "stay evidence and never reach outward authority"
+        )
 
     partition = raw.get("partition", "root_index_modulo")
     if partition != "root_index_modulo":

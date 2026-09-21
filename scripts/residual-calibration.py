@@ -102,7 +102,33 @@ def main(argv: list[str] | None = None) -> int:
             candidates = sorted(derived_root.glob("*/features.json"))
             if not candidates:
                 raise SystemExit(f"no derived artifacts under {derived_root}")
-            derived_path = candidates[-1]
+            if args.derived_id:
+                # Directory names are content hashes, so the greatest by string
+                # order is neither the newest nor the one that was asked for.
+                # An explicitly named artifact is resolved, or the run fails.
+                wanted = args.derived_id
+                matches = [
+                    path
+                    for path in candidates
+                    if path.parent.name in (wanted, f"derived-{wanted}")
+                ]
+                if not matches:
+                    available = ", ".join(sorted(path.parent.name for path in candidates))
+                    raise SystemExit(
+                        f"--derived-id {wanted!r} matches no artifact under {derived_root}; "
+                        f"available: {available}"
+                    )
+                derived_path = matches[0]
+            else:
+                # No id given: take the most recently written artifact and say
+                # which one, so training data is never selected silently.
+                derived_path = max(candidates, key=lambda path: path.stat().st_mtime)
+                if len(candidates) > 1:
+                    print(
+                        f"fitting from the most recent of {len(candidates)} derived "
+                        f"artifacts: {derived_path.parent.name} "
+                        f"(pass --derived-id to choose another)"
+                    )
         derived = load_derived_artifact(derived_path)
         # The labels were produced with the artifact's horizon. Recording the
         # CLI default instead would make the model's id and provenance describe

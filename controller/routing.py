@@ -28,6 +28,7 @@ more compute, or fall back to anchor-only. The router never improvises.
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -88,6 +89,11 @@ class OwnerObservation:
     #: True when the live event view stopped growing, so the observation is a
     #: stale prefix rather than the current state of the search.
     observation_truncated: bool = False
+    #: Lines the engine has already reported that had not been translated to
+    #: disk when this observation was taken. Non-zero means the events this
+    #: decision saw are behind what the engine had said, and the offline audit
+    #: will show the difference.
+    observation_backlog: int = 0
 
     def calibration_features(self) -> dict[str, float]:
         """Exactly the shared past-only feature set the model was fitted on.
@@ -117,6 +123,7 @@ class OwnerObservation:
             "work_value": self.work_value,
             "work_semantics": self.work_semantics,
             "observation_truncated": self.observation_truncated,
+            "observation_backlog": self.observation_backlog,
         }
 
 
@@ -241,6 +248,43 @@ class RoutingPolicy:
         except (TypeError, ValueError) as exc:
             raise RoutingError(f"invalid routing configuration: {exc}") from exc
 
+    def __post_init__(self) -> None:
+        """Refuse a configuration that makes the conservative gates vacuous.
+
+        Every suppression gate is a comparison against one of these numbers, so
+        an out-of-range value does not merely misconfigure the policy -- it
+        deletes the gate. `stop_max_reversal_risk: 2` passes any risk,
+        `stop_min_support: -1` passes any support, and
+        `stop_min_stability_fraction: -1` passes any stability. A policy that
+        calls itself conservative has to be unable to say that.
+        """
+        for name in ("stop_max_reversal_risk", "stop_min_stability_fraction"):
+            value = float(getattr(self, name))
+            if not math.isfinite(value) or not 0.0 <= value <= 1.0:
+                raise RoutingError(f"{name} must be a probability in [0, 1], got {value!r}")
+        if self.stop_min_support < 1:
+            raise RoutingError(
+                f"stop_min_support must be at least 1, got {self.stop_min_support!r}: "
+                "a floor below one authorizes suppression from no evidence"
+            )
+        if self.max_stages_per_owner < 1:
+            raise RoutingError("max_stages_per_owner must be at least 1")
+        if self.extend_nodes < 1:
+            raise RoutingError("extend_nodes must be a positive node count")
+        if self.min_observation_nodes < 0:
+            raise RoutingError("min_observation_nodes must be non-negative")
+        interval = float(self.checkpoint_interval_ms)
+        if not math.isfinite(interval) or interval <= 0.0:
+            raise RoutingError("checkpoint_interval_ms must be a positive, finite duration")
+        for name in (
+            "stage_cpu_ms_estimate",
+            "anchor_cpu_ms_estimate",
+            "stage_gpu_ms_estimate",
+        ):
+            value = float(getattr(self, name))
+            if not math.isfinite(value) or value < 0.0:
+                raise RoutingError(f"{name} must be a non-negative, finite duration")
+
     def as_dict(self) -> dict[str, Any]:
         return {
             "policy": POLICY_NAME,
@@ -267,6 +311,7 @@ def observe_owner(
     elapsed_ms: float,
     wall_ms: float,
     truncated: bool = False,
+    backlog: int = 0,
 ) -> OwnerObservation:
     """Cheap observation. It nominates; it does not decide."""
     elapsed_fraction = 0.0 if wall_ms <= 0 else max(0.0, min(1.0, elapsed_ms / wall_ms))
@@ -284,6 +329,7 @@ def observe_owner(
             work_value=None,
             work_semantics=None,
             observation_truncated=truncated,
+            observation_backlog=backlog,
         )
 
     # The same function the calibration was fitted with, over the same input.
@@ -303,6 +349,7 @@ def observe_owner(
         work_value=None if work is None else work[0],
         work_semantics=None if work is None else work[1],
         observation_truncated=truncated,
+        observation_backlog=backlog,
     )
 
 
@@ -602,6 +649,14 @@ class ConservativeRouter:
             except AttributeError:  # pragma: no cover - defensive against older contexts
                 owners = tuple(context.owners)
             for owner in owners:
+                # Drain first, then read. Measuring the backlog after building
+                # the trajectory would report a queue that had already emptied
+                # into events this observation never looked at.
+                backlog = 0
+                try:
+                    backlog = int(context.owner_events_pending(owner))
+                except AttributeError:  # pragma: no cover - older contexts
+                    backlog = 0
                 trajectory = self._live_trajectory(context, owner)
                 truncated = False
                 try:
@@ -613,6 +668,11 @@ class ConservativeRouter:
                         f"owner {owner} live observation view is truncated; "
                         "suppression is withheld for this worker"
                     )
+                if backlog:
+                    audit.note(
+                        f"owner {owner} had {backlog} telemetry event(s) in flight when "
+                        "this checkpoint read it; suppression is withheld for this worker"
+                    )
                 observation = observe_owner(
                     owner=owner,
                     instance=context.owner_instance(owner),
@@ -622,6 +682,7 @@ class ConservativeRouter:
                     elapsed_ms=elapsed,
                     wall_ms=wall,
                     truncated=truncated,
+                    backlog=backlog,
                 )
                 if observation.work_value is not None and observation.work_semantics:
                     # Tagged per semantics and never summed across them: the
@@ -631,6 +692,11 @@ class ConservativeRouter:
                         f"shadow:{owner}",
                         value=observation.work_value,
                         semantics=observation.work_semantics,
+                        # An extension is a fresh `go`, so the engine's counter
+                        # restarts. Tag the stage so the ledger maxes within it
+                        # and sums across stages instead of reporting the
+                        # largest single stage as the lane's whole output.
+                        stage=f"{owner}#{observation.stages_dispatched}",
                     )
                 if not observation.active and self._reservations.get(owner):
                     # The stage finished: convert its reservation into measured
@@ -744,6 +810,15 @@ class ConservativeRouter:
                     not observation.observation_truncated,
                     "the live event view stopped tracking this stream, so the "
                     "observation is a stale prefix",
+                )
+            )
+            gates.append(
+                Gate(
+                    "observation_drained",
+                    observation.observation_backlog == 0,
+                    f"{observation.observation_backlog} telemetry event(s) were still "
+                    "in flight, so the engine has already reported something this "
+                    "observation did not see",
                 )
             )
 

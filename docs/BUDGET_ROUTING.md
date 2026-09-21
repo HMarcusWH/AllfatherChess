@@ -95,11 +95,39 @@ calibration_present    AND calibration_validated
                        AND reversal_risk <= stop_max_reversal_risk
                        AND observed_work >= min_observation_nodes
                        AND observation_current
+                       AND observation_drained
 ```
 
 `observation_current` fails when the live event view has stopped tracking the
 stream. A frozen prefix always looks maximally stable, so a truncated view is
 exactly the state in which a stability-based stop would be most wrong.
+
+`observation_drained` fails when the engine has already reported something this
+observation did not see. Engine lines are timestamped on the stdout reader
+thread and translated to disk on the writer thread, so a received line can carry
+an `observed_ms` earlier than a checkpoint and still be invisible to it -- and
+the JSONL would later show a leader reversal *before* a decision that never saw
+it. Each stream keeps an enqueued-versus-applied watermark; the checkpoint
+drains briefly first (which costs nothing when there is nothing in flight),
+records the residual as `observation_backlog` on the decision, and withholds
+suppression while it is non-zero.
+
+A blocking barrier was considered and rejected: holding the routing checkpoint
+until the writer thread catches up trades a live decision deadline for
+bookkeeping, which is the worse failure. Failing closed on the residual is the
+cheaper half of that trade. Measured over 153 contract decisions the backlog was
+zero every time, so on this hardware at this event rate the guard never fires --
+it is correct and, so far, untested by real data.
+
+### Thresholds are validated, not just parsed
+
+Every gate above is a comparison against a declared number, so an out-of-range
+value does not misconfigure a gate -- it deletes it. `stop_max_reversal_risk: 2`
+passes any risk; `stop_min_support: -1` passes any support;
+`stop_min_stability_fraction: -1` passes any stability. All three are refused at
+startup, along with non-finite values, a non-positive checkpoint interval, and
+negative compute estimates. A policy that calls itself conservative has to be
+unable to say those things.
 
 `calibration_validated` requires the model to carry a non-empty held-out
 evaluation. A model whose deterministic split left zero test rows reports
@@ -107,6 +135,20 @@ evaluation. A model whose deterministic split left zero test rows reports
 artifact; it may be loaded and consulted, but it may not license suppression.
 This is the promotion discipline made executable: in-sample confidence is not
 evidence.
+
+### Engine-native work
+
+Node and visit counters are cumulative *within* one search and restart at zero
+on the next `go`, so an owner that received extensions reports several
+independent sequences. The ledger therefore keeps a maximum per stage and sums
+those maxima per semantics; keeping one scalar per semantics reduced with `max`
+reported a three-stage lane's largest single stage as its whole output. Each
+lane publishes `native_work_by_stage` next to its totals so the arithmetic can
+be checked rather than trusted.
+
+There is still deliberately no scalar total across semantics: summing alpha-beta
+nodes with LC0 visit-derived counts would assert an equivalence nothing here has
+established.
 
 `EXTEND` / `ABSTAIN_BUY_COMPUTE` require:
 

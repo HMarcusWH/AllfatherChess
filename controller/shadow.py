@@ -191,9 +191,13 @@ class RunContext:
     def owner_events(self, owner: str) -> list[dict[str, Any]]:
         """Telemetry events written so far for this worker.
 
-        The router reconstructs live features from exactly the events that land
-        on disk, so an online decision and a later offline audit cannot
-        disagree about what the engine reported.
+        The router reconstructs live features from exactly the events that have
+        landed on disk. That is not the same as everything the engine has
+        reported: a line already received and timestamped on the reader thread
+        may still be queued for translation, and it will appear in the JSONL
+        with a timestamp earlier than a checkpoint that never saw it. Callers
+        must read `owner_events_pending` alongside this and refuse to suppress
+        while the two disagree.
         """
         state = self._coordinator._owner_state(self.generation, owner)
         if state is None or state.stream is None:
@@ -206,6 +210,20 @@ class RunContext:
         if state is None or state.stream is None:
             return False
         return state.stream.tracked_events_truncated
+
+    def owner_events_pending(self, owner: str, *, barrier_s: float = 0.025) -> int:
+        """Lines received from this worker but not yet translated to disk.
+
+        Applies a short drain barrier first, so the ordinary case -- where the
+        writer thread is keeping up -- reports zero without the caller having to
+        distinguish a real backlog from the microsecond between `put` and
+        `get`.
+        """
+        state = self._coordinator._owner_state(self.generation, owner)
+        if state is None or state.stream is None:
+            return 0
+        state.stream.drain_barrier(barrier_s)
+        return state.stream.pending_events()
 
     def owner_elapsed_stage_ms(self, owner: str) -> float | None:
         """Time since the current stage was dispatched, for an unfinished stage."""
@@ -235,6 +253,15 @@ class _ActiveRun:
     anchor_done: threading.Event = field(default_factory=threading.Event)
     anchor_completed: threading.Event = field(default_factory=threading.Event)
     started_monotonic: float = 0.0
+    #: True while the legal-root oracle request is outstanding. Owner states do
+    #: not exist yet at that point, so without this the quiesce barrier sees no
+    #: worker to fail and lets the caller synchronize state into a process still
+    #: answering the previous generation's `go perft 1`.
+    qualifying: bool = False
+    #: Router lifecycle guards. `_execute` can return before either call, and a
+    #: run that dispatched no shadow work still spent the anchor's compute.
+    router_started: bool = False
+    router_finished: bool = False
 
 
 class ShadowRunCoordinator:
@@ -647,6 +674,20 @@ class ShadowRunCoordinator:
                 # drain deadline, so the bundle -- including the evidence of the
                 # failure itself -- would not be written for many seconds.
                 state.done.set()
+            if active.qualifying:
+                # No owner state exists yet while the oracle is answering, so
+                # the loop above found nothing to fail. The oracle is still
+                # running the previous generation's request, and the caller is
+                # about to synchronize the next position into it.
+                oracle = self.settings.oracle
+                message = (
+                    f"legal-root oracle {oracle} did not return within {timeout}s and is "
+                    "excluded from further synchronization"
+                )
+                self.runtime.record_shadow_failure(
+                    oracle, message, generation=active.generation
+                )
+                active.run.note(message)
         return drained
 
     def close(self) -> None:
@@ -670,10 +711,52 @@ class ShadowRunCoordinator:
             disposition, stop_reason = "error", f"{type(exc).__name__}: {exc}"
         finally:
             try:
+                # Every qualification failure -- a terminal position, a dead
+                # oracle, an external `searchmoves` that leaves no shadow root --
+                # returns from `_execute` before the router's run is opened. The
+                # anchor was already dispatched and already spent its compute, so
+                # a run that observed nothing still owes an audit certificate.
+                if self.router is not None and not active.router_finished:
+                    try:
+                        self._router_start(active)
+                        self._router_end(active)
+                    except Exception as exc:  # pragma: no cover - router isolation
+                        active.run.note(
+                            f"router finalization error: {type(exc).__name__}: {exc}"
+                        )
+            except Exception:  # pragma: no cover - defensive
+                pass
+            try:
                 # Replay evidence is incomplete without the authority stream's
-                # own completion, so finalization waits for it under a bound.
-                if not active.anchor_done.is_set():
-                    active.anchor_done.wait(timeout=self.settings.drain_timeout_s)
+                # own completion, so finalization waits for it.
+                #
+                # The shadow drain timeout is NOT an authority deadline. Shadow
+                # stages are node-limited and finish in well under a second; a
+                # `go movetime 60000` anchor does not. Bounding this wait by
+                # `drain_timeout_s` closed the anchor stream and cleared the run
+                # while the outward search was still going, so the anchor's own
+                # `bestmove` had nowhere to land and a normally completed search
+                # was recorded with an unresolved authority stage.
+                #
+                # Wait for as long as the anchor can still answer: it is alive
+                # and this coordinator is open. Both are polled rather than
+                # assumed, so a dead anchor or a closing controller releases the
+                # worker within one interval instead of hanging it.
+                while not active.anchor_done.is_set():
+                    if active.anchor_done.wait(timeout=0.25):
+                        break
+                    if self._closed:
+                        active.run.note(
+                            "controller closed before the anchor reported completion; "
+                            "the authority stream is incomplete"
+                        )
+                        break
+                    if not self.runtime.healthy:
+                        active.run.note(
+                            "authority health failed before the anchor reported completion; "
+                            "the authority stream is incomplete"
+                        )
+                        break
                 if active.ledger is not None:
                     active.run.post_ledger_snapshot = active.ledger.snapshot()
                 active.run.shadow_health = {
@@ -690,6 +773,20 @@ class ShadowRunCoordinator:
                         self._run = None
                 active.finished.set()
 
+    def _router_start(self, active: _ActiveRun) -> None:
+        """Open the router's run, at most once per run."""
+        if self.router is None or active.router_started:
+            return
+        active.router_started = True
+        self.router.on_run_start(active.context)
+
+    def _router_end(self, active: _ActiveRun) -> None:
+        """Close the router's run, at most once per run."""
+        if self.router is None or active.router_finished:
+            return
+        active.router_finished = True
+        self.router.on_run_end(active.context)
+
     def _execute(self, active: _ActiveRun) -> tuple[str, str | None]:
         run = active.run
         settings = self.settings
@@ -698,11 +795,16 @@ class ShadowRunCoordinator:
             return "cancelled", active.cancel_reason
 
         # 1. Legal-root qualification on the dedicated shadow oracle.
+        with self._lock:
+            active.qualifying = True
         try:
             roots = self.runtime.legal_root_moves()
         except ControllerRuntimeError as exc:
             run.note(f"legal-root oracle unavailable: {exc}")
             return "oracle_failed", str(exc)
+        finally:
+            with self._lock:
+                active.qualifying = False
         run.oracle_root_count = len(roots)
         if not roots:
             run.terminal_universe = True
@@ -786,8 +888,7 @@ class ShadowRunCoordinator:
                 roots=tuple(ledger.active_roots(owner)),
             )
 
-        if self.router is not None:
-            self.router.on_run_start(active.context)
+        self._router_start(active)
 
         for owner in dispatchable:
             state = active.owners[owner]
@@ -814,8 +915,7 @@ class ShadowRunCoordinator:
                 except ShardLedgerError as exc:  # pragma: no cover - defensive
                     run.note(f"owner {owner} could not be sealed: {exc}")
 
-        if self.router is not None:
-            self.router.on_run_end(active.context)
+        self._router_end(active)
 
         if active.anchor_completed.is_set():
             run.note(

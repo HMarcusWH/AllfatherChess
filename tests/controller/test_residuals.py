@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -528,6 +529,83 @@ class DerivedArtifactTests(unittest.TestCase):
     def test_empty_input_is_refused(self):
         with self.assertRaises(FeatureExtractionError):
             build_derived_artifact([])
+
+
+class ScriptArtifactSelectionTests(unittest.TestCase):
+    """R7: fit-only ignored --derived-id and picked by content-hash order."""
+
+    SCRIPT = ROOT / "scripts" / "residual-calibration.py"
+
+    def _artifact_root(self, tmp: Path) -> Path:
+        """Two real derived artifacts, written under explicit ids."""
+        fixtures = replay_fixtures.write_all(tmp / "fixtures")
+        derived_root = tmp / "derived"
+        derived_root.mkdir(parents=True, exist_ok=True)
+        for name in ("derived-aaaaaaaaaaaaaaaa", "derived-zzzzzzzzzzzzzzzz"):
+            artifact = build_derived_artifact(
+                sorted(fixtures.values()), derived_id=name.split("-", 1)[1]
+            ).as_dict()
+            artifact["derived_id"] = name
+            target = derived_root / name
+            target.mkdir(parents=True, exist_ok=True)
+            (target / "features.json").write_text(json.dumps(artifact), encoding="utf-8")
+        return derived_root
+
+    def _run(self, tmp: Path, *args: str):
+        return subprocess.run(
+            [
+                sys.executable,
+                str(self.SCRIPT),
+                "--fit",
+                "--replay-root",
+                str(tmp / "replays"),
+                "--min-support",
+                "1",
+                *args,
+            ],
+            cwd=str(ROOT),
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+
+    def test_an_explicit_derived_id_is_resolved_not_ignored(self):
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            self._artifact_root(tmp)
+            result = self._run(tmp, "--derived-id", "aaaaaaaaaaaaaaaa")
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+            models = sorted((tmp / "calibration").glob("*/model.json"))
+            self.assertEqual(len(models), 1, "expected exactly one fitted model")
+            model = json.loads(models[0].read_text(encoding="utf-8"))
+            sources = [item.get("derived_id") for item in model["sources"]]
+            self.assertEqual(
+                sources,
+                ["derived-aaaaaaaaaaaaaaaa"],
+                "fit-only took the lexicographically greatest content hash "
+                "instead of the artifact that was asked for",
+            )
+
+    def test_an_unknown_derived_id_fails_loudly(self):
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            self._artifact_root(tmp)
+            result = self._run(tmp, "--derived-id", "not-a-real-artifact")
+            self.assertNotEqual(result.returncode, 0)
+            message = result.stdout + result.stderr
+            self.assertIn("not-a-real-artifact", message)
+            self.assertIn("derived-aaaaaaaaaaaaaaaa", message)
+
+    def test_an_ambiguous_choice_names_the_artifact_it_used(self):
+        """Selecting training data silently is how provenance goes wrong."""
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            self._artifact_root(tmp)
+            result = self._run(tmp)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("most recent of 2 derived artifacts", result.stdout)
+
 
 
 class CalibrationTests(unittest.TestCase):

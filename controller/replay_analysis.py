@@ -608,6 +608,17 @@ def counterfactual_labels(
                 for item in trajectory.observations
                 if point <= item.observed_ms <= horizon_end and item.multipv_index == 1
             ]
+            # The engine's own answer is the last thing it says about the
+            # position, and it is a leader change like any other. Now that the
+            # span reaches the completion timestamp, a search whose candidate
+            # updates all agreed but whose `bestmove` differed was labelled a
+            # safe negative -- exactly the rows that authorize a premature stop.
+            if (
+                trajectory.bestmove is not None
+                and trajectory.completed_ms is not None
+                and point <= trajectory.completed_ms <= horizon_end
+            ):
+                within.append(trajectory.bestmove)
             reversal = any(move != leader for move in within)
 
         labels.append(

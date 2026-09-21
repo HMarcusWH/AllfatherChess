@@ -53,6 +53,10 @@ from controller.shadow import RouterCommand
 
 
 ROUTE_SCHEMA_VERSION = 1
+#: Engine-native counters that really are alpha-beta node counts, and so share
+#: the `min_observation_nodes` floor.
+_ALPHA_BETA_NODE_SEMANTICS = ("stockfish.uci_nodes", "reckless.uci_nodes")
+
 POLICY_NAME = "conservative_v1"
 
 
@@ -229,6 +233,10 @@ class RoutingPolicy:
     stage_cpu_ms_estimate: float
     anchor_cpu_ms_estimate: float
     stage_gpu_ms_estimate: float
+    #: Per-semantics observation floors. `min_observation_nodes` remains the
+    #: alpha-beta default; a family whose counter means something else needs its
+    #: own declared floor rather than borrowing that number.
+    observation_floors: dict[str, float] = field(default_factory=dict)
 
     @classmethod
     def from_config(cls, config: dict[str, Any] | None) -> "RoutingPolicy":
@@ -249,6 +257,10 @@ class RoutingPolicy:
                 stage_cpu_ms_estimate=float(config.get("stage_cpu_ms_estimate", 400.0)),
                 anchor_cpu_ms_estimate=float(config.get("anchor_cpu_ms_estimate", 0.0)),
                 stage_gpu_ms_estimate=float(config.get("stage_gpu_ms_estimate", 0.0)),
+                observation_floors={
+                    str(key): float(value)
+                    for key, value in (config.get("observation_floors") or {}).items()
+                },
             )
         except (TypeError, ValueError) as exc:
             raise RoutingError(f"invalid routing configuration: {exc}") from exc
@@ -290,6 +302,21 @@ class RoutingPolicy:
             if not math.isfinite(value) or value < 0.0:
                 raise RoutingError(f"{name} must be a non-negative, finite duration")
 
+    def observation_floor_for(self, semantics: str | None) -> float | None:
+        """The declared minimum observation for this engine-native quantity.
+
+        Returns None when the quantity carries no semantics tag or has no
+        declared floor: an undeclared counter is not evidence that some other
+        engine's floor has been met.
+        """
+        if not semantics:
+            return None
+        if semantics in self.observation_floors:
+            return self.observation_floors[semantics]
+        if semantics in _ALPHA_BETA_NODE_SEMANTICS:
+            return float(self.min_observation_nodes)
+        return None
+
     def as_dict(self) -> dict[str, Any]:
         return {
             "policy": POLICY_NAME,
@@ -303,6 +330,7 @@ class RoutingPolicy:
             "stage_cpu_ms_estimate": self.stage_cpu_ms_estimate,
             "anchor_cpu_ms_estimate": self.anchor_cpu_ms_estimate,
             "stage_gpu_ms_estimate": self.stage_gpu_ms_estimate,
+            "observation_floors": dict(self.observation_floors),
         }
 
 
@@ -873,11 +901,26 @@ class ConservativeRouter:
                         f"risk {verdict.risk:.4f} vs threshold {self.policy.stop_max_reversal_risk}",
                     )
                 )
+            # `min_observation_nodes` is an alpha-beta node count. LC0 reports
+            # `lc0.uci_nodes`, which the telemetry layer declares incomparable
+            # with it -- combining the two elsewhere raises ScaleMixingError --
+            # so the floor is declared per semantics and an untagged or
+            # unrecognised quantity cannot satisfy it at all.
+            floor = self.policy.observation_floor_for(observation.work_semantics)
             gates.append(
                 Gate(
                     "minimum_observation",
-                    (observation.work_value or 0.0) >= self.policy.min_observation_nodes,
-                    f"work {observation.work_value} vs floor {self.policy.min_observation_nodes}",
+                    floor is not None and (observation.work_value or 0.0) >= floor,
+                    (
+                        f"work {observation.work_value} ({observation.work_semantics}) "
+                        f"vs floor {floor}"
+                        if floor is not None
+                        else (
+                            f"no declared observation floor for semantics "
+                            f"{observation.work_semantics!r}; an alpha-beta node count "
+                            "and an LC0 visit-derived count are not the same quantity"
+                        )
+                    ),
                 )
             )
             gates.append(
@@ -978,6 +1021,12 @@ class ConservativeRouter:
             # none of it, free capacity that was in fact consumed, and let
             # route.json claim envelope compliance while omitting the work.
             consumed = self._consumed_ms(context, owner)
+            if consumed is not None:
+                # Same scaling as `_settle_owner`. Adding it there only left
+                # this path charging a four-thread worker stopped after 400 ms
+                # as 400 CPU-ms rather than 1600, so an authorized stop could
+                # leave the envelope falsely compliant.
+                consumed = float(consumed) * self._owner_threads(context, owner)
             reservations = self._reservations.pop(owner, [])
             for index, reservation in enumerate(reservations):
                 if index == len(reservations) - 1 and consumed is not None:

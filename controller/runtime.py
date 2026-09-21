@@ -126,6 +126,11 @@ def _require_object(value: object, label: str) -> dict[str, object]:
     return value
 
 
+#: Instance names become telemetry filenames, so they are restricted to a safe
+#: identifier alphabet rather than merely checked for non-emptiness.
+_SAFE_INSTANCE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
+
+
 def _require_positive_number(value: object, label: str) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise RuntimeError(f"{label} must be a positive number")
@@ -261,6 +266,15 @@ def _load_instances(data: dict[str, object], root: Path) -> tuple[str, dict[str,
     for name in sorted(raw_instances):
         if not name:
             raise RuntimeError("instance names must be non-empty strings")
+        if not _SAFE_INSTANCE_NAME.fullmatch(name):
+            # The name is interpolated into `run_dir / f"{instance}.jsonl"`. A
+            # `/`, a `..` or an absolute path writes telemetry outside the run
+            # directory, and even a benign nested name breaks replay loading,
+            # because the manifest stores only `path.name`.
+            raise RuntimeError(
+                f"instance name {name!r} must match {_SAFE_INSTANCE_NAME.pattern}: "
+                "it is used directly as a telemetry filename"
+            )
         raw = _require_object(raw_instances[name], f"instance {name}")
         family = raw.get("family")
         if family not in SOLVER_FAMILIES:
@@ -716,22 +730,46 @@ class BackendManager:
         try:
             for name in self._startup_order:
                 spec = self.config.backends[name]
-                process = UciProcess(
-                    name=name,
-                    binary=spec.binary,
-                    cwd=spec.cwd,
-                    args=list(spec.args),
-                    on_exit=self._handle_exit,
-                )
-                self.backends[name] = process
-                process.start()
-                process.configure(spec.options)
+                try:
+                    process = UciProcess(
+                        name=name,
+                        binary=spec.binary,
+                        cwd=spec.cwd,
+                        args=list(spec.args),
+                        on_exit=self._handle_exit,
+                    )
+                    self.backends[name] = process
+                    process.start()
+                    process.configure(spec.options)
+                except Exception as exc:
+                    if spec.role in AUTHORITY_ROLES:
+                        raise
+                    # An observational worker that dies during `uci`, times out,
+                    # or rejects an option is exactly the failure the role split
+                    # exists for. Letting it reach the outer handler closed the
+                    # already-healthy anchor and aborted the whole controller,
+                    # so a shadow outage denied outward service entirely -- the
+                    # opposite of what every post-startup path does.
+                    message = f"shadow instance failed during startup: {type(exc).__name__}: {exc}"
+                    self._diagnostic_startup_failure(name, message)
+                    self.record_shadow_failure(name, message)
+                    failed = self.backends.pop(name, None)
+                    if failed is not None:
+                        try:
+                            failed.close()
+                        except Exception:  # pragma: no cover - best effort
+                            pass
             self.ready_all()
         except Exception as exc:
             self.close()
             if isinstance(exc, RuntimeError):
                 raise
             raise RuntimeError(f"backend startup failed: {exc}") from exc
+
+    def _diagnostic_startup_failure(self, instance: str, message: str) -> None:
+        with self._lock:
+            if len(self._observer_failures) < 64:
+                self._observer_failures.append(f"{instance}: {message}")
 
     def _require_healthy(self) -> None:
         if not self.healthy:

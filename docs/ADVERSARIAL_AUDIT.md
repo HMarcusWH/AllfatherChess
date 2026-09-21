@@ -559,6 +559,64 @@ holds: never-flipped `lc0|n3|s3|f0` at 0.220 against just-flipped
 0.00 -- that was a different sweep, and the difference is evidence variance
 rather than anything this round fixed.
 
+## Ten more findings from a sixth review, four of them mine
+
+**The worst one could deny outward service entirely.** Shadow process startup
+ran inside the same `try` as everything else, so a shadow that died during
+`uci`, timed out, or rejected a configured option raised into a handler that
+closed the already-healthy anchor and aborted the controller. An observational
+outage therefore prevented any outward search -- the exact inverse of what every
+post-startup path does with the same failure, and a straight violation of the
+authority/observation split this milestone is built on. Startup failures are now
+caught per instance: authority roles still fail closed, observational ones are
+recorded and excluded.
+
+**Four are round-four and round-five debt.**
+
+- The wall-envelope conjunct added in round five was evaluated at the wrong
+  lifecycle point. `on_run_end` runs from `_execute`, before the worker waits
+  for `anchor_done`, so the remaining authority-search time was absent from the
+  claim and a run could write `claimed: true` and then outlast `wall_ms`. The
+  router's run is now closed after the anchor has answered. Round four
+  deliberately left it early to avoid changing snapshot timing; that caution
+  produced a false claim, so the timing changes.
+- Thread scaling reached `_settle_owner` and not the early-stop path, so an
+  authorized stop still charged a four-thread worker 400 CPU-ms for 400 ms.
+- The per-stage deadline was per *run*, not per *owner*: any owner dispatching
+  an extension reprieved every other pending worker for another full budget,
+  while the eventual expiry cut loose stages that had not used their own.
+- The final `bestmove` was not counted as a horizon reversal. Round four made
+  the span reach the completion timestamp; the reversal predicate still looked
+  only at candidate updates, so a search whose updates agreed but whose answer
+  differed was labelled a safe negative.
+
+**Three more correctness gaps.** `min_observation_nodes` was compared against
+any engine's counter, so 4,000 LC0 visit-derived counts satisfied a floor
+written for alpha-beta nodes -- the same mixing that raises `ScaleMixingError`
+everywhere else in this codebase. Floors are now declared per semantics and an
+undeclared quantity cannot satisfy one at all. A shadow answering with a move
+outside its assigned root region was recorded as normally completed and its
+owner sealed, so an unauthorized leader could reach calibration; that is now a
+stage failure. And under `on_anchor_complete: drain`, routing continued after
+the outward decision, so a later checkpoint could authorize a `stop_worker` that
+killed the very stage the policy said would drain.
+
+**Two identity gaps.** A `model.json` edited while keeping its `model_id` was
+served as if it were the artifact that had been evaluated; the address is now
+recomputed on load and a mismatch is refused. And instance names were checked
+only for non-emptiness while being interpolated into
+`run_dir / f"{instance}.jsonl"`, so a `/`, `..` or absolute path wrote telemetry
+outside the run directory -- they are now restricted to a safe filename
+alphabet.
+
+### The bestmove-reversal fix is inert on this evidence
+
+Measured across this repository's own bundles: **0 of 133** trajectories have a
+`bestmove` that differs from their final candidate leader. The label change is
+correct and closes a real hole, but it moved nothing here. That is now the third
+guard in this document that is correct and untested by real data, alongside the
+telemetry-backlog gate and the stream-eligibility filter.
+
 ## Residual concerns worth carrying forward
 
 1. **Fast searches collect nothing.** With `on_anchor_complete: drain`, a very
@@ -617,8 +675,18 @@ rather than anything this round fixed.
     sources, parameters and `EXTRACTOR_VERSION`. That makes the version bump
     load-bearing: any future change to extraction logic that forgets it
     reintroduces the collision found this round.
-16. **Five review rounds have not converged.** Rounds three, four and five each
-    found defects introduced or left incomplete by the round before. That is a
-    property of the change's size, and it is the strongest argument in this
-    document for landing the overlap phase separately rather than growing this
-    branch further.
+16. **Six review rounds have not converged.** Rounds three, four, five and six
+    each found defects introduced or left incomplete by the round before -- four
+    in round five, four again in round six. No threshold or support floor has
+    been moved in any round and the claim firewall has held, but the defect rate
+    is not falling, and that is a property of the change's size rather than of
+    any individual fix. This is the strongest argument in this document for
+    landing the overlap phase separately rather than growing this branch
+    further.
+17. **The bestmove-reversal label is untested by real data.** 0 of 133
+    trajectories exercise it here. So are the telemetry-backlog gate and the
+    stream-eligibility filter. Three correctness guards in this milestone are
+    reasoned rather than observed.
+18. **`stage_timeout_s` is now per owner but still one declared constant.**
+    Nothing measures what a legitimate stage needs, so a worker that genuinely
+    wants longer than the configured budget is still cut off.

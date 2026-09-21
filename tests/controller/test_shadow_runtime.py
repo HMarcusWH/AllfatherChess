@@ -843,5 +843,68 @@ class ReviewRegressionRoundFourTests(unittest.TestCase):
                 self.assertIn("binary_sha256", identity)
 
 
+class ReviewRegressionRoundSixTests(unittest.TestCase):
+    """Round-six findings on startup isolation, ownership and config safety."""
+
+    def test_a_shadow_that_dies_during_startup_does_not_deny_outward_service(self):
+        """An observational outage must not abort the whole controller.
+
+        `process.start()` and `configure()` raised into one shared handler that
+        closed the already-healthy anchor, so a shadow failing its `uci`
+        handshake prevented any outward search -- the opposite of what every
+        post-startup path does with the same failure.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            config = write_shadow_config(
+                Path(tmp),
+                instance_args={"reckless-shadow": ["--exit-on", "uci"]},
+            )
+            lines = run_shell(config, ["go nodes 64", "await:bestmove "], timeout=40.0)
+            bestmoves = [line for line in lines if line.startswith("bestmove ")]
+            self.assertEqual(
+                len(bestmoves), 1, "a dead shadow prevented the outward answer"
+            )
+
+            manifest = read_only_manifest(Path(tmp) / "replays")
+            health = manifest.get("shadow_health") or {}
+            self.assertIn("reckless-shadow", health)
+            self.assertFalse(health["reckless-shadow"]["alive"])
+
+    def test_an_anchor_that_dies_during_startup_still_fails_closed(self):
+        """Isolation is for observational roles only; authority still aborts."""
+        with tempfile.TemporaryDirectory() as tmp:
+            config = write_shadow_config(
+                Path(tmp),
+                instance_args={ANCHOR: ["--exit-on", "uci"]},
+            )
+            manager = BackendManager.from_path(config)
+            with self.assertRaises(RuntimeError):
+                manager.start()
+            manager.close()
+
+    def test_an_instance_name_may_not_escape_the_replay_directory(self):
+        """Instance names become telemetry filenames."""
+        for unsafe in ("../escape", "nested/name", "/absolute"):
+            with self.subTest(name=unsafe):
+                with tempfile.TemporaryDirectory() as tmp:
+                    path = write_shadow_config(Path(tmp))
+                    document = json.loads(path.read_text())
+                    document["instances"][unsafe] = dict(
+                        document["instances"]["reckless-shadow"]
+                    )
+                    del document["instances"]["reckless-shadow"]
+                    document["shadow"]["instance_by_owner"]["reckless"] = unsafe
+                    path.write_text(json.dumps(document), encoding="utf-8")
+                    with self.assertRaises(RuntimeError) as ctx:
+                        load_runtime_config(path)
+                    self.assertIn("telemetry filename", str(ctx.exception))
+
+    def test_a_safe_instance_name_is_still_accepted(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config = load_runtime_config(write_shadow_config(Path(tmp)))
+            self.assertIn("reckless-shadow", config.backends)
+
+
+
 if __name__ == "__main__":
     unittest.main()

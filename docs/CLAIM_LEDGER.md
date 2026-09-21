@@ -96,6 +96,17 @@ Enforced by `tests/controller/*`, `scripts/shadow-execution-contract.py`, and
   `stop` is quarantined, exactly as one that misses its drain deadline is.
 - Timeouts must be finite: an infinite one reaches `Event.wait()` and raises,
   and the quiesce path would otherwise proceed without excluding the worker.
+- An observational instance that fails its startup handshake is recorded and
+  excluded; only an authority role's failure aborts the controller.
+- A shadow worker that answers with a move outside its assigned root region is
+  recorded as a failed stage, not a completed one.
+- The observation floor is declared per engine-native semantics; an alpha-beta
+  node count cannot satisfy a floor on an LC0 visit-derived count, and an
+  undeclared quantity satisfies none.
+- A calibration whose contents no longer address to its own `model_id` is
+  refused at load.
+- Instance names are restricted to a safe filename alphabet, because they are
+  used directly as telemetry filenames.
 - The authority stream stays open until the anchor answers, the anchor dies, or
   the controller closes. No shadow-side timeout can close it early.
 - A denied stop degrades to continued observation, never to an improvised

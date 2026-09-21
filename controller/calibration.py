@@ -212,36 +212,15 @@ class ReversalRiskModel:
             # every hyperparameter, and the fitted contents themselves. Hashing
             # only sources plus a row count lets two different models -- even
             # ones with opposite labels -- collide on one model.json.
-            digest = hashlib.sha256()
-            digest.update(
-                json.dumps(
-                    {
-                        "model_kind": MODEL_KIND,
-                        "schema_version": CALIBRATION_SCHEMA_VERSION,
-                        "extractor_version": EXTRACTOR_VERSION,
-                        "feature_names": list(FEATURE_NAMES),
-                        "min_support": min_support,
-                        "smoothing_alpha": smoothing_alpha,
-                        "horizon_fraction": horizon_fraction,
-                        "train_rows": len(train),
-                        "test_rows": len(test),
-                        "sources": [
-                            [str(record.get("derived_id", "")), str(record.get("sha256", ""))]
-                            for record in sources
-                        ],
-                        "buckets": {
-                            key: [
-                                int(record["support"]),
-                                int(record["positives"]),
-                                round(float(record["risk"]), 9),
-                            ]
-                            for key, record in sorted(buckets.items())
-                        },
-                    },
-                    sort_keys=True,
-                ).encode("utf-8")
+            model_id = content_address(
+                min_support=min_support,
+                smoothing_alpha=smoothing_alpha,
+                horizon_fraction=horizon_fraction,
+                train_rows=len(train),
+                test_rows=len(test),
+                sources=sources,
+                buckets=buckets,
             )
-            model_id = f"calib-{digest.hexdigest()[:16]}"
 
         model = cls(
             model_id=model_id,
@@ -409,6 +388,54 @@ def _validated_buckets(raw: Any) -> dict[str, dict[str, float]]:
     return validated
 
 
+def content_address(
+    *,
+    min_support: int,
+    smoothing_alpha: float,
+    horizon_fraction: float,
+    train_rows: int,
+    test_rows: int,
+    sources: Sequence[dict[str, Any]],
+    buckets: dict[str, dict[str, float]],
+) -> str:
+    """Address a model by everything that determines it.
+
+    Provenance, every hyperparameter, and the fitted contents themselves.
+    Hashing only sources plus a row count lets two different models -- even
+    ones with opposite labels -- collide on one `model.json`.
+    """
+    digest = hashlib.sha256()
+    digest.update(
+        json.dumps(
+            {
+                "model_kind": MODEL_KIND,
+                "schema_version": CALIBRATION_SCHEMA_VERSION,
+                "extractor_version": EXTRACTOR_VERSION,
+                "feature_names": list(FEATURE_NAMES),
+                "min_support": min_support,
+                "smoothing_alpha": smoothing_alpha,
+                "horizon_fraction": horizon_fraction,
+                "train_rows": train_rows,
+                "test_rows": test_rows,
+                "sources": [
+                    [str(record.get("derived_id", "")), str(record.get("sha256", ""))]
+                    for record in sources
+                ],
+                "buckets": {
+                    key: [
+                        int(record["support"]),
+                        int(record["positives"]),
+                        round(float(record["risk"]), 9),
+                    ]
+                    for key, record in sorted(buckets.items())
+                },
+            },
+            sort_keys=True,
+        ).encode("utf-8")
+    )
+    return f"calib-{digest.hexdigest()[:16]}"
+
+
 def _base_rate(rows: Sequence[TrainingRow], alpha: float) -> float:
     positives = sum(1 for row in rows if row.label)
     return (positives + alpha) / (len(rows) + 2 * alpha)
@@ -542,4 +569,29 @@ def load_calibration(path: Path) -> ReversalRiskModel:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise CalibrationError(f"cannot load calibration {path}: {exc}") from exc
-    return ReversalRiskModel.from_dict(data)
+    model = ReversalRiskModel.from_dict(data)
+    evaluation = model.evaluation or {}
+    train_rows = evaluation.get("train_rows")
+    test_rows = evaluation.get("test_rows")
+    if isinstance(train_rows, int) and isinstance(test_rows, int):
+        # Recompute the address from what is actually on disk. A `model.json`
+        # whose buckets, support counts, parameters or sources were edited while
+        # keeping its old `model_id` would otherwise be served as if it were the
+        # artifact that was evaluated -- `route.json` would report the stale
+        # identity and a source path, and different stop behaviour would
+        # masquerade as the calibrated model.
+        expected = content_address(
+            min_support=model.min_support,
+            smoothing_alpha=model.smoothing_alpha,
+            horizon_fraction=model.horizon_fraction,
+            train_rows=train_rows,
+            test_rows=test_rows,
+            sources=model.sources,
+            buckets=model.buckets,
+        )
+        if expected != model.model_id:
+            raise CalibrationError(
+                f"calibration {path} declares model_id {model.model_id!r} but its contents "
+                f"address to {expected!r}; it was modified after it was evaluated"
+            )
+    return model

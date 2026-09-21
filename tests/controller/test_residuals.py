@@ -759,7 +759,7 @@ class ReviewRegressionRoundFiveTests(unittest.TestCase):
         )
 
 
-def _stage(*, started_ms: float, points, end: float):
+def _stage(*, started_ms: float, points, end: float, bestmove: str = "e2e4"):
     """One reconstructed stage with an explicit start and completion."""
     from controller.replay_analysis import Observation, SearchTrajectory
 
@@ -786,11 +786,91 @@ def _stage(*, started_ms: float, points, end: float):
         execution_mode="active",
         owner="lc0",
         observations=observations,
-        bestmove="e2e4",
+        bestmove=bestmove,
         complete=True,
         completed_ms=end,
         started_ms=started_ms,
     )
+
+
+
+class ReviewRegressionRoundSixTests(unittest.TestCase):
+    """Round-six findings on labels and calibration identity."""
+
+    def test_a_differing_final_bestmove_counts_as_a_reversal(self):
+        """The engine's answer is the last thing it says about the position.
+
+        With the span now reaching the completion timestamp, a search whose
+        candidate updates all agreed but whose `bestmove` differed was labelled
+        a safe negative -- exactly the rows that authorize a premature stop.
+        """
+        from controller.replay_analysis import counterfactual_labels
+
+        trajectory = _stage(
+            started_ms=0.0,
+            points=[(10.0, "e2e4"), (40.0, "e2e4")],
+            end=100.0,
+            bestmove="d2d4",
+        )
+        labels = counterfactual_labels(trajectory, (20.0,), horizon_fraction=0.8)
+        self.assertTrue(labels[0].horizon_observed)
+        self.assertTrue(
+            labels[0].reversal_within_horizon,
+            "the engine changed its answer and the row was labelled safe",
+        )
+
+    def test_an_agreeing_final_bestmove_is_not_a_reversal(self):
+        from controller.replay_analysis import counterfactual_labels
+
+        trajectory = _stage(
+            started_ms=0.0,
+            points=[(10.0, "e2e4"), (40.0, "e2e4")],
+            end=100.0,
+            bestmove="e2e4",
+        )
+        labels = counterfactual_labels(trajectory, (20.0,), horizon_fraction=0.8)
+        self.assertFalse(labels[0].reversal_within_horizon)
+
+    def test_a_bestmove_outside_the_horizon_is_not_counted(self):
+        """A completion after the horizon is not evidence about that horizon."""
+        from controller.replay_analysis import counterfactual_labels
+
+        trajectory = _stage(
+            started_ms=0.0,
+            points=[(10.0, "e2e4"), (20.0, "e2e4")],
+            end=1000.0,
+            bestmove="d2d4",
+        )
+        labels = counterfactual_labels(trajectory, (100.0,), horizon_fraction=0.1)
+        self.assertFalse(labels[0].reversal_within_horizon)
+
+    # -- T9: a model could be edited and still serve under its old id ------
+
+    def test_an_edited_calibration_is_refused(self):
+        rows = [
+            TrainingRow(
+                run_id=f"run-{index % 8}",
+                instance="lc0-shadow",
+                owner="lc0",
+                observation_count=13,
+                leader_flips=index % 3,
+                stable_run_fraction=1.0,
+                label=(index % 5 == 0),
+            )
+            for index in range(40)
+        ]
+        model = ReversalRiskModel.fit(rows, min_support=1, horizon_fraction=0.25, sources=[])
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write_calibration(model, Path(tmp))
+            self.assertEqual(load_calibration(path).model_id, model.model_id)
+
+            document = json.loads(path.read_text())
+            key = sorted(document["buckets"])[0]
+            document["buckets"][key]["risk"] = 0.0
+            path.write_text(json.dumps(document), encoding="utf-8")
+            with self.assertRaises(CalibrationError) as ctx:
+                load_calibration(path)
+            self.assertIn("modified after it was evaluated", str(ctx.exception))
 
 
 

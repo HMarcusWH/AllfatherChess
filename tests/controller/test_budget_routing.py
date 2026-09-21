@@ -838,6 +838,82 @@ class ReviewRegressionRoundFiveTests(unittest.TestCase):
         self.assertEqual(claim["cpu_measurement"], "stage_wall_ms_x_configured_threads")
 
 
+class ReviewRegressionRoundSixTests(unittest.TestCase):
+    """Round-six findings on CPU accounting and the observation floor."""
+
+    # -- T2: thread scaling reached _settle_owner but not the stop path ----
+
+    def test_a_stopped_stage_is_also_charged_by_thread_count(self):
+        """The early-stop path bypassed the scaling added to `_settle_owner`."""
+        charged = {}
+        for threads in (1, 4):
+            router = ConservativeRouter(
+                envelope=envelope(cpu_ms=100000.0),
+                policy=policy(),
+                calibration=confident_model(risk=0.0001, support=900),
+            )
+            context = _FakeContext()
+            context.threads = threads
+            context.stage_elapsed_ms = 400.0
+            router.on_run_start(context)
+            router._reservations["stockfish"] = [
+                router.ledger.reserve("shadow:stockfish", cpu_ms=400.0)
+            ]
+            settled = observation(active=True, leader_flips=0, stable_run_fraction=1.0)
+            decision = router._authorize(propose(settled, router.policy), settled, 10.0)
+            self.assertTrue(decision.granted, "the fixture must authorize a stop")
+            command = router._to_command(decision, context)
+            self.assertIsNotNone(command)
+            self.assertEqual(command.action, "stop_worker")
+            lane = router.ledger.snapshot()["lanes"]["shadow:stockfish"]
+            charged[threads] = lane["spent_cpu_ms"]
+        self.assertEqual(charged[1], 400.0)
+        self.assertEqual(
+            charged[4],
+            1600.0,
+            "a four-thread worker stopped after 400 ms was charged 400 CPU-ms",
+        )
+
+    # -- T6: one node floor was applied across incomparable semantics ------
+
+    def test_the_observation_floor_is_declared_per_semantics(self):
+        """An alpha-beta node count and an LC0 visit-derived count differ."""
+        shaped = policy(min_observation_nodes=4000)
+        self.assertEqual(shaped.observation_floor_for("stockfish.uci_nodes"), 4000.0)
+        self.assertEqual(shaped.observation_floor_for("reckless.uci_nodes"), 4000.0)
+        self.assertIsNone(
+            shaped.observation_floor_for("lc0.uci_nodes"),
+            "LC0 borrowed the alpha-beta floor it is declared incomparable with",
+        )
+        self.assertIsNone(shaped.observation_floor_for(None))
+
+    def test_an_undeclared_semantics_cannot_satisfy_the_floor(self):
+        router = ConservativeRouter(
+            envelope=envelope(),
+            policy=policy(min_observation_nodes=10),
+            calibration=confident_model(risk=0.0001, support=900),
+        )
+        router.on_run_start(_FakeContext())
+        lc0 = observation(
+            owner="lc0",
+            instance="lc0-shadow",
+            active=True,
+            leader_flips=0,
+            stable_run_fraction=1.0,
+            work_value=1_000_000.0,
+            work_semantics="lc0.uci_nodes",
+        )
+        decision = router._authorize(propose(lc0, router.policy), lc0, 10.0)
+        self.assertFalse(decision.granted)
+        self.assertIn("minimum_observation", [g.name for g in decision.gates if not g.passed])
+
+    def test_a_declared_lc0_floor_is_honoured(self):
+        """The fix refuses an undeclared quantity; it does not ban LC0."""
+        shaped = policy(observation_floors={"lc0.uci_nodes": 500.0})
+        self.assertEqual(shaped.observation_floor_for("lc0.uci_nodes"), 500.0)
+
+
+
 class RouterConfigTests(unittest.TestCase):
     def test_active_config_builds_a_fail_closed_router(self):
         path = ROOT / "config" / "allfather.active.validation.json"

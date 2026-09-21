@@ -739,22 +739,6 @@ class ShadowRunCoordinator:
             disposition, stop_reason = "error", f"{type(exc).__name__}: {exc}"
         finally:
             try:
-                # Every qualification failure -- a terminal position, a dead
-                # oracle, an external `searchmoves` that leaves no shadow root --
-                # returns from `_execute` before the router's run is opened. The
-                # anchor was already dispatched and already spent its compute, so
-                # a run that observed nothing still owes an audit certificate.
-                if self.router is not None and not active.router_finished:
-                    try:
-                        self._router_start(active)
-                        self._router_end(active)
-                    except Exception as exc:  # pragma: no cover - router isolation
-                        active.run.note(
-                            f"router finalization error: {type(exc).__name__}: {exc}"
-                        )
-            except Exception:  # pragma: no cover - defensive
-                pass
-            try:
                 # Replay evidence is incomplete without the authority stream's
                 # own completion, so finalization waits for it.
                 #
@@ -785,6 +769,21 @@ class ShadowRunCoordinator:
                             "the authority stream is incomplete"
                         )
                         break
+                # Now that the anchor has answered (or is never going to), the
+                # router's run can be closed against the whole elapsed time.
+                # Every qualification failure -- a terminal position, a dead
+                # oracle, an external `searchmoves` leaving no shadow root --
+                # returns from `_execute` before the run was ever opened, and
+                # the anchor still spent its compute, so a run that observed
+                # nothing still owes an audit certificate.
+                if self.router is not None and not active.router_finished:
+                    try:
+                        self._router_start(active)
+                        self._router_end(active)
+                    except Exception as exc:  # pragma: no cover - router isolation
+                        active.run.note(
+                            f"router finalization error: {type(exc).__name__}: {exc}"
+                        )
                 if active.ledger is not None:
                     active.run.post_ledger_snapshot = active.ledger.snapshot()
                 active.run.shadow_health = {
@@ -948,7 +947,12 @@ class ShadowRunCoordinator:
                 except ShardLedgerError as exc:  # pragma: no cover - defensive
                     run.note(f"owner {owner} could not be sealed: {exc}")
 
-        self._router_end(active)
+        # The router's run is deliberately NOT closed here. `on_run_end` writes
+        # the envelope claim, which now includes elapsed wall time, and the
+        # anchor may still be searching: closing it at this point measured only
+        # the part of the run the shadows took and could write `claimed: true`
+        # for a run that then outlasted `wall_ms` waiting for the anchor. The
+        # worker closes it after `anchor_done`.
 
         if active.anchor_completed.is_set():
             run.note(
@@ -1093,6 +1097,24 @@ class ShadowRunCoordinator:
             stop_reason = "route_stop_worker"
         elif active.cancelled:
             stop_reason = active.cancel_reason
+        # A backend that ignores or mishandles `searchmoves` can answer with a
+        # legal move outside the region it was assigned. The stream stays
+        # telemetry-contract-valid, so nothing downstream would notice -- and an
+        # unauthorized final leader would reach residual labels and calibration.
+        # Ownership is the whole basis of the partition, so an escape is a
+        # failure of the stage, not a completion.
+        if bestmove is not None and state.roots and bestmove not in state.roots:
+            escape = (
+                f"shadow instance {state.instance} answered {bestmove} which is outside its "
+                f"assigned root region {list(state.roots)}; the stage is recorded as failed"
+            )
+            active.run.note(escape)
+            self.runtime.record_shadow_failure(
+                state.instance, escape, generation=active.generation
+            )
+            state.failed = True
+            disposition = "failed"
+            stop_reason = "root_region_escape"
         active.run.record_completion(
             state.stage,
             completed_ms=elapsed,
@@ -1114,8 +1136,25 @@ class ShadowRunCoordinator:
         # the whole wait handed an extension only whatever milliseconds the
         # initial stage had left, cancelling it before it had run at all.
         budget = max(1.0, self.settings.stage_timeout_s)
-        deadline = time.monotonic() + budget
-        seen_stages = {owner: state.stages_dispatched for owner, state in active.owners.items()}
+        # One deadline PER OWNER, measured from that owner's own current stage.
+        # A single shared deadline meant any owner dispatching an extension
+        # handed every other pending worker another full budget -- so a hung
+        # stage was reprieved whenever a healthy one advanced -- while the
+        # eventual expiry cut loose stages that had not used their own
+        # allowance at all.
+        seen_stages: dict[str, int] = {}
+        deadlines: dict[str, float] = {}
+
+        def refresh(now: float) -> None:
+            for owner, state in active.owners.items():
+                if not state.dispatched:
+                    continue
+                stage = state.stages_dispatched
+                if seen_stages.get(owner) != stage:
+                    seen_stages[owner] = stage
+                    deadlines[owner] = now + budget
+
+        refresh(time.monotonic())
         while True:
             pending = [state for state in active.owners.values() if state.dispatched and not state.done.is_set()]
             if not pending:
@@ -1123,20 +1162,27 @@ class ShadowRunCoordinator:
                     return
                 if not self._router_checkpoint(active):
                     return
+                refresh(time.monotonic())
                 continue
-            # A newly dispatched stage restarts the clock it is measured against.
-            current = {owner: state.stages_dispatched for owner, state in active.owners.items()}
-            if any(current.get(owner, 0) > seen for owner, seen in seen_stages.items()) or set(
-                current
-            ) - set(seen_stages):
-                seen_stages = current
-                deadline = time.monotonic() + budget
-            if time.monotonic() > deadline:
-                self._cut_loose_overrunning(active, pending)
+            now = time.monotonic()
+            refresh(now)
+            overrun = [state for state in pending if now > deadlines.get(state.owner, now + budget)]
+            if overrun:
+                self._cut_loose_overrunning(active, overrun)
                 return
             for state in pending:
                 state.done.wait(timeout=interval)
-            if self.router is not None and not active.cancelled:
+            if (
+                self.router is not None
+                and not active.cancelled
+                and not active.anchor_completed.is_set()
+            ):
+                # Under `on_anchor_complete: drain` the outward decision is
+                # already final and an in-flight stage is supposed to finish.
+                # Continuing to route let a later checkpoint authorize a
+                # `stop_worker` that killed that stage anyway, contradicting the
+                # declared policy and truncating evidence for an action that
+                # could no longer inform anything.
                 self._router_checkpoint(active)
 
     def _cut_loose_overrunning(self, active: _ActiveRun, pending: list) -> None:

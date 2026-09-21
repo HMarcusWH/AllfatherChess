@@ -144,6 +144,9 @@ class TelemetryStreamWriter:
         # then disagree about what the engine had reported.
         self._enqueued = 0
         self._applied = 0
+        #: True once the handle is closed or being closed while the writer
+        #: thread may still be running.
+        self._abandoned = False
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._handle = self.path.open("w", encoding="utf-8")
         self._thread = threading.Thread(
@@ -260,6 +263,13 @@ class TelemetryStreamWriter:
             self._write(event)
 
     def _write(self, event: dict[str, Any]) -> None:
+        with self._lock:
+            if self._abandoned:
+                # The handle is closed or about to be. Anything still in flight
+                # is already counted as dropped evidence; writing it now would
+                # raise into the writer thread and could corrupt a stream the
+                # manifest has already hashed.
+                return
         self._handle.write(json.dumps(event, sort_keys=True) + "\n")
         self._event_count += 1
         if self._track_events:
@@ -365,6 +375,12 @@ class TelemetryStreamWriter:
                             f"telemetry writer did not drain within {2 * timeout}s; "
                             f"{stranded} event(s) were not written"
                         )
+                    # Marking the queue dropped does not stop the consumer. If
+                    # it resumes after this method closes the handle it writes
+                    # into a closed file, and the snapshot taken immediately
+                    # afterwards may hash a partial one. The writer checks this
+                    # before every write.
+                    self._abandoned = True
         try:
             self._handle.flush()
             os.fsync(self._handle.fileno())

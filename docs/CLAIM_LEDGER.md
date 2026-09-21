@@ -114,6 +114,13 @@ Enforced by `tests/controller/*`, `scripts/shadow-execution-contract.py`, and
   non-empty holdout somewhere in the model.
 - Every routing threshold, including per-semantics observation floors, is
   range-checked at startup.
+- The outward anchor must be a Stockfish-family instance; no configuration can
+  move decision authority to another engine.
+- A calibration's **evaluation** is content-addressed alongside its buckets,
+  because authorization reads held-out evidence out of it.
+- Every piece of pre-anchor filesystem work is inside `prepare_budget_s`, not
+  just the first.
+- A declared `stage_timeout_s` is used exactly as configured.
 - The authority stream stays open until the anchor answers, the anchor dies, or
   the controller closes. No shadow-side timeout can close it early.
 - A denied stop degrades to continued observation, never to an improvised

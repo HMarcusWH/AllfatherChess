@@ -311,6 +311,7 @@ class ReversalRiskModel:
             },
             "sources": self.sources,
             "evaluation": self.evaluation,
+            "evaluation_sha256": evaluation_address(self.evaluation),
             "claim": (
                 "CALIBRATED from replay observations. This estimates whether an "
                 "engine's own leader changes later in its own search. It is not a "
@@ -386,6 +387,21 @@ def _validated_buckets(raw: Any) -> dict[str, dict[str, float]]:
             )
         validated[key] = {"risk": risk, "support": int(support), "positives": int(positives)}
     return validated
+
+
+def evaluation_address(evaluation: dict[str, Any]) -> str:
+    """Content address of the evaluation block.
+
+    Round six addressed buckets, parameters and sources. Round seven then made
+    authorization read `test_rows` and the reliability bucket list out of
+    `evaluation`, which that address does not cover -- so a fabricated
+    reliability entry could license a stop for a bucket with no held-out
+    evidence while `model_id` still verified and `route.json` still reported the
+    original identity. The evaluation is now addressed as well.
+    """
+    return hashlib.sha256(
+        json.dumps(evaluation, sort_keys=True, default=str).encode("utf-8")
+    ).hexdigest()[:16]
 
 
 def content_address(
@@ -593,5 +609,14 @@ def load_calibration(path: Path) -> ReversalRiskModel:
             raise CalibrationError(
                 f"calibration {path} declares model_id {model.model_id!r} but its contents "
                 f"address to {expected!r}; it was modified after it was evaluated"
+            )
+    declared = data.get("evaluation_sha256")
+    if declared is not None:
+        actual = evaluation_address(model.evaluation)
+        if declared != actual:
+            raise CalibrationError(
+                f"calibration {path} declares evaluation_sha256 {declared!r} but its "
+                f"evaluation addresses to {actual!r}; the held-out evidence this model's "
+                "authorization depends on was modified"
             )
     return model

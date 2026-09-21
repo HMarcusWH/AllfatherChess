@@ -957,5 +957,76 @@ class ReviewRegressionRoundSevenTests(unittest.TestCase):
             )
 
 
+class ReviewRegressionRoundEightTests(unittest.TestCase):
+    """Round-eight findings on the pre-anchor bound, drain scope and anchor family."""
+
+    def test_stream_setup_is_inside_the_pre_anchor_budget_too(self):
+        """Round seven bounded the run `mkdir` and left the stream file outside it.
+
+        `TelemetryStreamWriter` does its own `mkdir` and `open`, which is more
+        pre-anchor filesystem work one call later.
+        """
+        import controller.shadow as shadow_module
+
+        with tempfile.TemporaryDirectory() as tmp:
+            manager = BackendManager.from_path(write_shadow_config(Path(tmp)))
+            manager.start()
+            coordinator = shadow_module.ShadowRunCoordinator(runtime=manager)
+            real_open = shadow_module.Path.open
+            try:
+                def _hang_open(self, *args, **kwargs):
+                    if str(self).endswith(".jsonl"):
+                        time.sleep(5.0)
+                    return real_open(self, *args, **kwargs)
+
+                shadow_module.Path.open = _hang_open  # type: ignore[assignment]
+                started = time.monotonic()
+                ok = coordinator.prepare_run(generation=1, go_command="go nodes 64")
+                elapsed = time.monotonic() - started
+            finally:
+                shadow_module.Path.open = real_open  # type: ignore[assignment]
+                coordinator.close()
+                manager.close()
+
+            self.assertFalse(ok, "a blocked stream file must not yield a bundle")
+            self.assertLess(
+                elapsed, 2.0, "stream setup delayed the outward search past its budget"
+            )
+
+    def test_a_sub_second_stage_timeout_is_honoured(self):
+        """A declared 50 ms cap was silently replaced with one second."""
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write_shadow_config(Path(tmp))
+            document = json.loads(path.read_text())
+            document["shadow"]["stage_timeout_s"] = 0.05
+            path.write_text(json.dumps(document), encoding="utf-8")
+            import controller.shadow as shadow_module
+
+            manager = BackendManager.from_path(path)
+            coordinator = shadow_module.ShadowRunCoordinator(runtime=manager)
+            try:
+                self.assertEqual(coordinator.settings.stage_timeout_s, 0.05)
+                self.assertEqual(
+                    coordinator._stage_budget(),
+                    0.05,
+                    "a declared 50 ms cap was silently replaced with one second",
+                )
+            finally:
+                coordinator.close()
+                manager.close()
+
+    def test_the_anchor_must_be_a_stockfish_instance(self):
+        """Every claim in this milestone says the outward move is Stockfish's."""
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write_shadow_config(Path(tmp))
+            document = json.loads(path.read_text())
+            document["instances"][ANCHOR]["family"] = "reckless"
+            path.write_text(json.dumps(document), encoding="utf-8")
+            with self.assertRaises(RuntimeError) as ctx:
+                load_runtime_config(path)
+            self.assertIn("decision authority", str(ctx.exception))
+
+
+
 if __name__ == "__main__":
     unittest.main()

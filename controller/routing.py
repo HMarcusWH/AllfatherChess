@@ -612,9 +612,14 @@ class ConservativeRouter:
         # checkpoint, including the final update before a stopped worker's
         # `bestmove`, never reached route.json; a cancellation before the first
         # checkpoint reported no native work at all.
-        self._record_final_native_work(context)
-        for owner in list(self._reservations):
-            self._settle_owner(context, owner)
+        # Reconstructing every owner's trajectory and serializing the audit is
+        # controller CPU like any other, and it happens before the snapshot the
+        # claim is computed from. Leaving it outside the accounting let a run
+        # report compliance while this work pushed it past `cpu_ms`.
+        with self.ledger.controller_overhead("finalization"):
+            self._record_final_native_work(context)
+            for owner in list(self._reservations):
+                self._settle_owner(context, owner)
         if self._anchor_reservation is not None:
             # The anchor is charged its full declared reservation, not a
             # measured value: shadow finalization happens before the anchor

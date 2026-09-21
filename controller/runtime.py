@@ -347,6 +347,18 @@ def _load_shadow_settings(
     if unmapped:
         raise RuntimeError(f"shadow instances without a ledger owner are forbidden: {unmapped}")
 
+    if specs[anchor].family != "stockfish":
+        # The frontend, the docs and every claim in this milestone say the
+        # outward move is the unrestricted Stockfish anchor's in every mode. A
+        # config naming a Reckless or LC0 anchor passes every other check and
+        # silently changes which engine holds decision authority -- and an LC0
+        # anchor's GPU use has no anchor-side reservation in the active ledger.
+        raise RuntimeError(
+            f"anchor {anchor!r} has solver family {specs[anchor].family!r}; outward "
+            "decision authority is declared to be Stockfish in every shadow and "
+            "active profile"
+        )
+
     oracle = raw.get("oracle")
     if not isinstance(oracle, str) or oracle not in specs:
         raise RuntimeError(f"shadow.oracle must name a configured instance, got {oracle!r}")

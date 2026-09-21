@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any, Iterable, Sequence
 
 from common.residuals import (
+    ScaleMixingError,
     Margin,
     ResidualError,
     TaggedValue,
@@ -169,6 +170,21 @@ class SearchTrajectory:
         return result
 
     def within_engine_margin_at(self, observed_ms: float) -> Margin | None:
+        """Margin between the primary and runner-up lines, or None.
+
+        A MultiPV frame reporting the primary line as mate and the runner-up in
+        centipawns is perfectly valid telemetry, and those two quantities are
+        not comparable -- `within_engine_margin` raises `ScaleMixingError` for
+        exactly that reason. Letting it propagate aborted derivation for the
+        whole replay corpus, so tactical positions with a mixed frame could not
+        be calibrated at all. The margin is simply unavailable there.
+        """
+        try:
+            return self._within_engine_margin_at(observed_ms)
+        except ScaleMixingError:
+            return None
+
+    def _within_engine_margin_at(self, observed_ms: float) -> Margin | None:
         """Primary-vs-runner-up margin, inside this engine's own scale only."""
         latest: dict[int, Observation] = {}
         for item in self.observations:

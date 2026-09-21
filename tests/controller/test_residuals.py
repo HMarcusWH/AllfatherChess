@@ -874,6 +874,100 @@ class ReviewRegressionRoundSixTests(unittest.TestCase):
 
 
 
+class ReviewRegressionRoundEightTests(unittest.TestCase):
+    """Round-eight findings on calibration evidence and scale mixing."""
+
+    def test_a_fabricated_evaluation_is_refused(self):
+        """Authorization reads `evaluation`, so `evaluation` must be addressed.
+
+        Round six addressed buckets, parameters and sources. Round seven then
+        made `calibration_validated` read `test_rows` and the reliability
+        bucket list out of `evaluation`, which that address does not cover -- so
+        a fabricated reliability entry could license a stop for a bucket with no
+        held-out evidence while `model_id` still verified.
+        """
+        rows = [
+            TrainingRow(
+                run_id=f"run-{index % 8}",
+                instance="lc0-shadow",
+                owner="lc0",
+                observation_count=13,
+                leader_flips=index % 3,
+                stable_run_fraction=1.0,
+                label=(index % 5 == 0),
+            )
+            for index in range(40)
+        ]
+        model = ReversalRiskModel.fit(rows, min_support=1, horizon_fraction=0.25, sources=[])
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write_calibration(model, Path(tmp))
+            self.assertEqual(load_calibration(path).model_id, model.model_id)
+
+            document = json.loads(path.read_text())
+            document["evaluation"] = dict(
+                document["evaluation"],
+                reliability=[{"bucket": "lc0|n3|s3|f0", "count": 99, "observed_rate": 0.0}],
+            )
+            path.write_text(json.dumps(document), encoding="utf-8")
+            with self.assertRaises(CalibrationError) as ctx:
+                load_calibration(path)
+            self.assertIn("evaluation", str(ctx.exception))
+
+    def test_a_mixed_mate_and_centipawn_frame_yields_no_margin(self):
+        """Incomparable scores are an undefined margin, not a corpus-wide crash."""
+        from controller.replay_analysis import Observation, SearchTrajectory
+
+        from common.residuals import TaggedValue
+
+        def _eval(kind: str, value: float):
+            # `Observation.primary_evaluation` only surfaces cp/mate/scalar, so
+            # the kinds here must be ones it actually returns -- otherwise the
+            # margin short-circuits to None before any comparison is attempted
+            # and the test proves nothing.
+            return TaggedValue(
+                value=float(value), kind=kind, semantics=f"stockfish.uci_{kind}"
+            )
+
+        trajectory = SearchTrajectory(
+            instance="stockfish-shadow",
+            family="stockfish",
+            role="shadow",
+            search_id="s",
+            variant="standard",
+            position_id="p",
+            authorized_roots=(),
+            execution_mode="shadow",
+            owner="stockfish",
+            observations=(
+                Observation(
+                    sequence=0,
+                    observed_ms=10.0,
+                    multipv_index=1,
+                    move="e2e4",
+                    pv=("e2e4",),
+                    evaluations=(_eval("mate", 3),),
+                    work=(),
+                ),
+                Observation(
+                    sequence=1,
+                    observed_ms=10.0,
+                    multipv_index=2,
+                    move="d2d4",
+                    pv=("d2d4",),
+                    evaluations=(_eval("cp", 40),),
+                    work=(),
+                ),
+            ),
+            bestmove="e2e4",
+            complete=True,
+            completed_ms=20.0,
+            started_ms=0.0,
+        )
+        # Must not raise: the margin is simply unavailable for this frame.
+        self.assertIsNone(trajectory.within_engine_margin_at(20.0))
+
+
+
 class CalibrationTests(unittest.TestCase):
     def rows(self, count: int, *, label_every: int = 4) -> list[TrainingRow]:
         rows: list[TrainingRow] = []

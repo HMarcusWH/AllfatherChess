@@ -655,6 +655,68 @@ the final update before a stopped worker's `bestmove` -- never reached
 `route.json`, and a cancellation before the first checkpoint reported no native
 work at all. It is now reconstructed at run end.
 
+## Nine more findings from an eighth review, six of them mine
+
+This round is the clearest illustration of the pattern this document has been
+tracking: **six of the nine were defects my own previous fixes created or left
+half-finished**, and three of those were created by the round-seven fixes
+specifically.
+
+**Two rounds of fixes combined into a new hole.** Round six content-addressed a
+calibration's buckets, parameters and sources. Round seven then made
+`calibration_validated` read `test_rows` and the reliability bucket list out of
+`evaluation` -- a field that address does not cover. So a fabricated reliability
+entry could license a stop for a bucket with no held-out evidence at all, while
+`model_id` still verified and `route.json` still reported the original identity.
+Neither fix was wrong on its own; together they opened something neither
+touched. The evaluation is now addressed too.
+
+**Round seven's pre-anchor bound covered one call and not the next.** It bounded
+the run directory's `mkdir` and left `TelemetryStreamWriter`'s own `mkdir` and
+`open` outside it -- the same unbounded delay to the outward search, one line
+later. The budget now wraps every piece of pre-anchor filesystem work rather
+than the first piece.
+
+**Round seven's finalization accounting was outside the accounting.**
+`_record_final_native_work` reconstructs every owner's trajectory during
+`on_run_end`, before the snapshot the claim is computed from, and was not inside
+any `controller_overhead` block.
+
+**Round six's per-owner deadline widened a hole it was fixing.** Cutting loose
+an overrunning owner cancels the run, which sends `stop` to *every* pending
+owner -- but only the overrunning ones were waited for and quarantined. A
+non-overrunning worker slow to answer `stop` was left running while the run
+finalized and cleared `_run`.
+
+**Round five's writer shutdown still wrote through a closed handle.** Marking
+queued items dropped does not stop the consumer thread; when it resumed it could
+write into a file this method had already closed, and the snapshot taken
+immediately after could hash a partial stream. The writer now refuses to write
+once the stream is abandoned.
+
+**Round five clamped a setting it had just declared.** `max(1.0, stage_timeout_s)`
+silently replaced a declared 50 ms cap with one second, so a stuck worker could
+run twenty times its configured budget before cancellation began.
+
+**Three were not mine.** Orchestration raising after dispatch left already-running
+stages neither stopped nor drained, so finalization could clear `_run` while
+workers searched on. A valid MultiPV frame reporting the primary line as mate
+and the runner-up in centipawns made `within_engine_margin` raise
+`ScaleMixingError` out of `extract_features`, aborting derivation for the entire
+corpus -- an incomparable pair is an unavailable margin, not a crash. And a
+schema-v2 config could name a Reckless or LC0 anchor and pass every check,
+silently changing which engine holds the outward decision that every claim in
+this milestone attributes to Stockfish.
+
+### A test that proved nothing, again
+
+The first version of the mixed-score test used an evaluation kind that
+`Observation.primary_evaluation` filters out, so the margin short-circuited to
+`None` before any comparison was attempted and the test passed with the fix
+reverted. That is the third time in three rounds a regression test had to be
+rewritten because it could not fail. The discipline of reverting each fix and
+re-running is the only reason any of them were caught.
+
 ## Residual concerns worth carrying forward
 
 1. **Fast searches collect nothing.** With `on_anchor_complete: drain`, a very
@@ -713,10 +775,12 @@ work at all. It is now reconstructed at run end.
     sources, parameters and `EXTRACTOR_VERSION`. That makes the version bump
     load-bearing: any future change to extraction logic that forgets it
     reintroduces the collision found this round.
-16. **Seven review rounds have not converged.** Rounds three, four, five and six
+16. **Eight review rounds have not converged, and round eight was the worst.** Rounds three, four, five and six
     each found defects introduced or left incomplete by the round before -- four
     in round five, four again in round six, two in round seven, plus a round-zero
-    finding that reappeared in a different disguise. No threshold or support
+    finding that reappeared in a different disguise, and then **six of nine in
+    round eight**, three of them created by the round-seven fixes specifically.
+    One was created by two correct fixes combining. No threshold or support
     floor has been moved in any round and the claim firewall has held, but the
     defect rate is not falling, and that is a property of the change's size
     rather than of any individual fix. This is the strongest argument in this

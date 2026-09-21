@@ -366,41 +366,53 @@ class ShadowRunCoordinator:
         except OSError:  # pragma: no cover - identity is best effort
             return None
 
-    def _make_run_dir_within_budget(self, run_dir: Path) -> bool:
-        """Create the run directory without letting the filesystem block a search.
+    def _within_prepare_budget(self, label: str, work: Callable[[], Any]) -> tuple[bool, Any]:
+        """Run pre-anchor filesystem work without letting it block a search.
 
         A blocked or very slow `replay_root` would otherwise hold the calling
         thread -- and therefore the outward anchor -- for as long as the kernel
-        takes. The work happens on a short-lived thread and is abandoned at the
-        declared budget. An abandoned thread may still create the directory
-        afterwards; nothing references it, so it is inert leftover rather than
-        state this run relies on.
+        takes. EVERY piece of filesystem work on this path has to be inside the
+        bound, not just the first: round seven bounded the `mkdir` and left the
+        stream file's own `mkdir` and `open` outside it, which is the same
+        unbounded delay one call later.
+
+        The work happens on a short-lived thread and is abandoned at the
+        declared budget. An abandoned thread may still finish afterwards;
+        nothing references what it produces, so it is inert leftover rather
+        than state this run relies on.
         """
         budget = max(0.001, float(self.settings.prepare_budget_s))
         outcome: dict[str, Any] = {}
 
-        def _make() -> None:
+        def _run() -> None:
             try:
-                run_dir.mkdir(parents=True, exist_ok=False)
+                outcome["value"] = work()
                 outcome["ok"] = True
-            except OSError as exc:
-                outcome["error"] = str(exc)
+            except Exception as exc:  # noqa: BLE001 - reported, never raised here
+                outcome["error"] = f"{type(exc).__name__}: {exc}"
 
         worker = threading.Thread(
-            target=_make, name=f"allfather-prepare-{run_dir.name}", daemon=True
+            target=_run, name=f"allfather-prepare-{label}", daemon=True
         )
         worker.start()
         worker.join(timeout=budget)
         if worker.is_alive():
             self._diagnostic(
-                f"replay setup exceeded its {budget}s pre-anchor budget; this search "
-                "runs without a shadow bundle rather than delaying the outward decision"
+                f"replay setup ({label}) exceeded its {budget}s pre-anchor budget; this "
+                "search runs without a shadow bundle rather than delaying the outward "
+                "decision"
             )
-            return False
+            return False, None
         if "error" in outcome:
-            self._diagnostic(f"shadow run directory unavailable: {outcome['error']}")
-            return False
-        return bool(outcome.get("ok"))
+            self._diagnostic(f"replay setup ({label}) failed: {outcome['error']}")
+            return False, None
+        return bool(outcome.get("ok")), outcome.get("value")
+
+    def _make_run_dir_within_budget(self, run_dir: Path) -> bool:
+        ok, _ = self._within_prepare_budget(
+            run_dir.name, lambda: run_dir.mkdir(parents=True, exist_ok=False)
+        )
+        return ok
 
     def _variant(self) -> str:
         return "chess960" if self.runtime.chess960 else "standard"
@@ -502,18 +514,25 @@ class ShadowRunCoordinator:
 
         anchor_name = self.runtime.anchor_name
         anchor_spec = self.runtime.spec(anchor_name)
-        anchor_stream = TelemetryStreamWriter(
-            instance=anchor_name,
-            family=anchor_spec.family,
-            role=anchor_spec.role,
-            path=run_dir / f"{anchor_name}.jsonl",
-            adapter_factory=self._adapter_factory(
-                family=anchor_spec.family,
+        # `TelemetryStreamWriter` does its own `mkdir` and `open`, which is more
+        # pre-anchor filesystem work and belongs inside the same bound.
+        opened, anchor_stream = self._within_prepare_budget(
+            f"{run_id}-anchor-stream",
+            lambda: TelemetryStreamWriter(
                 instance=anchor_name,
-                position_id=position.position_id,
-                variant=variant,
+                family=anchor_spec.family,
+                role=anchor_spec.role,
+                path=run_dir / f"{anchor_name}.jsonl",
+                adapter_factory=self._adapter_factory(
+                    family=anchor_spec.family,
+                    instance=anchor_name,
+                    position_id=position.position_id,
+                    variant=variant,
+                ),
             ),
         )
+        if not opened or anchor_stream is None:
+            return False
         run.register_stream(anchor_stream)
         anchor_search_id = f"{run_id}:{anchor_name}:0"
         anchor_stream.begin_stage(
@@ -786,6 +805,25 @@ class ShadowRunCoordinator:
         except Exception as exc:  # pragma: no cover - worker isolation
             active.run.note(f"shadow worker error: {type(exc).__name__}: {exc}")
             disposition, stop_reason = "error", f"{type(exc).__name__}: {exc}"
+            # Orchestration can raise after some owners are already searching --
+            # a later owner's telemetry file failing to open, for example.
+            # Recording the error and returning left those processes running
+            # while finalization cleared `_run`, so the next `position` could
+            # reach a worker still on the previous generation. Stop and drain
+            # them here, on the same path `quiesce()` uses.
+            try:
+                still_running = [
+                    state
+                    for state in list(active.owners.values())
+                    if state.dispatched and not state.done.is_set()
+                ]
+                if still_running:
+                    self._cut_loose_overrunning(active, still_running)
+            except Exception as cleanup_exc:  # pragma: no cover - defensive
+                active.run.note(
+                    f"could not drain dispatched stages after a worker error: "
+                    f"{type(cleanup_exc).__name__}: {cleanup_exc}"
+                )
         finally:
             try:
                 # Replay evidence is incomplete without the authority stream's
@@ -1184,7 +1222,7 @@ class ShadowRunCoordinator:
         # declared setting, and it is measured PER STAGE: a single deadline for
         # the whole wait handed an extension only whatever milliseconds the
         # initial stage had left, cancelling it before it had run at all.
-        budget = max(1.0, self.settings.stage_timeout_s)
+        budget = self._stage_budget()
         # One deadline PER OWNER, measured from that owner's own current stage.
         # A single shared deadline meant any owner dispatching an extension
         # handed every other pending worker another full budget -- so a hung
@@ -1217,7 +1255,12 @@ class ShadowRunCoordinator:
             refresh(now)
             overrun = [state for state in pending if now > deadlines.get(state.owner, now + budget)]
             if overrun:
-                self._cut_loose_overrunning(active, overrun)
+                # `_cut_loose_overrunning` cancels the run, which sends `stop`
+                # to EVERY pending owner -- so every pending owner has to be
+                # drained and quarantined, not only the ones that overran. A
+                # non-overrunning worker slow to answer `stop` was otherwise
+                # left running while the run finalized and cleared `_run`.
+                self._cut_loose_overrunning(active, pending, overrun=overrun)
                 return
             for state in pending:
                 state.done.wait(timeout=interval)
@@ -1234,7 +1277,18 @@ class ShadowRunCoordinator:
                 # could no longer inform anything.
                 self._router_checkpoint(active)
 
-    def _cut_loose_overrunning(self, active: _ActiveRun, pending: list) -> None:
+    def _stage_budget(self) -> float:
+        """The declared per-stage cap, used exactly as configured.
+
+        No clamp: configuration already requires a positive, finite duration,
+        and silently replacing a declared 50 ms cap with 1 s let a stuck worker
+        run twenty times its declared budget before cancellation even began.
+        """
+        return float(self.settings.stage_timeout_s)
+
+    def _cut_loose_overrunning(
+        self, active: _ActiveRun, pending: list, *, overrun: list | None = None
+    ) -> None:
         """Stop stages past the per-stage budget, quarantining any that ignore it.
 
         A worker that overruns and then ignores `stop` used to be waited on for
@@ -1244,7 +1298,7 @@ class ShadowRunCoordinator:
         still executing the previous generation. This is the same handling
         `quiesce()` applies to a worker that misses its drain deadline.
         """
-        for state in pending:
+        for state in overrun if overrun is not None else pending:
             active.run.note(
                 f"owner {state.owner} exceeded the declared stage budget "
                 f"({self.settings.stage_timeout_s}s)"

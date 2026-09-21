@@ -44,9 +44,12 @@ Fast suites, no engines required:
 through the real telemetry adapters and the real manifest shape: stable
 agreement, transient disagreement, late reversal, LC0-only divergence,
 alpha-beta-only divergence, failed stream, missing stream, terminal position,
-Chess960, and malformed telemetry. Some scenarios deliberately give workers
-*overlapping* regions, which live shadow mode never does, so the cross-engine
-library is proven ready for a later overlap-capable phase.
+Chess960, and malformed telemetry. Some synthetic scenarios deliberately give workers *overlapping* regions.
+Live EXPLORE remains pairwise-disjoint, while optional shadow VERIFY now creates
+the corresponding explicit common-support overlap on the three EXPLORE
+nominees. These fixtures therefore exercise the same structural comparison
+library that the next COMPARE/RELOCK milestone will apply to raw VERIFY
+streams.
 
 `tests/fixtures/fake_uci_engine.py` honors `searchmoves`, node limits, MultiPV
 token presence, scripted leader reversal, and abrupt mid-search exit.

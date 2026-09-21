@@ -118,8 +118,10 @@ Run fixed-node, fixed-time, self-play, SPRT-style, and external-engine compariso
 8. **PR #8 — Historical Codex review hardening**: retire actionable review debt before introducing the hybrid process shell. **Merged.**
 9. **PR #9 — Hybrid UCI shell**: one external UCI endpoint plus three backend process adapters. **Merged.**
 10. **PR #10 — Root ShardLedger**: pairwise-disjoint exploration allocation. **Merged.**
-11. **PR #11-#13 — Immediate controller stack** (landed together): shadow execution and replay, residual/counterfactual calibration, and active adaptive budget routing. **Current.** The three were built in one PR because the later two are meaningless without the evidence the first produces, and because splitting them would have frozen an interface before its consumer existed. They remain three separate layers in the code, with separate artifacts, separate documents, and separate test suites.
-14. **PR #14 — Explicit common-support VERIFY execution**.
+11. **PR #11 — Shadow/replay design contract**: freeze the four-process observatory topology, authority boundary, and replay requirements. **Merged.**
+12. **PR #12 — Immediate controller stack**: implement shadow execution/replay, residual/counterfactual calibration, and active adaptive budget routing as three separate layers with separate artifacts and test suites. **Merged.**
+13. **PR #13 — PR #12 closure and hardening**: retire replay-discovery and envelope-validation debt before adding deliberate overlap. **Merged.**
+14. **PR #14 — Explicit common-support VERIFY execution**. **Current.**
 15. **PR #15 — COMPARE / RELOCK derived analysis**.
 16. **PR #16 — Recursive shard splitting**.
 17. **PR #17 — Active VERIFY + CPU/GPU resource scheduler**.
@@ -284,7 +286,7 @@ Complete only when:
 - shadow process failure is recorded explicitly and never silently promotes another backend to outward authority;
 - stop/quit lifecycle terminates all active shadow work without orphaned processes, while the outward UCI frontend still emits at most the anchor's single bestmove for the search;
 - fixed-node validation proves semantic non-intervention at the outward Stockfish decision boundary; no timed-search equivalence claim is made unless CPU/GPU resource isolation is separately established;
-- shadow execution introduces no candidate voting, recursive shard transfer/split, VERIFY / RELOCK overlap, cross-feed, or strength claim;
+- base EXPLORE shadow execution introduces no candidate voting, recursive shard transfer/split, cross-feed, or strength claim; deliberate VERIFY overlap is opt-in, separately represented, and cannot affect outward decision authority;
 - shadow runs are explicitly marked as research evidence that may exceed the eventual competitive resource envelope;
 - every pre-existing baseline, restricted-root, telemetry, controller-shell, ShardLedger, and portability/hardening gate remains green.
 

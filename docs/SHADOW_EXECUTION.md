@@ -327,12 +327,17 @@ Only after those relationships are calibrated may the controller begin turning
 observation into routing policy, which is exactly the gate structure
 `controller/routing.py` enforces.
 
-Two of those questions currently have **no answer inside a single run**: because
-the observation partition is pairwise disjoint, Stockfish and Reckless are never
-authorized to search a common root, so their direct disagreement has empty
-support. The feature library handles shared support correctly and is tested on
-overlapping synthetic regions, but answering those questions live requires an
-overlap-capable COMPARE/VERIFY phase. See `docs/RESIDUAL_CALIBRATION.md`.
+EXPLORE alone still cannot answer the direct cross-engine questions: its
+partition is pairwise-disjoint, so Stockfish, Reckless, and LC0 do not share an
+EXPLORE root. Optional shadow VERIFY now closes the **raw-support** gap by
+authorizing all three shadow processes to re-search the same three EXPLORE
+nominees and recording those trajectories in a separate child artifact.
+
+What remains unanswered is the derived question: whether that common-support
+agreement/disagreement is informative, how it changes from EXPLORE to VERIFY,
+and whether any descriptive RELOCK state is useful. Those are COMPARE/RELOCK
+analysis tasks, not facts established by raw VERIFY execution. See
+`docs/RESIDUAL_CALIBRATION.md` and `docs/VERIFY_RELOCK.md`.
 
 
 ## Explicit VERIFY extension

@@ -307,10 +307,13 @@ Nothing below is established by this milestone.
   checkpoint position, so the fit cannot tell the two apart. Adding a position
   feature would resolve it and would also reintroduce the train/serve skew that
   was removed in round 1; that trade was not taken here.
-- **Direct Stockfish-vs-Reckless disagreement.** Disjoint ownership gives it
-  empty support within a run; an overlap-capable COMPARE/VERIFY phase is needed.
+- **Direct Stockfish-vs-Reckless disagreement.** Disjoint EXPLORE ownership
+  still gives it empty support there. Explicit VERIFY now supplies raw
+  common-support evidence on the three EXPLORE nominees, but derived
+  COMPARE/RELOCK analysis over those child streams remains OPEN.
 - **Whether LC0 disagreement carries information beyond Stockfish-vs-Reckless
-  disagreement.** Cannot be answered without that overlap phase.
+  disagreement.** VERIFY now supplies the necessary common support, but the
+  incremental-information analysis has not yet been derived or calibrated.
 - **LC0 strength qualification.** The validation profile is a backend-light
   random configuration and is explicitly not strength-qualified.
 - **Transposition overlap.** Only assigned-prefix non-overlap is guaranteed;

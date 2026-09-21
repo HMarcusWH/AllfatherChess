@@ -121,6 +121,7 @@ class RefinementTargetRecord:
     streams: dict[str, TelemetryStreamWriter] = field(default_factory=dict)
     disposition: str = "running"
     stop_reason: str | None = None
+    abort_requested: bool = field(default=False, repr=False, compare=False)
 
     def snapshot(self, *, refinement_dir: Path) -> dict[str, Any]:
         streams: list[dict[str, Any]] = []
@@ -455,6 +456,27 @@ class RefinementRun:
                 for stage in target.stages.values()
                 if not stage.done.is_set()
             )
+
+    def request_target_abort(self, target_id: str, reason: str) -> None:
+        """Mark a target's in-flight stages as intentionally being stopped.
+
+        This is transient lifecycle state, not a derived conclusion. Completion
+        callbacks use it to avoid sealing shards whose engine answered only
+        because a partially dispatched target was being torn down.
+        """
+
+        with self._lock:
+            target = self._targets.get(target_id)
+            if target is None:
+                raise RefinementError(f"unknown refinement target: {target_id!r}")
+            target.abort_requested = True
+            target.disposition = "incomplete"
+            target.stop_reason = reason
+
+    def target_abort_requested(self, target_id: str) -> bool:
+        with self._lock:
+            target = self._targets.get(target_id)
+            return False if target is None else target.abort_requested
 
     def set_target_disposition(
         self,

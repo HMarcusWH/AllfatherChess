@@ -239,6 +239,32 @@ class AuthorizationTests(unittest.TestCase):
         gate = next(g for g in decision.gates if g.name == "calibration_present")
         self.assertFalse(gate.passed)
 
+    def test_unvalidated_calibration_cannot_authorize_suppression(self):
+        model = confident_model(risk=0.01)
+        # A deterministic split that left no held-out rows: the artifact itself
+        # says it is not validated out of sample.
+        model.evaluation = {
+            "train_rows": 500,
+            "test_rows": 0,
+            "brier_score": None,
+            "note": "no held-out rows; this model is not validated out of sample",
+        }
+        router = self.router(calibration=model)
+        decision = router._authorize(propose(observation(), router.policy), observation(), 100.0)
+        self.assertFalse(decision.granted)
+        self.assertIs(decision.action, RouteAction.CONTINUE)
+        self.assertIn("calibration_validated", decision.reason)
+        gate = next(g for g in decision.gates if g.name == "calibration_validated")
+        self.assertFalse(gate.passed)
+
+    def test_validated_calibration_passes_the_out_of_sample_gate(self):
+        router = self.router(calibration=confident_model(risk=0.01))
+        subject = observation()
+        decision = router._authorize(propose(subject, router.policy), subject, 100.0)
+        gate = next(g for g in decision.gates if g.name == "calibration_validated")
+        self.assertTrue(gate.passed)
+        self.assertGreater(router.calibration.evaluation["test_rows"], 0)
+
     def test_out_of_domain_calibration_denies_suppression(self):
         model = confident_model()
         model.min_support = 10_000

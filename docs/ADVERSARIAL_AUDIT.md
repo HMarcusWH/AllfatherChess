@@ -164,6 +164,26 @@ no strength claim. `docs/RESIDUAL_CALIBRATION.md` states the same.
 No. No Elo experiment was run and no strength claim appears anywhere. Both
 real-engine contracts write an explicit `not_claimed` list into their reports.
 
+## A gap this audit found late
+
+The first version of the active-routing contract fitted its calibration from
+only four runs. The deterministic by-run split put all of them in the training
+set, so the model reported `test_rows: 0` and `brier_score: null` — its own
+artifact said it was not validated out of sample — and the router used it
+anyway to authorize stops.
+
+Two fixes, both kept:
+
+1. `calibration_validated` is now a **gate**. A model with no held-out
+   evaluation may be loaded and consulted but may never license suppression.
+   In-sample confidence is not evidence.
+2. The contract now collects ten distinct evidence runs and fails outright if
+   the fitted model has no held-out rows.
+
+This is recorded rather than quietly fixed because it is the exact failure mode
+the source material warns about: promoting an exploratory result to a serving
+claim without frozen criteria on untouched tests.
+
 ## Residual concerns worth carrying forward
 
 1. **Fast searches collect nothing.** With `on_anchor_complete: drain`, a very

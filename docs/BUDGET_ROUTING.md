@@ -89,11 +89,19 @@ Abstention is operationally meaningful here: it *spends*, it is not a no-op.
 `STOP_WORKER` requires the conjunction of:
 
 ```text
-calibration_present  AND calibration_in_domain
-                     AND support       >= stop_min_support
-                     AND reversal_risk <= stop_max_reversal_risk
-                     AND observed_work >= min_observation_nodes
+calibration_present    AND calibration_validated
+                       AND calibration_in_domain
+                       AND support       >= stop_min_support
+                       AND reversal_risk <= stop_max_reversal_risk
+                       AND observed_work >= min_observation_nodes
 ```
+
+`calibration_validated` requires the model to carry a non-empty held-out
+evaluation. A model whose deterministic split left zero test rows reports
+`brier_score: null` and "this model is not validated out of sample" in its own
+artifact; it may be loaded and consulted, but it may not license suppression.
+This is the promotion discipline made executable: in-sample confidence is not
+evidence.
 
 `EXTEND` / `ABSTAIN_BUY_COMPUTE` require:
 
@@ -110,6 +118,7 @@ extension degrades to `HOLD`.
 
 - no calibration configured: every stop is denied, and the run records a note
   saying so;
+- calibration fitted but never evaluated out of sample: every stop is denied;
 - calibration declared but unloadable, foreign, or feature-mismatched:
   `build_router` refuses to construct, rather than silently degrading into an
   uncalibrated policy that still looks configured;

@@ -72,8 +72,10 @@ Enforced by `tests/controller/*`, `scripts/shadow-execution-contract.py`, and
   against a 10-slot ceiling grants exactly 10).
 - Verification and controller-overhead reserves are withheld from solver work.
 - Controller overhead is charged to the envelope with a monotonic clock.
-- A stop is impossible without calibration present, in domain, sufficiently
-  supported, below the risk threshold, and past the minimum observation.
+- A stop is impossible without calibration present, **validated out of sample**,
+  in domain, sufficiently supported, below the risk threshold, and past the
+  minimum observation. A model whose deterministic split left zero held-out rows
+  may be consulted but may not license suppression.
 - A denied stop degrades to continued observation, never to an improvised
   action.
 - Routing decisions are byte-identical under fixed evidence and a fixed clock.
@@ -98,9 +100,16 @@ are observations, not guarantees.
   observation trajectory and ~99.5 % of nodes were spent after that point. This
   is the speculative-waste signal, measured; it is **not** evidence that the
   extra nodes were useless.
-- The active-routing contract produced 147 routing decisions across 5 runs with
-  2 authorized stops and 33 denied stops, with the envelope respected in every
-  run.
+- The active-routing contract collected 10 evidence bundles, fitted a model over
+  400 rows and 15 buckets with a 200/200 train/held-out split (Brier 0.048,
+  in-domain rate 0.90), then produced 168 routing decisions across 5 active runs
+  with 4 authorized stops and 29 denied stops. The envelope was respected in
+  every run (peak 5413 of 6000 declared CPU-ms) and measured controller overhead
+  was 16-25 ms per run.
+- Every active run in that contract ends `cancelled`: the driver synchronizes
+  the next position immediately after each bestmove, which quiesces the run.
+  That is the lifecycle barrier working, and it is recorded rather than smoothed
+  over.
 
 ## DERIVED
 
@@ -115,8 +124,10 @@ Deterministic calculations from the measured data, versioned as
 
 ## CALIBRATED
 
-- `bucketed_reversal_risk_v1` fitted from 1200 rows over 36 runs: 16 buckets,
-  960 train / 240 held-out rows, Brier 0.057, in-domain rate 0.89.
+- `bucketed_reversal_risk_v1` fitted from 1200 rows over a 36-run sweep:
+  16 buckets, 960 train / 240 held-out rows, Brier 0.057, in-domain rate 0.89.
+  The routing contract independently fits its own model over 10 runs: 400 rows,
+  15 buckets, 200/200 split, Brier 0.048, in-domain rate 0.90.
 - The fitted relationship is monotone in the expected direction: predicted
   reversal risk falls from 0.082 in the least-settled bucket to 0.011 in the
   most-settled one, and the held-out reliability table agrees in direction

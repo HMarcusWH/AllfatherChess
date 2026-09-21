@@ -40,8 +40,23 @@ ANCHOR_CONFIG = ROOT / "config" / "allfather.validation.json"
 CORPUS_PATH = ROOT / "tests" / "baseline" / "corpus.json"
 RESULT_DIR = ROOT / "build" / "test-results" / "active-routing"
 
-EVIDENCE_CASES = ("startpos", "history_ruy_lopez", "perft_position_5", "perft_position_6")
-EVIDENCE_MOVETIME_MS = 600
+#: Enough distinct runs that the deterministic by-run split leaves held-out
+#: rows. Without them the fitted model is not out-of-sample validated and the
+#: router's `calibration_validated` gate correctly refuses to act on it.
+EVIDENCE_CASES = (
+    "startpos",
+    "history_ruy_lopez",
+    "perft_position_3",
+    "perft_position_4",
+    "perft_position_5",
+    "perft_position_6",
+    "en_passant_available",
+    "promotion_available",
+    "side_in_check",
+    "kiwipete_castling",
+)
+ACTIVE_CASES = ("startpos", "history_ruy_lopez", "perft_position_5", "perft_position_6")
+EVIDENCE_MOVETIME_MS = 500
 ACTIVE_MOVETIME_MS = 1200
 FIXED_NODES = 512
 
@@ -150,6 +165,11 @@ def main() -> int:
             min_support=10,
             sources=[{"derived_id": artifact.derived_id, "sha256": sha256_file(derived_path)}],
         )
+        if not model.evaluation.get("test_rows"):
+            raise ContractError(
+                "the fitted calibration has no held-out rows, so it is not validated "
+                "out of sample; collect more distinct runs before qualifying routing"
+            )
         model_path = write_calibration(model, workdir / "calibration")
         report["stages"]["calibration"] = {
             "derived_id": artifact.derived_id,
@@ -185,7 +205,7 @@ def main() -> int:
         )
         active_moves = drive(
             active_config,
-            [position_payload(corpus[case]) for case in EVIDENCE_CASES],
+            [position_payload(corpus[case]) for case in ACTIVE_CASES],
             ACTIVE_MOVETIME_MS,
         )
 
@@ -218,7 +238,7 @@ def main() -> int:
 
         # 6. Audit every active run.
         runs = sorted(path for path in active_root.iterdir() if path.is_dir())
-        if len(runs) < len(EVIDENCE_CASES):
+        if len(runs) < len(ACTIVE_CASES):
             raise ContractError("active mode produced fewer replay bundles than searches")
 
         granted_stops = 0

@@ -562,6 +562,18 @@ class ConservativeRouter:
                 )
             )
             if present:
+                # A model that was never evaluated on held-out data has not
+                # earned the right to license a shortcut, however confident its
+                # in-sample buckets look.
+                held_out = int(self.calibration.evaluation.get("test_rows") or 0)
+                gates.append(
+                    Gate(
+                        "calibration_validated",
+                        held_out > 0,
+                        f"held-out rows {held_out}; a model with no out-of-sample "
+                        "evaluation cannot authorize suppression",
+                    )
+                )
                 verdict = self.calibration.evaluate(observation.calibration_features())
                 gates.append(
                     Gate(

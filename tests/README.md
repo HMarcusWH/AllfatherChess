@@ -25,7 +25,11 @@ After all three real engines are built, `make hybrid-shell-contract` verifies th
 
 Root ShardLedger invariant tests run with `make shard-ledger-tests`. They attack exact partition coverage, overlap rejection, atomic failure, one-shot leasing, owner-atomic activation/sealing, empty terminal ledgers, detached snapshots, deterministic IDs, revision behavior, and concurrent conflicting mutations.
 
+Recursive PrefixShardLedger tests run with `make prefix-shard-tests`. They preserve the root-v1 partition invariants while adding deterministic full-prefix IDs, per-shard state transitions, atomic split/rollback, owner-inherited children, prefix-free frontier checks, atomic transfer, recursive parent/child round trips, concurrent split/transfer conflicts, and descendant UCI compilation with preserved external game history.
+
 After all three real engines are built, `make shard-ledger-contract` qualifies the managed Stockfish `go perft 1` legal-root oracle against frozen legal-move cases, checks Chess960 castling encoding, builds a live startpos ledger, and sequentially proves that Stockfish, Reckless, and LC0 remain inside their test-only owned `searchmoves` regions.
+
+`make prefix-shard-contract` then qualifies two exact oracle-driven recursive splits, an atomic transfer, and a depth-3 prefix compiled to descendant `position` + one restricted root, with Stockfish, Reckless, and LC0 each enforcing that same descendant request sequentially.
 
 
 ## Immediate controller stack
@@ -63,6 +67,7 @@ After `make build-baselines`:
 
 | Target | Proves |
 | --- | --- |
+| `make prefix-shard-contract` | exact Stockfish-oracle child sets across two recursive levels, prefix-free frontier preservation, atomic transfer, descendant UCI compilation, and sequential depth-3 restriction enforcement by Stockfish/Reckless/LC0. |
 | `make shadow-execution-contract` | fixed-node outward decision unchanged by shadow logic; three restricted workers overlapping a live anchor search; every shadow candidate, PV head, and bestmove inside its owned region; live roots matching the frozen legal-move oracle; four telemetry v1 streams; replay hashes verified; a real terminal position; no orphan processes. |
 | `make active-routing-contract` | the whole pipeline: shadow sweep, derived features, fitted calibration, then active routing. Envelope never exceeded, no reservation left open, controller overhead charged, per-owner stage budgets held, every granted stop had all gates pass, every denied stop degraded to continued observation, policy material absent from raw evidence, fixed-node decision firewall intact. |
 | `make verification-execution-contract` | real-engine pairwise-disjoint EXPLORE followed by explicit three-engine common-support VERIFY; identical root restrictions, telemetry-v1 conformance, parent-manifest provenance, no derived material, sole Stockfish outward authority, and no orphan processes. |

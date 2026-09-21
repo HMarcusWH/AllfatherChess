@@ -57,7 +57,7 @@ separately from `cpu_ms`; exhausting it triggers anchor-only fallback.
 | `anchor` | its full declared reservation. Shadow finalization happens before the anchor completes, so the controller cannot measure the real figure at settle time; charging the reservation errs toward over-counting, the safe direction for an envelope claim. |
 | `shadow:<owner>` | the measured duration of each dispatched stage, including a stage ended early by a stop — the worker burned that CPU producing the observations that authorized the stop, so only the unspent remainder is released |
 | `controller` | measured metareasoning time |
-| `verify` | reserved, unused in this milestone |
+| `verify` | reserved but still unused by **active mode**; shadow VERIFY is deliberately over-budget research evidence until active integration |
 
 ## The routing pipeline
 

@@ -314,7 +314,9 @@ def bestmove_only_relock(root: Path) -> Path:
         rankings,
         bestmoves={owner: "d2d4" for owner in OWNERS},
     )
-\ndef incomplete_verifier(root: Path) -> Path:
+
+
+def incomplete_verifier(root: Path) -> Path:
     run = _parent(root, "verify-incomplete")
     rankings = {
         "stockfish": (("e2e4", "d2d4", "g1f3"),) * 3,

@@ -94,15 +94,15 @@ Represent search regions as move-prefix shards that may be split, transferred, s
 
 Charge EXPLORE, VERIFY, controller overhead, CPU/GPU occupancy and time through one controller-wide envelope. VERIFY remains forbidden in active mode until this integration exists.
 
-### M11 — Cross-feed
+### M12 — Cross-feed
 
 Ablate controlled information transfer between backends.
 
-### M12 — Native integration
+### M13 — Native integration
 
 Replace subprocess boundaries only where measured benefits justify tighter coupling.
 
-### M13 — Strength campaign
+### M14 — Strength campaign
 
 Run fixed-node, fixed-time, self-play, SPRT-style, and external-engine comparisons. The final product is promoted only on statistically credible strength gains at equal declared resources.
 

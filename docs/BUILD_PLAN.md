@@ -70,7 +70,7 @@ The shadow milestone is permitted to use extra research compute. It does not yet
 
 Calibrate leader stability, top-k overlap, PV divergence, budget sensitivity, and reversal risk. Implemented in `controller/residuals.py` and `controller/calibration.py`.
 
-Stockfish-vs-Reckless and LC0-vs-alpha-beta disagreement have **empty shared support** under the pairwise-disjoint observation partition: those workers are never authorized to search a common root within a run. The feature library computes them correctly and is tested on overlapping synthetic regions, but answering them on live evidence requires M9's explicit overlap phase. This is reported as undefined-with-a-reason rather than fabricated.
+Stockfish-vs-Reckless and LC0-vs-alpha-beta disagreement still have **empty shared support during EXPLORE**. M8 now supplies explicit raw common-support VERIFY evidence on the three EXPLORE nominees, and M9 derives the corresponding pairwise/three-way geometry without weakening the exploration invariant.
 
 ### M7 — Adaptive compute routing (implemented for observation compute)
 
@@ -78,13 +78,13 @@ Route CPU/GPU/time budgets according to expected marginal decision value rather 
 
 Scope limit: the router allocates **shadow observation compute**. The unrestricted anchor remains the sole outward decision authority, so no routing decision can change the move. Extending routing to the decision itself requires evidence this milestone does not have.
 
-### M8 — Explicit common-support VERIFY execution
+### M8 — Explicit common-support VERIFY execution (implemented)
 
 Permit intentional independent re-search of the three clean EXPLORE nominees while leaving RootShardLedger ownership pairwise-disjoint. VERIFY v1 is deterministic shadow-mode instrumentation, stored in a separate raw artifact, and cannot affect the outward Stockfish anchor.
 
-### M9 — COMPARE / RELOCK derived analysis
+### M9 — COMPARE / RELOCK derived analysis (implemented)
 
-Use the common-support VERIFY trajectories to derive cross-engine structural comparisons, EXPLORE-to-VERIFY preference changes, and a descriptive RELOCK state. Agreement is evidence, not a correctness certificate.
+Use the common-support VERIFY trajectories to derive scale-free cross-engine comparisons, synchronized three-way convergence descriptors, EXPLORE-to-VERIFY preference changes, candidate-source attribution, and a frozen descriptive `terminal-suffix-v1` RELOCK state. Agreement is evidence, not a correctness certificate, and no live router consumes this artifact.
 
 ### M10 — Recursive shard splitting
 
@@ -121,8 +121,8 @@ Run fixed-node, fixed-time, self-play, SPRT-style, and external-engine compariso
 11. **PR #11 — Shadow/replay design contract**: freeze the four-process observatory topology, authority boundary, and replay requirements. **Merged.**
 12. **PR #12 — Immediate controller stack**: implement shadow execution/replay, residual/counterfactual calibration, and active adaptive budget routing as three separate layers with separate artifacts and test suites. **Merged.**
 13. **PR #13 — PR #12 closure and hardening**: retire replay-discovery and envelope-validation debt before adding deliberate overlap. **Merged.**
-14. **PR #14 — Explicit common-support VERIFY execution**. **Current.**
-15. **PR #15 — COMPARE / RELOCK derived analysis**.
+14. **PR #14 — Explicit common-support VERIFY execution**. **Merged.**
+15. **PR #15 — COMPARE / RELOCK derived analysis**. **Current.**
 16. **PR #16 — Recursive shard splitting**.
 17. **PR #17 — Active VERIFY + CPU/GPU resource scheduler**.
 18. **PR #18+ — Cross-feed, native integration, and strength optimization**, each promoted only after isolated ablation.

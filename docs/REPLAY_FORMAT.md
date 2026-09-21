@@ -157,3 +157,22 @@ The child manifest records the deterministic common candidate set, participant
 instances, exact commands, stage dispositions and stream hashes, and binds the
 finalized parent `manifest.json` by SHA-256. It intentionally contains no
 COMPARE/RELOCK conclusion. See `docs/VERIFY_RELOCK.md`.
+
+
+## COMPARE / RELOCK derived artifact
+
+Raw parent and VERIFY artifacts remain immutable. Offline analysis writes beside,
+never inside, the replay tree:
+
+```text
+build/verification-derived/
+    verification-derived-<content hash>/
+        analysis.json
+```
+
+The content address covers extractor/RELOCK-definition versions, checkpoint
+parameters, the parent manifest and stream hashes, and the VERIFY manifest and
+stream hashes. The derived artifact contains pairwise common-support metrics,
+three-way convergence descriptors, EXPLORE→VERIFY transitions, descriptive
+RELOCK, and anchor relation. It is not a replay schema extension and is not
+consumed by the live controller. See `docs/COMPARE_RELOCK.md`.

@@ -73,8 +73,10 @@ The cross-engine library is nevertheless correct for overlapping regions: the
 synthetic fixtures include scenarios where workers share a region, and the tests
 exercise leader agreement, top-k overlap, rank agreement, and PV divergence
 there. The explicit VERIFY evidence plane now produces live common-support
-streams; consuming those streams into cross-engine derived features and RELOCK
-descriptors is the next analysis milestone rather than part of raw VERIFY execution.
+streams, and `controller/verification_analysis.py` consumes them into a
+separate content-addressed COMPARE/RELOCK artifact. The existing reversal-risk
+calibration artifact and serving model are intentionally unchanged and do not
+consume VERIFY-derived features.
 
 Note also that with the anchor at `MultiPV = 1`, the anchor only ever reports
 one move, so `anchor_vs_owner` is defined only for the owner holding the

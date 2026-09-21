@@ -11,6 +11,7 @@ shards.py            RootShardLedger v1 (unchanged by this milestone)
 shadow.py            concurrent restricted dispatch, run lifecycle, replay binding
 replay.py            run-level replay bundles and non-blocking telemetry capture
 verification.py      explicit common-support VERIFY plan/artifact/integrity
+verification_analysis.py offline COMPARE / descriptive RELOCK analysis
 replay_analysis.py   trajectory reconstruction and counterfactual stopping labels
 residuals.py         derived residual geometry with explicit shared support
 calibration.py       fitted, out-of-sample-validated reversal-risk models
@@ -79,16 +80,17 @@ search carries an explicit generation token and every callback checks it.
 
 `docs/UCI_SHELL.md`, `docs/SHARD_LEDGER.md`, `docs/SHADOW_EXECUTION.md`,
 `docs/REPLAY_FORMAT.md`, `docs/RESIDUAL_CALIBRATION.md`,
-`docs/BUDGET_ROUTING.md`, `docs/CLAIM_LEDGER.md`,
+`docs/BUDGET_ROUTING.md`, `docs/COMPARE_RELOCK.md`, `docs/CLAIM_LEDGER.md`,
 `docs/THEORY_IMPLEMENTATION_MAP.md`, `docs/ADVERSARIAL_AUDIT.md`.
 
 ## What the controller still does not do
 
 No voting, no cross-engine score conversion, no recursive shard split or
-transfer, no RELOCK conclusion, no VERIFY-based decision influence, no
-cross-feed, no native integration, and no strength claim. Explicit VERIFY
-overlap is observational only; the outward move is the unrestricted anchor's in
-every mode.
+transfer, no RELOCK authorization, no VERIFY-based decision influence, no
+cross-feed, no native integration, and no strength claim. A descriptive
+terminal-suffix RELOCK is now derived offline, but it is not a controller
+certificate. Explicit VERIFY overlap remains observational only; the outward
+move is the unrestricted anchor's in every mode.
 
 
 ## Explicit VERIFY evidence
@@ -101,3 +103,14 @@ the overlap is represented by a separate `VerificationPlan` and raw artifact.
 
 VERIFY is rejected in `mode: active` until its compute is integrated with the
 global budget ledger. It has no outward decision authority.
+
+
+## COMPARE / descriptive RELOCK
+
+`controller/verification_analysis.py` is an offline consumer of the raw VERIFY
+child artifact. It reuses the existing `SearchTrajectory` reconstruction and
+scale-free `compare_at()` primitive to derive pairwise shared-support metrics,
+three-way convergence state, EXPLORE→VERIFY candidate adoption, and a frozen
+`terminal-suffix-v1` RELOCK descriptor.
+
+No live controller module imports or consumes the derived artifact.

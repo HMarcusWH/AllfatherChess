@@ -8,7 +8,8 @@ Implemented as shadow-mode research instrumentation.
 - COMPARE v1 is deterministic nomination only: the three completed EXPLORE
   bestmoves, in owner order, become the common candidate set.
 - VERIFY lets all three shadow processes re-search that same set.
-- RELOCK analysis is not implemented in this milestone.
+- Raw VERIFY execution remains unchanged; offline COMPARE / descriptive RELOCK
+  analysis is implemented in `controller/verification_analysis.py`.
 - VERIFY cannot run in `mode: active` until its compute is charged through
   `BudgetLedger`.
 - Stockfish anchor remains the sole outward bestmove authority.
@@ -56,6 +57,8 @@ sizes, the exact common request, and candidate/PV-head/bestmove containment.
 
 ## Claim boundary
 
-This milestone does not establish that agreement is correct, that disagreement
-predicts error, that VERIFY is worth its compute, that random/backend-light LC0
-is strength-qualified, or that Allfather is stronger than Stockfish.
+The raw VERIFY milestone does not establish that agreement is correct, that
+disagreement predicts error, that VERIFY is worth its compute, that
+random/backend-light LC0 is strength-qualified, or that Allfather is stronger
+than Stockfish. The derived definitions and artifact format are specified in
+`docs/COMPARE_RELOCK.md`.

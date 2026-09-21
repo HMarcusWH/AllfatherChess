@@ -293,6 +293,8 @@ class _ActiveRun:
     ledger: RootShardLedger | None = None
     verification: VerificationRun | None = None
     refinement: RefinementRun | None = None
+    refinement_positioned: set[str] = field(default_factory=set)
+    refinement_oracle_active: bool = False
     cancelled: bool = False
     cancel_reason: str | None = None
     worker: threading.Thread | None = None

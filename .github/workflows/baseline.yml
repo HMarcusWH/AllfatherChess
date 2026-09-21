@@ -60,6 +60,7 @@ jobs:
             scripts/telemetry-adapter-integration.py \
             scripts/hybrid-shell-contract.py \
             scripts/shadow-execution-contract.py \
+            scripts/verification-execution-contract.py \
             scripts/active-routing-contract.py \
             scripts/residual-calibration.py \
             scripts/shadow-evidence-sweep.py \
@@ -148,6 +149,9 @@ jobs:
       - name: Verify real-engine shadow execution contract
         run: python3 scripts/shadow-execution-contract.py
 
+      - name: Verify real-engine explicit VERIFY contract
+        run: python3 scripts/verification-execution-contract.py
+
       - name: Verify real-engine active routing contract
         run: python3 scripts/active-routing-contract.py
 
@@ -163,5 +167,6 @@ jobs:
             build/test-results/telemetry-adapters
             build/test-results/hybrid-shell
             build/test-results/shadow-execution
+            build/test-results/verify-execution
             build/test-results/active-routing
           if-no-files-found: warn

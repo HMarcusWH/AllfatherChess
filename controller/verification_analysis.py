@@ -534,12 +534,15 @@ def analyze_verification_bundle(
     final_leaders = {
         owner: (
             None
-            if bundle.by_owner(owner) is None
+            if bundle.by_owner(owner) is None or not bundle.by_owner(owner).complete
             else bundle.by_owner(owner).final_leader
         )
         for owner in OWNER_ORDER
     }
-    final_pattern, final_unanimous, _ = _triad_pattern(final_leaders)
+    if bundle.analysis_eligible:
+        final_pattern, final_unanimous, _ = _triad_pattern(final_leaders)
+    else:
+        final_pattern, final_unanimous = "undefined", None
     final_time = max(
         (
             trajectory.completed_ms
@@ -676,7 +679,18 @@ def build_verification_analysis_artifact(
                     "relock_definition": RELOCK_DEFINITION,
                     "checkpoint_fractions": list(fractions),
                     "top_k": top_k,
-                    "sources": sources,
+                    "sources": [
+                        {
+                            "run_id": record["run_id"],
+                            "parent_manifest_sha256": record["parent_manifest_sha256"],
+                            "parent_streams": record["parent_streams"],
+                            "verification_manifest_sha256": record[
+                                "verification_manifest_sha256"
+                            ],
+                            "verification_streams": record["verification_streams"],
+                        }
+                        for record in sources
+                    ],
                 },
                 sort_keys=True,
             ).encode("utf-8")

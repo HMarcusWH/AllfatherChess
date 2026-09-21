@@ -18,7 +18,7 @@ PrefixShardLedger v2
     recursive prefix ownership
     split / transfer / seal substrate
     qualified offline + real-engine contract
-    no live shadow consumer yet
+    one-level shadow REFINE consumer in PR #17
 ```
 
 This isolates recursive geometry from the already-hardened four-process
@@ -245,15 +245,16 @@ results, or RELOCK conclusions.
 PR #16 does not:
 
 - change `controller/shards.py`;
-- migrate `controller/shadow.py`;
-- add a COMPARE-triggered split policy;
-- add live REFINE stages;
+- replace RootShardLedger v1 for initial EXPLORE;
+- add a learned or score-driven split policy;
+- recurse beyond one live child shell;
 - mutate Replay v1;
 - add active VERIFY;
 - add a global transposition/position-ownership table;
 - change outward bestmove authority;
 - make an Elo or equal-resource strength claim.
 
-The next integration milestone can decide how a validated unresolved region
-nominates a prefix split while preserving the live controller's generation,
-position, replay, budget, and authority barriers.
+PR #17 now supplies the first shadow-only integration: completed raw VERIFY
+final disagreement nominates root targets and executes one exact child shell.
+See `docs/REFINEMENT.md`. Active budget authorization and repeated recursion
+remain later milestones.

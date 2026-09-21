@@ -765,8 +765,12 @@ class ShadowRunCoordinator:
             if active is None or active.generation != token:
                 return
             stream = None
-            if active.verification is not None:
-                stream = active.verification.observation_stream(instance)
+            if active.refinement is not None:
+                stream = active.refinement.observation_stream(instance)
+            if stream is None and active.verification is not None:
+                verification_stage = active.verification.stage_for_instance(instance)
+                if verification_stage is not None and not verification_stage.done.is_set():
+                    stream = active.verification.observation_stream(instance)
             if stream is None:
                 stream = active.run.stream(instance)
             t0 = active.started_monotonic
@@ -816,12 +820,31 @@ class ShadowRunCoordinator:
             if active is None:
                 return
             elapsed = (time.monotonic() - active.started_monotonic) * 1000.0
+            refinement_stage = (
+                None
+                if active.refinement is None
+                else active.refinement.stage_for_instance(instance)
+            )
             verification_stage = (
                 None
                 if active.verification is None
                 else active.verification.stage_for_instance(instance)
             )
             state = next((s for s in active.owners.values() if s.instance == instance), None)
+        if refinement_stage is not None and not refinement_stage.done.is_set():
+            if active.refinement is not None:
+                message = f"{instance} exited unexpectedly during REFINE; rc={rc}"
+                active.refinement.record_completion(
+                    refinement_stage,
+                    completed_ms=elapsed,
+                    disposition="failed",
+                    failure=message,
+                )
+                active.refinement.set_target_disposition(
+                    refinement_stage.target_id, "incomplete", message
+                )
+                active.refinement.set_disposition("incomplete", message)
+            return
         if verification_stage is not None and not verification_stage.done.is_set():
             if active.verification is not None:
                 active.verification.record_completion(

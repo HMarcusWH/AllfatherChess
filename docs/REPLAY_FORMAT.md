@@ -136,3 +136,24 @@ objects from the streams. It records rather than repairs:
   no candidate observation;
 - a checkpoint before the first observation has no leader, so every label at
   that checkpoint is `None` rather than assumed.
+
+
+## VERIFY child artifact
+
+Replay schema v1 remains the EXPLORE orchestration contract. Deliberate overlap
+does not get inserted into its ledger-owned stage list.
+
+When explicit VERIFY runs, the replay directory gains:
+
+```text
+verification/
+    manifest.json
+    stockfish-shadow.jsonl
+    reckless-shadow.jsonl
+    lc0-shadow.jsonl
+```
+
+The child manifest records the deterministic common candidate set, participant
+instances, exact commands, stage dispositions and stream hashes, and binds the
+finalized parent `manifest.json` by SHA-256. It intentionally contains no
+COMPARE/RELOCK conclusion. See `docs/VERIFY_RELOCK.md`.

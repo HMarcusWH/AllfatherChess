@@ -944,6 +944,8 @@ class ShadowRunCoordinator:
         ]
         if active.verification is not None:
             instances.extend(stage.instance for stage in active.verification.active_stages())
+        if active.refinement is not None:
+            instances.extend(stage.instance for stage in active.refinement.active_stages())
         return list(dict.fromkeys(instances))
 
     def _stop_instances(self, instances: list[str]) -> None:
@@ -1056,6 +1058,25 @@ class ShadowRunCoordinator:
                         failure=message,
                     )
                     active.verification.set_disposition("incomplete", message)
+            if active.refinement is not None:
+                for stage in active.refinement.active_stages():
+                    message = (
+                        f"refinement instance {stage.instance} did not drain within "
+                        f"{timeout}s and is excluded from further synchronization"
+                    )
+                    self.runtime.record_shadow_failure(
+                        stage.instance, message, generation=active.generation
+                    )
+                    active.refinement.record_completion(
+                        stage,
+                        completed_ms=(time.monotonic() - active.started_monotonic) * 1000.0,
+                        disposition="failed",
+                        failure=message,
+                    )
+                    active.refinement.set_target_disposition(
+                        stage.target_id, "incomplete", message
+                    )
+                    active.refinement.set_disposition("incomplete", message)
             if active.qualifying:
                 # No owner state exists yet while the oracle is answering, so
                 # the loop above found nothing to fail. The oracle is still

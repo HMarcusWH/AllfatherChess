@@ -351,6 +351,28 @@ def _reconstruct_stream(
     return trajectories
 
 
+def reconstruct_stream(
+    events: Sequence[dict[str, Any]],
+    *,
+    instance: str,
+    family: str,
+    role: str,
+    owner_roots: dict[str, tuple[str, ...]] | None = None,
+) -> list[SearchTrajectory]:
+    """Public reconstruction used by both offline analysis and live routing.
+
+    Sharing one reconstruction guarantees an online decision and a later
+    offline audit cannot disagree about what an engine reported.
+    """
+    return _reconstruct_stream(
+        events,
+        instance=instance,
+        family=family,
+        role=role,
+        owner_roots=owner_roots or {},
+    )
+
+
 def load_bundle(run_dir: Path | str) -> ReplayBundle:
     """Load a raw replay bundle and reconstruct every engine trajectory."""
     run_dir = Path(run_dir)

@@ -65,6 +65,9 @@ class ShadowRouter(Protocol):
     def on_run_start(self, context: "RunContext") -> None:
         ...
 
+    def authorize_initial(self, context: "RunContext", owner: str) -> bool:
+        ...
+
     def on_checkpoint(self, context: "RunContext") -> "list[RouterCommand]":
         ...
 
@@ -152,6 +155,38 @@ class RunContext:
 
     def active_owners(self) -> tuple[str, ...]:
         return tuple(owner for owner in self.owners if self.owner_active(owner))
+
+    def owner_instance(self, owner: str) -> str:
+        state = self._coordinator._owner_state(self.generation, owner)
+        if state is not None:
+            return state.instance
+        return self._coordinator.settings.instance_by_owner.get(owner, owner)
+
+    def owner_family(self, owner: str) -> str:
+        state = self._coordinator._owner_state(self.generation, owner)
+        return owner if state is None else state.family
+
+    def owner_last_stage_ms(self, owner: str) -> float | None:
+        """Measured duration of this worker's most recent finished stage."""
+        state = self._coordinator._owner_state(self.generation, owner)
+        if state is None or state.stage is None:
+            return None
+        stage = state.stage
+        if stage.completed_ms is None:
+            return None
+        return max(0.0, stage.completed_ms - stage.dispatched_ms)
+
+    def owner_events(self, owner: str) -> list[dict[str, Any]]:
+        """Telemetry events written so far for this worker.
+
+        The router reconstructs live features from exactly the events that land
+        on disk, so an online decision and a later offline audit cannot
+        disagree about what the engine reported.
+        """
+        state = self._coordinator._owner_state(self.generation, owner)
+        if state is None or state.stream is None:
+            return []
+        return state.stream.tracked_events()
 
 
 @dataclass
@@ -647,7 +682,18 @@ class ShadowRunCoordinator:
             self.router.on_run_start(active.context)
 
         for owner in dispatchable:
-            self._dispatch_stage(active, active.owners[owner], limit=dict(settings.dispatch_limit))
+            state = active.owners[owner]
+            if self.router is not None:
+                try:
+                    authorized = self.router.authorize_initial(active.context, owner)
+                except Exception as exc:  # pragma: no cover - router isolation
+                    run.note(f"router refused to rule on {owner}: {type(exc).__name__}: {exc}")
+                    authorized = False
+                if not authorized:
+                    run.note(f"owner {owner} not dispatched: routing policy withheld authorization")
+                    state.done.set()
+                    continue
+            self._dispatch_stage(active, state, limit=dict(settings.dispatch_limit))
 
         # 5. Wait for completion, running router checkpoints in active mode.
         self._await_completion(active)
@@ -699,6 +745,7 @@ class ShadowRunCoordinator:
                     position_id=active.context.position.position_id,
                     variant=active.context.position.variant,
                 ),
+                track_events=self.router is not None,
             )
             run.register_stream(state.stream)
         try:

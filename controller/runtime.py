@@ -1040,6 +1040,99 @@ class BackendManager:
         with self._lock:
             self._position_command = command
 
+    def set_shadow_position(self, instance: str, command: str) -> None:
+        """Temporarily position one idle observational worker.
+
+        The manager's globally synchronized position is not changed. REFINE
+        callers must restore the worker before releasing the generation.
+        """
+
+        spec = self.spec(instance)
+        if spec.role != "shadow":
+            raise RuntimeError(
+                f"instance {instance!r} is not an observational shadow worker"
+            )
+        if not self.shadow_available(instance):
+            raise RuntimeError(f"shadow instance is unavailable: {instance}")
+        try:
+            parse_position_command(
+                command,
+                variant="chess960" if self.chess960 else "standard",
+            )
+        except SearchRequestError as exc:
+            raise RuntimeError(f"invalid shadow position command: {exc}") from exc
+
+        process = self.backends.get(instance)
+        if process is None or not process.alive:
+            raise RuntimeError(f"shadow instance is unavailable: {instance}")
+        if process.active_search:
+            raise RuntimeError(
+                f"shadow instance {instance!r} cannot be repositioned during active search"
+            )
+        try:
+            process.send_position(command)
+            process.ready(
+                timeout=(
+                    None
+                    if self.config.shadow is None
+                    else self.config.shadow.oracle_timeout_s
+                )
+            )
+        except UciProcessError as exc:
+            self.record_shadow_failure(
+                instance, f"shadow position synchronization failed: {exc}"
+            )
+            raise RuntimeError(str(exc)) from exc
+
+    def restore_shadow_position(self, instance: str) -> None:
+        """Restore one idle shadow worker to the authoritative external state."""
+
+        with self._lock:
+            command = self._position_command or "position startpos"
+        self.set_shadow_position(instance, command)
+
+    def legal_moves_at_shadow_position(
+        self,
+        *,
+        instance: str,
+        position_command: str,
+        timeout: float | None = None,
+    ) -> tuple[str, ...]:
+        """Run the configured Stockfish shadow oracle at a descendant position.
+
+        The global synchronized position is never changed. Restoration runs in
+        all cases; a restoration failure quarantines the shadow rather than
+        pretending it is synchronized.
+        """
+
+        if self.config.shadow is None or instance != self.config.shadow.oracle:
+            raise RuntimeError(
+                "descendant legal-move oracle must use configured shadow.oracle"
+            )
+        spec = self.spec(instance)
+        if spec.role != "shadow" or spec.family != "stockfish":
+            raise RuntimeError(
+                "descendant legal-move oracle requires configured Stockfish shadow"
+            )
+
+        primary_error: Exception | None = None
+        result: tuple[str, ...] | None = None
+        try:
+            self.set_shadow_position(instance, position_command)
+            result = self.legal_root_moves(instance=instance, timeout=timeout)
+        except Exception as exc:
+            primary_error = exc
+        try:
+            self.restore_shadow_position(instance)
+        except Exception as restore_exc:
+            if primary_error is None:
+                raise RuntimeError(
+                    f"could not restore shadow oracle {instance!r}: {restore_exc}"
+                ) from restore_exc
+        if primary_error is not None:
+            raise primary_error
+        assert result is not None
+        return result
     # ------------------------------------------------------------------
     # legal-root oracle
     # ------------------------------------------------------------------

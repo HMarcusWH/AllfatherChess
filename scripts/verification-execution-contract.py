@@ -115,18 +115,24 @@ def main() -> int:
         )
         outward = extract_bestmove(lines)
 
-    deadline = time.monotonic() + 15.0
-    run_dir: Path | None = None
-    while time.monotonic() < deadline:
-        discovery = discover_replay_bundles(replay_root)
-        candidates = [path for path in discovery.bundles if path.name not in known]
-        if candidates:
-            run_dir = candidates[-1]
-            if (run_dir / "verification" / "manifest.json").is_file():
-                break
-        time.sleep(0.05)
-    if run_dir is None:
-        raise ContractError("VERIFY contract produced no finalized replay bundle")
+        # Under on_anchor_complete=drain, a VERIFY stage that was already
+        # committed before the outward answer is allowed to finish. Keep the
+        # UCI shell alive until the child artifact is finalized; leaving this
+        # context immediately would send quit and turn a legitimate drain into
+        # a controller-induced cancellation.
+        deadline = time.monotonic() + 15.0
+        run_dir: Path | None = None
+        while time.monotonic() < deadline:
+            discovery = discover_replay_bundles(replay_root)
+            candidates = [path for path in discovery.bundles if path.name not in known]
+            if candidates:
+                candidate = candidates[-1]
+                if (candidate / "verification" / "manifest.json").is_file():
+                    run_dir = candidate
+                    break
+            time.sleep(0.05)
+        if run_dir is None:
+            raise ContractError("VERIFY contract produced no finalized child artifact")
 
     parent = load_manifest(run_dir)
     problems = verify_bundle_integrity(run_dir)

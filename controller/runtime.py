@@ -10,6 +10,7 @@ from __future__ import annotations
 import glob
 import hashlib
 import json
+import math
 import re
 import threading
 import time
@@ -131,6 +132,13 @@ def _require_positive_number(value: object, label: str) -> float:
     number = float(value)
     if not number > 0:
         raise RuntimeError(f"{label} must be a positive number")
+    if not math.isfinite(number):
+        # A JSON `1e309` parses to infinity and passes `> 0`. These values reach
+        # `Event.wait()` and `Thread.join()`, which raise OverflowError on an
+        # infinite timeout -- and in the quiesce path that exception is caught,
+        # so the frontend would proceed with a state mutation without excluding
+        # the worker that is still running.
+        raise RuntimeError(f"{label} must be finite, got {value!r}")
     return number
 
 

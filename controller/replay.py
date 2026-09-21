@@ -346,6 +346,25 @@ class TelemetryStreamWriter:
             self._closed = True
         self._queue.put(_SENTINEL)
         self._thread.join(timeout=timeout)
+        if self._thread.is_alive():
+            # The writer is still draining. Closing the handle now would make
+            # every remaining event fail against a closed file, and
+            # `snapshot()` would hash and describe a partial stream while
+            # calling it complete. Give it one more full timeout, then record
+            # what is still unwritten as lost evidence rather than pretend the
+            # stream is whole.
+            self._thread.join(timeout=timeout)
+            if self._thread.is_alive():
+                with self._lock:
+                    stranded = max(0, self._enqueued - self._applied)
+                    if stranded:
+                        self._dropped += stranded
+                        self._applied += stranded
+                    if len(self._errors) < 32:
+                        self._errors.append(
+                            f"telemetry writer did not drain within {2 * timeout}s; "
+                            f"{stranded} event(s) were not written"
+                        )
         try:
             self._handle.flush()
             os.fsync(self._handle.fileno())

@@ -582,11 +582,25 @@ class ConservativeRouter:
                 "anchor_cost_reserved": self._anchor_reserved,
                 "gpu_accounted": self._gpu_accounted(),
                 "reservations_within_envelope": self.ledger.within_envelope(),
+                # Reservation accounting is about CPU and GPU ceilings. A run can
+                # sit inside both and still have taken longer than the declared
+                # wall envelope -- a slow legal-root oracle alone can do it --
+                # and a claim that ignores the clock is not a claim about the
+                # envelope that was declared.
+                "wall_ms_elapsed": round(self.ledger.elapsed_ms(), 3),
+                "wall_within_envelope": (
+                    self.ledger.elapsed_ms() <= self.envelope.wall_ms
+                ),
+                # CPU spend is derived from stage wall time scaled by each
+                # engine's configured thread count. That is an estimate, not a
+                # measurement of process CPU, and is labelled as such.
+                "cpu_measurement": "stage_wall_ms_x_configured_threads",
                 "claimed": (
                     self._anchor_bound[0]
                     and self._anchor_reserved
                     and self._gpu_accounted()
                     and self.ledger.within_envelope()
+                    and self.ledger.elapsed_ms() <= self.envelope.wall_ms
                 ),
             },
             "decisions": audit.decisions,
@@ -754,14 +768,33 @@ class ConservativeRouter:
         return commands
 
     def _settle_owner(self, context: Any, owner: str) -> None:
-        """Charge measured stage time, falling back to the declared estimate."""
+        """Charge stage CPU, falling back to the declared estimate.
+
+        Stage *wall* time is not stage *CPU* time. An engine configured with
+        `Threads: 4` running for 400 ms consumed roughly 1600 CPU-ms, and
+        charging 400 would let the ledger report compliance after the processes
+        had already exceeded `cpu_ms`. Nothing here measures process CPU, so the
+        wall duration is scaled by the engine's declared thread count; the claim
+        records that this is an estimate rather than a measurement.
+        """
         measured = None
         try:
             measured = context.owner_last_stage_ms(owner)
         except AttributeError:  # pragma: no cover - defensive against older contexts
             measured = None
+        if measured is not None:
+            measured = float(measured) * self._owner_threads(context, owner)
         for reservation in self._reservations.pop(owner, []):
             self.ledger.settle(reservation, actual_cpu_ms=measured)
+
+    @staticmethod
+    def _owner_threads(context: Any, owner: str) -> int:
+        """Declared thread count for this worker, defaulting to one."""
+        try:
+            threads = int(context.owner_threads(owner))
+        except (AttributeError, TypeError, ValueError):
+            return 1
+        return max(1, threads)
 
     def _live_trajectory(self, context: Any, owner: str) -> SearchTrajectory | None:
         events = context.owner_events(owner)

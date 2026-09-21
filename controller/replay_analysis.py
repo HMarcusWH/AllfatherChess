@@ -591,7 +591,14 @@ def counterfactual_labels(
         # is not an observation. Labelling those rows False would fill exactly
         # the late, settled buckets -- the ones that authorize live suppression
         # -- with guaranteed negatives and understate the real risk.
-        horizon_end = point + span * horizon_fraction
+        # The horizon is a fraction of THIS STAGE's duration, not of an
+        # absolute run-relative timestamp. `span_ms` is where the stage ended on
+        # the run clock, so for an extension running 800->1000 ms, `span *
+        # fraction` asked for a 250 ms window instead of 50 ms and censored most
+        # later-stage labels. Now that stages carry their real start time, the
+        # duration is the thing to take a fraction of.
+        duration = max(0.0, span - trajectory.started_ms)
+        horizon_end = point + duration * horizon_fraction
         horizon_observed = horizon_end <= span
         if leader is None or not horizon_observed:
             reversal: bool | None = None

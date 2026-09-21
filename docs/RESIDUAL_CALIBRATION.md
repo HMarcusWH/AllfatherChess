@@ -117,7 +117,7 @@ made. Streams the manifest marks `contract_validatable: false` are likewise
 ineligible: dropped events and failed adapter translation both remove
 observations, and a removed leader flip reads as stability.
 
-**What this exposed.** Once pooling stopped, the 36-run sweep fits only 150 rows
+**What this exposed.** Once pooling stopped, a 36-run sweep fits only ~150-180 rows
 across 8 buckets, and every well-supported bucket is `lc0|…`. The alpha-beta
 shadow workers finish their node-limited stages almost immediately and
 contribute very few labelled checkpoints, while the backend-light LC0 profile
@@ -175,7 +175,7 @@ where that is not true, and on this evidence it is inert rather than load-bearin
 
 ## Calibration model
 
-`bucketed_reversal_risk_v3` estimates the probability that an engine's own
+`bucketed_reversal_risk_v3`, extracted by `residuals-v3`, estimates the probability that an engine's own
 leader still reverses within the horizon, from **past-only** features:
 
 ```text

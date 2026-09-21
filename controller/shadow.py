@@ -211,6 +211,19 @@ class RunContext:
             return False
         return state.stream.tracked_events_truncated
 
+    def owner_threads(self, owner: str) -> int:
+        """Declared `Threads` option for this worker's engine, defaulting to 1."""
+        instance = self.owner_instance(owner)
+        try:
+            spec = self._coordinator.runtime.spec(instance)
+        except Exception:  # pragma: no cover - defensive
+            return 1
+        value = (spec.options or {}).get("Threads", 1)
+        try:
+            return max(1, int(value))
+        except (TypeError, ValueError):
+            return 1
+
     def owner_evidence_lossy(self, owner: str) -> bool:
         """True when this worker's stream has already lost evidence."""
         state = self._coordinator._owner_state(self.generation, owner)
@@ -917,7 +930,12 @@ class ShadowRunCoordinator:
                     run.note(f"owner {owner} not dispatched: routing policy withheld authorization")
                     state.done.set()
                     continue
-            self._dispatch_stage(active, state, limit=dict(settings.dispatch_limit))
+            if not self._dispatch_stage(active, state, limit=dict(settings.dispatch_limit)):
+                # `authorize_initial` already reserved this stage's compute. If
+                # the dispatch did not happen -- the anchor completed while the
+                # stage was being prepared, the backend refused -- that
+                # reservation covers a stage that will never exist.
+                self._release_undispatched(active, owner)
 
         # 5. Wait for completion, running router checkpoints in active mode.
         self._await_completion(active)
@@ -1090,10 +1108,14 @@ class ShadowRunCoordinator:
             interval = max(0.005, float(self.router.checkpoint_interval_s))
         # A normally progressing node-limited stage is not draining. Bounding it
         # by `drain_timeout_s * 4` turned a stop-wait bound into an undocumented
-        # runtime cap that cancelled valid stages and recorded them as
-        # `drain_deadline`. The safety net stays -- a genuinely stuck worker
-        # still has to be cut loose -- but it is its own declared setting.
-        deadline = time.monotonic() + max(1.0, self.settings.stage_timeout_s)
+        # runtime cap that cancelled valid stages. The safety net stays -- a
+        # genuinely stuck worker still has to be cut loose -- but it is its own
+        # declared setting, and it is measured PER STAGE: a single deadline for
+        # the whole wait handed an extension only whatever milliseconds the
+        # initial stage had left, cancelling it before it had run at all.
+        budget = max(1.0, self.settings.stage_timeout_s)
+        deadline = time.monotonic() + budget
+        seen_stages = {owner: state.stages_dispatched for owner, state in active.owners.items()}
         while True:
             pending = [state for state in active.owners.values() if state.dispatched and not state.done.is_set()]
             if not pending:
@@ -1102,17 +1124,59 @@ class ShadowRunCoordinator:
                 if not self._router_checkpoint(active):
                     return
                 continue
+            # A newly dispatched stage restarts the clock it is measured against.
+            current = {owner: state.stages_dispatched for owner, state in active.owners.items()}
+            if any(current.get(owner, 0) > seen for owner, seen in seen_stages.items()) or set(
+                current
+            ) - set(seen_stages):
+                seen_stages = current
+                deadline = time.monotonic() + budget
             if time.monotonic() > deadline:
-                for state in pending:
-                    active.run.note(f"owner {state.owner} did not drain before the shadow deadline")
-                self._cancel_locked(active, reason="drain_deadline")
-                for state in pending:
-                    state.done.wait(timeout=self.settings.drain_timeout_s)
+                self._cut_loose_overrunning(active, pending)
                 return
             for state in pending:
                 state.done.wait(timeout=interval)
             if self.router is not None and not active.cancelled:
                 self._router_checkpoint(active)
+
+    def _cut_loose_overrunning(self, active: _ActiveRun, pending: list) -> None:
+        """Stop stages past the per-stage budget, quarantining any that ignore it.
+
+        A worker that overruns and then ignores `stop` used to be waited on for
+        one drain timeout and then simply left: nothing recorded it as failed,
+        so the run finalized and cleared `_run` while `shadow_available()` still
+        called the process healthy, and the next `position` went to an engine
+        still executing the previous generation. This is the same handling
+        `quiesce()` applies to a worker that misses its drain deadline.
+        """
+        for state in pending:
+            active.run.note(
+                f"owner {state.owner} exceeded the declared stage budget "
+                f"({self.settings.stage_timeout_s}s)"
+            )
+        self._cancel_locked(active, reason="stage_deadline")
+        for state in pending:
+            if state.done.wait(timeout=self.settings.drain_timeout_s):
+                continue
+            message = (
+                f"shadow instance {state.instance} ignored `stop` after exceeding the "
+                f"stage budget and is excluded from further synchronization"
+            )
+            self.runtime.record_shadow_failure(
+                state.instance, message, generation=active.generation
+            )
+            active.run.note(message)
+            state.failed = True
+            if state.stage is not None:
+                active.run.record_completion(
+                    state.stage,
+                    completed_ms=(time.monotonic() - active.started_monotonic) * 1000.0,
+                    disposition="failed",
+                    failure=message,
+                )
+            # Stop awaiting a worker that is never going to answer, so the
+            # bundle -- including this evidence -- is actually written.
+            state.done.set()
 
     def _release_undispatched(self, active: _ActiveRun, owner: str) -> None:
         """Return the reservation for an extension that was never dispatched."""

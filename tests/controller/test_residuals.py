@@ -693,6 +693,107 @@ class ReviewRegressionRoundFourTests(unittest.TestCase):
 
 
 
+class ReviewRegressionRoundFiveTests(unittest.TestCase):
+    """Round-five findings on horizons and artifact identity."""
+
+    # -- S7: the horizon was a fraction of an absolute timestamp ------------
+
+    def test_an_extension_horizon_is_measured_from_its_own_duration(self):
+        """`span_ms` is where a stage ended on the run clock, not how long it ran.
+
+        A stage running 800 -> 1000 ms has a 200 ms duration. Taking 25% of
+        `span_ms` asked for a 250 ms window instead of 50 ms and censored most
+        later-stage labels.
+        """
+        from controller.replay_analysis import counterfactual_labels
+
+        trajectory = _stage(started_ms=800.0, points=[(820.0, "e2e4"), (990.0, "e2e4")], end=1000.0)
+        # A checkpoint at 900 ms: horizon is 25% of 200 ms = 50 ms, ending at
+        # 950 ms, which is inside the stage. With the old arithmetic it ended at
+        # 1150 ms and the row was censored.
+        labels = counterfactual_labels(trajectory, (900.0,), horizon_fraction=0.25)
+        self.assertEqual(len(labels), 1)
+        self.assertTrue(
+            labels[0].horizon_observed,
+            "a horizon well inside the stage was reported right-censored",
+        )
+        self.assertIsNotNone(labels[0].reversal_within_horizon)
+
+    def test_a_first_stage_horizon_is_unchanged(self):
+        """started_ms is zero for an initial stage, so nothing moves there."""
+        from controller.replay_analysis import counterfactual_labels
+
+        trajectory = _stage(started_ms=0.0, points=[(10.0, "e2e4"), (190.0, "e2e4")], end=200.0)
+        labels = counterfactual_labels(trajectory, (100.0,), horizon_fraction=0.25)
+        self.assertTrue(labels[0].horizon_observed)
+
+    # -- Found while checking S7: derived ids collided across logic changes --
+
+    def test_the_extractor_version_is_part_of_the_content_address(self):
+        """Two artifacts with different labels must not share a derived id.
+
+        The digest covers sources and parameters, not the extractor's output, so
+        `EXTRACTOR_VERSION` is the only thing standing in for the extraction
+        logic. Rounds four and five changed that logic; without the bump, a
+        re-derive silently overwrote an artifact whose labels differed.
+        """
+        self.assertEqual(EXTRACTOR_VERSION, "residuals-v3")
+
+    def test_changing_the_extractor_version_changes_the_derived_id(self):
+        import controller.residuals as residuals
+
+        with tempfile.TemporaryDirectory() as raw:
+            fixtures = replay_fixtures.write_all(Path(raw))
+            runs = sorted(fixtures.values())
+            first = build_derived_artifact(runs).as_dict()["derived_id"]
+            original = residuals.EXTRACTOR_VERSION
+            try:
+                residuals.EXTRACTOR_VERSION = "residuals-vTEST"
+                second = build_derived_artifact(runs).as_dict()["derived_id"]
+            finally:
+                residuals.EXTRACTOR_VERSION = original
+        self.assertNotEqual(
+            first,
+            second,
+            "the extractor version does not reach the content address",
+        )
+
+
+def _stage(*, started_ms: float, points, end: float):
+    """One reconstructed stage with an explicit start and completion."""
+    from controller.replay_analysis import Observation, SearchTrajectory
+
+    observations = tuple(
+        Observation(
+            sequence=index,
+            observed_ms=at,
+            multipv_index=1,
+            move=move,
+            pv=(move,),
+            evaluations=(),
+            work=(),
+        )
+        for index, (at, move) in enumerate(points)
+    )
+    return SearchTrajectory(
+        instance="lc0-shadow",
+        family="lc0",
+        role="shadow",
+        search_id="s",
+        variant="standard",
+        position_id="p",
+        authorized_roots=(),
+        execution_mode="active",
+        owner="lc0",
+        observations=observations,
+        bestmove="e2e4",
+        complete=True,
+        completed_ms=end,
+        started_ms=started_ms,
+    )
+
+
+
 class CalibrationTests(unittest.TestCase):
     def rows(self, count: int, *, label_every: int = 4) -> list[TrainingRow]:
         rows: list[TrainingRow] = []

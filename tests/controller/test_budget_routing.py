@@ -759,6 +759,85 @@ class ReviewRegressionRoundFourTests(unittest.TestCase):
 
 
 
+def _end_and_read_claim(router, context) -> dict:
+    """Finish the run into a real directory and read back its certificate."""
+    with tempfile.TemporaryDirectory() as tmp:
+        context.run_dir = Path(tmp)
+        router.on_run_end(context)
+        document = json.loads((Path(tmp) / "route.json").read_text())
+    return document["envelope_claim"]
+
+
+class ReviewRegressionRoundFiveTests(unittest.TestCase):
+    """Round-five findings on the envelope claim and CPU accounting."""
+
+    # -- S1: the claim ignored the clock entirely ---------------------------
+
+    def test_a_run_past_its_wall_envelope_cannot_claim_compliance(self):
+        """CPU and GPU ceilings are not the whole envelope.
+
+        A slow legal-root oracle alone can carry a run past `wall_ms` while
+        every reservation stays inside its ceiling.
+        """
+        clock = _Clock(0.0)
+        router = ConservativeRouter(
+            envelope=envelope(wall_ms=100.0, cpu_ms=100000.0),
+            policy=policy(anchor_cpu_ms_estimate=10.0),
+            clock=clock,
+        )
+        context = _FakeContext()
+        context.external_go_command = "go movetime 10"
+        router.on_run_start(context)
+        clock.now += 5.0  # 5 s against a declared 100 ms wall envelope
+        claim = _end_and_read_claim(router, context)
+        self.assertTrue(claim["reservations_within_envelope"])
+        self.assertFalse(claim["wall_within_envelope"])
+        self.assertFalse(
+            claim["claimed"],
+            "a run that outlasted its wall envelope reported itself compliant",
+        )
+
+    def test_a_run_inside_its_wall_envelope_still_claims(self):
+        router = ConservativeRouter(
+            envelope=envelope(wall_ms=100000.0, cpu_ms=100000.0),
+            policy=policy(anchor_cpu_ms_estimate=10.0),
+        )
+        context = _FakeContext()
+        context.external_go_command = "go movetime 10"
+        router.on_run_start(context)
+        claim = _end_and_read_claim(router, context)
+        self.assertTrue(claim["wall_within_envelope"])
+        self.assertTrue(claim["claimed"])
+
+    # -- S5: CPU was settled from wall time, ignoring Threads ---------------
+
+    def test_cpu_spend_scales_with_the_configured_thread_count(self):
+        """A four-thread stage running 400 ms did not consume 400 CPU-ms."""
+        spend = {}
+        for threads in (1, 4):
+            router = ConservativeRouter(envelope=envelope(cpu_ms=100000.0), policy=policy())
+            context = _FakeContext()
+            context.threads = threads
+            context.stage_ms = 400.0
+            router.on_run_start(context)
+            router._reservations["stockfish"] = [
+                router.ledger.reserve("shadow:stockfish", cpu_ms=400.0)
+            ]
+            router._settle_owner(context, "stockfish")
+            spend[threads] = router.ledger.snapshot()["lanes"]["shadow:stockfish"]["spent_cpu_ms"]
+        self.assertEqual(spend[1], 400.0)
+        self.assertEqual(
+            spend[4], 1600.0, "four threads of 400 ms wall were charged as 400 CPU-ms"
+        )
+
+    def test_the_claim_says_cpu_is_an_estimate_not_a_measurement(self):
+        router = ConservativeRouter(envelope=envelope(), policy=policy())
+        context = _FakeContext()
+        router.on_run_start(context)
+        claim = _end_and_read_claim(router, context)
+        self.assertEqual(claim["cpu_measurement"], "stage_wall_ms_x_configured_threads")
+
+
 class RouterConfigTests(unittest.TestCase):
     def test_active_config_builds_a_fail_closed_router(self):
         path = ROOT / "config" / "allfather.active.validation.json"
@@ -1034,9 +1113,6 @@ class _WorkContext:
     def owner_stages(self, owner: str) -> int:
         return 1
 
-    def owner_last_stage_ms(self, owner: str) -> float | None:
-        return None
-
     def owner_elapsed_stage_ms(self, owner: str) -> float | None:
         return None
 
@@ -1095,6 +1171,16 @@ class _FakeContext:
 
     def owner_evidence_lossy(self, owner: str) -> bool:
         return self.lossy
+
+    threads: int = 1
+
+    def owner_threads(self, owner: str) -> int:
+        return self.threads
+
+    def owner_last_stage_ms(self, owner: str) -> float | None:
+        return self.stage_ms
+
+    stage_ms: float | None = None
 
 
 if __name__ == "__main__":

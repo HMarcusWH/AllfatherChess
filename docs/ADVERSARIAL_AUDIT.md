@@ -466,14 +466,98 @@ below `stop_min_support = 25`. Exactly one bucket is now servable, the
 held-out in-domain rate is **0.00**, and the fitter prints that the model is
 out-of-domain everywhere.
 
-The inverted direction survived unchanged: never-flipped 0.219 against
-just-flipped 0.038. So the round-two conclusion stands, on slightly worse
+The inverted direction survived unchanged: never-flipped ~0.22 against
+just-flipped ~0.03. So the round-two conclusion stands, on slightly worse
 evidence.
 
 The support floor was not lowered. A model that is out-of-domain on its entire
 held-out split is a model that should authorize nothing, and making it authorize
 something by moving the number it is measured against would be the precise
 failure this audit exists to catch.
+
+## Nine more findings from a fifth review, four of them mine
+
+A fifth review found eight defects; checking one of them turned up a ninth that
+the review had not seen and that was entirely my own. **Four of the eight trace
+directly to round-four work**, which is the honest summary of this round.
+
+**The envelope claim ignored the clock.** `claimed` conjoined the anchor bound,
+the anchor reservation, GPU accounting and CPU/GPU ceilings -- and never asked
+whether the run had taken longer than `wall_ms`. A slow legal-root oracle alone
+can carry a run past its declared wall envelope with every reservation still
+inside its ceiling. The elapsed time is now both recorded and a conjunct.
+
+**CPU spend was wall-clock time.** A shadow engine configured with `Threads: 4`
+running for 400 ms consumed roughly 1600 CPU-ms and was charged 400, so the
+ledger could report compliance after the processes had already exceeded
+`cpu_ms`. Wall duration is now scaled by the declared thread count, and the
+certificate says `cpu_measurement: stage_wall_ms_x_configured_threads` -- this
+is an estimate from a configured option, not a measurement of process CPU, and
+it is labelled as one rather than implied to be more.
+
+**The round-four stage timeout was neither per stage nor a quarantine.** I
+introduced `stage_timeout_s` last round, documented it as a cap on one stage,
+and then computed a single deadline for the entire wait -- so an extension
+dispatched late inherited whatever milliseconds the initial stage had left and
+was cancelled before it had run. Worse, a worker that overran and then ignored
+`stop` was waited on for one drain timeout and simply abandoned: nothing marked
+it failed, so the run finalized while `shadow_available()` still called the
+process healthy and the next `position` went to an engine still executing the
+previous generation. That is the same defect round three fixed in `quiesce()`,
+reintroduced on a path I added. The deadline now restarts per stage, and the
+overrun path quarantines exactly as `quiesce()` does.
+
+**The round-four reservation rollback was half done.** I made the extension path
+return an undispatched stage's compute and left the initial-dispatch path
+ignoring `_dispatch_stage`'s return value entirely, so a stage the anchor raced
+still leaked its reservation.
+
+**The horizon was a fraction of an absolute timestamp.** `span_ms` is where a
+stage ended on the run clock, not how long it ran, so for an extension running
+800 to 1000 ms a 25% horizon asked for 250 ms instead of 50 ms and censored most
+later-stage labels. This only became wrong when round four gave later stages
+their real start times -- a fix creating the conditions for the next defect.
+
+**Two smaller ones.** `1e309` parses to infinity and passed the positive-number
+check for `oracle_timeout_s`, `drain_timeout_s` and `stage_timeout_s`; infinity
+reaches `Event.wait()` and `Thread.join()`, which raise `OverflowError`, and the
+quiesce path catches that and proceeds without excluding the running worker.
+Round two fixed exactly this class for the budget envelope and I did not
+generalise it. And `close()` joined the writer thread under a bound and then
+closed the file whether or not the thread had exited, so remaining events failed
+against a closed handle while `snapshot()` described the stream as whole; it now
+waits again and records what was stranded as lost evidence.
+
+### The ninth: derived ids collided across extraction changes
+
+Two derived artifacts with *different* `counterfactual_labels` shared one
+`derived_id`. The digest covers sources and extraction parameters but not the
+extractor's output, so `EXTRACTOR_VERSION` is the only thing standing in for the
+extraction logic itself -- and rounds four and five changed that logic three
+times without touching it. A re-derive therefore overwrote an artifact whose
+labels differed, which is precisely the collision the content address exists to
+prevent and precisely what round one's finding was supposed to have fixed.
+
+I found this by being suspicious of a 0.0006 difference in Brier score between
+two fits that should have been identical. It is bumped to `residuals-v3`, which
+also invalidates models fitted against the older extraction.
+
+### Re-measured, and the comparison I first drew was wrong
+
+My first attempt to attribute this round's effect compared a sweep against a
+figure from a different invocation and concluded the run mix had regressed
+(24 completed to 11). Re-running the pre-round-five code on the same command
+gave 12 completed, so the disposition mix is run-to-run variance in the
+anchor-versus-shadow race, not a regression. Deriving both code versions from
+*identical* bundles gives identical row counts, because the horizon fix only
+bites for extensions and the shadow-mode sweep dispatches none.
+
+Current measurement: 178 training rows, 10 buckets, 133/45 split, Brier 0.026,
+in-domain 0.29. Two buckets clear the support floor, and the inverted direction
+holds: never-flipped `lc0|n3|s3|f0` at 0.220 against just-flipped
+`lc0|n3|s0|f1` at 0.032. The in-domain rate is not comparable to round four's
+0.00 -- that was a different sweep, and the difference is evidence variance
+rather than anything this round fixed.
 
 ## Residual concerns worth carrying forward
 
@@ -525,3 +609,16 @@ failure this audit exists to catch.
     live on the runtime and in shadow health; a run whose anchor stream was
     damaged by an observer exception is not called out anywhere a reader would
     look first.
+14. **CPU accounting is an estimate built from a configured option.** Nothing
+    measures process CPU. `Threads` scaling is much closer than raw wall time
+    and is labelled in the certificate, but a config that lies about its thread
+    count, or an engine that uses more, is not detected.
+15. **`derived_id` still does not hash the extractor's output.** It hashes
+    sources, parameters and `EXTRACTOR_VERSION`. That makes the version bump
+    load-bearing: any future change to extraction logic that forgets it
+    reintroduces the collision found this round.
+16. **Five review rounds have not converged.** Rounds three, four and five each
+    found defects introduced or left incomplete by the round before. That is a
+    property of the change's size, and it is the strongest argument in this
+    document for landing the overlap phase separately rather than growing this
+    branch further.

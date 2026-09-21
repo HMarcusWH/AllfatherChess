@@ -54,7 +54,18 @@ FEATURES_SCHEMA_VERSION = 1
 #: checkpoint carries the shared past-only feature vector, and per-stage
 #: evidence is keyed by search id so a multi-stage worker cannot overwrite
 #: itself.
-EXTRACTOR_VERSION = "residuals-v2"
+#: v3: rounds four and five changed what the extractor computes -- trajectory
+#: spans now reach their completion timestamp, per-checkpoint views select the
+#: stage that was actually running, and counterfactual horizons are measured
+#: from a stage's own duration rather than an absolute run timestamp.
+#:
+#: This constant is part of the derived artifact's content address. Changing
+#: extraction logic WITHOUT changing it is how two artifacts with different
+#: labels came to share one `derived_id` and silently overwrite each other --
+#: the exact collision the content address is supposed to prevent. The digest
+#: covers sources and parameters, not the extractor's output, so this version
+#: is the only thing standing in for the logic itself.
+EXTRACTOR_VERSION = "residuals-v3"
 
 DEFAULT_TOP_K = 3
 

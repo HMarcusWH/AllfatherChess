@@ -90,6 +90,12 @@ Enforced by `tests/controller/*`, `scripts/shadow-execution-contract.py`, and
 - A configuration may not start the engines in Chess960: the variant is the
   GUI's to set, and a startup option would leave every replay recording a
   variant the engines were not searching.
+- An envelope claim requires the run to have finished inside `wall_ms`, not
+  merely inside the CPU and GPU ceilings.
+- A shadow worker that overruns its declared stage budget and then ignores
+  `stop` is quarantined, exactly as one that misses its drain deadline is.
+- Timeouts must be finite: an infinite one reaches `Event.wait()` and raises,
+  and the quiesce path would otherwise proceed without excluding the worker.
 - The authority stream stays open until the anchor answers, the anchor dies, or
   the controller closes. No shadow-side timeout can close it early.
 - A denied stop degrades to continued observation, never to an improvised
@@ -140,11 +146,20 @@ Deterministic calculations from the measured data, versioned as
 
 ## CALIBRATED
 
-- `bucketed_reversal_risk_v3` fitted from 150 rows over a 36-run sweep:
-  8 buckets, 111 train / 39 held-out rows, Brier 0.030, in-domain rate 0.26.
-  The routing contract independently fits its own model over 20 runs: 121 rows,
-  11 buckets, 85 train / 36 held-out rows, Brier 0.060, in-domain rate 0.36.
-  Base rate 0.097.
+- `bucketed_reversal_risk_v3`, extractor `residuals-v3`, fitted from 178 rows
+  over a 36-run sweep: 10 buckets, 133 train / 45 held-out rows, Brier 0.026,
+  in-domain rate 0.29, prior 0.082.
+- **These counts are not stable across sweeps and should not be read as if they
+  were.** The sweep's completed/cancelled mix varies run to run with the
+  anchor-versus-shadow race, and that variance moves the row count more than any
+  fix in rounds four or five did. On a thinner sweep the same pipeline yields
+  140 rows with one servable bucket and an in-domain rate of 0.00, and the
+  fitter prints that the model is out-of-domain everywhere and can license only
+  conservative actions. Deriving two code revisions from *identical* bundles
+  gives identical rows, which is the comparison that isolates a code change.
+- The label attrition chain on the sweep measured here: 1260 checkpoints ->
+  1200 carrying a leader -> 388 surviving right-censoring -> 178 after
+  shadow-only, family-scoped, eligibility-filtered selection.
 - **The evidence is almost entirely LC0.** Once buckets were scoped by solver
   family and anchor rows excluded, every well-supported bucket turned out to be
   `lc0|…`: the alpha-beta shadow workers finish their node-limited stages too
@@ -158,8 +173,8 @@ Deterministic calculations from the measured data, versioned as
 
   | bucket | meaning | support | fitted risk |
   | --- | --- | ---: | ---: |
-  | `lc0\|n3\|s3\|f0` | has never flipped its leader | 30 | **0.219** |
-  | `lc0\|n3\|s0\|f1` | flipped recently, current run < 25% of history | 24 | **0.038** |
+  | `lc0\|n3\|s3\|f0` | has never flipped its leader | 39 | **0.220** |
+  | `lc0\|n3\|s0\|f1` | flipped recently, current run < 25% of history | 29 | **0.032** |
 
   A worker that has never flipped is measured as ~8x *more* likely to flip
   within the next horizon than one that just flipped. The v2 entry that stood
@@ -168,14 +183,16 @@ Deterministic calculations from the measured data, versioned as
   and cross-family rows into shared buckets, and it does not survive scoping.
   The ordering survived the round-four span correction unchanged; only the
   magnitudes moved.
-- **Consequence: zero authorized stops is structural here, and round four made
-  it more so.** `s0|f1` now has support 24 and no longer clears
-  `stop_min_support = 25` at all, so exactly one bucket is servable: `s3|f0`,
-  which clears the stability gate and fails the risk gate (0.219 > 0.05). There
-  is no longer a well-supported bucket that could satisfy the conjunction even
-  in principle. The support floor was **not** lowered and neither threshold was
-  moved; doing either would manufacture stops out of a model that is
-  out-of-domain on its entire held-out split.
+- **Consequence: zero authorized stops is structural, not marginal.** Both
+  servable buckets fail the conjunction, and each fails a different half of it:
+  `s0|f1` clears `stop_max_reversal_risk = 0.05` and fails
+  `stop_min_stability_fraction = 0.6`; `s3|f0` clears the stability gate and
+  fails the risk gate (0.220 > 0.05). On a thinner sweep `s0|f1` drops below
+  `stop_min_support = 25` entirely and only the high-risk bucket is servable, so
+  the conjunction cannot be satisfied even in principle. The support floor was
+  **not** lowered and neither threshold was moved across any of the five review
+  rounds; doing either would manufacture stops out of a model whose own held-out
+  evidence does not support them.
 - The reliability table agrees on the held-out rows where it has counts, and the
   model under-predicts slightly in its largest buckets; that is left uncorrected.
 

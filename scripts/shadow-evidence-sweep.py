@@ -18,7 +18,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from controller.replay import load_manifest
+from controller.replay import discover_replay_bundles, load_manifest
 from controller.runtime import load_runtime_config
 from tests.harness.uci_session import UciError, UciSession
 
@@ -73,7 +73,10 @@ def main(argv: list[str] | None = None) -> int:
 
     replay_root = config.shadow.replay_root
     replay_root.mkdir(parents=True, exist_ok=True)
-    known = {path.name for path in replay_root.iterdir() if path.is_dir()}
+    before = discover_replay_bundles(replay_root)
+    known = {path.name for path in before.bundles} | {
+        skipped.path.name for skipped in before.skipped
+    }
 
     started = time.monotonic()
     collected: list[dict] = []
@@ -99,10 +102,9 @@ def main(argv: list[str] | None = None) -> int:
                 )
                 collected.append({"case": case_id, "repeat": repeat, "bestmove": bestmove})
 
-    runs = sorted(
-        (path for path in replay_root.iterdir() if path.is_dir() and path.name not in known),
-        key=lambda path: path.name,
-    )
+    discovery = discover_replay_bundles(replay_root)
+    runs = [path for path in discovery.bundles if path.name not in known]
+    skipped = [item for item in discovery.skipped if item.path.name not in known]
     summary = {
         "schema_version": 1,
         "config": str(args.config.relative_to(ROOT)),
@@ -112,6 +114,7 @@ def main(argv: list[str] | None = None) -> int:
         "elapsed_s": round(time.monotonic() - started, 3),
         "outward_moves": collected,
         "runs": [],
+        "skipped_replay_directories": [item.as_dict() for item in skipped],
         "claim": (
             "MEASURED shadow observations only. Shadow mode overspends compute by "
             "design and establishes no equal-envelope or strength result."
@@ -140,7 +143,7 @@ def main(argv: list[str] | None = None) -> int:
         dispositions[record["disposition"]] = dispositions.get(record["disposition"], 0) + 1
     print(
         f"shadow evidence sweep: {len(runs)} bundles in {summary['elapsed_s']}s; "
-        f"dispositions={dispositions}"
+        f"skipped={len(skipped)}; dispositions={dispositions}"
     )
     return 0
 

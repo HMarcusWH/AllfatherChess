@@ -30,7 +30,7 @@ from controller.calibration import (
     training_rows_from_derived,
     write_calibration,
 )
-from controller.replay import sha256_file
+from controller.replay import discover_replay_bundles, sha256_file
 from controller.residuals import (
     FeatureExtractionError,
     build_derived_artifact,
@@ -82,9 +82,15 @@ def main(argv: list[str] | None = None) -> int:
 
     derived_path: Path | None = None
     if args.derive:
-        runs = sorted(path for path in replay_root.iterdir() if path.is_dir())
+        discovery = discover_replay_bundles(replay_root)
+        runs = list(discovery.bundles)
+        for skipped in discovery.skipped:
+            print(
+                f"skipping replay directory {skipped.path.name}: {skipped.reason}",
+                file=sys.stderr,
+            )
         if not runs:
-            raise SystemExit(f"no replay runs under {replay_root}")
+            raise SystemExit(f"no finalized replay runs under {replay_root}")
         artifact = build_derived_artifact(
             runs,
             top_k=args.top_k,

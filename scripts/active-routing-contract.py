@@ -28,7 +28,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from controller.calibration import ReversalRiskModel, training_rows_from_derived, write_calibration
-from controller.replay import load_manifest, sha256_file
+from controller.replay import discover_replay_bundles, load_manifest, sha256_file
 from controller.residuals import build_derived_artifact, write_derived_artifact
 from controller.runtime import load_runtime_config
 from tests.harness.uci_session import UciError, UciSession
@@ -62,6 +62,11 @@ ACTIVE_CASES = ("startpos", "history_ruy_lopez", "perft_position_5", "perft_posi
 EVIDENCE_PASSES = 2
 EVIDENCE_MOVETIME_MS = 500
 ACTIVE_MOVETIME_MS = 1200
+#: Separate positive-control envelope. The ordinary contract intentionally
+#: leaves wall_ms equal to the anchor movetime and therefore cannot make the
+#: full wall claim. This predeclared headroom case exercises the TRUE branch
+#: without weakening or rewriting the tight-envelope case.
+HEADROOM_WALL_MS = ACTIVE_MOVETIME_MS + 1000
 FIXED_NODES = 512
 
 
@@ -104,7 +109,14 @@ def drive(config: Path, cases: list[dict[str, Any]], movetime_ms: int) -> list[s
     return moves
 
 
-def write_variant(base: Path, workdir: Path, *, replay_root: Path, overrides: dict[str, Any]) -> Path:
+def write_variant(
+    base: Path,
+    workdir: Path,
+    *,
+    replay_root: Path,
+    overrides: dict[str, Any],
+    name_suffix: str = "",
+) -> Path:
     document = json.loads(base.read_text(encoding="utf-8"))
     document["root"] = str(ROOT)
     document.setdefault("shadow", {})["replay_root"] = str(replay_root)
@@ -113,7 +125,7 @@ def write_variant(base: Path, workdir: Path, *, replay_root: Path, overrides: di
             document[key].update(value)
         else:
             document[key] = value
-    path = workdir / f"{base.stem}.contract.json"
+    path = workdir / f"{base.stem}{name_suffix}.contract.json"
     path.write_text(json.dumps(document, indent=2), encoding="utf-8")
     return path
 
@@ -146,7 +158,8 @@ def main() -> int:
             [position_payload(corpus[case]) for case in EVIDENCE_CASES] * EVIDENCE_PASSES,
             EVIDENCE_MOVETIME_MS,
         )
-        evidence_runs = sorted(path for path in evidence_root.iterdir() if path.is_dir())
+        evidence_discovery = discover_replay_bundles(evidence_root)
+        evidence_runs = list(evidence_discovery.bundles)
         expected = len(EVIDENCE_CASES) * EVIDENCE_PASSES
         if len(evidence_runs) < expected:
             raise ContractError(
@@ -157,6 +170,9 @@ def main() -> int:
             "passes": EVIDENCE_PASSES,
             "movetime_ms": EVIDENCE_MOVETIME_MS,
             "bundles": len(evidence_runs),
+            "skipped_replay_directories": [
+                item.as_dict() for item in evidence_discovery.skipped
+            ],
         }
 
         # 2. Derive features and 3. fit a calibration.
@@ -185,34 +201,85 @@ def main() -> int:
         }
 
         # 4. Active routing against that calibration.
+        active_overrides = {
+            "routing": {
+                "calibration": str(model_path),
+                "checkpoint_interval_ms": 60,
+                "min_observation_nodes": 1000,
+                "stop_min_support": 10,
+                "stage_cpu_ms_estimate": 600,
+                "anchor_cpu_ms_estimate": 1200,
+            },
+            "budget": {
+                "wall_ms": ACTIVE_MOVETIME_MS,
+                "cpu_ms": 6000,
+                "gpu_ms": 0,
+                "verification_reserve_fraction": 0.1,
+                "controller_overhead_reserve_ms": 150,
+            },
+            "shadow": {"dispatch_limit": {"nodes": 200000}},
+        }
         active_config = write_variant(
             ACTIVE_CONFIG,
             workdir,
             replay_root=active_root,
-            overrides={
-                "routing": {
-                    "calibration": str(model_path),
-                    "checkpoint_interval_ms": 60,
-                    "min_observation_nodes": 1000,
-                    "stop_min_support": 10,
-                    "stage_cpu_ms_estimate": 600,
-                    "anchor_cpu_ms_estimate": 1200,
-                },
-                "budget": {
-                    "wall_ms": ACTIVE_MOVETIME_MS,
-                    "cpu_ms": 6000,
-                    "gpu_ms": 0,
-                    "verification_reserve_fraction": 0.1,
-                    "controller_overhead_reserve_ms": 150,
-                },
-                "shadow": {"dispatch_limit": {"nodes": 200000}},
-            },
+            overrides=active_overrides,
         )
         active_moves = drive(
             active_config,
             [position_payload(corpus[case]) for case in ACTIVE_CASES],
             ACTIVE_MOVETIME_MS,
         )
+
+        # 4b. Positive-control wall envelope. Keep the original tight-envelope
+        # runs untouched, then run one separately declared profile with enough
+        # wall headroom to require the complete claim predicate to become true.
+        headroom_root = workdir / "replays-active-headroom"
+        headroom_overrides = json.loads(json.dumps(active_overrides))
+        headroom_overrides["budget"]["wall_ms"] = HEADROOM_WALL_MS
+        headroom_config = write_variant(
+            ACTIVE_CONFIG,
+            workdir,
+            replay_root=headroom_root,
+            overrides=headroom_overrides,
+            name_suffix=".headroom",
+        )
+        headroom_moves = drive(
+            headroom_config,
+            [position_payload(corpus["startpos"])],
+            ACTIVE_MOVETIME_MS,
+        )
+        headroom_discovery = discover_replay_bundles(headroom_root)
+        if len(headroom_discovery.bundles) != 1:
+            raise ContractError(
+                "positive-control envelope run did not produce exactly one finalized "
+                f"bundle: {[path.name for path in headroom_discovery.bundles]}"
+            )
+        headroom_run = headroom_discovery.bundles[0]
+        headroom_route_path = headroom_run / "route.json"
+        if not headroom_route_path.is_file():
+            raise ContractError("positive-control envelope run wrote no route.json")
+        headroom_route = json.loads(headroom_route_path.read_text(encoding="utf-8"))
+        headroom_claim = headroom_route["envelope_claim"]
+        if not headroom_route["budget"]["within_envelope"]:
+            raise ContractError("positive-control envelope exceeded CPU/GPU reservations")
+        if not headroom_claim["claimed"]:
+            raise ContractError(
+                "positive-control envelope failed the full claim despite predeclared "
+                f"wall headroom: {json.dumps(headroom_claim, sort_keys=True)}"
+            )
+        if headroom_route["budget"]["open_reservations"] != 0:
+            raise ContractError("positive-control envelope left reservations open")
+        report["stages"]["positive_envelope_claim"] = {
+            "movetime_ms": ACTIVE_MOVETIME_MS,
+            "declared_wall_ms": HEADROOM_WALL_MS,
+            "outward_moves": headroom_moves,
+            "run_id": load_manifest(headroom_run)["run_id"],
+            "claim": headroom_claim,
+            "skipped_replay_directories": [
+                item.as_dict() for item in headroom_discovery.skipped
+            ],
+        }
 
         # 5. Decision firewall under a deterministic fixed-node request.
         anchor_config = load_runtime_config(ANCHOR_CONFIG)
@@ -242,7 +309,8 @@ def main() -> int:
             )
 
         # 6. Audit every active run.
-        runs = sorted(path for path in active_root.iterdir() if path.is_dir())
+        active_discovery = discover_replay_bundles(active_root)
+        runs = list(active_discovery.bundles)
         if len(runs) < len(ACTIVE_CASES):
             raise ContractError("active mode produced fewer replay bundles than searches")
 
@@ -400,6 +468,9 @@ def main() -> int:
             "envelope_unclaimable_runs": unclaimable_runs,
             "envelope_wall_short_runs": wall_short_runs,
             "envelope_wall_overshoot_ms": round(wall_overshoot_ms, 3),
+            "skipped_replay_directories": [
+                item.as_dict() for item in active_discovery.skipped
+            ],
             "envelope_wall_note": (
                 "budget.wall_ms is declared EQUAL to the anchor's own movetime in this "
                 "configuration, so the outward search alone saturates the wall envelope "

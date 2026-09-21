@@ -649,6 +649,64 @@ def load_manifest(run_dir: Path) -> dict[str, Any]:
     return manifest
 
 
+@dataclass(frozen=True)
+class ReplaySkip:
+    """One directory ignored by replay discovery, with an auditable reason."""
+
+    path: Path
+    reason: str
+
+    def as_dict(self) -> dict[str, str]:
+        return {"path": self.path.name, "reason": self.reason}
+
+
+@dataclass(frozen=True)
+class ReplayDiscovery:
+    """Manifest-qualified replay bundles plus every directory that was skipped."""
+
+    bundles: tuple[Path, ...]
+    skipped: tuple[ReplaySkip, ...]
+
+
+def discover_replay_bundles(replay_root: Path | str) -> ReplayDiscovery:
+    """Discover finalized replay bundles without treating every directory as evidence.
+
+    A controller crash, SIGKILL, full disk, or interrupted setup can leave a
+    directory behind without a manifest. Those directories are not replay
+    bundles and must not poison an otherwise valid corpus. They are reported
+    explicitly instead of being silently ignored.
+
+    Discovery validates only the replay manifest shape/version. Stream hashes
+    remain the responsibility of :func:`verify_bundle_integrity` and derived
+    extraction, so discovery never upgrades an unverified bundle into trusted
+    evidence.
+    """
+
+    root = Path(replay_root)
+    if not root.exists():
+        return ReplayDiscovery(bundles=(), skipped=())
+    if not root.is_dir():
+        raise ReplayError(f"replay root is not a directory: {root}")
+
+    bundles: list[Path] = []
+    skipped: list[ReplaySkip] = []
+    for path in sorted(root.iterdir(), key=lambda item: item.name):
+        if not path.is_dir():
+            continue
+        manifest_path = path / "manifest.json"
+        if not manifest_path.is_file():
+            skipped.append(ReplaySkip(path=path, reason="missing manifest.json"))
+            continue
+        try:
+            load_manifest(path)
+        except ReplayError as exc:
+            skipped.append(ReplaySkip(path=path, reason=f"invalid manifest: {exc}"))
+            continue
+        bundles.append(path)
+
+    return ReplayDiscovery(bundles=tuple(bundles), skipped=tuple(skipped))
+
+
 def verify_bundle_integrity(run_dir: Path) -> list[str]:
     """Return a list of integrity problems; empty means the bundle verifies."""
     run_dir = Path(run_dir)

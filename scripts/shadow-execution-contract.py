@@ -25,7 +25,11 @@ from typing import Any
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from controller.replay import load_manifest, verify_bundle_integrity
+from controller.replay import (
+    discover_replay_bundles,
+    load_manifest,
+    verify_bundle_integrity,
+)
 from controller.runtime import load_runtime_config
 from tests.harness.uci_session import UciError, UciSession
 
@@ -80,12 +84,10 @@ def extract_bestmove(lines: list[str], label: str) -> str:
 
 
 def newest_run(replay_root: Path, known: set[str]) -> Path:
-    candidates = sorted(
-        (path for path in replay_root.iterdir() if path.is_dir() and path.name not in known),
-        key=lambda path: path.name,
-    )
+    discovery = discover_replay_bundles(replay_root)
+    candidates = [path for path in discovery.bundles if path.name not in known]
     if not candidates:
-        raise ContractError("shadow run produced no replay bundle")
+        raise ContractError("shadow run produced no finalized replay bundle")
     return candidates[-1]
 
 
@@ -174,7 +176,10 @@ def main() -> int:
     golden = load_json(LEGAL_PATH)["cases"]
     replay_root = config.shadow.replay_root
     replay_root.mkdir(parents=True, exist_ok=True)
-    known = {path.name for path in replay_root.iterdir() if path.is_dir()}
+    before = discover_replay_bundles(replay_root)
+    known = {path.name for path in before.bundles} | {
+        skipped.path.name for skipped in before.skipped
+    }
 
     report: dict[str, Any] = {
         "schema_version": 1,
@@ -254,10 +259,10 @@ def main() -> int:
     # ------------------------------------------------------------------
     # 4. Replay evidence for the concurrent run.
     # ------------------------------------------------------------------
-    runs = sorted(
-        (path for path in replay_root.iterdir() if path.is_dir() and path.name not in known),
-        key=lambda path: path.name,
-    )
+    discovery = discover_replay_bundles(replay_root)
+    runs = [path for path in discovery.bundles if path.name not in known]
+    skipped = [item for item in discovery.skipped if item.path.name not in known]
+    report["skipped_replay_directories"] = [item.as_dict() for item in skipped]
     if len(runs) < 3:
         raise ContractError(f"expected three replay bundles, found {[p.name for p in runs]}")
     fixed_run, concurrent_run, terminal_run = runs[0], runs[1], runs[2]

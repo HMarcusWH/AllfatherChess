@@ -17,6 +17,7 @@ from controller.replay import (
     REPLAY_SCHEMA_VERSION,
     ReplayError,
     TelemetryStreamWriter,
+    discover_replay_bundles,
     load_manifest,
     sha256_file,
     verify_bundle_integrity,
@@ -177,6 +178,45 @@ class ReplayManifestTests(unittest.TestCase):
             problems = verify_bundle_integrity(run_dir)
             self.assertTrue(problems)
             self.assertTrue(any("hash mismatch" in problem for problem in problems))
+
+
+class ReplayDiscoveryTests(unittest.TestCase):
+    def test_manifestless_directory_is_reported_and_skipped(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run_dir, _ = single_run(root / "valid")
+            replay_root = run_dir.parent
+            orphan = replay_root / "orphan-run"
+            orphan.mkdir()
+
+            discovery = discover_replay_bundles(replay_root)
+
+            self.assertEqual(discovery.bundles, (run_dir,))
+            self.assertEqual(len(discovery.skipped), 1)
+            self.assertEqual(discovery.skipped[0].path, orphan)
+            self.assertEqual(discovery.skipped[0].reason, "missing manifest.json")
+
+    def test_invalid_manifest_is_reported_without_poisoning_valid_bundles(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run_dir, _ = single_run(root / "valid")
+            replay_root = run_dir.parent
+            broken = replay_root / "broken-run"
+            broken.mkdir()
+            (broken / "manifest.json").write_text("{not json", encoding="utf-8")
+
+            discovery = discover_replay_bundles(replay_root)
+
+            self.assertEqual(discovery.bundles, (run_dir,))
+            self.assertEqual(len(discovery.skipped), 1)
+            self.assertEqual(discovery.skipped[0].path, broken)
+            self.assertIn("invalid manifest", discovery.skipped[0].reason)
+
+    def test_missing_replay_root_is_an_empty_discovery(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            discovery = discover_replay_bundles(Path(tmp) / "does-not-exist")
+            self.assertEqual(discovery.bundles, ())
+            self.assertEqual(discovery.skipped, ())
 
 
 class ReviewRegressionRoundFourTests(unittest.TestCase):

@@ -108,6 +108,7 @@ class TelemetryStreamWriter:
         role: str,
         path: Path,
         adapter_factory: Callable[[str], Any],
+        track_events: bool = False,
     ) -> None:
         self.instance = instance
         self.family = family
@@ -124,6 +125,11 @@ class TelemetryStreamWriter:
         self._errors: list[str] = []
         self._closed = False
         self._queued_peak = 0
+        # Active mode reconstructs live features from the *same* events that are
+        # written to disk, so an online decision and an offline analysis can
+        # never disagree about what the engine reported.
+        self._track_events = track_events
+        self._events: list[dict[str, Any]] = []
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._handle = self.path.open("w", encoding="utf-8")
         self._thread = threading.Thread(
@@ -215,6 +221,15 @@ class TelemetryStreamWriter:
     def _write(self, event: dict[str, Any]) -> None:
         self._handle.write(json.dumps(event, sort_keys=True) + "\n")
         self._event_count += 1
+        if self._track_events:
+            with self._lock:
+                if len(self._events) < 50_000:
+                    self._events.append(event)
+
+    def tracked_events(self) -> list[dict[str, Any]]:
+        """Copy of the events written so far; empty unless tracking is enabled."""
+        with self._lock:
+            return list(self._events)
 
     # -- lifecycle -----------------------------------------------------------
 

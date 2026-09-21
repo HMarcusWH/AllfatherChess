@@ -107,7 +107,7 @@ class _OwnerState:
     instance: str
     family: str
     roots: tuple[str, ...]
-    stream: TelemetryStreamWriter
+    stream: TelemetryStreamWriter | None = None
     stage: StageRecord | None = None
     stage_index: int = 0
     done: threading.Event = field(default_factory=threading.Event)
@@ -138,7 +138,9 @@ class RunContext:
 
     def owner_stream_path(self, owner: str) -> Path | None:
         state = self._coordinator._owner_state(self.generation, owner)
-        return None if state is None else state.stream.path
+        if state is None or state.stream is None:
+            return None
+        return state.stream.path
 
     def owner_active(self, owner: str) -> bool:
         state = self._coordinator._owner_state(self.generation, owner)
@@ -190,6 +192,10 @@ class ShadowRunCoordinator:
         self._run: _ActiveRun | None = None
         self._closed = False
         self._config_sha = self._hash_config(runtime.config.path)
+        # Engine binaries are hashed exactly once, at construction. Hashing them
+        # per run would add hundreds of milliseconds to `prepare_run`, which
+        # runs synchronously before the outward anchor search starts.
+        self._engine_identity = self._build_engine_identities()
         self._history: list[Path] = []
         runtime.set_instance_observer(self._observe_line)
         runtime.set_shadow_exit_handler(self._on_shadow_exit)
@@ -205,7 +211,7 @@ class ShadowRunCoordinator:
         except OSError:  # pragma: no cover - config was already parsed once
             return ""
 
-    def _engine_identities(self) -> dict[str, Any]:
+    def _build_engine_identities(self) -> dict[str, Any]:
         identities: dict[str, Any] = {}
         for name in sorted(self.runtime.config.backends):
             spec = self.runtime.config.backends[name]
@@ -283,6 +289,7 @@ class ShadowRunCoordinator:
             self._diagnostic(f"shadow run not started: {exc}")
             return False
 
+        prepare_started = time.monotonic()
         now = _dt.datetime.now(_dt.timezone.utc)
         run_id = f"{now.strftime('%Y%m%dT%H%M%S%fZ')}-g{generation:06d}-{uuid.uuid4().hex[:8]}"
         run_dir = self.settings.replay_root / run_id
@@ -303,7 +310,7 @@ class ShadowRunCoordinator:
             external_go_command=go_command,
             config_path=str(self.runtime.config.path),
             config_sha256=self._config_sha,
-            engine_identities=self._engine_identities(),
+            engine_identities=self._engine_identity,
             ledger_owners=self.settings.owners,
             partition_method=self.settings.partition,
             created_utc=now.isoformat().replace("+00:00", "Z"),
@@ -370,6 +377,9 @@ class ShadowRunCoordinator:
             anchor_stream=anchor_stream,
             started_monotonic=started,
         )
+        # Controller overhead is recorded, never hidden. This is the only work
+        # that happens between the external `go` and the anchor dispatch.
+        run.prepare_ms = (time.monotonic() - prepare_started) * 1000.0
         with self._lock:
             self._run = active
             self._history.append(run_dir)
@@ -620,31 +630,17 @@ class ShadowRunCoordinator:
         if active.cancelled:
             return "cancelled", active.cancel_reason
 
+        run.qualification_ms = (time.monotonic() - active.started_monotonic) * 1000.0
+
         # 4. Concurrent restricted dispatch.
-        variant = active.context.position.variant
-        position_id = active.context.position.position_id
         for owner in dispatchable:
             instance = settings.instance(owner)
             spec = self.runtime.spec(instance)
-            stream = TelemetryStreamWriter(
-                instance=instance,
-                family=spec.family,
-                role=spec.role,
-                path=active.run.run_dir / f"{instance}.jsonl",
-                adapter_factory=self._adapter_factory(
-                    family=spec.family,
-                    instance=instance,
-                    position_id=position_id,
-                    variant=variant,
-                ),
-            )
-            run.register_stream(stream)
             active.owners[owner] = _OwnerState(
                 owner=owner,
                 instance=instance,
                 family=spec.family,
                 roots=tuple(ledger.active_roots(owner)),
-                stream=stream,
             )
 
         if self.router is not None:
@@ -688,6 +684,23 @@ class ShadowRunCoordinator:
             return False
         run = active.run
         search_id = f"{run.run_id}:{state.instance}:{state.stage_index}"
+        if state.stream is None:
+            # Create the stream only when a stage is actually dispatched, so a
+            # cancelled run never leaves an empty telemetry artifact behind.
+            spec = self.runtime.spec(state.instance)
+            state.stream = TelemetryStreamWriter(
+                instance=state.instance,
+                family=spec.family,
+                role=spec.role,
+                path=run.run_dir / f"{state.instance}.jsonl",
+                adapter_factory=self._adapter_factory(
+                    family=spec.family,
+                    instance=state.instance,
+                    position_id=active.context.position.position_id,
+                    variant=active.context.position.variant,
+                ),
+            )
+            run.register_stream(state.stream)
         try:
             command = build_go_command(limit=limit, searchmoves=state.roots)
         except SearchRequestError as exc:  # pragma: no cover - configuration is validated

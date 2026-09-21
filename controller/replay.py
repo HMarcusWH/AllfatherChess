@@ -299,6 +299,10 @@ class ReplayRun:
     oracle_instance: str | None = None
     terminal_universe: bool = False
     finalized: bool = False
+    #: Controller work performed synchronously before the anchor was dispatched.
+    prepare_ms: float = 0.0
+    #: Controller work performed between run start and the first shadow dispatch.
+    qualification_ms: float | None = None
 
     # -- streams -------------------------------------------------------------
 
@@ -407,6 +411,12 @@ class ReplayRun:
                 "config_path": self.config_path,
                 "config_sha256": self.config_sha256,
                 "partition_method": self.partition_method,
+                "overhead": {
+                    "prepare_ms": round(self.prepare_ms, 3),
+                    "qualification_ms": (
+                        None if self.qualification_ms is None else round(self.qualification_ms, 3)
+                    ),
+                },
             },
             "position": {
                 "position_id": self.position.position_id,

@@ -29,8 +29,11 @@ from controller.routing import (
     build_router,
     propose,
 )
-from controller.runtime import load_runtime_config
-from tests.controller.test_shadow_runtime import run_shell, write_shadow_config
+from tests.controller.test_shadow_runtime import (
+    load_shipped_config,
+    run_shell,
+    write_shadow_config,
+)
 
 
 def envelope(**overrides) -> ResourceEnvelope:
@@ -326,8 +329,17 @@ class AuthorizationTests(unittest.TestCase):
 
 class RouterConfigTests(unittest.TestCase):
     def test_active_config_builds_a_fail_closed_router(self):
-        config = load_runtime_config(ROOT / "config" / "allfather.active.validation.json")
-        router = build_router(config)
+        path = ROOT / "config" / "allfather.active.validation.json"
+        document = json.loads(path.read_text(encoding="utf-8"))
+        self.assertEqual(document["mode"], "active")
+        self.assertIsNone(
+            document["routing"]["calibration"],
+            "a shipped config must not assume a fitted calibration artifact exists",
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            config = load_shipped_config(path, Path(tmp))
+            router = build_router(config)
         self.assertIsNone(router.calibration, "the shipped config must not assume a fitted model")
         self.assertEqual(router.policy.as_dict()["policy"], "conservative_v1")
 
@@ -338,21 +350,24 @@ class RouterConfigTests(unittest.TestCase):
             RoutingPolicy.from_config(None)
 
     def test_declared_but_unloadable_calibration_fails_closed(self):
-        config = load_runtime_config(ROOT / "config" / "allfather.active.validation.json")
-        broken = dict(config.routing or {})
-        broken["calibration"] = "does/not/exist.json"
-        replaced = type(config)(
-            path=config.path,
-            root=config.root,
-            mode=config.mode,
-            anchor=config.anchor,
-            backends=config.backends,
-            shadow=config.shadow,
-            budget=config.budget,
-            routing=broken,
-        )
-        with self.assertRaises(RoutingError):
-            build_router(replaced)
+        with tempfile.TemporaryDirectory() as tmp:
+            config = load_shipped_config(
+                ROOT / "config" / "allfather.active.validation.json", Path(tmp)
+            )
+            broken = dict(config.routing or {})
+            broken["calibration"] = "does/not/exist.json"
+            replaced = type(config)(
+                path=config.path,
+                root=config.root,
+                mode=config.mode,
+                anchor=config.anchor,
+                backends=config.backends,
+                shadow=config.shadow,
+                budget=config.budget,
+                routing=broken,
+            )
+            with self.assertRaises(RoutingError):
+                build_router(replaced)
 
 
 class ActiveModeEndToEndTests(unittest.TestCase):

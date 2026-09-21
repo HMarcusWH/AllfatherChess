@@ -92,6 +92,25 @@ def write_shadow_config(
     return path
 
 
+def load_shipped_config(path: Path, directory: Path):
+    """Load a shipped config's real structure without requiring built engines.
+
+    The fast controller suite must pass on a checkout where no engine has been
+    built, so only the `binary` paths are redirected to the running interpreter.
+    Schema version, mode, anchor, roles, families, options, and shadow/routing
+    settings all remain the shipped document's own.
+    """
+    document = json.loads(path.read_text(encoding="utf-8"))
+    for section in ("backends", "instances"):
+        for spec in document.get(section, {}).values():
+            spec["binary"] = sys.executable
+            spec.pop("fallback_glob", None)
+    document["root"] = "."
+    target = directory / path.name
+    target.write_text(json.dumps(document), encoding="utf-8")
+    return load_runtime_config(target)
+
+
 def read_only_manifest(replay_root: Path) -> dict:
     runs = sorted(p for p in replay_root.iterdir() if p.is_dir())
     if len(runs) != 1:
@@ -175,7 +194,20 @@ class ShadowConfigTests(unittest.TestCase):
         self.assertEqual(config.shadow.oracle, "stockfish-shadow")
 
     def test_legacy_anchor_profile_is_unchanged(self):
-        config = load_runtime_config(ROOT / "config" / "allfather.validation.json")
+        path = ROOT / "config" / "allfather.validation.json"
+
+        # Assert the shipped document itself, so redirecting binaries below
+        # cannot mask a change to the frozen profile.
+        document = json.loads(path.read_text(encoding="utf-8"))
+        self.assertEqual(document["schema_version"], 1)
+        self.assertEqual(document["mode"], "anchor")
+        self.assertEqual(document["anchor"], "stockfish")
+        self.assertEqual(sorted(document["backends"]), ["lc0", "reckless", "stockfish"])
+        self.assertNotIn("instances", document)
+        self.assertNotIn("shadow", document)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            config = load_shipped_config(path, Path(tmp))
         self.assertEqual(config.mode, "anchor")
         self.assertEqual(config.anchor, "stockfish")
         self.assertEqual(sorted(config.backends), ["lc0", "reckless", "stockfish"])

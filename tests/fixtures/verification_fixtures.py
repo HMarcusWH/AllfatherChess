@@ -22,7 +22,6 @@ INSTANCES = {
     "reckless": "reckless-shadow",
     "lc0": "lc0-shadow",
 }
-FAMILIES = dict(OWNERS=(None,))  # overwritten below for type-light fixture code
 FAMILIES = {
     "stockfish": "stockfish",
     "reckless": "reckless",
@@ -294,7 +293,7 @@ def late_relock(root: Path) -> Path:
     run = _parent(root, "verify-late-relock")
     rankings = {
         owner: (
-            (NOMINEES[owner], "d2d4", "e2e4")
+            (NOMINEES[owner], "d2d4", "g1f3" if owner == "stockfish" else "e2e4")
             if owner != "reckless"
             else ("d2d4", "e2e4", "g1f3"),
             ("d2d4", "e2e4", "g1f3"),
@@ -305,7 +304,17 @@ def late_relock(root: Path) -> Path:
     return attach_verification(run, rankings, bestmoves={owner: "d2d4" for owner in OWNERS})
 
 
-def incomplete_verifier(root: Path) -> Path:
+
+
+def bestmove_only_relock(root: Path) -> Path:
+    run = _parent(root, "verify-bestmove-only")
+    rankings = {owner: () for owner in OWNERS}
+    return attach_verification(
+        run,
+        rankings,
+        bestmoves={owner: "d2d4" for owner in OWNERS},
+    )
+\ndef incomplete_verifier(root: Path) -> Path:
     run = _parent(root, "verify-incomplete")
     rankings = {
         "stockfish": (("e2e4", "d2d4", "g1f3"),) * 3,
@@ -336,6 +345,7 @@ SCENARIOS = {
     "all_different": all_different,
     "temporary_unanimity_then_diverge": temporary_unanimity_then_diverge,
     "late_relock": late_relock,
+    "bestmove_only_relock": bestmove_only_relock,
     "incomplete_verifier": incomplete_verifier,
     "anchor_outside_candidates": anchor_outside_candidates,
 }

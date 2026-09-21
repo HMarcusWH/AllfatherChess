@@ -86,9 +86,9 @@ Permit intentional independent re-search of the three clean EXPLORE nominees whi
 
 Use the common-support VERIFY trajectories to derive scale-free cross-engine comparisons, synchronized three-way convergence descriptors, EXPLORE-to-VERIFY preference changes, candidate-source attribution, and a frozen descriptive `terminal-suffix-v1` RELOCK state. Agreement is evidence, not a correctness certificate, and no live router consumes this artifact.
 
-### M10 — Recursive shard splitting
+### M10 — Recursive shard splitting substrate (implemented in PR #16)
 
-Represent search regions as move-prefix shards that may be split, transferred, sealed, or retired atomically after common-support evidence tells us which disagreements are worth localizing.
+Represent search regions as deterministic move-prefix shards with a prefix-free frontier. A sealed leaf may be split atomically into an exact externally-certified child set, leased children inherit ownership, and leased frontier shards may be transferred atomically. A separate compiler maps a full prefix to descendant `position` + final `searchmoves`. PR #16 qualifies the substrate without migrating live shadow execution or letting COMPARE/RELOCK trigger refinement.
 
 ### M11 — Active VERIFY + CPU/GPU resource scheduler
 
@@ -122,8 +122,8 @@ Run fixed-node, fixed-time, self-play, SPRT-style, and external-engine compariso
 12. **PR #12 — Immediate controller stack**: implement shadow execution/replay, residual/counterfactual calibration, and active adaptive budget routing as three separate layers with separate artifacts and test suites. **Merged.**
 13. **PR #13 — PR #12 closure and hardening**: retire replay-discovery and envelope-validation debt before adding deliberate overlap. **Merged.**
 14. **PR #14 — Explicit common-support VERIFY execution**. **Merged.**
-15. **PR #15 — COMPARE / RELOCK derived analysis**. **Current.**
-16. **PR #16 — Recursive shard splitting**.
+15. **PR #15 — COMPARE / RELOCK derived analysis**. **Merged.**
+16. **PR #16 — Recursive PrefixShardLedger v2 + descendant dispatch qualification**. **Current.**
 17. **PR #17 — Active VERIFY + CPU/GPU resource scheduler**.
 18. **PR #18+ — Cross-feed, native integration, and strength optimization**, each promoted only after isolated ablation.
 

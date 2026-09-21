@@ -1,4 +1,4 @@
-.PHONY: vendor verify-vendor build-baselines smoke-baselines golden-baselines record-golden-baselines telemetry-contract telemetry-adapters telemetry-adapter-integration controller-tests shard-ledger-tests shard-ledger-contract hybrid-shell-contract shadow-tests replay-tests residual-tests routing-tests verification-tests shadow-execution-contract verification-execution-contract active-routing-contract shadow-evidence-sweep residual-calibration run-allfather run-allfather-shadow run-allfather-verify
+.PHONY: vendor verify-vendor build-baselines smoke-baselines golden-baselines record-golden-baselines telemetry-contract telemetry-adapters telemetry-adapter-integration controller-tests shard-ledger-tests shard-ledger-contract hybrid-shell-contract shadow-tests replay-tests residual-tests routing-tests verification-tests verification-analysis-tests shadow-execution-contract verification-execution-contract verification-analysis-contract active-routing-contract shadow-evidence-sweep verification-evidence-sweep residual-calibration verification-analysis run-allfather run-allfather-shadow run-allfather-verify
 
 vendor:
 	@echo "Refusing implicit destructive vendor refresh." >&2
@@ -39,6 +39,7 @@ controller-tests:
 	python3 tests/controller/test_residuals.py
 	python3 tests/controller/test_budget_routing.py
 	python3 tests/controller/test_verification.py
+	python3 tests/controller/test_verification_analysis.py
 
 shard-ledger-tests:
 	python3 tests/controller/test_shard_ledger.py
@@ -58,6 +59,9 @@ routing-tests:
 verification-tests:
 	python3 tests/controller/test_verification.py
 
+verification-analysis-tests:
+	python3 tests/controller/test_verification_analysis.py
+
 shard-ledger-contract:
 	python3 scripts/shard-ledger-contract.py
 
@@ -70,6 +74,9 @@ shadow-execution-contract:
 verification-execution-contract:
 	python3 scripts/verification-execution-contract.py
 
+verification-analysis-contract:
+	python3 scripts/verification-analysis-contract.py
+
 active-routing-contract:
 	python3 scripts/active-routing-contract.py
 
@@ -77,6 +84,12 @@ active-routing-contract:
 # establishes no strength claim; these targets are not gates.
 shadow-evidence-sweep:
 	python3 scripts/shadow-evidence-sweep.py
+
+verification-evidence-sweep:
+	python3 scripts/verification-evidence-sweep.py
+
+verification-analysis:
+	python3 scripts/verification-analysis.py
 
 residual-calibration:
 	python3 scripts/residual-calibration.py

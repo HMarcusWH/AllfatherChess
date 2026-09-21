@@ -864,7 +864,10 @@ def verify_refinement_integrity(run_dir: Path | str) -> list[str]:
                 )
                 continue
             stage = stage_by_instance.get(record.get("instance"))
-            allowed = set(() if stage is None else stage.get("child_moves") or [])
+            allowed_order = tuple(
+                () if stage is None else stage.get("child_moves") or []
+            )
+            allowed = set(allowed_order)
             for event in events:
                 kind = event.get("event_type")
                 if kind == "search.started":
@@ -873,7 +876,7 @@ def verify_refinement_integrity(run_dir: Path | str) -> list[str]:
                         problems.append(
                             f"{row.get('target_id')}:{record.get('instance')}: phase is not REFINE"
                         )
-                    if tuple((event.get("request") or {}).get("root_moves") or []) != tuple(allowed):
+                    if tuple((event.get("request") or {}).get("root_moves") or []) != allowed_order:
                         problems.append(
                             f"{row.get('target_id')}:{record.get('instance')}: telemetry root set differs"
                         )

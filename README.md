@@ -42,9 +42,10 @@ The current stack includes the immediate controller layers plus an explicit comm
 3. **active adaptive compute routing** — a conservative policy allocates shadow observation compute inside one declared resource envelope, where an instability signal may nominate computation but only a calibrated, in-domain, sufficiently supported, low-risk verdict may authorize stopping;
 4. **explicit VERIFY evidence** — after a clean three-owner EXPLORE run, the three distinct owner bestmoves form one deterministic common candidate set and the same three shadow processes independently re-search it. VERIFY remains shadow-only research instrumentation and cannot alter the outward move;
 5. **COMPARE / descriptive RELOCK analysis** — offline analysis reconstructs the three common-support trajectories, derives scale-free pairwise and three-way convergence geometry, attributes EXPLORE→VERIFY candidate adoption, and freezes a terminal-suffix RELOCK definition. The result is derived evidence only and is not consumed by routing;
-6. **recursive prefix-shard substrate** — `PrefixShardLedger` v2 qualifies deterministic move-prefix ownership, atomic split/transfer semantics, a prefix-free frontier, and descendant-position UCI dispatch without migrating the live root-only shadow controller yet.
+6. **recursive prefix-shard substrate** — `PrefixShardLedger` v2 qualifies deterministic move-prefix ownership, atomic split/transfer semantics, a prefix-free frontier, and descendant-position UCI dispatch;
+7. **shadow REFINE execution** — completed raw VERIFY disagreement can nominate one-ply root targets, which are split by the exact Stockfish perft oracle and searched as pairwise-disjoint descendant child regions. REFINE is research instrumentation only and cannot influence the outward anchor.
 
-Documentation: `docs/BUILD_PLAN.md`, `docs/ARCHITECTURE.md`, `docs/UCI_SHELL.md`, `docs/SHARD_LEDGER.md`, `docs/PREFIX_SHARDS.md`, `docs/SHADOW_EXECUTION.md`, `docs/REPLAY_FORMAT.md`, `docs/RESIDUAL_CALIBRATION.md`, `docs/BUDGET_ROUTING.md`, `docs/VERIFY_RELOCK.md`, `docs/COMPARE_RELOCK.md`, `docs/SEARCH_SPACE_OWNERSHIP.md`, `docs/TELEMETRY_SCHEMA.md`, `docs/TELEMETRY_MAPPING.md`, `docs/THEORY_IMPLEMENTATION_MAP.md`, `docs/CLAIM_LEDGER.md`, `docs/ADVERSARIAL_AUDIT.md`, `docs/CODEX_REVIEW_AUDIT.md`, `docs/UPSTREAM_PROVENANCE.md`, and `LICENSES.md`.
+Documentation: `docs/BUILD_PLAN.md`, `docs/ARCHITECTURE.md`, `docs/UCI_SHELL.md`, `docs/SHARD_LEDGER.md`, `docs/PREFIX_SHARDS.md`, `docs/SHADOW_EXECUTION.md`, `docs/REPLAY_FORMAT.md`, `docs/RESIDUAL_CALIBRATION.md`, `docs/BUDGET_ROUTING.md`, `docs/VERIFY_RELOCK.md`, `docs/COMPARE_RELOCK.md`, `docs/PREFIX_SHARDS.md`, `docs/REFINEMENT.md`, `docs/SEARCH_SPACE_OWNERSHIP.md`, `docs/TELEMETRY_SCHEMA.md`, `docs/TELEMETRY_MAPPING.md`, `docs/THEORY_IMPLEMENTATION_MAP.md`, `docs/CLAIM_LEDGER.md`, `docs/ADVERSARIAL_AUDIT.md`, `docs/CODEX_REVIEW_AUDIT.md`, `docs/UPSTREAM_PROVENANCE.md`, and `LICENSES.md`.
 
 **No strength claim is made.** No Elo experiment has been run. The outward move is still the unrestricted Stockfish anchor's in every mode, routing governs observation compute only, and shadow mode deliberately overspends compute to collect evidence. `docs/CLAIM_LEDGER.md` labels every claim as PROVED, MEASURED, DERIVED, CALIBRATED, POLICY, or OPEN. The current LC0 random/backend-light validation build remains deterministic regression infrastructure only and is explicitly **not strength-qualified**; real LC0 inference/network/hardware qualification remains a later strength-campaign requirement.
 
@@ -71,6 +72,7 @@ The validation configuration exists to prove process/UCI semantics, not playing 
 ```bash
 make run-allfather-shadow                # four instances, one outward identity
 make run-allfather-verify                # shadow mode + explicit common-support VERIFY
+make run-allfather-refine                # shadow mode + VERIFY-triggered one-level REFINE
 make verification-analysis               # offline COMPARE / descriptive RELOCK derivation
 make verification-evidence-sweep         # research-only common-support corpus sweep
 make shadow-evidence-sweep               # collect replay bundles over the frozen corpus
@@ -89,6 +91,8 @@ Shadow mode is a research observatory. It intentionally exceeds the eventual com
 make controller-tests                    # fast, no engines required
 make prefix-shard-tests                  # recursive ownership + descendant dispatch compiler
 make prefix-shard-contract               # real engines: two-level split + depth-3 restriction
+make refinement-tests                    # live shadow REFINE planning/lifecycle/integrity
+make refinement-execution-contract       # real engines: VERIFY disagreement -> descendant REFINE
 make shadow-execution-contract           # real engines: concurrency, containment, telemetry, replay
 make verification-execution-contract     # real engines: disjoint EXPLORE -> common-support VERIFY
 make verification-analysis-contract      # derive COMPARE / RELOCK from that exact raw run

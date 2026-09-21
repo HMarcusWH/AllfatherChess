@@ -7,7 +7,8 @@ The controller is the engine. Stockfish, Reckless, and LC0 are solver backends.
 ```text
 runtime.py           process roles, authority vs observational health, legal-root oracle
 uci_frontend.py      the single external UCI identity and its lifecycle barriers
-shards.py            RootShardLedger v1 (unchanged by this milestone)
+shards.py            live RootShardLedger v1
+prefix_shards.py     recursive PrefixShardLedger v2 substrate; not yet live
 shadow.py            concurrent restricted dispatch, run lifecycle, replay binding
 replay.py            run-level replay bundles and non-blocking telemetry capture
 verification.py      explicit common-support VERIFY plan/artifact/integrity
@@ -78,16 +79,17 @@ search carries an explicit generation token and every callback checks it.
 
 ## Documents
 
-`docs/UCI_SHELL.md`, `docs/SHARD_LEDGER.md`, `docs/SHADOW_EXECUTION.md`,
+`docs/UCI_SHELL.md`, `docs/SHARD_LEDGER.md`, `docs/PREFIX_SHARDS.md`, `docs/SHADOW_EXECUTION.md`,
 `docs/REPLAY_FORMAT.md`, `docs/RESIDUAL_CALIBRATION.md`,
 `docs/BUDGET_ROUTING.md`, `docs/COMPARE_RELOCK.md`, `docs/CLAIM_LEDGER.md`,
 `docs/THEORY_IMPLEMENTATION_MAP.md`, `docs/ADVERSARIAL_AUDIT.md`.
 
 ## What the controller still does not do
 
-No voting, no cross-engine score conversion, no recursive shard split or
-transfer, no RELOCK authorization, no VERIFY-based decision influence, no
-cross-feed, no native integration, and no strength claim. A descriptive
+No voting, no cross-engine score conversion, no **live** recursive split or
+transfer policy, no RELOCK authorization, no VERIFY-based decision influence,
+no cross-feed, no native integration, and no strength claim. The recursive
+PrefixShardLedger exists as a separately qualified substrate only. A descriptive
 terminal-suffix RELOCK is now derived offline, but it is not a controller
 certificate. Explicit VERIFY overlap remains observational only; the outward
 move is the unrestricted anchor's in every mode.
@@ -114,3 +116,16 @@ three-way convergence state, EXPLORE→VERIFY candidate adoption, and a frozen
 `terminal-suffix-v1` RELOCK descriptor.
 
 No live controller module imports or consumes the derived artifact.
+
+
+## Recursive prefix-shard substrate
+
+`controller/prefix_shards.py` adds PrefixShardLedger v2 without modifying the
+live RootShardLedger v1. It supports deterministic full-prefix identities,
+per-shard activation/sealing, atomic split of sealed leaves into owner-inherited
+children, atomic transfer of leased frontier leaves, and a prefix-free frontier
+invariant.
+
+`common/prefix_dispatch.py` compiles one qualified prefix into the descendant
+`position` plus one final `searchmoves` root. The live shadow coordinator
+does not import either module yet.

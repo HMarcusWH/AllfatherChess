@@ -1167,6 +1167,29 @@ class ShadowRunCoordinator:
                             failure=message,
                         )
                         active.verification.set_disposition("incomplete", message)
+
+                if active.refinement is not None:
+                    for stage in active.refinement.active_stages():
+                        stage.done.wait(timeout=max(0.0, deadline - time.monotonic()))
+                        if stage.done.is_set():
+                            continue
+                        message = (
+                            f"refinement instance {stage.instance} did not drain after "
+                            "a worker orchestration error and is excluded from further synchronization"
+                        )
+                        self.runtime.record_shadow_failure(
+                            stage.instance, message, generation=active.generation
+                        )
+                        active.refinement.record_completion(
+                            stage,
+                            completed_ms=(time.monotonic() - active.started_monotonic) * 1000.0,
+                            disposition="failed",
+                            failure=message,
+                        )
+                        active.refinement.set_target_disposition(
+                            stage.target_id, "incomplete", message
+                        )
+                        active.refinement.set_disposition("incomplete", message)
             except Exception as cleanup_exc:  # pragma: no cover - defensive
                 active.run.note(
                     f"could not drain dispatched stages after a worker error: "
@@ -1227,11 +1250,20 @@ class ShadowRunCoordinator:
                 if active.cancelled and stop_reason is None:
                     stop_reason = active.cancel_reason
                 active.run.finalize(disposition=disposition, stop_reason=stop_reason)
+                parent_manifest_sha = sha256_file(active.run.run_dir / "manifest.json")
                 if active.verification is not None:
                     active.verification.finalize(
-                        source_manifest_sha256=sha256_file(
-                            active.run.run_dir / "manifest.json"
+                        source_manifest_sha256=parent_manifest_sha
+                    )
+                if active.refinement is not None:
+                    verification_path = active.run.run_dir / "verification" / "manifest.json"
+                    if not verification_path.is_file():
+                        raise ControllerRuntimeError(
+                            "REFINE finalization requires a finalized VERIFY manifest"
                         )
+                    active.refinement.finalize(
+                        source_manifest_sha256=parent_manifest_sha,
+                        verification_manifest_sha256=sha256_file(verification_path),
                     )
             except Exception as exc:  # pragma: no cover - finalization isolation
                 self._diagnostic(f"replay finalization failed: {type(exc).__name__}: {exc}")

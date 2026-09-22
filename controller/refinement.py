@@ -684,6 +684,30 @@ def verify_refinement_integrity(run_dir: Path | str) -> list[str]:
     if source_root_snapshot != (parent.get("ledger") or {}).get("post_run_snapshot"):
         problems.append("refinement root-v1 source snapshot differs from finalized parent")
 
+    initial_v2 = prefix_ledger.get("initial_v2_snapshot") or {}
+    source_candidates = (
+        []
+        if not isinstance(source_root_snapshot, dict)
+        else source_root_snapshot.get("candidate_roots") or []
+    )
+    if initial_v2.get("schema_version") != 2:
+        problems.append("refinement initial PrefixShardLedger schema is not v2")
+    if initial_v2.get("generation") != manifest.get("generation"):
+        problems.append("refinement initial v2 generation mismatch")
+    if initial_v2.get("owners") != owners:
+        problems.append("refinement initial v2 owner order mismatch")
+    if initial_v2.get("candidate_roots") != source_candidates:
+        problems.append("refinement initial v2 candidate universe mismatch")
+    initial_shards = initial_v2.get("shards") or []
+    if any(
+        not isinstance(item, dict)
+        or item.get("depth") != 1
+        or item.get("state") != "sealed"
+        or item.get("child_ids")
+        for item in initial_shards
+    ):
+        problems.append("refinement initial v2 snapshot is not a sealed root-only mirror")
+
     target_rows = manifest.get("targets") or []
     recorded_targets = [
         row.get("root_move") for row in target_rows if isinstance(row, dict)
@@ -696,6 +720,14 @@ def verify_refinement_integrity(run_dir: Path | str) -> list[str]:
         problems.append("incomplete refinement target records are not a nomination prefix")
 
     final_v2 = (manifest.get("prefix_ledger") or {}).get("final_v2_snapshot") or {}
+    if final_v2.get("schema_version") != 2:
+        problems.append("refinement final PrefixShardLedger schema is not v2")
+    if final_v2.get("generation") != manifest.get("generation"):
+        problems.append("refinement final v2 generation mismatch")
+    if final_v2.get("owners") != owners:
+        problems.append("refinement final v2 owner order mismatch")
+    if final_v2.get("candidate_roots") != source_candidates:
+        problems.append("refinement final v2 candidate universe mismatch")
     final_shards = {
         item.get("id"): item
         for item in final_v2.get("shards", [])
@@ -756,6 +788,21 @@ def verify_refinement_integrity(run_dir: Path | str) -> list[str]:
         if set(union) != set(children) or len(union) != len(children):
             problems.append(
                 f"{row.get('target_id')}: child partition does not cover exact oracle universe"
+            )
+
+        child_shards = row.get("child_shards") or {}
+        parent_shard = final_shards.get(row.get("source_shard_id"))
+        if parent_shard is None:
+            problems.append(
+                f"{row.get('target_id')}: source parent shard is missing from final v2"
+            )
+        elif children and parent_shard.get("state") != "retired":
+            problems.append(
+                f"{row.get('target_id')}: split source parent is not RETIRED"
+            )
+        elif not children and parent_shard.get("state") != "sealed":
+            problems.append(
+                f"{row.get('target_id')}: terminal source root is not SEALED"
             )
 
         child_shards = row.get("child_shards") or {}
@@ -869,6 +916,13 @@ def verify_refinement_integrity(run_dir: Path | str) -> list[str]:
                 problems.append(
                     f"{row.get('target_id')}: completed target stream set differs from stages"
                 )
+            for owner in expected_stage_owners:
+                for shard_id in child_shards.get(owner) or []:
+                    shard = final_shards.get(shard_id)
+                    if shard is None or shard.get("state") != "sealed":
+                        problems.append(
+                            f"{row.get('target_id')}:{owner}: completed child shard is not SEALED"
+                        )
 
         for record in row.get("streams") or []:
             relative = Path(str(record.get("path", "")))

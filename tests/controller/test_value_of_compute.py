@@ -94,6 +94,18 @@ class TransitionTests(unittest.TestCase):
         with self.assertRaises(ValueOfComputeError):
             build_transition(lower, upper)
 
+    def test_candidate_root_mismatch_is_rejected_even_with_same_fingerprint(self):
+        lower = _point(nodes=64)
+        upper = _point(nodes=128)
+        upper = VerifyBudgetPoint(
+            **{
+                **upper.__dict__,
+                "candidate_roots": ("e2e4", "d2d4", "c2c4"),
+            }
+        )
+        with self.assertRaises(ValueOfComputeError):
+            build_transition(lower, upper)
+
     def test_replicate_mismatch_is_rejected(self):
         with self.assertRaises(ValueOfComputeError):
             build_transition(

@@ -41,6 +41,7 @@ CONFIG_PATH = ROOT / "config" / "allfather.refine.validation.json"
 RESULT_DIR = ROOT / "build" / "test-results" / "refine-execution"
 ANCHOR_MOVETIME_MS = 6000
 _MOVE_RE = re.compile(r"^[a-h][1-8][a-h][1-8][qrbn]?$")
+_PERFT_ROOT_RE = re.compile(r"^([a-h][1-8][a-h][1-8][qrbn]?):\s+(\d+)$")
 
 
 class ContractError(RuntimeError):
@@ -100,6 +101,38 @@ def assert_prefix_free(snapshot: dict) -> None:
                 raise ContractError(f"frontier prefix overlap: {left} < {right}")
             if len(right) < len(left) and left[: len(right)] == right:
                 raise ContractError(f"frontier prefix overlap: {right} < {left}")
+
+
+def independently_verify_child_oracles(config, refinement: dict) -> None:
+    """Recompute every recorded child shell with a fresh Stockfish process."""
+
+    assert config.shadow is not None
+    spec = config.backends[config.shadow.oracle]
+    with UciSession(
+        spec.binary,
+        cwd=spec.cwd,
+        timeout=20.0,
+        args=list(spec.args),
+    ) as oracle:
+        oracle.configure(spec.options)
+        oracle.new_game()
+        for target in refinement.get("targets", []):
+            position_command = target["child_oracle"]["position_command"]
+            oracle.send(position_command)
+            oracle.ready()
+            lines = oracle.synchronous_command("go perft 1", timeout=20.0)
+            children = [
+                match.group(1)
+                for line in lines
+                for match in [_PERFT_ROOT_RE.match(line)]
+                if match is not None
+            ]
+            recorded = target["child_oracle"]["children"]
+            if children != recorded:
+                raise ContractError(
+                    f"{target['target_id']}: recorded child oracle differs from "
+                    f"fresh Stockfish perft-1; recorded={recorded}, fresh={children}"
+                )
 
 
 def main() -> int:
@@ -242,6 +275,8 @@ def main() -> int:
                 f"{target['target_id']}:{record['instance']}"
             )
 
+    independently_verify_child_oracles(config, refinement)
+
     anchor_stage = next(stage for stage in parent["stages"] if stage["role"] == "anchor")
     if anchor_stage["bestmove"] != outward:
         raise ContractError(
@@ -280,6 +315,7 @@ def main() -> int:
         "parent_integrity": True,
         "verification_integrity": True,
         "refinement_integrity": True,
+        "child_oracle_recomputed": True,
         "claim": (
             "Orchestration only: completed VERIFY disagreement nominated exact root "
             "targets, each target was split by the Stockfish perft-1 oracle into a "

@@ -741,12 +741,14 @@ The answer is still research evidence. The UCI frontend continues to emit the St
 
 ### Modify
 
+- controller/runtime.py
 - controller/shadow.py
-- controller/verification_analysis.py
-- controller/crossfeed.py
 - tests/controller/test_shadow_runtime.py
+- docs/CLAIM_LEDGER.md
+- docs/BUILD_PLAN.md
 - Makefile
 - controller-shell CI
+- baseline CI
 
 ### Type separation
 
@@ -785,6 +787,8 @@ any stale / malformed / unbound input
 
 Descriptive RELOCK may be recorded as evidence, but RELOCK_OBSERVED is not itself a chess correctness certificate and should not bypass decision-policy checks.
 
+The final verifier choice must come from each VERIFY stage's terminal bestmove / search.complete fact. The last candidate.update line is not an acceptable substitute for terminal choice.
+
 ### Freeze point
 
 The counterfactual proposal must be frozen from only evidence available in that run before any later deep-reference or game-result label is attached.
@@ -812,7 +816,7 @@ The decision builder should be pure and usable both:
 1. offline from sealed artifacts; and
 2. in-memory from a completed CrossFeedView.
 
-When specialist evidence finishes before the anchor, controller.shadow may freeze an in-memory CounterfactualDecision on the active run, but must not expose it outward yet.
+When specialist evidence finishes, controller.shadow freezes an in-memory DecisionProposal on the active run and stamps whether it existed PRE_ANCHOR or POST_ANCHOR. The anchor move is attached only later during artifact finalization, and the proposal must not be exposed outward yet.
 
 ### Acceptance gate
 

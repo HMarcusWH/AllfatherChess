@@ -449,3 +449,38 @@ Nothing below is established by this milestone.
 - Whether REFINE evidence should ever authorize candidate cross-feed to the
   final Stockfish decision path.
 - Any playing-strength or equal-resource advantage.
+
+
+## Active VERIFY / REFINE specialist scheduler
+
+### PROVED by code/contracts
+
+- ordinary solver/anchor work, VERIFY, and REFINE occupy distinct declared
+  CPU/GPU partitions inside one global envelope;
+- solver work cannot consume specialist reserves, and VERIFY/REFINE cannot
+  borrow each other's reserve in scheduler v1;
+- active VERIFY requires a successful VERIFY reservation before dispatch;
+- active REFINE requires a successful REFINE-oracle reservation before perft-1
+  child enumeration and a separate REFINE reservation before each descendant
+  engine stage;
+- denied or undispatched specialist work is not launched and its reservation is
+  released;
+- dispatched specialist work settles CPU as stage wall time × configured
+  threads; actual spend is not clamped to the estimate;
+- per-instance REFINE positioning/restoration overhead is charged as controller
+  work;
+- `route.json` records specialist authorizations/denials plus per-purpose
+  budget totals;
+- the envelope claim requires the global CPU/GPU ceiling, specialist partition
+  caps, wall limit, bounded anchor request, anchor reservation and declared GPU
+  accounting to hold together;
+- the active specialist contract preserves Stockfish-anchor sole outward
+  authority and leaves no open reservation or orphan process.
+
+### OPEN
+
+- whether VERIFY or REFINE repays its compute in move quality;
+- optimal VERIFY/REFINE reserve fractions;
+- measured process CPU/GPU occupancy versus the current declared/estimated
+  accounting convention;
+- any equal-resource playing-strength improvement over Stockfish.

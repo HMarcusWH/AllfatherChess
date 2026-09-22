@@ -481,6 +481,13 @@ def verify_counterfactual_integrity(run_dir: Path | str) -> list[str]:
             stored_counterfactual = artifact.get("counterfactual") or {}
             if stored_anchor.get("move") != decision.anchor_move:
                 problems.append("stored anchor move mismatch")
+            stored_completed_ms = stored_anchor.get("completed_ms")
+            if (
+                isinstance(stored_completed_ms, bool)
+                or not isinstance(stored_completed_ms, (int, float))
+                or float(stored_completed_ms) != completed_ms
+            ):
+                problems.append("stored anchor completion time mismatch")
             if (
                 stored_counterfactual.get("proposal_matches_anchor")
                 != decision.proposal_matches_anchor

@@ -35,6 +35,7 @@ from controller.decision import (
     canonical_digest,
     evaluate_decision_policy,
 )
+from controller.refinement import RefinementError
 from controller.replay import (
     ReplayError,
     load_manifest,
@@ -438,7 +439,14 @@ def verify_counterfactual_integrity(run_dir: Path | str) -> list[str]:
             run_dir,
             policy=proposal.policy,
         )
-    except (CounterfactualError, DecisionError, CrossFeedError, VerificationError) as exc:
+    except (
+        CounterfactualError,
+        DecisionError,
+        CrossFeedError,
+        VerificationError,
+        RefinementError,
+        ReplayError,
+    ) as exc:
         problems.append(f"counterfactual deterministic replay failed: {exc}")
         proposal = None
         evidence = None

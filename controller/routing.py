@@ -531,6 +531,7 @@ class ConservativeRouter:
         self._anchor_reservation: Reservation | None = None
         self._specialist_reservations: dict[str, Reservation] = {}
         self._specialist_counter = 0
+        self._specialist_unresolved = False
         self._fallback = False
         self._anchor_bound: tuple[bool, str] = (False, "not evaluated")
         self._anchor_reserved = False
@@ -587,6 +588,7 @@ class ConservativeRouter:
         self._anchor_reservation = None
         self._specialist_reservations = {}
         self._specialist_counter = 0
+        self._specialist_unresolved = False
         self._fallback = False
         self._anchor_reserved = False
 
@@ -699,16 +701,18 @@ class ConservativeRouter:
             self._record_final_native_work(context)
             for owner in list(self._reservations):
                 self._settle_owner(context, owner)
-        # Any specialist reservation still open represents work whose terminal
-        # callback was lost to cancellation/teardown. Settling the full declared
-        # reservation is conservative and, critically, leaves no phantom open
-        # capacity in the final certificate.
+        # A leftover specialist reservation means the coordinator did not tell
+        # us whether the authorized work dispatched, completed, or how long it
+        # actually ran. Close the reservation at its declared estimate so no
+        # phantom capacity remains, but invalidate the envelope claim: the
+        # estimate is not evidence of actual consumption.
         for token, reservation in list(self._specialist_reservations.items()):
             self.ledger.settle(reservation)
             self._specialist_reservations.pop(token, None)
+            self._specialist_unresolved = True
             audit.note(
-                f"specialist reservation {token} settled at its declared estimate "
-                "during finalization because no explicit settlement arrived"
+                f"specialist reservation {token} lacked explicit settlement; "
+                "closed at its estimate and envelope claim invalidated"
             )
 
         if self._anchor_reservation is not None:
@@ -738,6 +742,7 @@ class ConservativeRouter:
                 "gpu_accounted": self._gpu_accounted(),
                 "reservations_within_envelope": self.ledger.within_envelope(),
                 "specialist_partitions_within_caps": self.ledger.within_partition_caps(),
+                "specialist_settlement_complete": not self._specialist_unresolved,
                 # Reservation accounting is about CPU and GPU ceilings. A run can
                 # sit inside both and still have taken longer than the declared
                 # wall envelope -- a slow legal-root oracle alone can do it --
@@ -757,6 +762,7 @@ class ConservativeRouter:
                     and self._gpu_accounted()
                     and self.ledger.within_envelope()
                     and self.ledger.within_partition_caps()
+                    and not self._specialist_unresolved
                     and self.ledger.elapsed_ms() <= self.envelope.wall_ms
                 ),
             },
@@ -946,9 +952,7 @@ class ConservativeRouter:
                 {
                     "event": "settle",
                     "checkpoint_ms": round(self.ledger.elapsed_ms(), 3),
-                    "phase": (
-                        "verify" if reservation.purpose == "verify" else "refine"
-                    ),
+                    "phase": token.split(":", 1)[0],
                     "owner": None,
                     "target_id": None,
                     "reservation_token": token,
@@ -974,9 +978,7 @@ class ConservativeRouter:
                 {
                     "event": "release",
                     "checkpoint_ms": round(self.ledger.elapsed_ms(), 3),
-                    "phase": (
-                        "verify" if reservation.purpose == "verify" else "refine"
-                    ),
+                    "phase": token.split(":", 1)[0],
                     "owner": None,
                     "target_id": None,
                     "reservation_token": token,

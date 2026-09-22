@@ -307,7 +307,7 @@ class ActiveSpecialistEndToEndTests(unittest.TestCase):
                         "stop_min_support": 5,
                         "stop_min_stability_fraction": 0.5,
                         "stage_cpu_ms_estimate": 100,
-                        "anchor_cpu_ms_estimate": 500,
+                        "anchor_cpu_ms_estimate": 1000,
                         "stage_gpu_ms_estimate": 0,
                         "verify_stage_cpu_ms_estimate": 100,
                         "verify_stage_gpu_ms_estimate": 0,
@@ -346,6 +346,7 @@ class ActiveSpecialistEndToEndTests(unittest.TestCase):
             self.assertIn("verify", phases)
             self.assertIn("refine_oracle", phases)
             self.assertIn("refine", phases)
+            self.assertTrue(route["envelope_claim"]["specialist_settlement_complete"])
             self.assertTrue(route["envelope_claim"]["claimed"], route["envelope_claim"])
 
 

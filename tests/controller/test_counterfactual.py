@@ -171,8 +171,8 @@ class CounterfactualEndToEndTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             run_dir, lines, artifact = self._run(
                 Path(tmp),
-                anchor_lines=8,
-                shadow_lines=4,
+                anchor_lines=12,
+                shadow_lines=8,
             )
             proposal = artifact["proposal"]
             self.assertFalse(proposal["frozen_before_anchor"])

@@ -149,10 +149,12 @@ class BudgetLedgerTests(unittest.TestCase):
                      controller_overhead_reserve_ms=100.0)
         )
         self.assertEqual(ledger.available_cpu_ms(), 700.0)
-        self.assertEqual(ledger.available_cpu_ms(purpose="verify"), 1000.0)
+        self.assertEqual(ledger.available_cpu_ms(purpose="verify"), 200.0)
         with self.assertRaises(BudgetExceeded):
             ledger.reserve("solver", cpu_ms=800.0)
-        ledger.reserve("verification", cpu_ms=800.0, purpose="verify")
+        ledger.reserve("verification", cpu_ms=200.0, purpose="verify")
+        with self.assertRaises(BudgetExceeded):
+            ledger.reserve("verification-extra", cpu_ms=1.0, purpose="verify")
 
     def test_release_returns_capacity_and_settle_consumes_it(self):
         ledger = BudgetLedger(envelope(cpu_ms=1000.0, verification_reserve_fraction=0.0,

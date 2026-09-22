@@ -39,6 +39,8 @@ from controller.budget import (
     BudgetLedger,
     Reservation,
     ResourceEnvelope,
+    REFINE_LANE,
+    VERIFY_LANE,
 )
 from controller.calibration import (
     CalibrationError,
@@ -200,6 +202,7 @@ class RouteAudit:
     policy: str
     decisions: list[dict[str, Any]] = field(default_factory=list)
     denials: list[dict[str, Any]] = field(default_factory=list)
+    specialist_actions: list[dict[str, Any]] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
 
     def record(self, decision: RouteDecision) -> None:
@@ -212,6 +215,18 @@ class RouteAudit:
                     "owner": decision.observation.owner,
                     "proposed": decision.proposal.action.value,
                     "reason": decision.reason,
+                }
+            )
+
+    def record_specialist(self, payload: dict[str, Any]) -> None:
+        self.specialist_actions.append(dict(payload))
+        if not payload.get("granted", False):
+            self.denials.append(
+                {
+                    "checkpoint_ms": payload.get("checkpoint_ms"),
+                    "owner": payload.get("owner"),
+                    "proposed": payload.get("phase"),
+                    "reason": payload.get("reason"),
                 }
             )
 
@@ -238,6 +253,12 @@ class RoutingPolicy:
     #: alpha-beta default; a family whose counter means something else needs its
     #: own declared floor rather than borrowing that number.
     observation_floors: dict[str, float] = field(default_factory=dict)
+    verify_stage_cpu_ms_estimate: float = 200.0
+    verify_stage_gpu_ms_estimate: float = 0.0
+    refine_stage_cpu_ms_estimate: float = 200.0
+    refine_stage_gpu_ms_estimate: float = 0.0
+    refine_oracle_cpu_ms_estimate: float = 50.0
+    refine_oracle_gpu_ms_estimate: float = 0.0
 
     @classmethod
     def from_config(cls, config: dict[str, Any] | None) -> "RoutingPolicy":
@@ -276,6 +297,12 @@ class RoutingPolicy:
                 anchor_cpu_ms_estimate=float(number("anchor_cpu_ms_estimate", 0.0)),
                 stage_gpu_ms_estimate=float(number("stage_gpu_ms_estimate", 0.0)),
                 observation_floors=dict(config.get("observation_floors") or {}),
+                verify_stage_cpu_ms_estimate=float(number("verify_stage_cpu_ms_estimate", 200.0)),
+                verify_stage_gpu_ms_estimate=float(number("verify_stage_gpu_ms_estimate", 0.0)),
+                refine_stage_cpu_ms_estimate=float(number("refine_stage_cpu_ms_estimate", 200.0)),
+                refine_stage_gpu_ms_estimate=float(number("refine_stage_gpu_ms_estimate", 0.0)),
+                refine_oracle_cpu_ms_estimate=float(number("refine_oracle_cpu_ms_estimate", 50.0)),
+                refine_oracle_gpu_ms_estimate=float(number("refine_oracle_gpu_ms_estimate", 0.0)),
             )
         except (TypeError, ValueError) as exc:
             raise RoutingError(f"invalid routing configuration: {exc}") from exc
@@ -312,6 +339,12 @@ class RoutingPolicy:
             "stage_cpu_ms_estimate",
             "anchor_cpu_ms_estimate",
             "stage_gpu_ms_estimate",
+            "verify_stage_cpu_ms_estimate",
+            "verify_stage_gpu_ms_estimate",
+            "refine_stage_cpu_ms_estimate",
+            "refine_stage_gpu_ms_estimate",
+            "refine_oracle_cpu_ms_estimate",
+            "refine_oracle_gpu_ms_estimate",
         ):
             value = float(getattr(self, name))
             if not math.isfinite(value) or value < 0.0:
@@ -360,6 +393,12 @@ class RoutingPolicy:
             "stage_cpu_ms_estimate": self.stage_cpu_ms_estimate,
             "anchor_cpu_ms_estimate": self.anchor_cpu_ms_estimate,
             "stage_gpu_ms_estimate": self.stage_gpu_ms_estimate,
+            "verify_stage_cpu_ms_estimate": self.verify_stage_cpu_ms_estimate,
+            "verify_stage_gpu_ms_estimate": self.verify_stage_gpu_ms_estimate,
+            "refine_stage_cpu_ms_estimate": self.refine_stage_cpu_ms_estimate,
+            "refine_stage_gpu_ms_estimate": self.refine_stage_gpu_ms_estimate,
+            "refine_oracle_cpu_ms_estimate": self.refine_oracle_cpu_ms_estimate,
+            "refine_oracle_gpu_ms_estimate": self.refine_oracle_gpu_ms_estimate,
             "observation_floors": dict(self.observation_floors),
         }
 
@@ -476,16 +515,22 @@ class ConservativeRouter:
         calibration: ReversalRiskModel | None = None,
         calibration_source: str | None = None,
         clock: Callable[[], float] | None = None,
+        verify_enabled: bool = False,
+        refine_enabled: bool = False,
     ) -> None:
         self.envelope = envelope
         self.policy = policy
         self.calibration = calibration
         self.calibration_source = calibration_source
         self._clock = clock
+        self.verify_enabled = bool(verify_enabled)
+        self.refine_enabled = bool(refine_enabled)
         self.ledger = BudgetLedger(envelope, clock=clock)
         self.audit: RouteAudit | None = None
         self._reservations: dict[str, list[Reservation]] = {}
         self._anchor_reservation: Reservation | None = None
+        self._specialist_reservations: dict[str, Reservation] = {}
+        self._specialist_counter = 0
         self._fallback = False
         self._anchor_bound: tuple[bool, str] = (False, "not evaluated")
         self._anchor_reserved = False
@@ -540,6 +585,8 @@ class ConservativeRouter:
         self.audit = RouteAudit(run_id=context.run_id, policy=POLICY_NAME)
         self._reservations = {}
         self._anchor_reservation = None
+        self._specialist_reservations = {}
+        self._specialist_counter = 0
         self._fallback = False
         self._anchor_reserved = False
 
@@ -700,6 +747,7 @@ class ConservativeRouter:
                 ),
             },
             "decisions": audit.decisions,
+            "specialist_actions": audit.specialist_actions,
             "denials": audit.denials,
             "notes": audit.notes,
             "authority": (
@@ -722,7 +770,16 @@ class ConservativeRouter:
         """
         if self.envelope.gpu_ms <= 0.0:
             return True
-        return self.policy.stage_gpu_ms_estimate > 0.0
+        if self.policy.stage_gpu_ms_estimate <= 0.0:
+            return False
+        if self.verify_enabled and self.policy.verify_stage_gpu_ms_estimate <= 0.0:
+            return False
+        if self.refine_enabled and (
+            self.policy.refine_stage_gpu_ms_estimate <= 0.0
+            or self.policy.refine_oracle_gpu_ms_estimate <= 0.0
+        ):
+            return False
+        return True
 
     def release_undispatched(self, owner: str) -> None:
         """Return the most recent extension reservation for `owner`.
@@ -1207,4 +1264,6 @@ def build_router(config: Any) -> ConservativeRouter:
         policy=policy,
         calibration=calibration,
         calibration_source=None if not source else str(source),
+        verify_enabled=config.verification is not None,
+        refine_enabled=config.refinement is not None,
     )

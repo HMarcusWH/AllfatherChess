@@ -226,8 +226,14 @@ class ComputeTransition:
     def __post_init__(self) -> None:
         if self.lower.position_group != self.upper.position_group:
             raise ValueOfComputeError("transition crosses position groups")
+        if self.lower.position_id != self.upper.position_id:
+            raise ValueOfComputeError("transition crosses position identities")
         if self.lower.replicate != self.upper.replicate:
             raise ValueOfComputeError("transition crosses replicate identities")
+        if self.lower.candidate_roots != self.upper.candidate_roots:
+            raise ValueOfComputeError("transition candidate roots differ")
+        if self.lower.nominees_by_owner != self.upper.nominees_by_owner:
+            raise ValueOfComputeError("transition EXPLORE nominees differ")
         if self.lower.upstream_fingerprint != self.upper.upstream_fingerprint:
             raise ValueOfComputeError(
                 "transition is not causally eligible: upstream fingerprints differ"

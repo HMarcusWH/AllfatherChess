@@ -30,7 +30,7 @@ from tests.harness.uci_session import UciSession
 
 CONFIG_PATH = ROOT / "config" / "allfather.counterfactual.validation.json"
 RESULT_DIR = ROOT / "build" / "test-results" / "counterfactual"
-ANCHOR_MOVETIME_MS = 5000
+ANCHOR_MOVETIME_MS = 10000
 _MOVE_RE = re.compile(r"^[a-h][1-8][a-h][1-8][qrbn]?$")
 
 

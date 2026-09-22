@@ -329,7 +329,7 @@ class RefinementConfigTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 load_runtime_config(path)
 
-    def test_active_mode_refuses_refinement_before_budget_or_routing(self):
+    def test_active_refinement_still_requires_verification_first(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = write_shadow_config(Path(tmp), mode="active")
             document = json.loads(path.read_text(encoding="utf-8"))
@@ -343,7 +343,7 @@ class RefinementConfigTests(unittest.TestCase):
             path.write_text(json.dumps(document), encoding="utf-8")
             with self.assertRaises(RuntimeError) as ctx:
                 load_runtime_config(path)
-            self.assertIn("refinement settings are supported only", str(ctx.exception))
+            self.assertIn("refinement requires verification.enabled", str(ctx.exception))
 
     def test_refinement_rejects_bad_partition_and_target_cap(self):
         for key, value in (

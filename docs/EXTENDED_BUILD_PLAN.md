@@ -552,7 +552,7 @@ It must already be represented as VERIFY, REFINE, or a future explicit ADJUDICAT
 
 ### 6.4 Cross-feed v1 gets no decision authority
 
-PR #20 must prove:
+PR #21 proved:
 
 ~~~text
 cross-feed enabled
@@ -580,7 +580,7 @@ That evidence is required before any cross-feed result gets chess decision autho
 
 # 7. Extended PR train
 
-PR #19 is already merged and is documentation-only. The implementation train therefore begins at PR #20.
+PR #19 and PR #20 are merged documentation-only milestones. The implementation train begins at PR #21; PR #21 is now merged and PR #22 is the current implementation.
 
 The sequencing below is anchored to the current repository boundaries:
 
@@ -592,11 +592,11 @@ The sequencing below is anchored to the current repository boundaries:
 - controller.uci_frontend is the only outward UCI authority path;
 - Replay schema v1 remains the raw execution record and must not absorb derived decision artifacts.
 
-## PR #19 — Extended build-plan documentation
+## PR #19–20 — Extended build-plan documentation and synchronization
 
 **Status: merged.**
 
-This PR introduced this document only. It did not change runtime behavior, search semantics, budget accounting, decision authority, or backend qualification.
+These PRs introduced and synchronized the extended plan only. They did not change runtime behavior, search semantics, budget accounting, decision authority, or backend qualification.
 
 ---
 
@@ -1763,7 +1763,7 @@ PR #21 is merged: the repo now has a typed, replayable cross-feed view over exis
 
 The immediate implementation question becomes:
 
-> How do we expose one engine's candidate information as typed, provenance-bound evidence that another controller layer may reason over, without converting native scores, weakening ownership, or granting automatic move authority?
+> How do we freeze a deterministic hybrid proposal from typed cross-feed plus the actual terminal VERIFY bestmoves, record whether that proposal existed before the anchor boundary, and independently replay it without granting outward authority?
 
 The counterfactual laboratory must use actual VERIFY terminal bestmoves, not infer final verifier choice from the last candidate.update event.
 

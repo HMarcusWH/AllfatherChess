@@ -1,10 +1,10 @@
 # AllfatherChess Extended Build Plan
 
-**Status:** Post-PR #21 implementation baseline; PR #22 counterfactual decision laboratory in progress  
+**Status:** Post-PR #22 implementation baseline; PR #23 VERIFY value-of-compute calibration in progress  
 **Date:** 2026-09-22  
 **Scope:** Expand the existing `docs/BUILD_PLAN.md` from the current M12 control/resource milestone through typed cross-feed evidence, counterfactual and active hybrid decision authority, backend/resource qualification, recursive refinement, native integration, governed policy evolution, and the final equal-resource strength campaign.
 
-This document is intentionally more detailed than `docs/BUILD_PLAN.md`. It does not replace the existing build plan, telemetry contracts, shard ledgers, replay contracts, or claim ledger. PR #19 and PR #20 were documentation-only. PR #21 is now merged and supplies the typed cross-feed evidence plane over the PR #18 runtime/control substrate. The current implementation milestone is PR #22.
+This document is intentionally more detailed than `docs/BUILD_PLAN.md`. It does not replace the existing build plan, telemetry contracts, shard ledgers, replay contracts, or claim ledger. PR #19 and PR #20 were documentation-only. PR #21 added the typed cross-feed evidence plane and PR #22 added deterministic counterfactual hybrid proposals with PRE/POST_ANCHOR timing. Both are merged. The current implementation milestone is PR #23.
 
 ---
 
@@ -719,7 +719,7 @@ The end-to-end contract should run the existing fake/real VERIFY path and requir
 
 ## PR #22 — Counterfactual hybrid decision laboratory
 
-**Status: current implementation.**
+**Status: merged.**
 
 ### Purpose
 
@@ -831,11 +831,20 @@ When specialist evidence finishes, controller.shadow freezes an in-memory Decisi
 
 ## PR #23 — Prospective chess-specific value-of-compute calibration
 
+**Status: current implementation.**
+
 ### Purpose
 
-Replace the current self-reversal/stability-only question with the decision-relevant question:
+Replace the current self-reversal/stability-only question with the first
+decision-relevant intervention question:
 
-> Was another unit of specialist compute useful enough to justify its cost?
+> Under a matching upstream state, did buying another block of VERIFY compute
+> change the frozen counterfactual hybrid decision?
+
+This milestone calibrates **VERIFY compute specifically**. The current
+`unanimous_verify_v1` proposal is driven by terminal VERIFY bestmoves, while
+REFINE does not yet alter the proposal. PR #23 therefore disables REFINE in its
+experimental profile rather than confounding the intervention.
 
 ### Add
 
@@ -844,61 +853,185 @@ Replace the current self-reversal/stability-only question with the decision-rele
 - tests/controller/test_value_of_compute.py
 - tests/controller/test_decision_calibration.py
 - scripts/value-of-compute-sweep.py
+- scripts/value-of-compute-contract.py
 - scripts/decision-calibration.py
+- config/allfather.value.validation.json
 - docs/VALUE_OF_COMPUTE.md
 
-### Keep current calibration intact
+### Modify
 
-controller.calibration.py and the conservative_v1 reversal-risk model remain the historical routing model until this new label family is independently qualified.
+- Makefile
+- .github/workflows/controller-shell.yml
+- .github/workflows/baseline.yml
+- docs/CLAIM_LEDGER.md
+- docs/BUILD_PLAN.md
+- docs/EXTENDED_BUILD_PLAN.md
 
-Do not silently redefine old model semantics.
+The existing controller.calibration.py / bucketed_reversal_risk_v3 model remains
+unchanged and load-incompatible with the new decision-change calibration.
 
-### Frozen checkpoint records
+### Real stopped-search ladder
 
-At a checkpoint record only past-available features, for example:
+Do not simulate a 128-node terminal bestmove from the first 128 nodes of a
+longer search. Run actual complete VERIFY arms, initially:
 
+~~~text
+64 -> 128 -> 256 -> 512 nodes per verifier
+~~~
+
+Each arm must produce its own search.complete facts and frozen counterfactual
+decision.
+
+### Upstream causal fingerprint
+
+Pair two arms only if a content hash agrees on all state upstream of the VERIFY
+budget intervention, including:
+
+- synchronized position / external request;
+- engine binaries, arguments and options;
+- EXPLORE owner roots and dispatch commands;
+- EXPLORE nominees;
+- common VERIFY candidate set and participants;
+- cross-feed policy;
+- decision policy.
+
+Run ids, timestamps, VERIFY node limit, terminal VERIFY results, anchor result
+and future labels are excluded.
+
+A changed EXPLORE nominee or candidate set makes the pair ineligible rather than
+being counted as a VERIFY effect.
+
+### Frozen lower-arm features
+
+Use only information available when the lower arm stopped:
+
+- current decision disposition/move/source owner;
+- PRE_ANCHOR / POST_ANCHOR state;
+- terminal VERIFY vector at that budget;
 - observation count;
 - leader flips;
 - stable-run fraction;
-- top-k / PV-prefix churn when defined;
-- VERIFY state so far;
-- unresolved candidate count;
-- REFINE persistence;
-- source-native work;
-- elapsed / remaining budget;
-- source family;
-- evidence completeness flags.
+- PV persistence;
+- self-retention of the EXPLORE nominee;
+- stage elapsed time;
+- engine-native work with semantics tags;
+- evidence-completeness flags.
 
-Later attach separate labels such as:
+Reuse common.residuals.past_only_features for the shared temporal primitives.
+Do not create separate offline/training definitions.
+
+### Heterogeneous work firewall
+
+Do not add Stockfish/Reckless/LC0 native counters into a universal "total
+nodes" scalar. The requested intervention can state an extra N VERIFY nodes per
+verifier; actual native work remains separately source-tagged until measured
+physical resource accounting exists.
+
+### Initial labels
+
+Observed adjacent-arm labels:
 
 ~~~text
 decision_changed
-decision_stabilized
-candidate_survived_full_budget
-deep_reference_agrees
-verify_changed_decision
-refine_changed_decision
-crossfeed_changed_decision
-game_outcome_delta
+proposal_emerged
+proposal_disappeared
+proposal_move_changed
+terminal_vector_changed
 ~~~
 
-Never collapse these into one field named correct.
+Complete ladders may additionally attach:
 
-### Data firewall
+~~~text
+candidate_survived_full_budget
+decision_stabilized
+~~~
 
-Training/calibration code must prove that no label-time information appears in the earlier feature vector.
+A checkpoint with no proposal has candidate_survived_full_budget = null, not
+false. Missing later arms are unobserved/right-censored, not negative labels.
 
-Split train/calibration/holdout by run identity and, where needed, by position family/opening family so near-duplicate positions cannot leak.
+Do not implement fake placeholders for deep_reference_agrees,
+refine_changed_decision, crossfeed_changed_decision or game_outcome_delta until
+those interventions/reference sources actually exist.
+
+### Feature/label firewall
+
+Each transition carries separate content addresses:
+
+~~~text
+feature_digest = SHA256(lower-arm past-only features)
+label_digest   = SHA256(upper-arm outcome labels)
+~~~
+
+Changing future evidence may change the label digest but must not alter the
+lower feature digest.
+
+### Data split firewall
+
+Run-id splitting is insufficient because multiple budget arms of one chess
+position are near-duplicates.
+
+Assign all budgets/repeats of one position_group to one deterministic partition.
+With >=5 groups use a 60/20/20 train/calibration/holdout split. The ten-position
+mechanism corpus therefore yields six train groups, two calibration groups and
+two holdout groups.
+
+### Model v1
+
+Fit a deliberately small auditable model:
+
+~~~text
+bucketed_verify_decision_change_v1
+~~~
+
+Serving features:
+
+~~~text
+VERIFY transition
+current proposal disposition
+minimum verifier observation-count bucket
+maximum verifier leader-flip bucket
+minimum verifier stable-run bucket
+~~~
+
+Unknown or below-support buckets fail closed as out-of-domain with conservative
+change probability 1.0. The artifact records Brier score, empirical/predicted
+change rates, in-domain rate, reliability buckets and support per VERIFY
+transition for train/calibration/holdout separately.
+
+### Validation
+
+Fast tests must cover:
+
+- causal upstream mismatch rejection;
+- replicate isolation;
+- proposal emergence/disappearance/move-change labels;
+- terminal-vector changes without policy changes;
+- future labels unable to mutate lower feature digests;
+- source-tagged native work with no fabricated aggregate;
+- null candidate survival for no-proposal checkpoints;
+- position-group split isolation;
+- old reversal-risk model rejection;
+- unknown/low-support fail-closed behavior;
+- calibration artifact tamper detection.
+
+The real-engine CI contract runs one nonterminal position at two budgets
+(64 -> 128), requires matching upstream fingerprints and one eligible
+ComputeTransition, and preserves Stockfish-anchor outward authority. It does
+**not** require decision_changed == true.
+
+The full 10-position x 4-budget x repeat sweep remains research-only and is not
+normal CI.
 
 ### Acceptance gate
 
 The output may support a bounded statement such as:
 
-> In this calibrated domain, another N nodes / X ms of VERIFY changed the eventual frozen decision at rate R.
+> In held-out positions within calibrated domain D, increasing VERIFY from N to
+> M nodes changed the frozen counterfactual decision at observed rate R.
 
 It does not yet support:
 
-> This move is objectively correct.
+> The later decision was better, or the extra VERIFY compute improved Elo.
 
 ---
 
@@ -1761,9 +1894,9 @@ These shortcuts would destroy the causal information the current architecture ha
 
 # 19. Recommended immediate next implementation
 
-The next code PR is **PR #22 — Counterfactual hybrid decision laboratory**.
+The next code PR is **PR #23 — Prospective VERIFY value-of-compute calibration**.
 
-PR #21 is merged: the repo now has a typed, replayable cross-feed view over existing EXPLORE / VERIFY / REFINE evidence without a new solver phase. PR #22 should consume that evidence to freeze a deterministic counterfactual hybrid proposal while preserving Stockfish anchor as the sole outward authority.
+PR #21 and PR #22 are merged: the repo now has typed replayable specialist evidence plus deterministic frozen hybrid proposals. PR #23 measures, prospectively and without hindsight leakage, whether additional VERIFY compute changes those proposals under a matching upstream state.
 
 The immediate implementation question becomes:
 

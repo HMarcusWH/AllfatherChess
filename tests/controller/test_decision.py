@@ -144,6 +144,28 @@ class DecisionPolicyTests(unittest.TestCase):
             "NO_PROPOSAL_VERIFY_INCOMPLETE",
         )
 
+    def test_completed_verify_with_missing_terminal_move_is_no_proposal(self):
+        terminal = VerificationTerminalEvidence(
+            verification_id="run-1:verify-v1",
+            candidate_roots=CANDIDATES,
+            final_by_owner=(
+                ("stockfish", "e2e4"),
+                ("reckless", "e2e4"),
+                ("lc0", None),
+            ),
+            stage_disposition_by_owner=tuple(
+                (owner, "completed") for owner in OWNERS
+            ),
+            run_disposition="completed",
+            complete=True,
+        )
+        evidence = build_decision_evidence(_view(), terminal)
+        evaluation = evaluate_decision_policy(evidence)
+        self.assertEqual(
+            evaluation.disposition.code,
+            "NO_PROPOSAL_TERMINAL_INCOMPLETE",
+        )
+
     def test_explicit_evidence_fault_fails_closed(self):
         evidence = build_decision_evidence(
             _view(faults=("VERIFY stream lossy for lc0",)),

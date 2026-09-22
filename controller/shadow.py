@@ -110,6 +110,9 @@ class ShadowRouter(Protocol):
     def release_specialist(self, token: str, *, reason: str) -> None:
         ...
 
+    def charge_controller_elapsed(self, label: str, elapsed_ms: float) -> None:
+        ...
+
     @property
     def checkpoint_interval_s(self) -> float:
         ...
@@ -1477,6 +1480,26 @@ class ShadowRunCoordinator:
         except Exception as exc:  # pragma: no cover - router isolation
             active.run.note(
                 f"specialist release failed for {key}: "
+                f"{type(exc).__name__}: {exc}"
+            )
+
+    def _charge_controller_elapsed(
+        self,
+        active: _ActiveRun,
+        *,
+        label: str,
+        elapsed_ms: float,
+    ) -> None:
+        if self.router is None:
+            return
+        charge = getattr(self.router, "charge_controller_elapsed", None)
+        if charge is None:
+            return
+        try:
+            charge(label, max(0.0, float(elapsed_ms)))
+        except Exception as exc:  # pragma: no cover - router isolation
+            active.run.note(
+                f"controller overhead accounting failed for {label}: "
                 f"{type(exc).__name__}: {exc}"
             )
 

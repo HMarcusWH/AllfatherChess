@@ -848,6 +848,15 @@ def verify_refinement_integrity(run_dir: Path | str) -> list[str]:
                 problems.append(
                     f"{row.get('target_id')}:{owner}: stage child set differs from partition"
                 )
+            if tuple(stage.get("shard_ids") or []) != tuple(child_shards.get(owner) or []):
+                problems.append(
+                    f"{row.get('target_id')}:{owner}: stage shard ids differ from ownership"
+                )
+            parent_engine = (parent.get("engines") or {}).get(instance) or {}
+            if stage.get("family") != parent_engine.get("engine"):
+                problems.append(
+                    f"{row.get('target_id')}:{owner}: stage family differs from parent engine identity"
+                )
             try:
                 request = parse_go_request(stage.get("command", ""))
             except Exception as exc:
@@ -858,6 +867,26 @@ def verify_refinement_integrity(run_dir: Path | str) -> list[str]:
             if tuple(request.get("root_moves") or []) != expected_moves:
                 problems.append(
                     f"{row.get('target_id')}:{owner}: go searchmoves differ from partition"
+                )
+            expected_request = {
+                "limits": [
+                    {
+                        "name": name,
+                        "value": value,
+                        "semantics": f"uci.go.{name}",
+                    }
+                    for name, value in sorted((manifest.get("dispatch_limit") or {}).items())
+                ],
+                "raw": stage.get("command", ""),
+                "root_moves": list(expected_moves),
+            }
+            if request.get("limits") != expected_request["limits"]:
+                problems.append(
+                    f"{row.get('target_id')}:{owner}: stage limits differ from REFINE plan"
+                )
+            if request.get("unknown_tokens"):
+                problems.append(
+                    f"{row.get('target_id')}:{owner}: stage command contains unknown tokens"
                 )
             try:
                 position = parse_position_command(
@@ -876,6 +905,18 @@ def verify_refinement_integrity(run_dir: Path | str) -> list[str]:
                 if position != oracle_position:
                     problems.append(
                         f"{row.get('target_id')}:{owner}: stage position differs from oracle position"
+                    )
+                parent_position = parent.get("position") or {}
+                expected_moves_from_parent = tuple(parent_position.get("moves") or []) + (
+                    root_move,
+                )
+                if (
+                    oracle_position.base_fen != parent_position.get("base_fen")
+                    or oracle_position.moves != expected_moves_from_parent
+                    or oracle_position.variant != parent_variant
+                ):
+                    problems.append(
+                        f"{row.get('target_id')}:{owner}: oracle/stage position is not external position + target root"
                     )
             prefixes = stage.get("prefixes") or []
             if prefixes != [[root_move, move] for move in expected_moves]:
@@ -971,6 +1012,22 @@ def verify_refinement_integrity(run_dir: Path | str) -> list[str]:
                 )
                 continue
             stage = stage_by_instance.get(record.get("instance"))
+            if stage is None:
+                problems.append(
+                    f"{row.get('target_id')}:{record.get('instance')}: stream has no matching stage"
+                )
+            else:
+                if record.get("search_ids") != [stage.get("search_id")]:
+                    problems.append(
+                        f"{row.get('target_id')}:{record.get('instance')}: stream search_ids differ from stage"
+                    )
+                if (
+                    (row.get("disposition") or {}).get("target") == "completed"
+                    and not record.get("contract_validatable")
+                ):
+                    problems.append(
+                        f"{row.get('target_id')}:{record.get('instance')}: completed target stream is not contract-validatable"
+                    )
             allowed_order = tuple(
                 () if stage is None else stage.get("child_moves") or []
             )
@@ -985,6 +1042,14 @@ def verify_refinement_integrity(run_dir: Path | str) -> list[str]:
                 except Exception:
                     expected_position_id = None
             for event in events:
+                if stage is not None and (
+                    event.get("search_id") != stage.get("search_id")
+                    or event.get("engine_instance") != stage.get("instance")
+                ):
+                    problems.append(
+                        f"{row.get('target_id')}:{record.get('instance')}: telemetry identity differs from stage"
+                    )
+                    break
                 if (
                     expected_position_id is not None
                     and event.get("position_id") != expected_position_id
@@ -1033,6 +1098,10 @@ def verify_refinement_integrity(run_dir: Path | str) -> list[str]:
                     if move is not None and move not in allowed:
                         problems.append(
                             f"{row.get('target_id')}:{record.get('instance')}: bestmove escaped REFINE region"
+                        )
+                    if stage is not None and move != stage.get("bestmove"):
+                        problems.append(
+                            f"{row.get('target_id')}:{record.get('instance')}: telemetry bestmove differs from stage"
                         )
 
     return problems

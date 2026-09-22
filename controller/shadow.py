@@ -88,6 +88,28 @@ class ShadowRouter(Protocol):
     def on_run_end(self, context: "RunContext") -> None:
         ...
 
+    def authorize_specialist(
+        self,
+        context: "RunContext",
+        *,
+        phase: str,
+        owner: str | None = None,
+        target_id: str | None = None,
+    ) -> str | None:
+        ...
+
+    def settle_specialist(
+        self,
+        token: str,
+        *,
+        actual_wall_ms: float | None = None,
+        threads: int = 1,
+    ) -> None:
+        ...
+
+    def release_specialist(self, token: str, *, reason: str) -> None:
+        ...
+
     @property
     def checkpoint_interval_s(self) -> float:
         ...
@@ -295,6 +317,7 @@ class _ActiveRun:
     refinement: RefinementRun | None = None
     refinement_positioned: set[str] = field(default_factory=set)
     refinement_oracle_active: bool = False
+    specialist_tokens: dict[str, str] = field(default_factory=dict)
     cancelled: bool = False
     cancel_reason: str | None = None
     worker: threading.Thread | None = None
@@ -1324,6 +1347,92 @@ class ShadowRunCoordinator:
             return
         active.router_finished = True
         self.router.on_run_end(active.context)
+
+    def _authorize_specialist(
+        self,
+        active: _ActiveRun,
+        *,
+        key: str,
+        phase: str,
+        owner: str | None = None,
+        target_id: str | None = None,
+    ) -> bool:
+        if self.router is None:
+            return True
+        authorize = getattr(self.router, "authorize_specialist", None)
+        if authorize is None:
+            return False
+        try:
+            token = authorize(
+                active.context,
+                phase=phase,
+                owner=owner,
+                target_id=target_id,
+            )
+        except Exception as exc:  # pragma: no cover - router isolation
+            active.run.note(
+                f"specialist authorization failed for {key}: "
+                f"{type(exc).__name__}: {exc}"
+            )
+            return False
+        if token is None:
+            active.run.note(f"specialist authorization denied for {key}")
+            return False
+        active.specialist_tokens[key] = token
+        return True
+
+    def _settle_specialist(
+        self,
+        active: _ActiveRun,
+        *,
+        key: str,
+        dispatched_ms: float,
+        completed_ms: float,
+        instance: str,
+    ) -> None:
+        token = active.specialist_tokens.pop(key, None)
+        if token is None or self.router is None:
+            return
+        settle = getattr(self.router, "settle_specialist", None)
+        if settle is None:
+            return
+        threads = 1
+        try:
+            threads = max(1, int(self.runtime.spec(instance).options.get("Threads", 1)))
+        except (TypeError, ValueError):
+            threads = 1
+        try:
+            settle(
+                token,
+                actual_wall_ms=max(0.0, completed_ms - dispatched_ms),
+                threads=threads,
+            )
+        except Exception as exc:  # pragma: no cover - router isolation
+            active.run.note(
+                f"specialist settlement failed for {key}: "
+                f"{type(exc).__name__}: {exc}"
+            )
+
+    def _release_specialist(
+        self,
+        active: _ActiveRun,
+        *,
+        key: str,
+        reason: str,
+    ) -> None:
+        token = active.specialist_tokens.pop(key, None)
+        if token is None or self.router is None:
+            return
+        release = getattr(self.router, "release_specialist", None)
+        if release is None:
+            return
+        try:
+            release(token, reason=reason)
+        except Exception as exc:  # pragma: no cover - router isolation
+            active.run.note(
+                f"specialist release failed for {key}: "
+                f"{type(exc).__name__}: {exc}"
+            )
 
     def _execute(self, active: _ActiveRun) -> tuple[str, str | None]:
         run = active.run

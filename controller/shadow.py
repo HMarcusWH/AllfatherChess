@@ -2019,6 +2019,7 @@ class ShadowRunCoordinator:
                 moves=tuple(active.context.position.moves) + (target.root_move,),
                 variant=active.context.position.variant,
             )
+            oracle_key = f"refine-oracle:{target.target_id}"
             with self._lock:
                 if active.cancelled or active.anchor_completed.is_set():
                     all_completed = False
@@ -2027,7 +2028,22 @@ class ShadowRunCoordinator:
                         "decision boundary reached before REFINE child oracle",
                     )
                     break
+                if not self._authorize_specialist(
+                    active,
+                    key=oracle_key,
+                    phase="refine_oracle",
+                    target_id=target.target_id,
+                ):
+                    all_completed = False
+                    refinement.set_disposition(
+                        "incomplete",
+                        f"active budget denied child oracle for {target.root_move}",
+                    )
+                    break
                 active.refinement_oracle_active = True
+                oracle_dispatched_ms = (
+                    time.monotonic() - active.started_monotonic
+                ) * 1000.0
             try:
                 children = self.runtime.legal_moves_at_shadow_position(
                     instance=self.settings.oracle,
@@ -2042,6 +2058,16 @@ class ShadowRunCoordinator:
                 )
                 break
             finally:
+                oracle_completed_ms = (
+                    time.monotonic() - active.started_monotonic
+                ) * 1000.0
+                self._settle_specialist(
+                    active,
+                    key=oracle_key,
+                    dispatched_ms=oracle_dispatched_ms,
+                    completed_ms=oracle_completed_ms,
+                    instance=self.settings.oracle,
+                )
                 with self._lock:
                     active.refinement_oracle_active = False
 
@@ -2315,6 +2341,7 @@ class ShadowRunCoordinator:
                 line,
             )
 
+        reservation_key = f"refine:{target_id}:{owner}"
         with self._lock:
             if (
                 active.cancelled
@@ -2323,10 +2350,23 @@ class ShadowRunCoordinator:
                 or not self.runtime.shadow_available(instance)
             ):
                 return False
+            if not self._authorize_specialist(
+                active,
+                key=reservation_key,
+                phase="refine",
+                owner=owner,
+                target_id=target_id,
+            ):
+                return False
             try:
                 for shard_id in shard_ids:
                     refinement.ledger.activate_shard(shard_id, owner=owner)
             except PrefixShardLedgerError as exc:
+                self._release_specialist(
+                    active,
+                    key=reservation_key,
+                    reason="REFINE reservation released because shard activation failed",
+                )
                 refinement.note(
                     f"could not activate REFINE shards for {owner}: {exc}"
                 )
@@ -2370,6 +2410,11 @@ class ShadowRunCoordinator:
                 on_complete=on_complete,
             )
         if not dispatched:
+            self._release_specialist(
+                active,
+                key=reservation_key,
+                reason="REFINE reservation released because backend dispatch failed",
+            )
             refinement.record_completion(
                 stage,
                 completed_ms=(time.monotonic() - active.started_monotonic) * 1000.0,
@@ -2442,6 +2487,14 @@ class ShadowRunCoordinator:
                             "its assigned child region"
                         )
                         break
+
+        self._settle_specialist(
+            active,
+            key=f"refine:{target_id}:{owner}",
+            dispatched_ms=stage.dispatched_ms,
+            completed_ms=elapsed,
+            instance=stage.instance,
+        )
 
         target_abort = refinement.target_abort_requested(target_id)
         if failure is None and not active.cancelled and not target_abort:

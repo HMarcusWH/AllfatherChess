@@ -163,3 +163,31 @@ Stockfish `go perft 1` oracle.
 
 This milestone does not alter replay v1, routing, VERIFY, budget accounting, or
 outward decision authority.
+
+
+## Shadow REFINE execution
+
+The recursive substrate now has one live research consumer without replacing
+RootShardLedger v1:
+
+```text
+RootShardLedger v1 EXPLORE
+        ↓
+raw VERIFY
+        ↓
+deterministic final-disagreement nomination
+        ↓
+PrefixShardLedger v2 mirror
+        ↓
+exact perft-1 split + child-index transfer
+        ↓
+descendant REFINE stages
+```
+
+REFINE uses per-instance shadow positioning while the global runtime position
+and unrestricted anchor remain untouched. The coordinator tracks every
+temporarily diverged worker and an in-flight descendant oracle so quiesce cannot
+release a stale descendant position into the next generation.
+
+REFINE writes a sibling `refinement/` artifact and does not extend Replay
+schema v1. Active routing and `BudgetLedger` do not consume it yet.

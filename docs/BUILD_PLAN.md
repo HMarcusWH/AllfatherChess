@@ -90,19 +90,23 @@ Use the common-support VERIFY trajectories to derive scale-free cross-engine com
 
 Represent search regions as deterministic move-prefix shards with a prefix-free frontier. A sealed leaf may be split atomically into an exact externally-certified child set, leased children inherit ownership, and leased frontier shards may be transferred atomically. A separate compiler maps a full prefix to descendant `position` + final `searchmoves`. PR #16 qualifies the substrate without migrating live shadow execution or letting COMPARE/RELOCK trigger refinement.
 
-### M11 — Active VERIFY + CPU/GPU resource scheduler
+### M11 — Shadow REFINE execution + recursive provenance (implemented in PR #17)
 
-Charge EXPLORE, VERIFY, controller overhead, CPU/GPU occupancy and time through one controller-wide envelope. VERIFY remains forbidden in active mode until this integration exists.
+Consume completed raw VERIFY disagreement facts as deterministic refinement nominations, mirror completed root-v1 ownership into PrefixShardLedger v2, enumerate one exact perft-1 child shell, partition it pairwise-disjointly, and execute descendant REFINE stages in shadow mode. REFINE remains observational and outside the active equal-resource envelope.
 
-### M12 — Cross-feed
+### M12 — Active VERIFY / REFINE + CPU/GPU resource scheduler
+
+Charge EXPLORE, VERIFY, REFINE, controller overhead, CPU/GPU occupancy and time through one controller-wide envelope. VERIFY and REFINE remain forbidden in active mode until this integration exists.
+
+### M13 — Cross-feed
 
 Ablate controlled information transfer between backends.
 
-### M13 — Native integration
+### M14 — Native integration
 
 Replace subprocess boundaries only where measured benefits justify tighter coupling.
 
-### M14 — Strength campaign
+### M15 — Strength campaign
 
 Run fixed-node, fixed-time, self-play, SPRT-style, and external-engine comparisons. The final product is promoted only on statistically credible strength gains at equal declared resources.
 
@@ -123,9 +127,10 @@ Run fixed-node, fixed-time, self-play, SPRT-style, and external-engine compariso
 13. **PR #13 — PR #12 closure and hardening**: retire replay-discovery and envelope-validation debt before adding deliberate overlap. **Merged.**
 14. **PR #14 — Explicit common-support VERIFY execution**. **Merged.**
 15. **PR #15 — COMPARE / RELOCK derived analysis**. **Merged.**
-16. **PR #16 — Recursive PrefixShardLedger v2 + descendant dispatch qualification**. **Current.**
-17. **PR #17 — Active VERIFY + CPU/GPU resource scheduler**.
-18. **PR #18+ — Cross-feed, native integration, and strength optimization**, each promoted only after isolated ablation.
+16. **PR #16 — Recursive PrefixShardLedger v2 + descendant dispatch qualification**. **Merged.**
+17. **PR #17 — Shadow REFINE execution + recursive provenance**. **Current.**
+18. **PR #18 — Active VERIFY / REFINE + CPU/GPU resource scheduler**.
+19. **PR #19+ — Cross-feed, native integration, and strength optimization**, each promoted only after isolated ablation.
 
 ## Foundation-hardening acceptance gate
 

@@ -1,0 +1,106 @@
+{
+  "schema_version": 2,
+  "mode": "shadow",
+  "anchor": "stockfish-anchor",
+  "root": "..",
+  "shadow": {
+    "owners": [
+      "stockfish",
+      "reckless",
+      "lc0"
+    ],
+    "instance_by_owner": {
+      "stockfish": "stockfish-shadow",
+      "reckless": "reckless-shadow",
+      "lc0": "lc0-shadow"
+    },
+    "oracle": "stockfish-shadow",
+    "partition": "root_index_modulo",
+    "dispatch_limit": {
+      "nodes": 2000
+    },
+    "lc0_score_type": "centipawn",
+    "replay_root": "build/replays-refine",
+    "oracle_timeout_s": 10,
+    "drain_timeout_s": 5,
+    "on_anchor_complete": "drain"
+  },
+  "instances": {
+    "stockfish-anchor": {
+      "family": "stockfish",
+      "role": "anchor",
+      "binary": "engines/stockfish/src/stockfish",
+      "cwd": ".",
+      "args": [],
+      "options": {
+        "Threads": 1,
+        "Hash": 16,
+        "MultiPV": 1,
+        "UCI_Chess960": false
+      }
+    },
+    "stockfish-shadow": {
+      "family": "stockfish",
+      "role": "shadow",
+      "binary": "engines/stockfish/src/stockfish",
+      "cwd": ".",
+      "args": [],
+      "options": {
+        "Threads": 1,
+        "Hash": 16,
+        "MultiPV": 3,
+        "UCI_Chess960": false
+      }
+    },
+    "reckless-shadow": {
+      "family": "reckless",
+      "role": "shadow",
+      "binary": "engines/reckless/target/release/reckless",
+      "cwd": ".",
+      "args": [],
+      "options": {
+        "Threads": 1,
+        "Hash": 16,
+        "MultiPV": 3,
+        "Minimal": false,
+        "UCI_Chess960": false
+      }
+    },
+    "lc0-shadow": {
+      "family": "lc0",
+      "role": "shadow",
+      "binary": "engines/lc0/build/release/lc0",
+      "fallback_glob": "engines/lc0/build/**/lc0",
+      "cwd": ".",
+      "args": [],
+      "options": {
+        "WeightsFile": "",
+        "Backend": "random",
+        "BackendOptions": "seed=20260920",
+        "NNCacheSize": 0,
+        "MinibatchSize": 1,
+        "MaxConcurrentSearchers": 1,
+        "TaskWorkers": 0,
+        "MultiPV": 3,
+        "UCI_Chess960": false,
+        "Threads": 1
+      }
+    }
+  },
+  "verification": {
+    "enabled": true,
+    "nomination_method": "owner_bestmove_union_v1",
+    "dispatch_limit": {
+      "nodes": 256
+    }
+  },
+  "refinement": {
+    "enabled": true,
+    "nomination_method": "verify_final_disagreement_union_v1",
+    "child_partition": "child_index_modulo",
+    "dispatch_limit": {
+      "nodes": 256
+    },
+    "max_targets": 3
+  }
+}

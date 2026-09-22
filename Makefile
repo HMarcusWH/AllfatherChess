@@ -1,4 +1,4 @@
-.PHONY: vendor verify-vendor build-baselines smoke-baselines golden-baselines record-golden-baselines telemetry-contract telemetry-adapters telemetry-adapter-integration controller-tests shard-ledger-tests prefix-shard-tests shard-ledger-contract prefix-shard-contract hybrid-shell-contract shadow-tests replay-tests residual-tests routing-tests verification-tests verification-analysis-tests shadow-execution-contract verification-execution-contract verification-analysis-contract active-routing-contract shadow-evidence-sweep verification-evidence-sweep residual-calibration verification-analysis run-allfather run-allfather-shadow run-allfather-verify
+.PHONY: vendor verify-vendor build-baselines smoke-baselines golden-baselines record-golden-baselines telemetry-contract telemetry-adapters telemetry-adapter-integration controller-tests shard-ledger-tests prefix-shard-tests refinement-tests shard-ledger-contract prefix-shard-contract refinement-execution-contract hybrid-shell-contract shadow-tests replay-tests residual-tests routing-tests verification-tests verification-analysis-tests shadow-execution-contract verification-execution-contract verification-analysis-contract active-routing-contract shadow-evidence-sweep verification-evidence-sweep refinement-evidence-sweep residual-calibration verification-analysis run-allfather run-allfather-shadow run-allfather-verify run-allfather-refine
 
 vendor:
 	@echo "Refusing implicit destructive vendor refresh." >&2
@@ -41,12 +41,16 @@ controller-tests:
 	python3 tests/controller/test_budget_routing.py
 	python3 tests/controller/test_verification.py
 	python3 tests/controller/test_verification_analysis.py
+	python3 tests/controller/test_refinement.py
 
 shard-ledger-tests:
 	python3 tests/controller/test_shard_ledger.py
 
 prefix-shard-tests:
 	python3 tests/controller/test_prefix_shards.py
+
+refinement-tests:
+	python3 tests/controller/test_refinement.py
 
 shadow-tests:
 	python3 tests/controller/test_shadow_runtime.py
@@ -72,6 +76,9 @@ shard-ledger-contract:
 prefix-shard-contract:
 	python3 scripts/prefix-shard-contract.py
 
+refinement-execution-contract:
+	python3 scripts/refinement-execution-contract.py
+
 hybrid-shell-contract:
 	python3 scripts/hybrid-shell-contract.py
 
@@ -95,6 +102,9 @@ shadow-evidence-sweep:
 verification-evidence-sweep:
 	python3 scripts/verification-evidence-sweep.py
 
+refinement-evidence-sweep:
+	python3 scripts/refinement-evidence-sweep.py
+
 verification-analysis:
 	python3 scripts/verification-analysis.py
 
@@ -109,3 +119,6 @@ run-allfather-shadow:
 
 run-allfather-verify:
 	python3 -m controller --config config/allfather.verify.validation.json
+
+run-allfather-refine:
+	python3 -m controller --config config/allfather.refine.validation.json

@@ -8,8 +8,9 @@ The controller is the engine. Stockfish, Reckless, and LC0 are solver backends.
 runtime.py           process roles, authority vs observational health, legal-root oracle
 uci_frontend.py      the single external UCI identity and its lifecycle barriers
 shards.py            live RootShardLedger v1
-prefix_shards.py     recursive PrefixShardLedger v2 substrate; not yet live
-shadow.py            concurrent restricted dispatch, run lifecycle, replay binding
+prefix_shards.py     recursive PrefixShardLedger v2 ownership substrate
+refinement.py        raw shadow REFINE plan/artifact/integrity
+shadow.py            EXPLORE/VERIFY/REFINE process lifecycle and decision barrier
 replay.py            run-level replay bundles and non-blocking telemetry capture
 verification.py      explicit common-support VERIFY plan/artifact/integrity
 verification_analysis.py offline COMPARE / descriptive RELOCK analysis
@@ -81,15 +82,16 @@ search carries an explicit generation token and every callback checks it.
 
 `docs/UCI_SHELL.md`, `docs/SHARD_LEDGER.md`, `docs/PREFIX_SHARDS.md`, `docs/SHADOW_EXECUTION.md`,
 `docs/REPLAY_FORMAT.md`, `docs/RESIDUAL_CALIBRATION.md`,
-`docs/BUDGET_ROUTING.md`, `docs/COMPARE_RELOCK.md`, `docs/CLAIM_LEDGER.md`,
+`docs/BUDGET_ROUTING.md`, `docs/COMPARE_RELOCK.md`, `docs/REFINEMENT.md`, `docs/CLAIM_LEDGER.md`,
 `docs/THEORY_IMPLEMENTATION_MAP.md`, `docs/ADVERSARIAL_AUDIT.md`.
 
 ## What the controller still does not do
 
 No voting, no cross-engine score conversion, no **live** recursive split or
 transfer policy, no RELOCK authorization, no VERIFY-based decision influence,
-no cross-feed, no native integration, and no strength claim. The recursive
-PrefixShardLedger exists as a separately qualified substrate only. A descriptive
+no cross-feed, no native integration, and no strength claim. PrefixShardLedger
+v2 now has a shadow-only REFINE consumer, but active routing/budget code still
+cannot spend on it. A descriptive
 terminal-suffix RELOCK is now derived offline, but it is not a controller
 certificate. Explicit VERIFY overlap remains observational only; the outward
 move is the unrestricted anchor's in every mode.
@@ -129,3 +131,16 @@ invariant.
 `common/prefix_dispatch.py` compiles one qualified prefix into the descendant
 `position` plus one final `searchmoves` root. The live shadow coordinator
 does not import either module yet.
+
+
+## Shadow REFINE
+
+`controller/refinement.py` turns completed raw VERIFY disagreement into a
+deterministic one-level target set. `shadow.py` obtains each target's exact
+Stockfish perft-1 child universe, applies the frozen child-index partition
+through PrefixShardLedger v2, temporarily positions idle shadow workers at the
+descendant board, and records separate REFINE telemetry.
+
+Per-instance position divergence is tracked by the coordinator and must be
+restored or quarantined before a generation is released. REFINE remains
+shadow-only and has no outward decision authority.

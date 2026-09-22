@@ -57,7 +57,7 @@ separately from `cpu_ms`; exhausting it triggers anchor-only fallback.
 | `anchor` | its full declared reservation. Shadow finalization happens before the anchor completes, so the controller cannot measure the real figure at settle time; charging the reservation errs toward over-counting, the safe direction for an envelope claim. |
 | `shadow:<owner>` | the measured duration of each dispatched stage, including a stage ended early by a stop — the worker burned that CPU producing the observations that authorized the stop, so only the unspent remainder is released |
 | `controller` | measured metareasoning time |
-| `verify` | reserved but still unused by **active mode**; shadow VERIFY is deliberately over-budget research evidence until active integration |
+| `verify` | reserved but still unused by **active mode**; shadow VERIFY and shadow REFINE are deliberately over-budget research evidence until active integration |
 
 ## The routing pipeline
 
@@ -301,3 +301,16 @@ thresholds it was judged against.
 - **POLICY**: the `conservative_v1` rules and every threshold value.
 - **OPEN**: whether this routing improves chess strength at equal declared
   resources. Nothing in this milestone tests that.
+
+
+## REFINE remains outside active mode
+
+PR #17 adds one-level recursive REFINE only to the shadow observatory. Runtime
+configuration rejects REFINE in `mode: active`, just as active VERIFY remains
+forbidden. The existing verification reserve therefore does not yet authorize
+or account for REFINE work.
+
+The next budget milestone must charge VERIFY and REFINE dispatches, descendant
+oracle work, per-instance positioning overhead, CPU/GPU occupancy and
+controller overhead through the same run-wide envelope before either can become
+an active action.

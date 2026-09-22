@@ -20,6 +20,7 @@ from typing import Callable, Iterable
 
 from adapters.process import UciProcess, UciProcessError
 from adapters.telemetry import SUPPORTED_SCORE_TYPES
+from common.search_request import SearchRequestError, parse_position_command
 
 
 class RuntimeError(RuntimeError):
@@ -115,6 +116,21 @@ class VerificationSettings:
 
 
 @dataclass(frozen=True)
+class RefinementSettings:
+    """Shadow-only live recursive REFINE instrumentation.
+
+    REFINE is deliberately not active-mode work yet. It consumes finalized
+    VERIFY facts, exact Stockfish perft child sets and PrefixShardLedger v2 to
+    collect deeper observational evidence without decision authority.
+    """
+
+    enabled: bool
+    nomination_method: str
+    child_partition: str
+    dispatch_limit: dict[str, object]
+    max_targets: int
+
+@dataclass(frozen=True)
 class RuntimeConfig:
     path: Path
     root: Path
@@ -123,6 +139,7 @@ class RuntimeConfig:
     backends: dict[str, BackendSpec]
     shadow: ShadowSettings | None = None
     verification: VerificationSettings | None = None
+    refinement: RefinementSettings | None = None
     budget: dict[str, object] | None = None
     routing: dict[str, object] | None = None
 
@@ -507,6 +524,84 @@ def _load_verification_settings(
     )
 
 
+def _load_refinement_settings(
+    data: dict[str, object],
+    *,
+    mode: str,
+    shadow: ShadowSettings | None,
+    verification: VerificationSettings | None,
+) -> RefinementSettings | None:
+    raw_value = data.get("refinement")
+    if raw_value is None:
+        return None
+    if mode != "shadow":
+        raise RuntimeError(
+            "refinement settings are supported only in mode='shadow' until "
+            "REFINE work is charged through the active BudgetLedger"
+        )
+    if shadow is None:
+        raise RuntimeError("refinement requires shadow settings")
+    if verification is None or not verification.enabled:
+        raise RuntimeError("refinement requires verification.enabled")
+
+    raw = _require_object(raw_value, "refinement")
+    enabled = raw.get("enabled")
+    if not isinstance(enabled, bool):
+        raise RuntimeError("refinement.enabled must be a boolean")
+    if not enabled:
+        return None
+
+    if tuple(shadow.owners) != SOLVER_FAMILIES:
+        raise RuntimeError(
+            "refinement v1 requires shadow.owners exactly "
+            f"{list(SOLVER_FAMILIES)} in that order"
+        )
+
+    nomination = raw.get(
+        "nomination_method", "verify_final_disagreement_union_v1"
+    )
+    if nomination != "verify_final_disagreement_union_v1":
+        raise RuntimeError(
+            "refinement.nomination_method currently supports exactly "
+            "'verify_final_disagreement_union_v1'"
+        )
+
+    child_partition = raw.get("child_partition", "child_index_modulo")
+    if child_partition != "child_index_modulo":
+        raise RuntimeError(
+            "refinement.child_partition currently supports exactly "
+            "'child_index_modulo'"
+        )
+
+    dispatch = _require_object(
+        raw.get("dispatch_limit", {"nodes": 3000}),
+        "refinement.dispatch_limit",
+    )
+    if sorted(dispatch) != ["nodes"]:
+        raise RuntimeError(
+            "refinement.dispatch_limit currently supports exactly the 'nodes' key"
+        )
+    nodes = dispatch["nodes"]
+    if isinstance(nodes, bool) or not isinstance(nodes, int) or nodes < 1:
+        raise RuntimeError("refinement.dispatch_limit.nodes must be a positive integer")
+
+    max_targets = raw.get("max_targets", 3)
+    if (
+        isinstance(max_targets, bool)
+        or not isinstance(max_targets, int)
+        or max_targets < 1
+        or max_targets > 3
+    ):
+        raise RuntimeError("refinement.max_targets must be an integer in [1, 3]")
+
+    return RefinementSettings(
+        enabled=True,
+        nomination_method=str(nomination),
+        child_partition=str(child_partition),
+        dispatch_limit={"nodes": int(nodes)},
+        max_targets=int(max_targets),
+    )
+
 def load_runtime_config(path: Path) -> RuntimeConfig:
     path = path.resolve()
     try:
@@ -540,6 +635,12 @@ def load_runtime_config(path: Path) -> RuntimeConfig:
         raise RuntimeError("shadow settings are only valid in shadow/active mode")
 
     verification = _load_verification_settings(data, mode=str(mode), shadow=shadow)
+    refinement = _load_refinement_settings(
+        data,
+        mode=str(mode),
+        shadow=shadow,
+        verification=verification,
+    )
 
     budget = data.get("budget")
     if budget is not None:
@@ -560,6 +661,7 @@ def load_runtime_config(path: Path) -> RuntimeConfig:
         backends=specs,
         shadow=shadow,
         verification=verification,
+        refinement=refinement,
         budget=budget,
         routing=routing,
     )
@@ -938,6 +1040,99 @@ class BackendManager:
         with self._lock:
             self._position_command = command
 
+    def set_shadow_position(self, instance: str, command: str) -> None:
+        """Temporarily position one idle observational worker.
+
+        The manager's globally synchronized position is not changed. REFINE
+        callers must restore the worker before releasing the generation.
+        """
+
+        spec = self.spec(instance)
+        if spec.role != "shadow":
+            raise RuntimeError(
+                f"instance {instance!r} is not an observational shadow worker"
+            )
+        if not self.shadow_available(instance):
+            raise RuntimeError(f"shadow instance is unavailable: {instance}")
+        try:
+            parse_position_command(
+                command,
+                variant="chess960" if self.chess960 else "standard",
+            )
+        except SearchRequestError as exc:
+            raise RuntimeError(f"invalid shadow position command: {exc}") from exc
+
+        process = self.backends.get(instance)
+        if process is None or not process.alive:
+            raise RuntimeError(f"shadow instance is unavailable: {instance}")
+        if process.active_search:
+            raise RuntimeError(
+                f"shadow instance {instance!r} cannot be repositioned during active search"
+            )
+        try:
+            process.send_position(command)
+            process.ready(
+                timeout=(
+                    None
+                    if self.config.shadow is None
+                    else self.config.shadow.oracle_timeout_s
+                )
+            )
+        except UciProcessError as exc:
+            self.record_shadow_failure(
+                instance, f"shadow position synchronization failed: {exc}"
+            )
+            raise RuntimeError(str(exc)) from exc
+
+    def restore_shadow_position(self, instance: str) -> None:
+        """Restore one idle shadow worker to the authoritative external state."""
+
+        with self._lock:
+            command = self._position_command or "position startpos"
+        self.set_shadow_position(instance, command)
+
+    def legal_moves_at_shadow_position(
+        self,
+        *,
+        instance: str,
+        position_command: str,
+        timeout: float | None = None,
+    ) -> tuple[str, ...]:
+        """Run the configured Stockfish shadow oracle at a descendant position.
+
+        The global synchronized position is never changed. Restoration runs in
+        all cases; a restoration failure quarantines the shadow rather than
+        pretending it is synchronized.
+        """
+
+        if self.config.shadow is None or instance != self.config.shadow.oracle:
+            raise RuntimeError(
+                "descendant legal-move oracle must use configured shadow.oracle"
+            )
+        spec = self.spec(instance)
+        if spec.role != "shadow" or spec.family != "stockfish":
+            raise RuntimeError(
+                "descendant legal-move oracle requires configured Stockfish shadow"
+            )
+
+        primary_error: Exception | None = None
+        result: tuple[str, ...] | None = None
+        try:
+            self.set_shadow_position(instance, position_command)
+            result = self.legal_root_moves(instance=instance, timeout=timeout)
+        except Exception as exc:
+            primary_error = exc
+        try:
+            self.restore_shadow_position(instance)
+        except Exception as restore_exc:
+            if primary_error is None:
+                raise RuntimeError(
+                    f"could not restore shadow oracle {instance!r}: {restore_exc}"
+                ) from restore_exc
+        if primary_error is not None:
+            raise primary_error
+        assert result is not None
+        return result
     # ------------------------------------------------------------------
     # legal-root oracle
     # ------------------------------------------------------------------

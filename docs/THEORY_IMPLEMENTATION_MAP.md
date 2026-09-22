@@ -54,6 +54,7 @@ routing implementation  != strength gain
 | Speculative waste | chess §3 | `work_after_stability_ratio` | `controller/residuals.py` |
 | Derived artifacts must be traceable to raw input | RACR §7.4 | derived/calibration artifacts carry source run ids + hashes | `docs/RESIDUAL_CALIBRATION.md`, `controller/calibration.py` |
 | Independent verification before re-lock | RACR §4-5 | three raw common-support VERIFY searches are compared offline; descriptive `terminal-suffix-v1` RELOCK requires complete three-way evidence and final unanimity | `controller/verification_analysis.py`, `docs/COMPARE_RELOCK.md` |
+| Zoom/refine after unresolved evidence | RACR §4.5; defect §10 | completed raw VERIFY final disagreement nominates one exact root shell; PrefixShardLedger v2 splits only that shell and deterministic child ownership preserves exploration separation | `controller/refinement.py`, `controller/prefix_shards.py`, `docs/REFINEMENT.md` |
 
 ### Phase C — authorization, budget, fallback
 
@@ -83,6 +84,7 @@ mathematics does not apply to chess search without independent proof:
   PR can authorize is *stopping a shadow observation worker*, which cannot
   change the outward move;
 - no cross-engine score calibration is applied to move selection;
+- no REFINE target is claimed to be wrong or valuable merely because VERIFY disagreed; disagreement only nominates a shadow experiment;
 - no re-lock condition is claimed to prove chess correctness or authorize a
   branch. The offline `terminal-suffix-v1` RELOCK descriptor records only
   complete three-way terminal convergence; the older `stable_to_end` label

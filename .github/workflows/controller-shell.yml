@@ -23,6 +23,7 @@ on:
       - docs/VERIFY_RELOCK.md
       - docs/COMPARE_RELOCK.md
       - docs/PREFIX_SHARDS.md
+      - docs/REFINEMENT.md
       - Makefile
       - .github/workflows/controller-shell.yml
   pull_request:
@@ -44,6 +45,7 @@ on:
       - docs/VERIFY_RELOCK.md
       - docs/COMPARE_RELOCK.md
       - docs/PREFIX_SHARDS.md
+      - docs/REFINEMENT.md
       - Makefile
       - .github/workflows/controller-shell.yml
 
@@ -67,7 +69,7 @@ jobs:
       - name: Compile controller shell
         run: |
           python3 -m py_compile allfather-chess controller/*.py common/*.py adapters/process/*.py adapters/telemetry/*.py tests/fixtures/*.py tests/harness/*.py tests/adapters/test_uci_process.py tests/controller/*.py
-          python3 -m py_compile scripts/shard-ledger-contract.py scripts/prefix-shard-contract.py scripts/shadow-execution-contract.py scripts/verification-execution-contract.py scripts/verification-analysis-contract.py scripts/verification-analysis.py scripts/verification-evidence-sweep.py scripts/active-routing-contract.py scripts/residual-calibration.py scripts/shadow-evidence-sweep.py
+          python3 -m py_compile scripts/shard-ledger-contract.py scripts/prefix-shard-contract.py scripts/refinement-execution-contract.py scripts/refinement-evidence-sweep.py scripts/shadow-execution-contract.py scripts/verification-execution-contract.py scripts/verification-analysis-contract.py scripts/verification-analysis.py scripts/verification-evidence-sweep.py scripts/active-routing-contract.py scripts/residual-calibration.py scripts/shadow-evidence-sweep.py
           for config in config/*.json; do python3 -m json.tool "$config" >/dev/null; done
           ./allfather-chess --help >/dev/null
 
@@ -85,6 +87,9 @@ jobs:
 
       - name: Validate recursive PrefixShardLedger invariants
         run: make prefix-shard-tests
+
+      - name: Validate shadow REFINE execution
+        run: make refinement-tests
 
       - name: Validate shadow execution runtime
         run: make shadow-tests

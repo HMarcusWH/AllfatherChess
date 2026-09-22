@@ -73,3 +73,67 @@ def compile_prefix_dispatch(
         searchmoves=searchmoves,
         go_command=go_command,
     )
+
+
+def compile_descendant_region(
+    base_position: PositionRequest,
+    *,
+    parent_prefix: Sequence[str],
+    child_moves: Sequence[str],
+    limit: dict[str, Any],
+) -> PrefixDispatch:
+    """Compile one sibling child region below ``parent_prefix``.
+
+    ``parent_prefix`` may be empty, in which case this reduces to an ordinary
+    root-level restricted search. Every child move is interpreted from the same
+    descendant position, so this helper represents a set of sibling
+    PrefixShardLedger leaves without conflating deeper prefixes.
+
+    Legality remains external. This function validates only canonical UCI
+    syntax, non-empty/unique child moves, and deterministic request
+    reconstruction.
+    """
+
+    if isinstance(parent_prefix, (str, bytes)) or not isinstance(
+        parent_prefix, Sequence
+    ):
+        raise SearchRequestError("parent_prefix must be a move sequence")
+    if isinstance(child_moves, (str, bytes)) or not isinstance(
+        child_moves, Sequence
+    ):
+        raise SearchRequestError("child_moves must be a move sequence")
+    if not child_moves:
+        raise SearchRequestError("child_moves must be non-empty")
+
+    parent: list[str] = []
+    for index, raw in enumerate(parent_prefix):
+        if not isinstance(raw, str) or not _MOVE_RE.fullmatch(raw):
+            raise SearchRequestError(
+                f"parent_prefix[{index}] must be canonical lowercase UCI: {raw!r}"
+            )
+        parent.append(raw)
+
+    children: list[str] = []
+    seen: set[str] = set()
+    for index, raw in enumerate(child_moves):
+        if not isinstance(raw, str) or not _MOVE_RE.fullmatch(raw):
+            raise SearchRequestError(
+                f"child_moves[{index}] must be canonical lowercase UCI: {raw!r}"
+            )
+        if raw in seen:
+            raise SearchRequestError(f"duplicate child move: {raw!r}")
+        seen.add(raw)
+        children.append(raw)
+
+    compiled_position = PositionRequest(
+        base_fen=base_position.base_fen,
+        moves=tuple(base_position.moves) + tuple(parent),
+        variant=base_position.variant,
+    )
+    go_command = build_go_command(limit=dict(limit), searchmoves=tuple(children))
+    return PrefixDispatch(
+        prefix=tuple(parent),
+        position=compiled_position,
+        searchmoves=tuple(children),
+        go_command=go_command,
+    )

@@ -176,3 +176,29 @@ stream hashes. The derived artifact contains pairwise common-support metrics,
 three-way convergence descriptors, EXPLORE→VERIFY transitions, descriptive
 RELOCK, and anchor relation. It is not a replay schema extension and is not
 consumed by the live controller. See `docs/COMPARE_RELOCK.md`.
+
+
+## REFINE sibling artifact
+
+Live shadow REFINE deliberately does not overload Replay schema v1's
+root-relative `dispatched_roots` field. Recursive evidence is written as a
+sibling raw artifact:
+
+```text
+<run>/
+    manifest.json
+    verification/
+        manifest.json
+    refinement/
+        manifest.json
+        target-.../
+            <instance>.jsonl
+```
+
+The refinement manifest binds the parent replay and VERIFY manifest hashes,
+exact target nomination facts, root-v1/v2 ownership snapshots, child-oracle
+sets, child partitions, full prefix shard ids, descendant position commands,
+stage commands and stream hashes.
+
+This keeps root EXPLORE replay consumers backward-compatible while preserving
+unambiguous recursive provenance. See `docs/REFINEMENT.md`.

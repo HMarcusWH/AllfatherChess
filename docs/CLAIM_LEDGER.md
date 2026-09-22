@@ -412,3 +412,40 @@ Nothing below is established by this milestone.
 - Position-level overlap after transpositions; prefix-free ownership does not
   imply globally disjoint board-state expansion.
 - Any playing-strength or equal-resource benefit from recursive splitting.
+
+
+## Shadow REFINE execution
+
+### PROVED by code/contracts
+
+- completed raw VERIFY final disagreement deterministically nominates REFINE
+  roots in frozen VERIFY candidate order; unanimous finals nominate none;
+- initial root EXPLORE continues to use unchanged RootShardLedger v1;
+- REFINE mirrors completed root ownership into PrefixShardLedger v2 and records
+  both source and v2 snapshots;
+- each non-terminal target receives its exact Stockfish shadow perft-1 child
+  universe;
+- child ownership is an exact pairwise-disjoint `child_index_modulo`
+  partition implemented through atomic v2 transfers;
+- each owner searches its sibling children from the correct descendant
+  `position` with only those child moves in `searchmoves`;
+- REFINE telemetry is bound to the descendant position id and the existing
+  `REFINE` phase vocabulary;
+- candidate, PV-head and final-bestmove escape from an owned child region fails
+  the stage;
+- temporarily repositioned shadows are restored before release or quarantined;
+- no new REFINE stage may commit after the outward anchor completion boundary;
+- REFINE evidence is a separate hash-bound sibling artifact and does not mutate
+  Replay schema v1 or raw VERIFY;
+- active mode still rejects REFINE configuration and the unrestricted Stockfish
+  anchor remains sole outward authority.
+
+### OPEN
+
+- Whether VERIFY disagreement predicts chess error.
+- Whether one-level REFINE resolves meaningful disagreement.
+- Whether repeated recursive refinement is useful.
+- Whether REFINE repays its CPU/GPU/wall cost under a competitive envelope.
+- Whether REFINE evidence should ever authorize candidate cross-feed to the
+  final Stockfish decision path.
+- Any playing-strength or equal-resource advantage.

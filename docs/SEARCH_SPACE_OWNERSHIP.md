@@ -112,9 +112,9 @@ historical result, policy probability, residual, or heuristic may alter it.
 pins its exact output.
 
 Active-mode routing changes **how much compute** an owner receives. It never
-changes **which roots** an owner owns. PrefixShardLedger v2 now qualifies
-recursive split/transfer as standalone structural primitives, but no live router
-or shadow path invokes them yet.
+changes **which roots** an owner owns. PrefixShardLedger v2 now supplies those split/transfer primitives to the
+shadow-only REFINE path. The child partition remains deterministic
+instrumentation; no active router chooses child ownership yet.
 
 ### Cost of disjointness
 
@@ -127,3 +127,15 @@ requires the explicit overlap phase below, not a weakening of the invariant.
 Malformed-input behavior remains backend-specific, so controller dispatches must remain canonical, legal, deduplicated, and non-empty.
 
 Root-prefix separation also does not imply disjoint internal board-state expansion: independently owned prefixes may transpose later. RootShardLedger v1 establishes assigned-root ownership; PrefixShardLedger v2 extends that structural claim to a prefix-free recursive frontier and atomic transfer. Neither claims global position-level non-overlap. Measured transposition duplication, evidence-triggered live refinement, and **active-mode** VERIFY budget accounting remain later milestones; shadow VERIFY v1 already exists as a separate, deliberately over-budget research artifact.
+
+
+## Shadow REFINE ownership
+
+A completed VERIFY disagreement may nominate a root for one-level refinement.
+The exact legal child universe is obtained from the Stockfish shadow perft
+oracle. The sealed v2 root is retired, children inherit the source owner, and
+`child_index % owner_count` is applied through atomic transfers.
+
+The resulting descendant frontier remains prefix-free and pairwise-disjoint at
+the assigned-prefix level. This still does not imply globally disjoint internal
+board-state expansion after transpositions.

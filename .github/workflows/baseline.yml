@@ -57,6 +57,8 @@ jobs:
             scripts/restricted-root-contract.py \
             scripts/shard-ledger-contract.py \
             scripts/prefix-shard-contract.py \
+            scripts/refinement-execution-contract.py \
+            scripts/refinement-evidence-sweep.py \
             scripts/validate-telemetry-contract.py \
             scripts/telemetry-adapter-integration.py \
             scripts/hybrid-shell-contract.py \
@@ -147,6 +149,9 @@ jobs:
       - name: Verify recursive prefix-shard contract
         run: python3 scripts/prefix-shard-contract.py
 
+      - name: Verify real-engine shadow REFINE contract
+        run: python3 scripts/refinement-execution-contract.py
+
       - name: Verify live telemetry adapters
         run: python3 scripts/telemetry-adapter-integration.py
 
@@ -175,6 +180,7 @@ jobs:
             build/test-results/restricted-root
             build/test-results/shard-ledger
             build/test-results/prefix-shards
+            build/test-results/refine-execution
             build/test-results/telemetry-adapters
             build/test-results/hybrid-shell
             build/test-results/shadow-execution

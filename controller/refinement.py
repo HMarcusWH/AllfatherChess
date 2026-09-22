@@ -259,6 +259,7 @@ class RefinementRun:
     plan: RefinementPlan
     run_dir: Path
     ledger: PrefixShardLedger
+    oracle_instance: str
     source_root_v1_snapshot: dict[str, Any]
     initial_v2_snapshot: dict[str, Any]
     _targets: dict[str, RefinementTargetRecord] = field(default_factory=dict)
@@ -551,6 +552,7 @@ class RefinementRun:
             "participants": dict(self.plan.participants),
             "dispatch_limit": dict(self.plan.dispatch_limit),
             "child_partition_method": self.plan.child_partition,
+            "child_oracle_instance": self.oracle_instance,
             "prefix_ledger": {
                 "origin": "mirror_of_completed_root_v1",
                 "source_root_v1_snapshot": self.source_root_v1_snapshot,
@@ -649,6 +651,10 @@ def verify_refinement_integrity(run_dir: Path | str) -> list[str]:
         problems.append("refinement generation does not match parent replay")
     if manifest.get("position_id") != (parent.get("position") or {}).get("position_id"):
         problems.append("refinement position_id does not match parent replay")
+
+    parent_oracle = (parent.get("legal_root_oracle") or {}).get("instance")
+    if manifest.get("child_oracle_instance") != parent_oracle:
+        problems.append("refinement child oracle differs from parent configured oracle")
 
     parent_variant = (parent.get("position") or {}).get("variant", "standard")
     if parent_variant not in ("standard", "chess960"):

@@ -44,6 +44,12 @@ from common.search_request import (
     parse_go_request,
     parse_position_command,
 )
+from controller.crossfeed import (
+    CrossFeedError,
+    CrossFeedView,
+    build_crossfeed_view,
+    seal_crossfeed_artifact,
+)
 from controller.replay import ReplayRun, StageRecord, TelemetryStreamWriter, sha256_file
 from controller.prefix_shards import PrefixShardLedger, PrefixShardLedgerError
 from controller.refinement import (
@@ -318,6 +324,7 @@ class _ActiveRun:
     ledger: RootShardLedger | None = None
     verification: VerificationRun | None = None
     refinement: RefinementRun | None = None
+    crossfeed_view: CrossFeedView | None = None
     refinement_positioned: set[str] = field(default_factory=set)
     refinement_oracle_active: bool = False
     specialist_tokens: dict[str, str] = field(default_factory=dict)
@@ -1375,6 +1382,17 @@ class ShadowRunCoordinator:
                         source_manifest_sha256=parent_manifest_sha,
                         verification_manifest_sha256=sha256_file(verification_path),
                     )
+                if active.crossfeed_view is not None:
+                    try:
+                        seal_crossfeed_artifact(
+                            active.crossfeed_view,
+                            active.run.run_dir,
+                        )
+                    except CrossFeedError as exc:
+                        # Cross-feed is derived evidence only in this milestone.
+                        # A sealing failure may invalidate the derived artifact,
+                        # never the already-emitted anchor move or its raw sources.
+                        self._diagnostic(f"cross-feed finalization failed: {exc}")
             except Exception as exc:  # pragma: no cover - finalization isolation
                 self._diagnostic(f"replay finalization failed: {type(exc).__name__}: {exc}")
             finally:
@@ -1646,6 +1664,11 @@ class ShadowRunCoordinator:
         # research instrumentation and may not influence the outward anchor.
         self._execute_refinement(active)
 
+        # 9. Compose the evidence we already paid for into one typed, immutable
+        # cross-feed view. This performs no engine dispatch and carries no chess
+        # decision authority. In active mode its controller cost is charged.
+        self._build_crossfeed(active)
+
         # The router's run is deliberately NOT closed here. `on_run_end` writes
         # the envelope claim, which now includes elapsed wall time, and the
         # anchor may still be searching: closing it at this point measured only
@@ -1661,6 +1684,31 @@ class ShadowRunCoordinator:
         if active.cancelled:
             return "cancelled", active.cancel_reason
         return "completed", None
+
+    def _build_crossfeed(self, active: _ActiveRun) -> None:
+        settings = self.runtime.config.crossfeed
+        verification = active.verification
+        if settings is None or verification is None:
+            return
+
+        started = time.monotonic()
+        try:
+            active.crossfeed_view = build_crossfeed_view(
+                run_id=active.run.run_id,
+                generation=active.generation,
+                position_id=active.context.position.position_id,
+                verification=verification,
+                refinement=active.refinement,
+            )
+        except CrossFeedError as exc:
+            active.crossfeed_view = None
+            active.run.note(f"cross-feed view rejected: {exc}")
+        finally:
+            self._charge_controller_elapsed(
+                active,
+                label="crossfeed_build",
+                elapsed_ms=(time.monotonic() - started) * 1000.0,
+            )
 
     def _execute_verification(self, active: _ActiveRun) -> None:
         settings = self.runtime.config.verification

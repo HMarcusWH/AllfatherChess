@@ -148,6 +148,10 @@ def main() -> int:
         raise ContractError(f"global CPU/GPU envelope exceeded: {budget}")
     if not budget["within_partition_caps"]:
         raise ContractError(f"solver/specialist partition cap exceeded: {budget}")
+    if not route["envelope_claim"].get("specialist_settlement_complete"):
+        raise ContractError(
+            f"specialist settlement was incomplete: {route['envelope_claim']}"
+        )
     if not route["envelope_claim"]["claimed"]:
         raise ContractError(
             f"positive active specialist envelope claim was not reached: "
@@ -193,6 +197,16 @@ def main() -> int:
                 f"REFINE stage authorization count mismatch: "
                 f"{len(refine_grants)} vs {expected_refine_stages}"
             )
+
+    settles = [
+        row for row in specialist
+        if row.get("event") == "settle"
+    ]
+    if len(settles) != len(grants):
+        raise ContractError(
+            f"specialist settlement count differs from granted work: "
+            f"{len(settles)} vs {len(grants)}"
+        )
 
     purpose = budget["purpose_totals"]
     if purpose["verify"]["spent_cpu_ms"] <= 0:

@@ -145,7 +145,9 @@ def _run_arm(
             label="value-of-compute outward bestmove",
             timeout=max(90.0, movetime_ms / 1000.0 + 30.0),
         )
-    return _wait_new_run(replay_root, known)
+        # Keep the controller process alive while shadow VERIFY / cross-feed /
+        # counterfactual finalization drains after an early anchor bestmove.
+        return _wait_new_run(replay_root, known)
 
 
 def main(argv: list[str] | None = None) -> int:

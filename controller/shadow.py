@@ -859,6 +859,13 @@ class ShadowRunCoordinator:
         if refinement_stage is not None and not refinement_stage.done.is_set():
             if active.refinement is not None:
                 message = f"{instance} exited unexpectedly during REFINE; rc={rc}"
+                self._settle_specialist(
+                    active,
+                    key=f"refine:{refinement_stage.target_id}:{refinement_stage.owner}",
+                    dispatched_ms=refinement_stage.dispatched_ms,
+                    completed_ms=elapsed,
+                    instance=refinement_stage.instance,
+                )
                 active.refinement.record_completion(
                     refinement_stage,
                     completed_ms=elapsed,
@@ -872,6 +879,13 @@ class ShadowRunCoordinator:
             return
         if verification_stage is not None and not verification_stage.done.is_set():
             if active.verification is not None:
+                self._settle_specialist(
+                    active,
+                    key=f"verify:{verification_stage.owner}",
+                    dispatched_ms=verification_stage.dispatched_ms,
+                    completed_ms=elapsed,
+                    instance=verification_stage.instance,
+                )
                 active.verification.record_completion(
                     verification_stage,
                     completed_ms=elapsed,
@@ -1076,9 +1090,17 @@ class ShadowRunCoordinator:
                     self.runtime.record_shadow_failure(
                         stage.instance, message, generation=active.generation
                     )
+                    failed_ms = (time.monotonic() - active.started_monotonic) * 1000.0
+                    self._settle_specialist(
+                        active,
+                        key=f"verify:{stage.owner}",
+                        dispatched_ms=stage.dispatched_ms,
+                        completed_ms=failed_ms,
+                        instance=stage.instance,
+                    )
                     active.verification.record_completion(
                         stage,
-                        completed_ms=(time.monotonic() - active.started_monotonic) * 1000.0,
+                        completed_ms=failed_ms,
                         disposition="failed",
                         failure=message,
                     )
@@ -1092,9 +1114,17 @@ class ShadowRunCoordinator:
                     self.runtime.record_shadow_failure(
                         stage.instance, message, generation=active.generation
                     )
+                    failed_ms = (time.monotonic() - active.started_monotonic) * 1000.0
+                    self._settle_specialist(
+                        active,
+                        key=f"refine:{stage.target_id}:{stage.owner}",
+                        dispatched_ms=stage.dispatched_ms,
+                        completed_ms=failed_ms,
+                        instance=stage.instance,
+                    )
                     active.refinement.record_completion(
                         stage,
-                        completed_ms=(time.monotonic() - active.started_monotonic) * 1000.0,
+                        completed_ms=failed_ms,
                         disposition="failed",
                         failure=message,
                     )

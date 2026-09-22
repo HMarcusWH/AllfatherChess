@@ -49,6 +49,7 @@ def canonical_digest(value: Any) -> str:
         sort_keys=True,
         separators=(",", ":"),
         ensure_ascii=False,
+        allow_nan=False,
     )
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
@@ -154,6 +155,8 @@ class DecisionEvidence:
             raise DecisionError("decision position_id must be non-empty")
         if not isinstance(self.crossfeed_policy, str) or not self.crossfeed_policy:
             raise DecisionError("crossfeed policy must be non-empty")
+        if not isinstance(self.crossfeed_verification_complete, bool):
+            raise DecisionError("crossfeed_verification_complete must be boolean")
         if (
             not isinstance(self.crossfeed_view_digest, str)
             or len(self.crossfeed_view_digest) != 64

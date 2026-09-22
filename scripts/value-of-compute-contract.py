@@ -90,7 +90,11 @@ def _run_arm(config: Path) -> tuple[Path, str]:
             for line in lines
             if line.startswith("bestmove ")
         )
-    return _wait_run(known), outward
+        # The anchor may finish before VERIFY. Keep the UCI process alive until
+        # the derived decision artifact seals; exiting the context would send
+        # quit and could turn an otherwise valid arm into cancelled evidence.
+        run_dir = _wait_run(known)
+        return run_dir, outward
 
 
 def main() -> int:

@@ -148,7 +148,8 @@ value-of-compute-sweep:
 	python3 scripts/value-of-compute-sweep.py
 
 decision-calibration:
-	@echo "Usage: python3 scripts/decision-calibration.py <dataset.json>"
+	@test -n "$(DATASET)" || (echo "Usage: make decision-calibration DATASET=<dataset.json>" >&2; exit 2)
+	python3 scripts/decision-calibration.py "$(DATASET)"
 
 verification-analysis:
 	python3 scripts/verification-analysis.py

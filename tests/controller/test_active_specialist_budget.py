@@ -32,6 +32,11 @@ class _Context:
     def anchor_threads(self) -> int:
         return 1
 
+    def dispatchable_owners(self) -> tuple[str, ...]:
+        # Router-only unit fixtures do not create EXPLORE streams; specialist
+        # authorization is the subject under test.
+        return ()
+
 
 def _policy(**overrides) -> RoutingPolicy:
     values = dict(

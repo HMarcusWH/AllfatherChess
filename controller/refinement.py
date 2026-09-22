@@ -650,6 +650,11 @@ def verify_refinement_integrity(run_dir: Path | str) -> list[str]:
     if manifest.get("position_id") != (parent.get("position") or {}).get("position_id"):
         problems.append("refinement position_id does not match parent replay")
 
+    parent_variant = (parent.get("position") or {}).get("variant", "standard")
+    if parent_variant not in ("standard", "chess960"):
+        problems.append(f"parent replay has unsupported variant: {parent_variant!r}")
+        parent_variant = "standard"
+
     nomination = manifest.get("nomination") or {}
     max_targets = nomination.get("max_targets")
     if isinstance(max_targets, bool) or not isinstance(max_targets, int):
@@ -802,8 +807,14 @@ def verify_refinement_integrity(run_dir: Path | str) -> list[str]:
                     f"{row.get('target_id')}:{owner}: go searchmoves differ from partition"
                 )
             try:
-                position = parse_position_command(stage.get("position_command", ""))
-                oracle_position = parse_position_command(oracle.get("position_command", ""))
+                position = parse_position_command(
+                    stage.get("position_command", ""),
+                    variant=parent_variant,
+                )
+                oracle_position = parse_position_command(
+                    oracle.get("position_command", ""),
+                    variant=parent_variant,
+                )
             except Exception as exc:
                 problems.append(
                     f"{row.get('target_id')}:{owner}: cannot parse descendant position: {exc}"
@@ -904,7 +915,24 @@ def verify_refinement_integrity(run_dir: Path | str) -> list[str]:
                 () if stage is None else stage.get("child_moves") or []
             )
             allowed = set(allowed_order)
+            expected_position_id: str | None = None
+            if stage is not None:
+                try:
+                    expected_position_id = parse_position_command(
+                        stage.get("position_command", ""),
+                        variant=parent_variant,
+                    ).position_id
+                except Exception:
+                    expected_position_id = None
             for event in events:
+                if (
+                    expected_position_id is not None
+                    and event.get("position_id") != expected_position_id
+                ):
+                    problems.append(
+                        f"{row.get('target_id')}:{record.get('instance')}: telemetry position_id differs"
+                    )
+                    break
                 kind = event.get("event_type")
                 if kind == "search.started":
                     controller = event.get("controller") or {}
@@ -919,7 +947,8 @@ def verify_refinement_integrity(run_dir: Path | str) -> list[str]:
                     if stage is not None:
                         try:
                             stage_position = parse_position_command(
-                                stage.get("position_command", "")
+                                stage.get("position_command", ""),
+                                variant=parent_variant,
                             )
                         except Exception:
                             stage_position = None

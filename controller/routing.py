@@ -699,6 +699,18 @@ class ConservativeRouter:
             self._record_final_native_work(context)
             for owner in list(self._reservations):
                 self._settle_owner(context, owner)
+        # Any specialist reservation still open represents work whose terminal
+        # callback was lost to cancellation/teardown. Settling the full declared
+        # reservation is conservative and, critically, leaves no phantom open
+        # capacity in the final certificate.
+        for token, reservation in list(self._specialist_reservations.items()):
+            self.ledger.settle(reservation)
+            self._specialist_reservations.pop(token, None)
+            audit.note(
+                f"specialist reservation {token} settled at its declared estimate "
+                "during finalization because no explicit settlement arrived"
+            )
+
         if self._anchor_reservation is not None:
             # The anchor is charged its full declared reservation, not a
             # measured value: shadow finalization happens before the anchor
@@ -802,6 +814,175 @@ class ConservativeRouter:
             self.audit.note(
                 f"released the extension reservation for {owner}: the coordinator "
                 "could not dispatch the authorized stage"
+            )
+
+    def _specialist_cost(self, phase: str) -> tuple[str, float, float]:
+        if phase == "verify":
+            return (
+                "verify",
+                self.policy.verify_stage_cpu_ms_estimate,
+                self.policy.verify_stage_gpu_ms_estimate,
+            )
+        if phase == "refine":
+            return (
+                "refine",
+                self.policy.refine_stage_cpu_ms_estimate,
+                self.policy.refine_stage_gpu_ms_estimate,
+            )
+        if phase == "refine_oracle":
+            return (
+                "refine",
+                self.policy.refine_oracle_cpu_ms_estimate,
+                self.policy.refine_oracle_gpu_ms_estimate,
+            )
+        raise RoutingError(f"unknown specialist phase: {phase!r}")
+
+    def authorize_specialist(
+        self,
+        context: Any,
+        *,
+        phase: str,
+        owner: str | None = None,
+        target_id: str | None = None,
+    ) -> str | None:
+        """Reserve active VERIFY/REFINE work before the coordinator dispatches it.
+
+        Nomination remains in the execution layer; this method grants only
+        resource authority. A missing reservation is a hard no-dispatch result.
+        """
+
+        audit = self.audit
+        if audit is None:
+            return None
+        purpose, cpu_ms, gpu_ms = self._specialist_cost(phase)
+        if phase == "verify" and not self.verify_enabled:
+            enabled = False
+        elif phase.startswith("refine") and not self.refine_enabled:
+            enabled = False
+        else:
+            enabled = True
+
+        with self.ledger.controller_overhead(f"authorize_{phase}"):
+            before_cpu = self.ledger.available_cpu_ms(purpose=purpose)
+            before_gpu = self.ledger.available_gpu_ms(purpose=purpose)
+            reason = "authorized"
+            reservation: Reservation | None = None
+            if not enabled:
+                reason = "phase is not enabled in this active profile"
+            elif self._fallback:
+                reason = "anchor-only fallback is active"
+            elif self.ledger.wall_exhausted():
+                reason = "wall envelope is exhausted"
+                self._fallback = True
+            else:
+                lane_parts = [VERIFY_LANE if purpose == "verify" else REFINE_LANE]
+                if target_id:
+                    lane_parts.append(str(target_id))
+                if owner:
+                    lane_parts.append(str(owner))
+                lane = ":".join(lane_parts)
+                try:
+                    reservation = self.ledger.reserve(
+                        lane,
+                        cpu_ms=cpu_ms,
+                        gpu_ms=gpu_ms,
+                        purpose=purpose,
+                    )
+                except BudgetExceeded as exc:
+                    reason = str(exc)
+
+            self._specialist_counter += 1
+            token = (
+                None
+                if reservation is None
+                else f"{phase}:{self._specialist_counter}:{reservation.reservation_id}"
+            )
+            if reservation is not None and token is not None:
+                self._specialist_reservations[token] = reservation
+
+            audit.record_specialist(
+                {
+                    "event": "authorize",
+                    "checkpoint_ms": round(float(context.elapsed_ms()), 3),
+                    "phase": phase,
+                    "owner": owner,
+                    "target_id": target_id,
+                    "reservation_token": token,
+                    "requested_cpu_ms": cpu_ms,
+                    "requested_gpu_ms": gpu_ms,
+                    "available_cpu_ms_before": round(before_cpu, 3),
+                    "available_gpu_ms_before": round(before_gpu, 3),
+                    "granted": reservation is not None,
+                    "reason": reason,
+                }
+            )
+            return token
+
+    def settle_specialist(
+        self,
+        token: str,
+        *,
+        actual_wall_ms: float | None = None,
+        threads: int = 1,
+    ) -> None:
+        """Settle one dispatched specialist reservation.
+
+        CPU is estimated with the same wall-ms × configured-threads convention
+        used by ordinary active shadow stages. GPU remains the declared
+        reservation until process-level accelerator accounting exists.
+        """
+
+        reservation = self._specialist_reservations.pop(token, None)
+        if reservation is None:
+            return
+        actual_cpu = None
+        if actual_wall_ms is not None:
+            actual_cpu = max(0.0, float(actual_wall_ms)) * max(1, int(threads))
+        self.ledger.settle(reservation, actual_cpu_ms=actual_cpu)
+        if self.audit is not None:
+            self.audit.record_specialist(
+                {
+                    "event": "settle",
+                    "checkpoint_ms": round(self.ledger.elapsed_ms(), 3),
+                    "phase": (
+                        "verify" if reservation.purpose == "verify" else "refine"
+                    ),
+                    "owner": None,
+                    "target_id": None,
+                    "reservation_token": token,
+                    "requested_cpu_ms": reservation.cpu_ms,
+                    "requested_gpu_ms": reservation.gpu_ms,
+                    "actual_cpu_ms": (
+                        reservation.cpu_ms if actual_cpu is None else actual_cpu
+                    ),
+                    "granted": True,
+                    "reason": "settled dispatched specialist work",
+                }
+            )
+
+    def release_specialist(self, token: str, *, reason: str) -> None:
+        """Release a reservation for specialist work that never dispatched."""
+
+        reservation = self._specialist_reservations.pop(token, None)
+        if reservation is None:
+            return
+        self.ledger.release(reservation)
+        if self.audit is not None:
+            self.audit.record_specialist(
+                {
+                    "event": "release",
+                    "checkpoint_ms": round(self.ledger.elapsed_ms(), 3),
+                    "phase": (
+                        "verify" if reservation.purpose == "verify" else "refine"
+                    ),
+                    "owner": None,
+                    "target_id": None,
+                    "reservation_token": token,
+                    "requested_cpu_ms": reservation.cpu_ms,
+                    "requested_gpu_ms": reservation.gpu_ms,
+                    "granted": True,
+                    "reason": reason,
+                }
             )
 
     def _calibration_provenance(self) -> dict[str, Any] | None:

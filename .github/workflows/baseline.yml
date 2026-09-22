@@ -60,6 +60,8 @@ jobs:
             scripts/refinement-execution-contract.py \
             scripts/active-specialist-contract.py \
             scripts/crossfeed-contract.py \
+            scripts/counterfactual-decision-contract.py \
+            scripts/counterfactual-decision-sweep.py \
             scripts/refinement-evidence-sweep.py \
             scripts/validate-telemetry-contract.py \
             scripts/telemetry-adapter-integration.py \
@@ -160,6 +162,9 @@ jobs:
       - name: Verify real-engine typed cross-feed contract
         run: python3 scripts/crossfeed-contract.py
 
+      - name: Verify real-engine counterfactual decision contract
+        run: python3 scripts/counterfactual-decision-contract.py
+
       - name: Verify live telemetry adapters
         run: python3 scripts/telemetry-adapter-integration.py
 
@@ -191,6 +196,7 @@ jobs:
             build/test-results/refine-execution
             build/test-results/active-specialist
             build/test-results/crossfeed
+            build/test-results/counterfactual
             build/test-results/telemetry-adapters
             build/test-results/hybrid-shell
             build/test-results/shadow-execution

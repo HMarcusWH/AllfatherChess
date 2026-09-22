@@ -1722,12 +1722,20 @@ class ShadowRunCoordinator:
         # note_anchor_complete(). If the anchor wins the race this stage never
         # starts; if this dispatch wins, it is already in flight and the
         # declared drain/cancel policy applies.
+        reservation_key = f"verify:{owner}"
         with self._lock:
             if (
                 active.cancelled
                 or self._closed
                 or active.anchor_completed.is_set()
                 or not self.runtime.shadow_available(instance)
+            ):
+                return False
+            if not self._authorize_specialist(
+                active,
+                key=reservation_key,
+                phase="verify",
+                owner=owner,
             ):
                 return False
             verification.activate_stream(instance)
@@ -1760,6 +1768,11 @@ class ShadowRunCoordinator:
                 on_complete=on_complete,
             )
         if not dispatched:
+            self._release_specialist(
+                active,
+                key=reservation_key,
+                reason="VERIFY reservation released because backend dispatch failed",
+            )
             verification.record_completion(
                 stage,
                 completed_ms=(time.monotonic() - active.started_monotonic) * 1000.0,
@@ -1822,6 +1835,14 @@ class ShadowRunCoordinator:
                             "declared common candidate set"
                         )
                         break
+
+        self._settle_specialist(
+            active,
+            key=f"verify:{owner}",
+            dispatched_ms=stage.dispatched_ms,
+            completed_ms=elapsed,
+            instance=stage.instance,
+        )
 
         if failure is not None:
             self.runtime.record_shadow_failure(

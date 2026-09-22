@@ -2,7 +2,7 @@
 
 ## Status
 
-Implemented as shadow-mode research instrumentation.
+Implemented as raw common-support instrumentation in shadow mode and, under PR #18, as reservation-backed observational work in active mode.
 
 - EXPLORE remains pairwise-disjoint under `RootShardLedger`.
 - COMPARE v1 is deterministic nomination only: the three completed EXPLORE
@@ -10,8 +10,7 @@ Implemented as shadow-mode research instrumentation.
 - VERIFY lets all three shadow processes re-search that same set.
 - Raw VERIFY execution remains unchanged; offline COMPARE / descriptive RELOCK
   analysis is implemented in `controller/verification_analysis.py`.
-- VERIFY cannot run in `mode: active` until its compute is charged through
-  `BudgetLedger`.
+- In `mode: active`, every VERIFY participant must obtain a `verify` reservation from `BudgetLedger` before dispatch; a denied reservation produces no hidden work.
 - Stockfish anchor remains the sole outward bestmove authority.
 
 ## Runtime and ownership contract

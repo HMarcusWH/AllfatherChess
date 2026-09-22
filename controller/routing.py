@@ -737,6 +737,7 @@ class ConservativeRouter:
                 "anchor_cost_reserved": self._anchor_reserved,
                 "gpu_accounted": self._gpu_accounted(),
                 "reservations_within_envelope": self.ledger.within_envelope(),
+                "specialist_partitions_within_caps": self.ledger.within_partition_caps(),
                 # Reservation accounting is about CPU and GPU ceilings. A run can
                 # sit inside both and still have taken longer than the declared
                 # wall envelope -- a slow legal-root oracle alone can do it --
@@ -755,6 +756,7 @@ class ConservativeRouter:
                     and self._anchor_reserved
                     and self._gpu_accounted()
                     and self.ledger.within_envelope()
+                    and self.ledger.within_partition_caps()
                     and self.ledger.elapsed_ms() <= self.envelope.wall_ms
                 ),
             },

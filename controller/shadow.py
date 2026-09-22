@@ -1239,9 +1239,17 @@ class ShadowRunCoordinator:
                         self.runtime.record_shadow_failure(
                             stage.instance, message, generation=active.generation
                         )
+                        failed_ms = (time.monotonic() - active.started_monotonic) * 1000.0
+                        self._settle_specialist(
+                            active,
+                            key=f"verify:{stage.owner}",
+                            dispatched_ms=stage.dispatched_ms,
+                            completed_ms=failed_ms,
+                            instance=stage.instance,
+                        )
                         active.verification.record_completion(
                             stage,
-                            completed_ms=(time.monotonic() - active.started_monotonic) * 1000.0,
+                            completed_ms=failed_ms,
                             disposition="failed",
                             failure=message,
                         )
@@ -1259,9 +1267,17 @@ class ShadowRunCoordinator:
                         self.runtime.record_shadow_failure(
                             stage.instance, message, generation=active.generation
                         )
+                        failed_ms = (time.monotonic() - active.started_monotonic) * 1000.0
+                        self._settle_specialist(
+                            active,
+                            key=f"refine:{stage.target_id}:{stage.owner}",
+                            dispatched_ms=stage.dispatched_ms,
+                            completed_ms=failed_ms,
+                            instance=stage.instance,
+                        )
                         active.refinement.record_completion(
                             stage,
-                            completed_ms=(time.monotonic() - active.started_monotonic) * 1000.0,
+                            completed_ms=failed_ms,
                             disposition="failed",
                             failure=message,
                         )
@@ -1931,9 +1947,17 @@ class ShadowRunCoordinator:
                     self.runtime.record_shadow_failure(
                         stage.instance, message, generation=active.generation
                     )
+                    failed_ms = (time.monotonic() - active.started_monotonic) * 1000.0
+                    self._settle_specialist(
+                        active,
+                        key=f"verify:{stage.owner}",
+                        dispatched_ms=stage.dispatched_ms,
+                        completed_ms=failed_ms,
+                        instance=stage.instance,
+                    )
                     verification.record_completion(
                         stage,
-                        completed_ms=(time.monotonic() - active.started_monotonic) * 1000.0,
+                        completed_ms=failed_ms,
                         disposition="failed",
                         failure=message,
                     )
@@ -2613,9 +2637,17 @@ class ShadowRunCoordinator:
                     self.runtime.record_shadow_failure(
                         stage.instance, message, generation=active.generation
                     )
+                    failed_ms = (time.monotonic() - active.started_monotonic) * 1000.0
+                    self._settle_specialist(
+                        active,
+                        key=f"refine:{stage.target_id}:{stage.owner}",
+                        dispatched_ms=stage.dispatched_ms,
+                        completed_ms=failed_ms,
+                        instance=stage.instance,
+                    )
                     refinement.record_completion(
                         stage,
-                        completed_ms=(time.monotonic() - active.started_monotonic) * 1000.0,
+                        completed_ms=failed_ms,
                         disposition="failed",
                         failure=message,
                     )

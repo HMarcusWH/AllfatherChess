@@ -1,4 +1,4 @@
-.PHONY: vendor verify-vendor build-baselines smoke-baselines golden-baselines record-golden-baselines telemetry-contract telemetry-adapters telemetry-adapter-integration controller-tests shard-ledger-tests prefix-shard-tests refinement-tests active-specialist-tests shard-ledger-contract prefix-shard-contract refinement-execution-contract active-specialist-contract hybrid-shell-contract shadow-tests replay-tests residual-tests routing-tests verification-tests verification-analysis-tests shadow-execution-contract verification-execution-contract verification-analysis-contract active-routing-contract shadow-evidence-sweep verification-evidence-sweep refinement-evidence-sweep residual-calibration verification-analysis run-allfather run-allfather-shadow run-allfather-verify run-allfather-refine run-allfather-active-specialist
+.PHONY: vendor verify-vendor build-baselines smoke-baselines golden-baselines record-golden-baselines telemetry-contract telemetry-adapters telemetry-adapter-integration controller-tests shard-ledger-tests prefix-shard-tests refinement-tests active-specialist-tests crossfeed-tests shard-ledger-contract prefix-shard-contract refinement-execution-contract active-specialist-contract crossfeed-contract hybrid-shell-contract shadow-tests replay-tests residual-tests routing-tests verification-tests verification-analysis-tests shadow-execution-contract verification-execution-contract verification-analysis-contract active-routing-contract shadow-evidence-sweep verification-evidence-sweep refinement-evidence-sweep residual-calibration verification-analysis run-allfather run-allfather-shadow run-allfather-verify run-allfather-refine run-allfather-crossfeed run-allfather-active-specialist
 
 vendor:
 	@echo "Refusing implicit destructive vendor refresh." >&2
@@ -43,6 +43,7 @@ controller-tests:
 	python3 tests/controller/test_verification_analysis.py
 	python3 tests/controller/test_refinement.py
 	python3 tests/controller/test_active_specialist_budget.py
+	python3 tests/controller/test_crossfeed.py
 
 shard-ledger-tests:
 	python3 tests/controller/test_shard_ledger.py
@@ -55,6 +56,9 @@ refinement-tests:
 
 active-specialist-tests:
 	python3 tests/controller/test_active_specialist_budget.py
+
+crossfeed-tests:
+	python3 tests/controller/test_crossfeed.py
 
 shadow-tests:
 	python3 tests/controller/test_shadow_runtime.py
@@ -85,6 +89,9 @@ refinement-execution-contract:
 
 active-specialist-contract:
 	python3 scripts/active-specialist-contract.py
+
+crossfeed-contract:
+	python3 scripts/crossfeed-contract.py
 
 hybrid-shell-contract:
 	python3 scripts/hybrid-shell-contract.py
@@ -129,6 +136,9 @@ run-allfather-verify:
 
 run-allfather-refine:
 	python3 -m controller --config config/allfather.refine.validation.json
+
+run-allfather-crossfeed:
+	python3 -m controller --config config/allfather.crossfeed.validation.json
 
 run-allfather-active-specialist:
 	python3 -m controller --config config/allfather.active.specialist.validation.json

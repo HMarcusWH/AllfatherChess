@@ -147,23 +147,23 @@ The final product is promoted only on statistically credible strength gains agai
 17. **PR #17 — Shadow REFINE execution + recursive provenance**. **Merged.**
 18. **PR #18 — Active VERIFY / REFINE + CPU/GPU resource scheduler**. **Merged.**
 19. **PR #19 — Extended post-PR18 build-plan documentation**. **Merged.**
-20. **PR #20 — Typed cross-feed evidence plane, shadow-only**: consume existing VERIFY/REFINE evidence; no new search phase; no outward behavior change.
-21. **PR #21 — Counterfactual hybrid decision laboratory**: freeze deterministic hybrid proposals while Stockfish remains outward authority.
-22. **PR #22 — Prospective chess-specific value-of-compute calibration**: decision-relevant labels with strict no-hindsight boundaries.
-23. **PR #23 — Strength-qualified LC0 profile**: real network/backend/hardware identity; preserve fast random-backend CI separately.
-24. **PR #24 — Measured process resource accounting**: preserve reservations while adding measured CPU/GPU/memory/controller cost where supported.
-25. **PR #25 — Active hybrid decision authority v0**: bounded in-memory authorization at the anchor-completion boundary; deterministic Stockfish fallback.
-26. **PR #26 — Multi-level recursive REFINE**: bounded deeper prefix splitting under exact ownership and budget rules.
-27. **PR #27 — Engine-specific cross-feed adapters**: source-typed candidate transfer into subprocess-safe VERIFY/REFINE/adjudication operations.
-28. **PR #28 — Search-regime classifier**: calibrated state classes that may nominate work but do not authorize moves.
-29. **PR #29 — Unified value-of-compute decision router**: combine regime, route-value, resource authorization and separate decision authorization.
-30. **PR #30 — Structured IPC experiment**: compare typed local transport against current UCI boundaries.
-31. **PR #31 — Selective native integration**: embed only measured-value hooks with process-adapter parity.
-32. **PR #32 — Offline governed policy evolution laboratory**: immutable candidate generations, holdout evaluation, rollback and promotion discipline.
-33. **PR #33 — Strength campaign infrastructure**: frozen openings, hardware profiles, match manifests, ablations and statistical stopping rules.
-34. **PR #34 — External qualification / release candidate**: freeze the first claim-bounded equal-resource release.
+21. **PR #21 — Typed cross-feed evidence plane, shadow-only**: consume existing VERIFY/REFINE evidence; no new search phase; no outward behavior change.
+22. **PR #22 — Counterfactual hybrid decision laboratory**: freeze deterministic hybrid proposals while Stockfish remains outward authority.
+23. **PR #23 — Prospective chess-specific value-of-compute calibration**: decision-relevant labels with strict no-hindsight boundaries.
+24. **PR #24 — Strength-qualified LC0 profile**: real network/backend/hardware identity; preserve fast random-backend CI separately.
+25. **PR #25 — Measured process resource accounting**: preserve reservations while adding measured CPU/GPU/memory/controller cost where supported.
+26. **PR #26 — Active hybrid decision authority v0**: bounded in-memory authorization at the anchor-completion boundary; deterministic Stockfish fallback.
+27. **PR #27 — Multi-level recursive REFINE**: bounded deeper prefix splitting under exact ownership and budget rules.
+28. **PR #28 — Engine-specific cross-feed adapters**: source-typed candidate transfer into subprocess-safe VERIFY/REFINE/adjudication operations.
+29. **PR #29 — Search-regime classifier**: calibrated state classes that may nominate work but do not authorize moves.
+30. **PR #30 — Unified value-of-compute decision router**: combine regime, route-value, resource authorization and separate decision authorization.
+31. **PR #31 — Structured IPC experiment**: compare typed local transport against current UCI boundaries.
+32. **PR #32 — Selective native integration**: embed only measured-value hooks with process-adapter parity.
+33. **PR #33 — Offline governed policy evolution laboratory**: immutable candidate generations, holdout evaluation, rollback and promotion discipline.
+34. **PR #34 — Strength campaign infrastructure**: frozen openings, hardware profiles, match manifests, ablations and statistical stopping rules.
+35. **PR #35 — External qualification / release candidate**: freeze the first claim-bounded equal-resource release.
 
-The detailed file-by-file plan, authority transitions, and acceptance gates for PR #20 onward live in `docs/EXTENDED_BUILD_PLAN.md`.
+The detailed file-by-file plan, authority transitions, and acceptance gates for PR #21 onward live in `docs/EXTENDED_BUILD_PLAN.md`.
 
 ## Foundation-hardening acceptance gate
 

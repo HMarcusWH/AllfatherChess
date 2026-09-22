@@ -483,3 +483,44 @@ Nothing below is established by this milestone.
 - measured process CPU/GPU occupancy versus the current declared/estimated
   accounting convention;
 - any equal-resource playing-strength improvement over Stockfish.
+
+## Typed cross-feed evidence plane
+
+### PROVED by code/contracts
+
+- cross-feed v1 launches no solver search of its own; it composes evidence from
+  the existing EXPLORE -> common-support VERIFY -> optional REFINE chain;
+- the runtime refuses enabled cross-feed outside shadow/active mode and refuses
+  it without VERIFY;
+- one immutable in-memory `CrossFeedView` preserves decision-root identity,
+  original EXPLORE nominator, source owner/instance/family/phase, source rank,
+  PV prefix, engine-native evaluations, engine-native work, search identity and
+  stage disposition;
+- repeated telemetry is compressed only in the derived view; raw JSONL remains
+  the authoritative complete history;
+- Stockfish, Reckless and LC0 evaluation/work semantics remain source-tagged;
+  cross-feed contains no numeric cross-engine score conversion, average, winner
+  or correctness label;
+- cross-feed does not mutate RootShardLedger v1 or PrefixShardLedger v2;
+- active-mode view construction is controller overhead and creates no new solver
+  reservation or specialist phase;
+- after parent / VERIFY / optional REFINE finalization, a separate
+  `crossfeed/manifest.json` hash-binds the exact source manifests and source
+  stream identities;
+- cross-feed integrity replays the deterministic derivation from the sealed
+  source JSONL and refuses a stored view that does not match that replay;
+- source-stream tampering invalidates the cross-feed contract;
+- enabling cross-feed does not add a search stage and does not change outward
+  decision authority: Stockfish anchor remains the sole emitted bestmove.
+
+### OPEN
+
+- whether the typed cross-feed evidence predicts a better move;
+- which evidence subset is sufficient for a useful counterfactual decision;
+- whether VERIFY convergence or REFINE evidence should ever authorize a hybrid
+  outward move;
+- decision-relevant value-of-compute calibration;
+- strength-qualified LC0 evidence;
+- measured rather than estimated process/accelerator resource accounting;
+- any Elo or equal-resource strength gain.
+

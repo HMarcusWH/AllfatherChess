@@ -50,6 +50,7 @@ def write_shadow_config(
     refinement: bool = False,
     refinement_nodes: int = 64,
     refinement_max_targets: int = 3,
+    crossfeed: bool = False,
 ) -> Path:
     instance_args = instance_args or {}
     instances = {}
@@ -108,6 +109,11 @@ def write_shadow_config(
             "child_partition": "child_index_modulo",
             "dispatch_limit": {"nodes": refinement_nodes},
             "max_targets": refinement_max_targets,
+        }
+    if crossfeed:
+        document["crossfeed"] = {
+            "enabled": True,
+            "policy": "typed_verify_refine_v1",
         }
     if extra:
         document.update(extra)

@@ -131,6 +131,14 @@ class RefinementSettings:
     max_targets: int
 
 @dataclass(frozen=True)
+class CrossFeedSettings:
+    """Decision-inert typed evidence composition over existing specialist work."""
+
+    enabled: bool
+    policy: str
+
+
+@dataclass(frozen=True)
 class RuntimeConfig:
     path: Path
     root: Path
@@ -140,6 +148,7 @@ class RuntimeConfig:
     shadow: ShadowSettings | None = None
     verification: VerificationSettings | None = None
     refinement: RefinementSettings | None = None
+    crossfeed: CrossFeedSettings | None = None
     budget: dict[str, object] | None = None
     routing: dict[str, object] | None = None
 
@@ -600,6 +609,46 @@ def _load_refinement_settings(
         max_targets=int(max_targets),
     )
 
+def _load_crossfeed_settings(
+    data: dict[str, object],
+    *,
+    mode: str,
+    verification: VerificationSettings | None,
+) -> CrossFeedSettings | None:
+    """Load decision-inert cross-feed settings.
+
+    Cross-feed v1 performs no engine dispatch. It only composes evidence from
+    the already-qualified VERIFY / optional REFINE path, so enabling it without
+    VERIFY would create an empty feature whose name overstates its authority.
+    """
+
+    raw_value = data.get("crossfeed")
+    if raw_value is None:
+        return None
+    if mode not in ("shadow", "active"):
+        raise RuntimeError("crossfeed settings are supported only in shadow/active modes")
+
+    raw = _require_object(raw_value, "crossfeed")
+    enabled = raw.get("enabled")
+    if not isinstance(enabled, bool):
+        raise RuntimeError("crossfeed.enabled must be a boolean")
+    if not enabled:
+        return None
+    if verification is None or not verification.enabled:
+        raise RuntimeError("crossfeed requires verification.enabled")
+
+    policy = raw.get("policy", "typed_verify_refine_v1")
+    if policy != "typed_verify_refine_v1":
+        raise RuntimeError(
+            "crossfeed.policy currently supports exactly 'typed_verify_refine_v1'"
+        )
+    unknown = sorted(set(raw) - {"enabled", "policy"})
+    if unknown:
+        raise RuntimeError(f"crossfeed contains unsupported keys: {unknown}")
+
+    return CrossFeedSettings(enabled=True, policy=str(policy))
+
+
 def load_runtime_config(path: Path) -> RuntimeConfig:
     path = path.resolve()
     try:
@@ -637,6 +686,11 @@ def load_runtime_config(path: Path) -> RuntimeConfig:
         data,
         mode=str(mode),
         shadow=shadow,
+        verification=verification,
+    )
+    crossfeed = _load_crossfeed_settings(
+        data,
+        mode=str(mode),
         verification=verification,
     )
 
@@ -683,6 +737,7 @@ def load_runtime_config(path: Path) -> RuntimeConfig:
         shadow=shadow,
         verification=verification,
         refinement=refinement,
+        crossfeed=crossfeed,
         budget=budget,
         routing=routing,
     )

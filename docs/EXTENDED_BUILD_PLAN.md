@@ -1,10 +1,10 @@
 # AllfatherChess Extended Build Plan
 
-**Status:** Post-PR #19 planning baseline; implementation baseline remains PR #18  
+**Status:** Post-PR #20 planning baseline; implementation baseline remains PR #18  
 **Date:** 2026-09-22  
 **Scope:** Expand the existing `docs/BUILD_PLAN.md` from the current M12 control/resource milestone through typed cross-feed evidence, counterfactual and active hybrid decision authority, backend/resource qualification, recursive refinement, native integration, governed policy evolution, and the final equal-resource strength campaign.
 
-This document is intentionally more detailed than `docs/BUILD_PLAN.md`. It does not replace the existing build plan, telemetry contracts, shard ledgers, replay contracts, or claim ledger. PR #19 merged this document only; the runtime/control implementation baseline is still the code delivered through PR #18. The first post-plan implementation milestone is therefore PR #20.
+This document is intentionally more detailed than `docs/BUILD_PLAN.md`. It does not replace the existing build plan, telemetry contracts, shard ledgers, replay contracts, or claim ledger. PR #19 and PR #20 were documentation-only; the runtime/control implementation baseline is still the code delivered through PR #18. The first post-plan implementation milestone is therefore the actual GitHub PR #21.
 
 ---
 
@@ -600,7 +600,7 @@ This PR introduced this document only. It did not change runtime behavior, searc
 
 ---
 
-## PR #20 — Typed cross-feed evidence plane, shadow-only
+## PR #21 — Typed cross-feed evidence plane, shadow-only
 
 ### Purpose
 
@@ -715,7 +715,7 @@ The end-to-end contract should run the existing fake/real VERIFY path and requir
 
 ---
 
-## PR #21 — Counterfactual hybrid decision laboratory
+## PR #22 — Counterfactual hybrid decision laboratory
 
 ### Purpose
 
@@ -801,7 +801,7 @@ The record should include:
 - disposition/reason;
 - outward_authority = anchor.
 
-### Runtime preparation for PR #25
+### Runtime preparation for PR #26
 
 The decision builder should be pure and usable both:
 
@@ -821,7 +821,7 @@ When specialist evidence finishes before the anchor, controller.shadow may freez
 
 ---
 
-## PR #22 — Prospective chess-specific value-of-compute calibration
+## PR #23 — Prospective chess-specific value-of-compute calibration
 
 ### Purpose
 
@@ -894,7 +894,7 @@ It does not yet support:
 
 ---
 
-## PR #23 — Strength-qualified LC0 profile
+## PR #24 — Strength-qualified LC0 profile
 
 ### Purpose
 
@@ -930,7 +930,7 @@ The backend-light random profile remains the controller CI profile, but no stren
 
 ---
 
-## PR #24 — Measured process resource accounting
+## PR #25 — Measured process resource accounting
 
 ### Purpose
 
@@ -992,7 +992,7 @@ A run may be development-valid with partial measurement, but the strongest equal
 
 ---
 
-## PR #25 — Active hybrid decision authority v0
+## PR #26 — Active hybrid decision authority v0
 
 ### Purpose
 
@@ -1008,7 +1008,7 @@ Today controller.uci_frontend._on_search_complete():
 2. marks the UCI shell ready;
 3. immediately writes the anchor bestmove.
 
-PR #25 must change this path without blocking the anchor stdout reader on engine work or filesystem IO.
+PR #26 must change this path without blocking the anchor stdout reader on engine work or filesystem IO.
 
 ### Required authority design
 
@@ -1083,7 +1083,7 @@ Any failure returns the buffered anchor move.
 
 ---
 
-## PR #26 — Multi-level recursive REFINE
+## PR #27 — Multi-level recursive REFINE
 
 ### Purpose
 
@@ -1122,7 +1122,7 @@ Recursive REFINE can zoom multiple levels without weakening ownership or resourc
 
 ---
 
-## PR #27 — Engine-specific cross-feed adapters
+## PR #28 — Engine-specific cross-feed adapters
 
 ### Purpose
 
@@ -1155,7 +1155,7 @@ Those require later native hooks and separate validation.
 
 ---
 
-## PR #28 — Search-regime classifier
+## PR #29 — Search-regime classifier
 
 ### Purpose
 
@@ -1189,7 +1189,7 @@ A regime may nominate work. It does not authorize a move.
 
 ---
 
-## PR #29 — Unified value-of-compute decision router
+## PR #30 — Unified value-of-compute decision router
 
 ### Purpose
 
@@ -1232,7 +1232,7 @@ The decision action still requires DecisionAuthorization; RouteAction alone neve
 
 ---
 
-## PR #30 — Structured IPC experiment
+## PR #31 — Structured IPC experiment
 
 ### Purpose
 
@@ -1256,7 +1256,7 @@ Promotion requires measured benefit and no unexplained chess-semantic drift.
 
 ---
 
-## PR #31 — Selective native engine integration
+## PR #32 — Selective native engine integration
 
 ### Purpose
 
@@ -1276,7 +1276,7 @@ Native integration is an optimization of an already-demonstrated hybrid mechanis
 
 ---
 
-## PR #32 — Offline governed policy evolution laboratory
+## PR #33 — Offline governed policy evolution laboratory
 
 ### Purpose
 
@@ -1323,7 +1323,7 @@ The candidate policy cannot choose its own scorer, holdout, stopping rule, or ba
 
 ---
 
-## PR #33 — Strength campaign infrastructure
+## PR #34 — Strength campaign infrastructure
 
 ### Purpose
 
@@ -1370,7 +1370,7 @@ Allfather active hybrid minus each major component
 
 ---
 
-## PR #34 — External qualification and release candidate
+## PR #35 — External qualification and release candidate
 
 ### Purpose
 
@@ -1753,9 +1753,9 @@ These shortcuts would destroy the causal information the current architecture ha
 
 # 19. Recommended immediate next implementation
 
-The next code PR is **PR #20 — Typed cross-feed evidence plane, shadow-only**.
+The next code PR is **PR #21 — Typed cross-feed evidence plane, shadow-only**.
 
-The repo already contains the expensive cross-engine common-support operation in VERIFY. PR #20 should therefore **not** add another search phase. It should formalize and seal the information that existing EXPLORE / VERIFY / REFINE already produced.
+The repo already contains the expensive cross-engine common-support operation in VERIFY. PR #21 should therefore **not** add another search phase. It should formalize and seal the information that existing EXPLORE / VERIFY / REFINE already produced.
 
 The immediate implementation question becomes:
 
@@ -1789,25 +1789,25 @@ AllfatherChess is ready for a genuine equal-resource strength claim only when al
 The shortest form of the remaining programme is:
 
 ```text
-PR #19
+PR #19–20
 extended build-plan documentation (merged)
         ↓
-PR #20–24
+PR #21–25
 typed cross-feed evidence + counterfactual decisions + value-of-compute + real backend/resource qualification
         ↓
-PR #25–29
+PR #26–30
 bounded hybrid decision authority + recursive refinement + engine-specific cross-feed + regime/value routing
         ↓
-PR #30–31
+PR #31–32
 measured transport / selective native optimization
         ↓
-PR #32
+PR #33
 offline governed policy evolution
         ↓
-PR #33
+PR #34
 confirmatory equal-resource strength campaign
         ↓
-PR #34
+PR #35
 release qualification
 ```
 

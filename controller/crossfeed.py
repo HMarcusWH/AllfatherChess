@@ -25,6 +25,7 @@ import math
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Iterable
 
 from controller.refinement import (
@@ -507,6 +508,11 @@ def build_crossfeed_view(
                 raise CrossFeedError(
                     f"VERIFY hint {hint.move} is outside the common candidate set"
                 )
+            if hint.search_id != stage.search_id:
+                raise CrossFeedError(
+                    f"VERIFY hint search_id {hint.search_id!r} does not match "
+                    f"stage search_id {stage.search_id!r}"
+                )
             hints.append(hint)
 
     refinement_id: str | None = None
@@ -560,6 +566,11 @@ def build_crossfeed_view(
                         prefix_root=True,
                     )
                     if hint is not None:
+                        if hint.search_id != stage.search_id:
+                            raise CrossFeedError(
+                                f"REFINE hint search_id {hint.search_id!r} does not match "
+                                f"stage search_id {stage.search_id!r}"
+                            )
                         hints.append(hint)
 
     retained = _retain_latest(hints)
@@ -595,6 +606,216 @@ def build_crossfeed_view(
         refinement_disposition=refinement_disposition,
         candidates=view_candidates,
         evidence_faults=tuple(sorted(set(faults))),
+    )
+
+
+class _SealedStream:
+    """Read-only stream proxy used to replay a sealed cross-feed derivation."""
+
+    def __init__(self, instance: str, record: dict[str, Any], events: list[dict[str, Any]]):
+        self.instance = instance
+        self._events = events
+        self.evidence_lossy = bool(record.get("dropped_events")) or bool(
+            record.get("adapter_errors")
+        )
+        self.tracked_events_truncated = bool(record.get("live_view_truncated"))
+
+    def tracked_events(self) -> list[dict[str, Any]]:
+        return list(self._events)
+
+
+class _VerificationProxy:
+    def __init__(
+        self,
+        *,
+        plan: Any,
+        disposition: str,
+        stages: tuple[Any, ...],
+        streams: dict[str, _SealedStream],
+    ) -> None:
+        self.plan = plan
+        self.disposition = disposition
+        self._stages = stages
+        self._streams = streams
+
+    def stage_for_owner(self, owner: str) -> Any | None:
+        return next((stage for stage in self._stages if stage.owner == owner), None)
+
+    def stream(self, instance: str) -> _SealedStream | None:
+        return self._streams.get(instance)
+
+    def stages(self) -> tuple[Any, ...]:
+        return self._stages
+
+
+class _RefinementProxy:
+    def __init__(
+        self,
+        *,
+        plan: Any,
+        disposition: str,
+        targets: tuple[Any, ...],
+        streams: dict[tuple[str, str], _SealedStream],
+    ) -> None:
+        self.plan = plan
+        self.disposition = disposition
+        self._targets = targets
+        self._streams = streams
+
+    def targets(self) -> tuple[Any, ...]:
+        return self._targets
+
+    def stream(self, target_id: str, instance: str) -> _SealedStream | None:
+        return self._streams.get((target_id, instance))
+
+
+def _read_jsonl(path: Path) -> list[dict[str, Any]]:
+    events: list[dict[str, Any]] = []
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            for line_number, line in enumerate(handle, start=1):
+                if not line.strip():
+                    continue
+                value = json.loads(line)
+                if not isinstance(value, dict):
+                    raise CrossFeedError(
+                        f"{path}: line {line_number} is not a JSON object"
+                    )
+                events.append(value)
+    except (OSError, json.JSONDecodeError) as exc:
+        raise CrossFeedError(f"cannot replay cross-feed source {path}: {exc}") from exc
+    return events
+
+
+def build_crossfeed_view_from_run(run_dir: Path | str) -> CrossFeedView:
+    """Replay the deterministic cross-feed derivation from sealed raw sources.
+
+    This is intentionally independent of the in-memory object that was written
+    during the live run. Integrity checking uses it to prove the derived view
+    still follows from the exact parent / VERIFY / optional REFINE bytes.
+    """
+
+    run_dir = Path(run_dir)
+    parent = load_manifest(run_dir)
+    verification = load_verification_manifest(run_dir)
+
+    nomination = verification.get("nomination") or {}
+    participants = verification.get("participants") or {}
+    owners = tuple(owner for owner in _OWNER_ORDER if owner in participants)
+    plan = SimpleNamespace(
+        verification_id=verification.get("verification_id"),
+        generation=verification.get("generation"),
+        source_run_id=(verification.get("source") or {}).get("run_id"),
+        position_id=verification.get("position_id"),
+        owners=owners,
+        candidate_roots=tuple(nomination.get("candidate_roots") or ()),
+        nominees_by_owner=dict(nomination.get("nominees_by_owner") or {}),
+        participants=dict(participants),
+    )
+
+    verify_stream_records = {
+        str(record.get("instance")): record
+        for record in verification.get("streams") or []
+        if isinstance(record, dict) and isinstance(record.get("instance"), str)
+    }
+    verify_streams: dict[str, _SealedStream] = {}
+    for instance, record in verify_stream_records.items():
+        rel = record.get("path")
+        if not isinstance(rel, str) or not rel:
+            raise CrossFeedError(f"VERIFY stream {instance!r} has no path")
+        verify_streams[instance] = _SealedStream(
+            instance,
+            record,
+            _read_jsonl(run_dir / "verification" / rel),
+        )
+
+    verify_stages = tuple(
+        SimpleNamespace(
+            owner=record.get("owner"),
+            instance=record.get("instance"),
+            family=record.get("family"),
+            search_id=record.get("search_id"),
+            disposition=record.get("disposition"),
+        )
+        for record in sorted(
+            (item for item in verification.get("stages") or [] if isinstance(item, dict)),
+            key=lambda item: int(item.get("dispatch_order") or 0),
+        )
+    )
+    verification_proxy = _VerificationProxy(
+        plan=plan,
+        disposition=str((verification.get("disposition") or {}).get("run")),
+        stages=verify_stages,
+        streams=verify_streams,
+    )
+
+    refinement_proxy: _RefinementProxy | None = None
+    refine_path = run_dir / "refinement" / "manifest.json"
+    if refine_path.is_file():
+        refinement = load_refinement_manifest(run_dir)
+        source = refinement.get("source") or {}
+        refine_plan = SimpleNamespace(
+            refinement_id=refinement.get("refinement_id"),
+            source_run_id=source.get("run_id"),
+            source_verification_id=source.get("verification_id"),
+        )
+        refine_targets: list[Any] = []
+        refine_streams: dict[tuple[str, str], _SealedStream] = {}
+        for target_record in refinement.get("targets") or []:
+            if not isinstance(target_record, dict):
+                continue
+            target_id = target_record.get("target_id")
+            root_move = target_record.get("root_move")
+            stages: dict[str, Any] = {}
+            for stage_record in target_record.get("stages") or []:
+                if not isinstance(stage_record, dict):
+                    continue
+                owner = stage_record.get("owner")
+                if not isinstance(owner, str):
+                    continue
+                stages[owner] = SimpleNamespace(
+                    owner=owner,
+                    instance=stage_record.get("instance"),
+                    family=stage_record.get("family"),
+                    search_id=stage_record.get("search_id"),
+                    disposition=stage_record.get("disposition"),
+                )
+            for stream_record in target_record.get("streams") or []:
+                if not isinstance(stream_record, dict):
+                    continue
+                instance = stream_record.get("instance")
+                rel = stream_record.get("path")
+                if not isinstance(instance, str) or not isinstance(rel, str) or not rel:
+                    raise CrossFeedError(
+                        f"REFINE target {target_id!r} has malformed stream identity"
+                    )
+                refine_streams[(str(target_id), instance)] = _SealedStream(
+                    instance,
+                    stream_record,
+                    _read_jsonl(run_dir / "refinement" / rel),
+                )
+            refine_targets.append(
+                SimpleNamespace(
+                    target=SimpleNamespace(
+                        target_id=target_id,
+                        root_move=root_move,
+                    ),
+                    stages=stages,
+                )
+            )
+        refinement_proxy = _RefinementProxy(
+            plan=refine_plan,
+            disposition=str((refinement.get("disposition") or {}).get("run")),
+            targets=tuple(refine_targets),
+            streams=refine_streams,
+        )
+
+    return build_crossfeed_view(
+        run_id=str(parent.get("run_id")),
+        generation=int(parent.get("generation")),
+        position_id=str((parent.get("position") or {}).get("position_id")),
+        verification=verification_proxy,  # type: ignore[arg-type]
+        refinement=refinement_proxy,  # type: ignore[arg-type]
     )
 
 
@@ -865,6 +1086,16 @@ def verify_crossfeed_integrity(run_dir: Path | str) -> list[str]:
         if not path.is_file() or record.get("sha256") != sha256_file(path):
             problems.append(
                 f"cross-feed REFINE stream hash mismatch: {record.get('path')}"
+            )
+
+    try:
+        replayed_view = build_crossfeed_view_from_run(run_dir)
+    except (CrossFeedError, ReplayError, VerificationError) as exc:
+        problems.append(f"cross-feed deterministic replay failed: {exc}")
+    else:
+        if replayed_view.as_dict() != manifest.get("view"):
+            problems.append(
+                "cross-feed derived view does not match deterministic replay of source evidence"
             )
 
     keys = {key.lower() for key in _walk_keys(manifest.get("view"))}

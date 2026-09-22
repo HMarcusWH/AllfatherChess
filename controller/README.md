@@ -82,16 +82,16 @@ search carries an explicit generation token and every callback checks it.
 
 `docs/UCI_SHELL.md`, `docs/SHARD_LEDGER.md`, `docs/PREFIX_SHARDS.md`, `docs/SHADOW_EXECUTION.md`,
 `docs/REPLAY_FORMAT.md`, `docs/RESIDUAL_CALIBRATION.md`,
-`docs/BUDGET_ROUTING.md`, `docs/COMPARE_RELOCK.md`, `docs/REFINEMENT.md`, `docs/CLAIM_LEDGER.md`,
+`docs/BUDGET_ROUTING.md`, `docs/ACTIVE_SPECIALIST_SCHEDULER.md`, `docs/COMPARE_RELOCK.md`, `docs/REFINEMENT.md`, `docs/CLAIM_LEDGER.md`,
 `docs/THEORY_IMPLEMENTATION_MAP.md`, `docs/ADVERSARIAL_AUDIT.md`.
 
 ## What the controller still does not do
 
-No voting, no cross-engine score conversion, no **live** recursive split or
-transfer policy, no RELOCK authorization, no VERIFY-based decision influence,
-no cross-feed, no native integration, and no strength claim. PrefixShardLedger
-v2 now has a shadow-only REFINE consumer, but active routing/budget code still
-cannot spend on it. A descriptive
+No voting, no cross-engine score conversion, no RELOCK authorization, no
+VERIFY-based decision influence, no cross-feed, no native integration, and no
+strength claim. PrefixShardLedger v2 has both a shadow REFINE consumer and an
+active consumer whose specialist work is reservation-gated; neither can alter
+the outward decision. A descriptive
 terminal-suffix RELOCK is now derived offline, but it is not a controller
 certificate. Explicit VERIFY overlap remains observational only; the outward
 move is the unrestricted anchor's in every mode.
@@ -105,8 +105,9 @@ three-root candidate set and the same three shadow processes re-search exactly
 that set under telemetry phase `VERIFY`. `RootShardLedger` is not mutated:
 the overlap is represented by a separate `VerificationPlan` and raw artifact.
 
-VERIFY is rejected in `mode: active` until its compute is integrated with the
-global budget ledger. It has no outward decision authority.
+In active mode, VERIFY is accepted only with a positive declared VERIFY reserve
+and every participant must obtain a router reservation before dispatch. It has
+no outward decision authority.
 
 
 ## COMPARE / descriptive RELOCK
@@ -142,5 +143,6 @@ through PrefixShardLedger v2, temporarily positions idle shadow workers at the
 descendant board, and records separate REFINE telemetry.
 
 Per-instance position divergence is tracked by the coordinator and must be
-restored or quarantined before a generation is released. REFINE remains
-shadow-only and has no outward decision authority.
+restored or quarantined before a generation is released. In active mode the
+child oracle and each descendant stage are independently reservation-backed;
+REFINE still has no outward decision authority.

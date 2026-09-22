@@ -16,6 +16,7 @@ from controller.crossfeed import (
     CROSSFEED_POLICY,
     CrossFeedError,
     build_crossfeed_view,
+    build_crossfeed_view_from_run,
     load_crossfeed_manifest,
     verify_crossfeed_integrity,
 )
@@ -287,6 +288,8 @@ class CrossFeedEndToEndTests(unittest.TestCase):
             self.assertEqual(crossfeed["policy"], CROSSFEED_POLICY)
             self.assertEqual(crossfeed["source"]["run_id"], parent["run_id"])
             self.assertEqual(len(crossfeed["view"]["candidates"]), 3)
+            replayed = build_crossfeed_view_from_run(run_dir)
+            self.assertEqual(replayed.as_dict(), crossfeed["view"])
             self.assertEqual(verify_crossfeed_integrity(run_dir), [])
 
             # Cross-feed v1 is composition only. Parent replay may contain the

@@ -2272,8 +2272,14 @@ class ShadowRunCoordinator:
                         )
                         break
                     try:
+                        positioned_started = time.monotonic()
                         self.runtime.set_shadow_position(
                             instance, descendant_position.command()
+                        )
+                        self._charge_controller_elapsed(
+                            active,
+                            label="refine_position",
+                            elapsed_ms=(time.monotonic() - positioned_started) * 1000.0,
                         )
                         prepared_instances.append(instance)
                         with self._lock:
@@ -2696,7 +2702,13 @@ class ShadowRunCoordinator:
                 if not self.runtime.shadow_available(instance):
                     restored = False
                     continue
+                restore_started = time.monotonic()
                 self.runtime.restore_shadow_position(instance)
+                self._charge_controller_elapsed(
+                    active,
+                    label="refine_restore",
+                    elapsed_ms=(time.monotonic() - restore_started) * 1000.0,
+                )
             except ControllerRuntimeError as exc:
                 restored = False
                 message = (
@@ -2723,7 +2735,13 @@ class ShadowRunCoordinator:
                 if not self.runtime.shadow_available(instance):
                     ok = False
                     continue
+                restore_started = time.monotonic()
                 self.runtime.restore_shadow_position(instance)
+                self._charge_controller_elapsed(
+                    active,
+                    label="refine_restore_cleanup",
+                    elapsed_ms=(time.monotonic() - restore_started) * 1000.0,
+                )
             except ControllerRuntimeError as exc:
                 ok = False
                 if active.refinement is not None:

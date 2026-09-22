@@ -6,7 +6,10 @@ from __future__ import annotations
 import json
 import sys
 import tempfile
+import threading
+import time
 import unittest
+from types import SimpleNamespace
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -26,6 +29,7 @@ from controller.runtime import (
     load_runtime_config,
 )
 from controller.verification import VerificationRun, build_verification_plan
+from controller.shadow import ShadowRunCoordinator
 from tests.controller.test_shadow_runtime import (
     ANCHOR,
     run_shell,
@@ -184,6 +188,107 @@ class RefinementPlanTests(unittest.TestCase):
         union = [move for owner in OWNERS for move in partition[owner]]
         self.assertEqual(set(union), set(children))
         self.assertEqual(len(union), len(set(union)))
+
+
+
+class DeadlineScopeTests(unittest.TestCase):
+    def test_verify_deadline_never_touches_refine_target_state(self):
+        stage = SimpleNamespace(
+            instance="stockfish-shadow",
+            dispatched_ms=0.0,
+            done=threading.Event(),
+        )
+
+        class VerificationStub:
+            def __init__(self):
+                self.disposition = None
+
+            def active_stages(self):
+                return (stage,) if not stage.done.is_set() else ()
+
+            def record_completion(self, *args, **kwargs):
+                stage.done.set()
+
+            def set_disposition(self, disposition, reason=None):
+                self.disposition = (disposition, reason)
+
+        coordinator = object.__new__(ShadowRunCoordinator)
+        coordinator.settings = SimpleNamespace(
+            stage_timeout_s=0.001,
+            drain_timeout_s=0.1,
+        )
+        coordinator.runtime = SimpleNamespace(
+            record_shadow_failure=lambda *args, **kwargs: None,
+        )
+        coordinator._stop_instances = lambda instances: stage.done.set()
+        coordinator._wait_slice = lambda pending, interval: None
+        verification = VerificationStub()
+        active = SimpleNamespace(
+            verification=verification,
+            started_monotonic=time.monotonic() - 1.0,
+            generation=1,
+        )
+
+        coordinator._await_verification(active)
+        self.assertIsNotNone(verification.disposition)
+        self.assertEqual(verification.disposition[0], "incomplete")
+
+    def test_refine_deadline_marks_target_abort_before_stopping(self):
+        stage = SimpleNamespace(
+            instance="stockfish-shadow",
+            target_id="target-000-e2e4",
+            dispatched_ms=0.0,
+            done=threading.Event(),
+        )
+
+        class RefinementStub:
+            def __init__(self):
+                self.abort_calls = []
+                self.disposition = None
+
+            def active_stages(self):
+                return (stage,) if not stage.done.is_set() else ()
+
+            def request_target_abort(self, target_id, reason):
+                self.abort_calls.append((target_id, reason))
+
+            def record_completion(self, *args, **kwargs):
+                stage.done.set()
+
+            def set_target_disposition(self, *args, **kwargs):
+                pass
+
+            def set_disposition(self, disposition, reason=None):
+                self.disposition = (disposition, reason)
+
+        coordinator = object.__new__(ShadowRunCoordinator)
+        coordinator.settings = SimpleNamespace(
+            stage_timeout_s=0.001,
+            drain_timeout_s=0.1,
+        )
+        coordinator.runtime = SimpleNamespace(
+            record_shadow_failure=lambda *args, **kwargs: None,
+        )
+        refinement = RefinementStub()
+
+        def stop_instances(instances):
+            self.assertEqual(instances, ["stockfish-shadow"])
+            stage.done.set()
+
+        coordinator._stop_instances = stop_instances
+        coordinator._wait_slice = lambda pending, interval: None
+        active = SimpleNamespace(
+            refinement=refinement,
+            started_monotonic=time.monotonic() - 1.0,
+            generation=1,
+        )
+
+        coordinator._await_refinement_target(active, "target-000-e2e4")
+        self.assertEqual(len(refinement.abort_calls), 1)
+        self.assertEqual(refinement.abort_calls[0][0], "target-000-e2e4")
+        self.assertIsNotNone(refinement.disposition)
+        self.assertEqual(refinement.disposition[0], "incomplete")
+
 
 
 class RefinementConfigTests(unittest.TestCase):

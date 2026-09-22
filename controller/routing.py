@@ -987,6 +987,17 @@ class ConservativeRouter:
                 }
             )
 
+    def charge_controller_elapsed(self, label: str, elapsed_ms: float) -> None:
+        """Charge controller-side specialist preparation/restoration work."""
+
+        value = max(0.0, float(elapsed_ms))
+        self.ledger.charge_elapsed(
+            f"controller:{label}",
+            cpu_ms=value,
+            note=f"controller.{label}_ms",
+            purpose="controller",
+        )
+
     def _calibration_provenance(self) -> dict[str, Any] | None:
         if self.calibration is None:
             return None

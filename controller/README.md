@@ -129,9 +129,7 @@ per-shard activation/sealing, atomic split of sealed leaves into owner-inherited
 children, atomic transfer of leased frontier leaves, and a prefix-free frontier
 invariant.
 
-`common/prefix_dispatch.py` compiles one qualified prefix into the descendant
-`position` plus one final `searchmoves` root. The live shadow coordinator
-does not import either module yet.
+`common/prefix_dispatch.py` compiles qualified prefixes/child regions into descendant `position` plus restricted `searchmoves`. The live coordinator consumes both the prefix ledger and dispatch compiler through REFINE; active mode additionally requires specialist budget authorization before descendant work.
 
 
 ## Shadow REFINE

@@ -25,6 +25,7 @@ on:
       - docs/PREFIX_SHARDS.md
       - docs/REFINEMENT.md
       - docs/ACTIVE_SPECIALIST_SCHEDULER.md
+      - docs/CROSS_FEED.md
       - Makefile
       - .github/workflows/controller-shell.yml
   pull_request:
@@ -48,6 +49,7 @@ on:
       - docs/PREFIX_SHARDS.md
       - docs/REFINEMENT.md
       - docs/ACTIVE_SPECIALIST_SCHEDULER.md
+      - docs/CROSS_FEED.md
       - Makefile
       - .github/workflows/controller-shell.yml
 
@@ -71,7 +73,7 @@ jobs:
       - name: Compile controller shell
         run: |
           python3 -m py_compile allfather-chess controller/*.py common/*.py adapters/process/*.py adapters/telemetry/*.py tests/fixtures/*.py tests/harness/*.py tests/adapters/test_uci_process.py tests/controller/*.py
-          python3 -m py_compile scripts/shard-ledger-contract.py scripts/prefix-shard-contract.py scripts/refinement-execution-contract.py scripts/active-specialist-contract.py scripts/refinement-evidence-sweep.py scripts/shadow-execution-contract.py scripts/verification-execution-contract.py scripts/verification-analysis-contract.py scripts/verification-analysis.py scripts/verification-evidence-sweep.py scripts/active-routing-contract.py scripts/residual-calibration.py scripts/shadow-evidence-sweep.py
+          python3 -m py_compile scripts/shard-ledger-contract.py scripts/prefix-shard-contract.py scripts/refinement-execution-contract.py scripts/active-specialist-contract.py scripts/crossfeed-contract.py scripts/refinement-evidence-sweep.py scripts/shadow-execution-contract.py scripts/verification-execution-contract.py scripts/verification-analysis-contract.py scripts/verification-analysis.py scripts/verification-evidence-sweep.py scripts/active-routing-contract.py scripts/residual-calibration.py scripts/shadow-evidence-sweep.py
           for config in config/*.json; do python3 -m json.tool "$config" >/dev/null; done
           ./allfather-chess --help >/dev/null
 
@@ -113,3 +115,6 @@ jobs:
 
       - name: Validate COMPARE / RELOCK derived analysis
         run: make verification-analysis-tests
+
+      - name: Validate typed cross-feed evidence
+        run: make crossfeed-tests

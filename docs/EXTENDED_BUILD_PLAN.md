@@ -1,10 +1,10 @@
 # AllfatherChess Extended Build Plan
 
-**Status:** Post-PR #20 planning baseline; implementation baseline remains PR #18  
+**Status:** Post-PR #21 implementation baseline; PR #22 counterfactual decision laboratory in progress  
 **Date:** 2026-09-22  
 **Scope:** Expand the existing `docs/BUILD_PLAN.md` from the current M12 control/resource milestone through typed cross-feed evidence, counterfactual and active hybrid decision authority, backend/resource qualification, recursive refinement, native integration, governed policy evolution, and the final equal-resource strength campaign.
 
-This document is intentionally more detailed than `docs/BUILD_PLAN.md`. It does not replace the existing build plan, telemetry contracts, shard ledgers, replay contracts, or claim ledger. PR #19 and PR #20 were documentation-only; the runtime/control implementation baseline is still the code delivered through PR #18. The first post-plan implementation milestone is therefore the actual GitHub PR #21.
+This document is intentionally more detailed than `docs/BUILD_PLAN.md`. It does not replace the existing build plan, telemetry contracts, shard ledgers, replay contracts, or claim ledger. PR #19 and PR #20 were documentation-only. PR #21 is now merged and supplies the typed cross-feed evidence plane over the PR #18 runtime/control substrate. The current implementation milestone is PR #22.
 
 ---
 
@@ -602,6 +602,8 @@ This PR introduced this document only. It did not change runtime behavior, searc
 
 ## PR #21 — Typed cross-feed evidence plane, shadow-only
 
+**Status: merged.**
+
 ### Purpose
 
 Expose the information already created by EXPLORE -> VERIFY -> optional REFINE as one deterministic, typed, replayable evidence view without dispatching any new engine search and without changing the outward move.
@@ -716,6 +718,8 @@ The end-to-end contract should run the existing fake/real VERIFY path and requir
 ---
 
 ## PR #22 — Counterfactual hybrid decision laboratory
+
+**Status: current implementation.**
 
 ### Purpose
 
@@ -1753,15 +1757,15 @@ These shortcuts would destroy the causal information the current architecture ha
 
 # 19. Recommended immediate next implementation
 
-The next code PR is **PR #21 — Typed cross-feed evidence plane, shadow-only**.
+The next code PR is **PR #22 — Counterfactual hybrid decision laboratory**.
 
-The repo already contains the expensive cross-engine common-support operation in VERIFY. PR #21 should therefore **not** add another search phase. It should formalize and seal the information that existing EXPLORE / VERIFY / REFINE already produced.
+PR #21 is merged: the repo now has a typed, replayable cross-feed view over existing EXPLORE / VERIFY / REFINE evidence without a new solver phase. PR #22 should consume that evidence to freeze a deterministic counterfactual hybrid proposal while preserving Stockfish anchor as the sole outward authority.
 
 The immediate implementation question becomes:
 
 > How do we expose one engine's candidate information as typed, provenance-bound evidence that another controller layer may reason over, without converting native scores, weakening ownership, or granting automatic move authority?
 
-After that object model is stable, PR #21 builds the counterfactual hybrid decision laboratory on top of it.
+The counterfactual laboratory must use actual VERIFY terminal bestmoves, not infer final verifier choice from the last candidate.update event.
 
 ---
 

@@ -379,6 +379,7 @@ def _model_address(
     source_sha256: str,
     min_support: int,
     smoothing_alpha: float,
+    prior_change_probability: float,
     buckets: dict[str, dict[str, Any]],
     split_by_position: dict[str, str],
 ) -> str:
@@ -391,6 +392,7 @@ def _model_address(
         "source_sha256": source_sha256,
         "min_support": min_support,
         "smoothing_alpha": smoothing_alpha,
+        "prior_change_probability": prior_change_probability,
         "buckets": buckets,
         "split_by_position": split_by_position,
     }
@@ -478,6 +480,7 @@ def fit_decision_change_model(
         source_sha256=source_sha256,
         min_support=min_support,
         smoothing_alpha=float(smoothing_alpha),
+        prior_change_probability=1.0,
         buckets=buckets,
         split_by_position=split,
     )
@@ -567,6 +570,7 @@ def load_decision_calibration(path: Path | str) -> DecisionChangeModel:
         source_sha256=model.source_sha256,
         min_support=model.min_support,
         smoothing_alpha=model.smoothing_alpha,
+        prior_change_probability=model.prior_change_probability,
         buckets=model.buckets,
         split_by_position=model.split_by_position,
     )

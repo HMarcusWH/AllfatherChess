@@ -541,7 +541,25 @@ class BudgetLedger:
                 "denials": list(self._denials),
                 "within_envelope": committed_cpu <= self.envelope.cpu_ms
                 and committed_gpu <= self.envelope.gpu_ms,
+                "within_partition_caps": self.within_partition_caps(),
             }
+
+    def within_partition_caps(self) -> bool:
+        """Whether solver/VERIFY/REFINE stayed inside their declared partitions.
+
+        Actual spend is intentionally allowed to exceed a reservation so the
+        ledger never rounds consumption down. Such an overrun invalidates the
+        partition claim even when the global envelope still happens to have
+        spare capacity.
+        """
+
+        with self._lock:
+            for purpose in ("solver", "verify", "refine"):
+                cpu, gpu = self._purpose_committed(purpose)
+                cap_cpu, cap_gpu = self._purpose_caps(purpose)
+                if cpu > cap_cpu or gpu > cap_gpu:
+                    return False
+            return True
 
     def within_envelope(self) -> bool:
         with self._lock:

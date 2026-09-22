@@ -50,6 +50,16 @@ from controller.crossfeed import (
     build_crossfeed_view,
     seal_crossfeed_artifact,
 )
+from controller.counterfactual import (
+    CounterfactualError,
+    prepare_counterfactual,
+    seal_counterfactual_artifact,
+)
+from controller.decision import (
+    DecisionError,
+    DecisionProposal,
+    freeze_decision_proposal,
+)
 from controller.replay import ReplayRun, StageRecord, TelemetryStreamWriter, sha256_file
 from controller.prefix_shards import PrefixShardLedger, PrefixShardLedgerError
 from controller.refinement import (
@@ -325,6 +335,7 @@ class _ActiveRun:
     verification: VerificationRun | None = None
     refinement: RefinementRun | None = None
     crossfeed_view: CrossFeedView | None = None
+    decision_proposal: DecisionProposal | None = None
     refinement_positioned: set[str] = field(default_factory=set)
     refinement_oracle_active: bool = False
     specialist_tokens: dict[str, str] = field(default_factory=dict)
@@ -1393,6 +1404,19 @@ class ShadowRunCoordinator:
                         # A sealing failure may invalidate the derived artifact,
                         # never the already-emitted anchor move or its raw sources.
                         self._diagnostic(f"cross-feed finalization failed: {exc}")
+                if active.decision_proposal is not None:
+                    try:
+                        seal_counterfactual_artifact(
+                            active.decision_proposal,
+                            active.run.run_dir,
+                        )
+                    except CounterfactualError as exc:
+                        # The proposal is counterfactual only. Failure to seal
+                        # its derived artifact cannot retroactively affect the
+                        # already-emitted Stockfish anchor move.
+                        self._diagnostic(
+                            f"counterfactual finalization failed: {exc}"
+                        )
             except Exception as exc:  # pragma: no cover - finalization isolation
                 self._diagnostic(f"replay finalization failed: {type(exc).__name__}: {exc}")
             finally:
@@ -1669,6 +1693,12 @@ class ShadowRunCoordinator:
         # decision authority. In active mode its controller cost is charged.
         self._build_crossfeed(active)
 
+        # 10. Freeze the counterfactual hybrid proposal from typed evidence.
+        # Policy evaluation runs on this worker, never on the anchor stdout
+        # thread. The shared lock is held only for the causal PRE/POST_ANCHOR
+        # stamp and publication of the immutable proposal.
+        self._build_counterfactual(active)
+
         # The router's run is deliberately NOT closed here. `on_run_end` writes
         # the envelope claim, which now includes elapsed wall time, and the
         # anchor may still be searching: closing it at this point measured only
@@ -1707,6 +1737,46 @@ class ShadowRunCoordinator:
             self._charge_controller_elapsed(
                 active,
                 label="crossfeed_build",
+                elapsed_ms=(time.monotonic() - started) * 1000.0,
+            )
+
+    def _build_counterfactual(self, active: _ActiveRun) -> None:
+        settings = self.runtime.config.counterfactual
+        view = active.crossfeed_view
+        verification = active.verification
+        if settings is None or view is None or verification is None:
+            return
+
+        started = time.monotonic()
+        try:
+            _, evaluation = prepare_counterfactual(
+                view=view,
+                verification=verification,
+                policy=settings.policy,
+            )
+            # Do not hold the orchestration lock while hashing/evaluating. The
+            # anchor completion callback uses the same lock to publish the
+            # outward decision boundary and must never wait on policy work.
+            with self._lock:
+                if self._run is not active:
+                    return
+                frozen_ms = max(
+                    0.0,
+                    (time.monotonic() - active.started_monotonic) * 1000.0,
+                )
+                frozen_before_anchor = not active.anchor_completed.is_set()
+                active.decision_proposal = freeze_decision_proposal(
+                    evaluation,
+                    frozen_observed_ms=frozen_ms,
+                    frozen_before_anchor=frozen_before_anchor,
+                )
+        except (DecisionError, CounterfactualError) as exc:
+            active.decision_proposal = None
+            active.run.note(f"counterfactual proposal rejected: {exc}")
+        finally:
+            self._charge_controller_elapsed(
+                active,
+                label="counterfactual_decision_build",
                 elapsed_ms=(time.monotonic() - started) * 1000.0,
             )
 

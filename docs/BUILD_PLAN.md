@@ -94,9 +94,9 @@ Represent search regions as deterministic move-prefix shards with a prefix-free 
 
 Consume completed raw VERIFY disagreement facts as deterministic refinement nominations, mirror completed root-v1 ownership into PrefixShardLedger v2, enumerate one exact perft-1 child shell, partition it pairwise-disjointly, and execute descendant REFINE stages in shadow mode. REFINE remains observational and outside the active equal-resource envelope.
 
-### M12 — Active VERIFY / REFINE + CPU/GPU resource scheduler
+### M12 — Active VERIFY / REFINE + CPU/GPU resource scheduler (implemented in PR #18)
 
-Charge EXPLORE, VERIFY, REFINE, controller overhead, CPU/GPU occupancy and time through one controller-wide envelope. VERIFY and REFINE remain forbidden in active mode until this integration exists.
+Charge EXPLORE, VERIFY, REFINE, the descendant child oracle, controller overhead, CPU/GPU occupancy, and wall time through one controller-wide envelope. Active specialist work is now reservation-before-dispatch with separate solver, VERIFY, and REFINE partitions; a run may claim compliance only when both the global envelope and the declared specialist partitions remain satisfied.
 
 ### M13 — Cross-feed
 
@@ -128,8 +128,8 @@ Run fixed-node, fixed-time, self-play, SPRT-style, and external-engine compariso
 14. **PR #14 — Explicit common-support VERIFY execution**. **Merged.**
 15. **PR #15 — COMPARE / RELOCK derived analysis**. **Merged.**
 16. **PR #16 — Recursive PrefixShardLedger v2 + descendant dispatch qualification**. **Merged.**
-17. **PR #17 — Shadow REFINE execution + recursive provenance**. **Current.**
-18. **PR #18 — Active VERIFY / REFINE + CPU/GPU resource scheduler**.
+17. **PR #17 — Shadow REFINE execution + recursive provenance**. **Merged.**
+18. **PR #18 — Active VERIFY / REFINE + CPU/GPU resource scheduler**. **Current.**
 19. **PR #19+ — Cross-feed, native integration, and strength optimization**, each promoted only after isolated ablation.
 
 ## Foundation-hardening acceptance gate

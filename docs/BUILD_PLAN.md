@@ -98,17 +98,33 @@ Consume completed raw VERIFY disagreement facts as deterministic refinement nomi
 
 Charge EXPLORE, VERIFY, REFINE, the descendant child oracle, controller overhead, CPU/GPU occupancy, and wall time through one controller-wide envelope. Active specialist work is now reservation-before-dispatch with separate solver, VERIFY, and REFINE partitions; a run may claim compliance only when both the global envelope and the declared specialist partitions remain satisfied.
 
-### M13 — Cross-feed
+### M13 — Typed cross-feed + counterfactual hybrid decisions
 
-Ablate controlled information transfer between backends.
+Formalize the information already produced by EXPLORE -> common-support VERIFY -> optional REFINE as a typed, provenance-bound cross-feed evidence plane.
 
-### M14 — Native integration
+M13 does **not** add another cross-engine search protocol merely to create "cross-feed". The expensive common-support operation already exists in VERIFY. The new layer must consume existing evidence, preserve native score semantics, preserve EXPLORE ownership, and initially remain decision-inert.
 
-Replace subprocess boundaries only where measured benefits justify tighter coupling.
+Then freeze counterfactual hybrid decisions from that evidence while Stockfish remains sole outward authority. This creates prospective decision records that can later be scored without hindsight leakage.
 
-### M15 — Strength campaign
+### M14 — Decision-relevant calibration, backend/resource qualification, and bounded hybrid authority
 
-Run fixed-node, fixed-time, self-play, SPRT-style, and external-engine comparisons. The final product is promoted only on statistically credible strength gains at equal declared resources.
+Build chess-specific value-of-compute labels; qualify a real LC0 backend/network/hardware profile; separate reserved estimates from measured process/accelerator consumption; and only then permit a tightly bounded hybrid proposal to replace the anchor move.
+
+The first hybrid-authority path must remain fail-closed: missing/incomplete evidence, unsupported request classes, stale generations, invalid budget state, or unavailable frozen proposals all return the Stockfish anchor move.
+
+After active hybrid authority is established, extend recursive REFINE, add engine-specific cross-feed adapters, classify search regimes, and unify resource routing with decision authorization without collapsing those authorities.
+
+### M14.5 — Measured transport / selective native integration
+
+Compare current UCI process boundaries against structured IPC and native adapters. Replace subprocess/text boundaries only where measured latency/control benefits justify the tighter coupling and parity tests show no unexplained semantic drift.
+
+Native integration is an optimization of an already-demonstrated hybrid mechanism, not the mechanism's proof of value.
+
+### M15 — Governed policy evolution + strength campaign
+
+Qualify controller-policy candidates offline under frozen train/calibration/holdout boundaries, then run fixed-node, fixed-time, measured-resource, self-play, paired-match, SPRT-style, and external-engine comparisons.
+
+The final product is promoted only on statistically credible strength gains against each declared constituent baseline under the same declared/measured resource contract.
 
 ## Immediate PR train
 
@@ -129,8 +145,25 @@ Run fixed-node, fixed-time, self-play, SPRT-style, and external-engine compariso
 15. **PR #15 — COMPARE / RELOCK derived analysis**. **Merged.**
 16. **PR #16 — Recursive PrefixShardLedger v2 + descendant dispatch qualification**. **Merged.**
 17. **PR #17 — Shadow REFINE execution + recursive provenance**. **Merged.**
-18. **PR #18 — Active VERIFY / REFINE + CPU/GPU resource scheduler**. **Current.**
-19. **PR #19+ — Cross-feed, native integration, and strength optimization**, each promoted only after isolated ablation.
+18. **PR #18 — Active VERIFY / REFINE + CPU/GPU resource scheduler**. **Merged.**
+19. **PR #19 — Extended post-PR18 build-plan documentation**. **Merged.**
+20. **PR #20 — Typed cross-feed evidence plane, shadow-only**: consume existing VERIFY/REFINE evidence; no new search phase; no outward behavior change.
+21. **PR #21 — Counterfactual hybrid decision laboratory**: freeze deterministic hybrid proposals while Stockfish remains outward authority.
+22. **PR #22 — Prospective chess-specific value-of-compute calibration**: decision-relevant labels with strict no-hindsight boundaries.
+23. **PR #23 — Strength-qualified LC0 profile**: real network/backend/hardware identity; preserve fast random-backend CI separately.
+24. **PR #24 — Measured process resource accounting**: preserve reservations while adding measured CPU/GPU/memory/controller cost where supported.
+25. **PR #25 — Active hybrid decision authority v0**: bounded in-memory authorization at the anchor-completion boundary; deterministic Stockfish fallback.
+26. **PR #26 — Multi-level recursive REFINE**: bounded deeper prefix splitting under exact ownership and budget rules.
+27. **PR #27 — Engine-specific cross-feed adapters**: source-typed candidate transfer into subprocess-safe VERIFY/REFINE/adjudication operations.
+28. **PR #28 — Search-regime classifier**: calibrated state classes that may nominate work but do not authorize moves.
+29. **PR #29 — Unified value-of-compute decision router**: combine regime, route-value, resource authorization and separate decision authorization.
+30. **PR #30 — Structured IPC experiment**: compare typed local transport against current UCI boundaries.
+31. **PR #31 — Selective native integration**: embed only measured-value hooks with process-adapter parity.
+32. **PR #32 — Offline governed policy evolution laboratory**: immutable candidate generations, holdout evaluation, rollback and promotion discipline.
+33. **PR #33 — Strength campaign infrastructure**: frozen openings, hardware profiles, match manifests, ablations and statistical stopping rules.
+34. **PR #34 — External qualification / release candidate**: freeze the first claim-bounded equal-resource release.
+
+The detailed file-by-file plan, authority transitions, and acceptance gates for PR #20 onward live in `docs/EXTENDED_BUILD_PLAN.md`.
 
 ## Foundation-hardening acceptance gate
 

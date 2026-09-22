@@ -51,6 +51,7 @@ def write_shadow_config(
     refinement_nodes: int = 64,
     refinement_max_targets: int = 3,
     crossfeed: bool = False,
+    counterfactual: bool = False,
 ) -> Path:
     instance_args = instance_args or {}
     instances = {}
@@ -110,10 +111,15 @@ def write_shadow_config(
             "dispatch_limit": {"nodes": refinement_nodes},
             "max_targets": refinement_max_targets,
         }
-    if crossfeed:
+    if crossfeed or counterfactual:
         document["crossfeed"] = {
             "enabled": True,
             "policy": "typed_verify_refine_v1",
+        }
+    if counterfactual:
+        document["counterfactual"] = {
+            "enabled": True,
+            "policy": "unanimous_verify_v1",
         }
     if extra:
         document.update(extra)

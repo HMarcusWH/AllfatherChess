@@ -114,7 +114,7 @@ class CounterfactualEndToEndTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             run_dir, lines, artifact = self._run(
                 Path(tmp),
-                anchor_lines=20,
+                anchor_lines=30,
                 shadow_lines=2,
             )
             outward = [line for line in lines if line.startswith("bestmove ")]
@@ -171,8 +171,8 @@ class CounterfactualEndToEndTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             run_dir, lines, artifact = self._run(
                 Path(tmp),
-                anchor_lines=5,
-                shadow_lines=3,
+                anchor_lines=8,
+                shadow_lines=4,
             )
             proposal = artifact["proposal"]
             self.assertFalse(proposal["frozen_before_anchor"])

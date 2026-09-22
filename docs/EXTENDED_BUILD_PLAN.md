@@ -1,10 +1,10 @@
 # AllfatherChess Extended Build Plan
 
-**Status:** Post-PR #18 architecture and implementation plan  
+**Status:** Post-PR #19 planning baseline; implementation baseline remains PR #18  
 **Date:** 2026-09-22  
-**Scope:** Expand the existing `docs/BUILD_PLAN.md` from the current M12 control/resource milestone through cross-feed, decision authority, native integration, governed policy evolution, and the final equal-resource strength campaign.
+**Scope:** Expand the existing `docs/BUILD_PLAN.md` from the current M12 control/resource milestone through typed cross-feed evidence, counterfactual and active hybrid decision authority, backend/resource qualification, recursive refinement, native integration, governed policy evolution, and the final equal-resource strength campaign.
 
-This document is intentionally more detailed than `docs/BUILD_PLAN.md`. It does not replace the existing build plan, telemetry contracts, shard ledgers, replay contracts, or claim ledger. It specifies the proposed build sequence from the current repository state after PR #18.
+This document is intentionally more detailed than `docs/BUILD_PLAN.md`. It does not replace the existing build plan, telemetry contracts, shard ledgers, replay contracts, or claim ledger. PR #19 merged this document only; the runtime/control implementation baseline is still the code delivered through PR #18. The first post-plan implementation milestone is therefore PR #20.
 
 ---
 
@@ -39,9 +39,9 @@ The final product must therefore satisfy all of these simultaneously:
 
 ---
 
-## 2. Current repository baseline after PR #18
+## 2. Current repository baseline after PR #19
 
-The current codebase already has the control substrate required to begin the actual hybrid-strength work.
+PR #19 was documentation-only. The current runtime codebase is still the PR #18 implementation state, which already has the control substrate required to begin the actual hybrid-strength work.
 
 ### 2.1 Implemented control layers
 
@@ -88,7 +88,7 @@ The following remain open and must not be hidden by future work:
 - descriptive RELOCK is not a chess certificate;
 - current specialist reserve fractions are policy choices, not proven optima;
 - REFINE is one descendant shell only;
-- cross-feed does not yet exist;
+- no typed cross-feed evidence layer exists yet; however, PR #14/#15 VERIFY already performs the expensive common-support re-search that cross-feed v1 should consume rather than duplicate;
 - no hybrid decision has been prospectively frozen and scored against later outcomes;
 - no equal-resource strength claim exists.
 
@@ -473,473 +473,707 @@ The final strength engine should not depend on all three solvers being equally a
 
 ## 6. Cross-feed design
 
-Cross-feed is the next milestone because PR #18 has finally made specialist work accountable.
+Cross-feed is the next implementation milestone because PR #18 made specialist work accountable and the existing VERIFY path already performs the expensive common-support operation.
 
-### 6.1 Cross-feed v1 should transfer candidates, not scores
+The important repo-level correction is:
 
-The first safe cross-feed object should be approximately:
+~~~text
+Do not add another cross-engine search phase merely to call it cross-feed.
 
-```python
-CandidateHint(
-    move,
-    source_engine,
-    source_role,
-    source_phase,
-    source_rank,
-    pv_prefix,
-    work,
-    observed_ms,
-    native_evaluation,
-    native_semantics,
-    provenance_ref,
-)
-```
+EXPLORE
+  -> owner-bestmove union
+  -> existing common-support VERIFY
+  -> existing VERIFY analysis / optional REFINE
+  -> NEW typed cross-feed view
+~~~
 
-The recipient may use the hint to nominate VERIFY/REFINE/adjudication work.
+The current repository already supplies the search work:
 
-It may not directly reinterpret `native_evaluation` in another engine's scale.
+- controller.shadow._execute_verification() reuses the three configured shadow instances after EXPLORE;
+- controller.verification.build_verification_plan() freezes the owner-bestmove union as one common candidate set;
+- controller.verification_analysis reconstructs those common-support trajectories and derives pairwise/triad structure plus descriptive RELOCK;
+- controller.refinement can add one descendant shell when completed VERIFY remains non-unanimous.
 
-### 6.2 Cross-feed cannot violate ownership
+Cross-feed v1 should therefore be an evidence-composition layer over those existing artifacts and in-memory run objects, not a fourth search protocol.
 
-If LC0 discovers a move owned by LC0 during EXPLORE and Stockfish later examines that same root because of the hint, the second search is not EXPLORE. It must be tagged and charged as one of:
+### 6.1 Cross-feed v1 should transfer candidates, provenance, and typed native evidence
 
-```text
-VERIFY
-REFINE
-ADJUDICATE
-```
+The first safe transfer object should carry facts such as:
 
-The ownership ledger therefore remains true.
+~~~text
+CandidateHint
+  move
+  source owner / instance / family
+  source phase
+  source rank
+  PV prefix
+  source-native work
+  source-native evaluation
+  native semantics tag
+  source run / stage identity
+  provenance references
+~~~
 
-### 6.3 Cross-feed needs a no-effect shadow phase first
+The recipient or decision layer may use the hint to nominate later VERIFY, REFINE, or adjudication work.
 
-Before cross-feed can alter a move:
+It may not reinterpret one engine's numeric evaluation in another engine's scale.
 
-```text
-actual outward = anchor bestmove
-counterfactual hybrid = computed and frozen separately
-```
+### 6.2 Build one pure in-memory view and one sealed artifact
 
-This produces honest evidence about:
+The implementation should have two forms of the same information:
 
-- how often the hybrid would differ;
-- whether differences survive deeper reference search;
-- whether differences improve game outcomes;
-- cost per useful decision change;
-- which source-engine hints matter;
-- where cross-feed only adds noise.
+~~~text
+completed in-memory VERIFY / REFINE evidence
+        |
+        v
+CrossFeedView
+        |
+        +--> counterfactual decision code may consume the immutable view
+        |
+        v
+after parent/VERIFY/REFINE manifests finalize
+        |
+        v
+sealed crossfeed/manifest.json
+~~~
+
+This avoids two bad designs:
+
+1. forcing the hot path to re-read finalized files before it can reason; and
+2. persisting an unbound derived artifact before the source manifests exist.
+
+The sealed artifact must hash-bind the parent replay manifest, VERIFY manifest, and REFINE manifest when REFINE was consumed.
+
+### 6.3 Cross-feed cannot violate ownership
+
+If LC0 discovers a move in its EXPLORE region and Stockfish later examines that move, the later work is not EXPLORE.
+
+It must already be represented as VERIFY, REFINE, or a future explicit ADJUDICATE phase. The RootShardLedger / PrefixShardLedger ownership facts remain unchanged.
+
+### 6.4 Cross-feed v1 gets no decision authority
+
+PR #20 must prove:
+
+~~~text
+cross-feed enabled
+or
+cross-feed disabled
+
+=> identical outward anchor bestmove
+~~~
+
+The cross-feed view may be generated, sealed, replayed, and audited, but Stockfish anchor remains sole outward authority.
+
+### 6.5 The initial no-effect phase is still useful
+
+With the outward move unchanged, later counterfactual tooling can measure:
+
+- how often a hybrid policy would differ from the anchor;
+- which engine introduced the eventual common candidate;
+- whether VERIFY convergence survives deeper reference work;
+- whether REFINE changes the candidate;
+- which evidence patterns are associated with useful or useless extra compute.
+
+That evidence is required before any cross-feed result gets chess decision authority.
 
 ---
 
 # 7. Extended PR train
 
-The PR numbers below continue the current merged sequence. Scope should remain narrow enough that every behavioral change can be ablated independently.
+PR #19 is already merged and is documentation-only. The implementation train therefore begins at PR #20.
 
-## PR #19 — Typed cross-feed substrate, shadow-only
+The sequencing below is anchored to the current repository boundaries:
 
-### Purpose
+- controller.runtime owns configuration/process identity;
+- controller.shadow owns live generation barriers, EXPLORE/VERIFY/REFINE dispatch and the anchor-completion race;
+- controller.verification and controller.refinement own raw specialist evidence;
+- controller.verification_analysis owns derived common-support analysis;
+- controller.routing and controller.budget own compute authorization and accounting;
+- controller.uci_frontend is the only outward UCI authority path;
+- Replay schema v1 remains the raw execution record and must not absorb derived decision artifacts.
 
-Create the information-transfer plane without granting any new decision authority.
+## PR #19 — Extended build-plan documentation
 
-### Add
+**Status: merged.**
 
-- `controller/crossfeed.py`
-- `tests/controller/test_crossfeed.py`
-- `scripts/crossfeed-contract.py`
-- `docs/CROSS_FEED.md`
-- `config/allfather.crossfeed.validation.json`
-
-### Modify
-
-- `controller/shadow.py`
-- `controller/replay.py`
-- `controller/runtime.py`
-- `controller/routing.py`
-- `tests/controller/test_shadow_runtime.py`
-- `tests/controller/test_replay.py`
-- `Makefile`
-- relevant CI workflow(s)
-
-### Implement
-
-- immutable `CandidateHint`;
-- `CrossFeedBundle`;
-- source/phase/provenance binding;
-- canonical move identity;
-- deterministic ordering;
-- duplicate-hint collapse without losing provenance;
-- target-owner nomination;
-- strict prohibition on raw score conversion;
-- separate cross-feed artifact;
-- shadow-only generation.
-
-### Acceptance
-
-- cross-feed produces no outward behavior change;
-- EXPLORE ownership is unchanged;
-- every re-search nomination is typed as non-EXPLORE;
-- identical raw evidence creates identical cross-feed digest;
-- malformed provenance fails closed;
-- engine-native score semantics remain intact.
+This PR introduced this document only. It did not change runtime behavior, search semantics, budget accounting, decision authority, or backend qualification.
 
 ---
 
-## PR #20 — Counterfactual hybrid decision laboratory
+## PR #20 — Typed cross-feed evidence plane, shadow-only
 
 ### Purpose
 
-Compute what Allfather **would** choose if specialist evidence were allowed to influence the decision, while keeping Stockfish anchor outward authority.
+Expose the information already created by EXPLORE -> VERIFY -> optional REFINE as one deterministic, typed, replayable evidence view without dispatching any new engine search and without changing the outward move.
 
 ### Add
 
-- `controller/decision.py`
-- `controller/counterfactual.py`
-- `tests/controller/test_decision.py`
-- `tests/controller/test_counterfactual.py`
-- `scripts/counterfactual-decision-contract.py`
-- `scripts/counterfactual-decision-sweep.py`
-- `docs/DECISION_AUTHORITY.md`
+- controller/crossfeed.py
+- tests/controller/test_crossfeed.py
+- scripts/crossfeed-contract.py
+- docs/CROSS_FEED.md
+- config/allfather.crossfeed.validation.json
 
 ### Modify
 
-- `controller/shadow.py`
-- `controller/verification_analysis.py`
-- `controller/refinement.py`
-- `controller/replay.py`
-- `controller/routing.py`
+- controller/runtime.py
+- controller/shadow.py
+- controller/verification.py
+- controller/refinement.py
+- tests/controller/test_shadow_runtime.py
+- Makefile
+- .github/workflows/controller-shell.yml
 
-### Core objects
+### Runtime wiring
 
-```text
+Add CrossFeedSettings to controller.runtime and one optional RuntimeConfig field.
+
+The loader should require:
+
+~~~text
+mode in {shadow, active}
+crossfeed.enabled == true
+verification.enabled == true
+~~~
+
+Cross-feed v1 gets no dispatch limit because it launches no new search.
+
+The new config exists only to make the capability explicit and ablatable.
+
+### Data model
+
+Implement immutable objects such as:
+
+~~~text
+CandidateHint
+CrossFeedView
+CrossFeedArtifact
+~~~
+
+CandidateHint should bind at least:
+
+~~~text
+move
+source_owner
+source_instance
+source_family
+source_phase
+source_rank
+pv_prefix
+native_evaluation
+native_semantics
+native_work
+search_id
+source_run_id
+~~~
+
+No field may contain a derived cross-engine score delta.
+
+### Construction path
+
+In controller.shadow:
+
+1. complete EXPLORE exactly as today;
+2. complete existing VERIFY exactly as today;
+3. complete existing REFINE exactly as today when applicable;
+4. build an in-memory CrossFeedView from completed specialist state;
+5. never let that view affect RouterCommand, anchor authority, or bestmove;
+6. during finalization, finalize parent replay first;
+7. finalize VERIFY;
+8. finalize REFINE when present;
+9. seal crossfeed/manifest.json by hashing the exact source manifests and stream identities.
+
+This ordering is important because the current finalizer already produces parent -> VERIFY -> REFINE provenance in that order.
+
+### Tests
+
+Unit tests must cover:
+
+- deterministic candidate ordering;
+- canonical move validation;
+- source-family / source-owner consistency;
+- duplicate candidate collapse without provenance loss;
+- incomplete VERIFY preserved as incomplete rather than promoted;
+- missing/failed REFINE preserved as absent/incomplete;
+- source-native semantics retained;
+- no raw score averaging/conversion;
+- source tamper detection;
+- deterministic digest under identical source bytes;
+- changed digest when any source identity changes.
+
+The end-to-end contract should run the existing fake/real VERIFY path and require one cross-feed artifact with no additional engine search stage.
+
+### Acceptance gate
+
+- no new engine dispatch exists solely because cross-feed is enabled;
+- EXPLORE ownership snapshots are byte-equivalent to the same run shape without cross-feed;
+- raw replay, VERIFY, and REFINE artifacts remain separate;
+- cross-feed is derived and source-bound;
+- outward bestmove remains Stockfish anchor;
+- cross-feed construction failure cannot change the outward move;
+- controller-shell CI compiles and runs the new tests.
+
+---
+
+## PR #21 — Counterfactual hybrid decision laboratory
+
+### Purpose
+
+Answer the first actual hybrid-intelligence question:
+
+> Given the evidence Allfather already collected, what move would a hybrid decision policy have proposed?
+
+The answer is still research evidence. The UCI frontend continues to emit the Stockfish anchor move.
+
+### Add
+
+- controller/decision.py
+- controller/counterfactual.py
+- tests/controller/test_decision.py
+- tests/controller/test_counterfactual.py
+- scripts/counterfactual-decision-contract.py
+- scripts/counterfactual-decision-sweep.py
+- docs/DECISION_AUTHORITY.md
+
+### Modify
+
+- controller/shadow.py
+- controller/verification_analysis.py
+- controller/crossfeed.py
+- tests/controller/test_shadow_runtime.py
+- Makefile
+- controller-shell CI
+
+### Type separation
+
+Define separate immutable types for:
+
+~~~text
 DecisionCandidate
 DecisionEvidence
 DecisionProposal
 DecisionAuthorization
 DecisionDisposition
 CounterfactualDecision
-```
+~~~
 
-### Initial policy
+ResourceAuthorization from routing remains a different type and authority domain.
 
-The safest first counterfactual policy is not a vote.
+### Initial policy v1
 
-Use:
+Do not implement voting or numeric score fusion.
 
-1. anchor candidate;
-2. clean EXPLORE nominees;
-3. common-support VERIFY evidence;
-4. optional one-level REFINE evidence;
-5. one final adjudication policy over a bounded common candidate set;
-6. fallback to anchor whenever completeness requirements fail.
+The first policy should be deliberately narrow:
 
-No raw cross-engine score average.
+~~~text
+cross-feed / VERIFY evidence incomplete
+    -> NO_HYBRID_PROPOSAL
 
-### Acceptance
+VERIFY complete but final leaders non-unanimous
+    -> NO_HYBRID_PROPOSAL
 
-- outward bestmove remains Stockfish anchor;
-- counterfactual result is frozen before later reference labels;
-- incomplete VERIFY/REFINE cannot silently become complete;
-- policy version is included in the decision digest;
-- replay regenerates the same counterfactual decision.
+VERIFY complete and final leaders unanimous on one legal common-support move
+    -> HYBRID_PROPOSAL(move)
+
+any stale / malformed / unbound input
+    -> NO_HYBRID_PROPOSAL
+~~~
+
+Descriptive RELOCK may be recorded as evidence, but RELOCK_OBSERVED is not itself a chess correctness certificate and should not bypass decision-policy checks.
+
+### Freeze point
+
+The counterfactual proposal must be frozen from only evidence available in that run before any later deep-reference or game-result label is attached.
+
+Persist separately:
+
+~~~text
+<run>/decision/counterfactual.json
+~~~
+
+The record should include:
+
+- anchor move;
+- proposed hybrid move or none;
+- policy/version;
+- evidence digest;
+- source cross-feed digest;
+- disposition/reason;
+- outward_authority = anchor.
+
+### Runtime preparation for PR #25
+
+The decision builder should be pure and usable both:
+
+1. offline from sealed artifacts; and
+2. in-memory from a completed CrossFeedView.
+
+When specialist evidence finishes before the anchor, controller.shadow may freeze an in-memory CounterfactualDecision on the active run, but must not expose it outward yet.
+
+### Acceptance gate
+
+- exactly one anchor bestmove still reaches stdout;
+- a counterfactual proposal cannot mutate Replay schema v1;
+- replaying the same source artifacts yields the same decision digest;
+- incomplete evidence never becomes unanimity;
+- policy version is digest-bound;
+- later outcome labels cannot alter an already-written counterfactual decision.
 
 ---
 
-## PR #21 — Chess-specific value-of-compute labels and prospective calibration
+## PR #22 — Prospective chess-specific value-of-compute calibration
 
 ### Purpose
 
-Replace self-reversal-only calibration with labels that can answer whether additional compute was useful to the final chess decision.
+Replace the current self-reversal/stability-only question with the decision-relevant question:
+
+> Was another unit of specialist compute useful enough to justify its cost?
 
 ### Add
 
-- `controller/value_of_compute.py`
-- `controller/decision_calibration.py`
-- `tests/controller/test_value_of_compute.py`
-- `scripts/value-of-compute-sweep.py`
-- `docs/VALUE_OF_COMPUTE.md`
+- controller/value_of_compute.py
+- controller/decision_calibration.py
+- tests/controller/test_value_of_compute.py
+- tests/controller/test_decision_calibration.py
+- scripts/value-of-compute-sweep.py
+- scripts/decision-calibration.py
+- docs/VALUE_OF_COMPUTE.md
 
-### Labels
+### Keep current calibration intact
 
-Keep distinct:
+controller.calibration.py and the conservative_v1 reversal-risk model remain the historical routing model until this new label family is independently qualified.
 
-```text
+Do not silently redefine old model semantics.
+
+### Frozen checkpoint records
+
+At a checkpoint record only past-available features, for example:
+
+- observation count;
+- leader flips;
+- stable-run fraction;
+- top-k / PV-prefix churn when defined;
+- VERIFY state so far;
+- unresolved candidate count;
+- REFINE persistence;
+- source-native work;
+- elapsed / remaining budget;
+- source family;
+- evidence completeness flags.
+
+Later attach separate labels such as:
+
+~~~text
 decision_changed
+decision_stabilized
 candidate_survived_full_budget
-deep_reference_agreement
+deep_reference_agrees
+verify_changed_decision
+refine_changed_decision
+crossfeed_changed_decision
 game_outcome_delta
-verification_changed_adjudication
-refinement_changed_adjudication
-crossfeed_changed_adjudication
-```
+~~~
 
-No single label is called `correct` unless its authority is explicitly defined.
+Never collapse these into one field named correct.
 
-### Required experiment discipline
+### Data firewall
 
-- features frozen before the later label;
-- no final-depth evidence in an earlier checkpoint feature vector;
-- train/calibration/holdout separation;
-- position-family separation where needed;
-- engine version and hardware identity pinned;
-- deeper-engine labels explicitly marked proxy labels;
-- game outcomes separately tracked.
+Training/calibration code must prove that no label-time information appears in the earlier feature vector.
 
-### Acceptance
+Split train/calibration/holdout by run identity and, where needed, by position family/opening family so near-duplicate positions cannot leak.
 
-The router can answer a bounded question such as:
+### Acceptance gate
 
-> Under this calibrated domain, did another 100 ms / N nodes of VERIFY historically change the eventual decision often enough to justify its cost?
+The output may support a bounded statement such as:
 
-It still cannot claim that the resulting decision is globally optimal.
+> In this calibrated domain, another N nodes / X ms of VERIFY changed the eventual frozen decision at rate R.
+
+It does not yet support:
+
+> This move is objectively correct.
 
 ---
 
-## PR #22 — Strength-qualified LC0 profile
+## PR #23 — Strength-qualified LC0 profile
 
 ### Purpose
 
-Remove the largest current backend qualification blocker.
+Remove the largest backend qualification blocker before LC0 evidence can support a strength claim or active hybrid move.
 
-### Add / modify
+### Modify / add
 
-- pin a real LC0 network in `vendor.lock.json` or a dedicated locked artifact section;
-- add a strength hardware profile under `config/`;
-- extend LC0 adapter configuration for the selected real backend;
-- add `scripts/lc0-strength-profile-contract.py`;
-- add qualification fixtures and documentation.
+- vendor.lock.json or another existing locked-artifact section for the selected LC0 network identity;
+- config/allfather.strength.validation.json;
+- LC0 runtime/adapter configuration needed for the chosen real backend;
+- scripts/lc0-strength-profile-contract.py;
+- docs/STRENGTH_BACKENDS.md;
+- qualification tests that do not replace the fast random-backend CI profile.
 
-### Requirements
+### Pin
 
-Record:
-
-- exact LC0 commit/tree;
-- exact network SHA-256;
-- backend type;
+- LC0 source/tree identity;
+- network file identity and SHA-256;
+- backend;
 - GPU model;
-- driver/runtime versions;
-- batch settings;
-- thread settings;
-- deterministic/reproducibility limits;
+- driver/runtime;
+- batch/minibatch settings;
+- cache settings;
+- searcher/thread settings;
+- memory limits;
 - warmup policy;
-- memory limits.
+- ScoreType;
+- reproducibility limitations.
 
-### Acceptance
+### Acceptance gate
 
-LC0 is no longer represented by the random/backend-light validation profile in any strength claim.
-
-The backend-light profile remains available for fast controller CI.
+The backend-light random profile remains the controller CI profile, but no strength-facing run may call it LC0 strength evidence.
 
 ---
 
-## PR #23 — Measured process resource accounting
+## PR #24 — Measured process resource accounting
 
 ### Purpose
 
-Upgrade equal-resource evidence from configured estimates toward physical measurement.
+Preserve the PR #18 reservation model while separating declared/reserved cost from measured physical consumption.
 
 ### Add
 
-- `controller/resource_measurement.py`
-- `adapters/resource/`
-- `tests/controller/test_resource_measurement.py`
-- `scripts/resource-accounting-contract.py`
-- `docs/RESOURCE_ACCOUNTING.md`
+- controller/resource_measurement.py
+- adapters/resource/
+- tests/controller/test_resource_measurement.py
+- scripts/resource-accounting-contract.py
+- docs/RESOURCE_ACCOUNTING.md
 
 ### Modify
 
-- `controller/budget.py`
-- `controller/routing.py`
-- `controller/shadow.py`
-- active configuration profiles.
+- controller/budget.py
+- controller/routing.py
+- controller/shadow.py
+- strength configuration
+- relevant tests and CI compile lists.
 
-### Measure where available
+### Preserve existing ledger semantics
+
+The current BudgetLedger already correctly does:
+
+~~~text
+reserve
+-> dispatch
+-> settle
+~~~
+
+Keep that.
+
+Extend settlement/reporting so the ledger can retain both:
+
+~~~text
+declared / reserved cost
+measured actual cost
+~~~
+
+Do not overwrite one with the other.
+
+### Measure on the qualification platform where supported
 
 - process CPU time;
-- child-process CPU time;
+- child process CPU time;
+- controller CPU time;
 - wall time;
-- peak / sampled RSS;
-- accelerator utilization or device time under the chosen qualification platform;
+- RSS / memory;
+- accelerator utilization or device time;
 - GPU memory;
-- controller process CPU;
-- synchronization / IPC overhead.
+- IPC/controller overhead.
 
-### Architecture
+The existing wall x configured-threads estimate remains available as an estimate, but it must be labeled as such once measured CPU data exists.
 
-The budget ledger should preserve two axes:
+### Acceptance gate
 
-```text
-declared / reserved budget
-measured actual consumption
-```
-
-Never overwrite one with the other.
-
-### Claim rule
-
-If accelerator measurement is unavailable, the run may remain useful for development but cannot support the strongest equal-resource claim.
+A run may be development-valid with partial measurement, but the strongest equal-resource claim requires the declared qualification platform's required CPU/GPU measurements.
 
 ---
 
-## PR #24 — Active hybrid decision authority v0
+## PR #25 — Active hybrid decision authority v0
 
 ### Purpose
 
-Permit a tightly bounded subset of searches to return a hybrid move rather than the anchor move.
+Permit a tightly bounded, already-frozen hybrid proposal to replace the Stockfish anchor move.
 
-### Safety model
+This is the first PR that changes chess decision authority.
 
-Stockfish anchor remains mandatory and becomes fallback/reference rather than sole authority.
+### Critical repo seam
 
-### Initial authorization conditions
+Today controller.uci_frontend._on_search_complete():
 
-A hybrid move may be emitted only if:
+1. calls shadow.note_anchor_complete();
+2. marks the UCI shell ready;
+3. immediately writes the anchor bestmove.
 
-- bounded outward search request;
-- legal move;
-- all required evidence artifacts complete;
-- active resource envelope valid;
-- decision policy in calibrated domain;
-- common candidate basis valid;
-- no open reservation;
+PR #25 must change this path without blocking the anchor stdout reader on engine work or filesystem IO.
+
+### Required authority design
+
+By the time the anchor bestmove arrives, any hybrid proposal eligible for v0 must already be frozen in memory.
+
+The anchor completion callback may perform only bounded in-memory authorization.
+
+Conceptually:
+
+~~~text
+anchor bestmove callback
+    -> publish anchor completion boundary
+    -> read already-frozen CounterfactualDecision
+    -> run bounded DecisionAuthorization checks
+       -> granted: return hybrid move
+       -> denied/missing: return original anchor move
+    -> UciFrontend emits exactly one bestmove
+~~~
+
+No new VERIFY/REFINE/engine search may start after the current anchor-completion lock boundary.
+
+### Add
+
+- FinalDecision / DecisionAuthorization result in controller/decision.py;
+- config/allfather.hybrid.validation.json;
+- scripts/active-hybrid-decision-contract.py;
+- active-hybrid frontend/runtime tests.
+
+### Modify
+
+- controller/uci_frontend.py;
+- controller/shadow.py;
+- controller/runtime.py;
+- controller/decision.py;
+- controller/budget.py / routing only for the authorization facts they own;
+- tests/controller/test_uci_frontend.py;
+- tests/controller/test_shadow_runtime.py.
+
+### Initial supported request class
+
+Start with a narrow bounded request class, preferably go movetime, with an explicit configuration gate.
+
+Unsupported request forms such as infinite / ponder / complex clock control remain anchor-authority until separately qualified.
+
+### Authorization gate
+
+Hybrid emission requires all of:
+
+- legal proposed move;
+- current generation/position match;
+- frozen decision policy/version;
+- complete required evidence;
+- source digests match;
+- no evidence-loss flag;
+- bounded request class;
+- active envelope claim still valid for the run state used;
+- no open indispensable specialist reservation;
+- proposal existed before anchor completion;
 - no stale backend generation;
-- adjudication finished before the deadline;
-- no fail-closed condition triggered.
+- no fail-closed reason.
 
-Otherwise:
+Any failure returns the buffered anchor move.
 
-```text
-bestmove = anchor bestmove
-```
+### Acceptance gate
 
-### Modify
-
-- `controller/uci_frontend.py`
-- `controller/runtime.py`
-- `controller/shadow.py`
-- `controller/decision.py`
-- `controller/budget.py`
-- `controller/routing.py`
-- `tests/controller/test_uci_frontend.py`
-- `tests/controller/test_shadow_runtime.py`
-
-### Add
-
-- `scripts/active-hybrid-decision-contract.py`
-- `config/allfather.hybrid.validation.json`
-
-### Acceptance
-
-- hybrid authority is opt-in;
-- anchor fallback remains deterministic;
-- decision and resource authorization remain distinct;
-- every outward hybrid bestmove has a complete decision certificate;
-- failure of any specialist never silently promotes another specialist;
-- no move is emitted after deadline.
+- one and only one bestmove is emitted;
+- hybrid-disabled mode stays byte-for-byte anchor behavior;
+- hybrid failure falls back to anchor, never another specialist;
+- anchor process failure still produces the existing fail-closed behavior;
+- no blocking engine work or file IO is added to the anchor stdout callback;
+- decision certificate records whether authority was HYBRID or ANCHOR_FALLBACK.
 
 ---
 
-## PR #25 — Multi-level recursive REFINE
+## PR #26 — Multi-level recursive REFINE
 
 ### Purpose
 
-Move beyond the current one-child-shell refinement while preserving prefix-free ownership.
+Generalize the current one-child-shell refinement into bounded recursive zoom while preserving PrefixShardLedger invariants.
 
 ### Modify
 
-- `controller/prefix_shards.py`
-- `controller/refinement.py`
-- `common/prefix_dispatch.py`
-- `controller/budget.py`
-- `controller/routing.py`
-- `tests/controller/test_prefix_shards.py`
-- `tests/controller/test_refinement.py`
+- controller/prefix_shards.py;
+- controller/refinement.py;
+- common/prefix_dispatch.py;
+- controller/budget.py;
+- controller/routing.py;
+- tests/controller/test_prefix_shards.py;
+- tests/controller/test_refinement.py.
 
 ### Add
 
-- `controller/refinement_policy.py`
-- `tests/controller/test_refinement_policy.py`
-- `scripts/recursive-refinement-contract.py`
+- controller/refinement_policy.py;
+- tests/controller/test_refinement_policy.py;
+- scripts/recursive-refinement-contract.py.
 
 ### Rules
 
-- recursion depth is budgeted;
-- split only SEALED eligible leaves;
+- every split begins at a SEALED eligible leaf;
+- exact Stockfish perft child legality is required;
 - frontier remains prefix-free;
-- exact child legality required;
-- every deeper split has explicit nomination evidence;
-- no recursive work after outward decision boundary;
-- ownership inheritance and transfer remain atomic;
-- routing may stop refinement at any depth.
+- child ownership inheritance/transfer remains atomic;
+- every deeper split needs explicit nomination evidence;
+- each oracle/stage reserves before dispatch;
+- recursion terminates on resolution, budget exhaustion, depth cap, anchor boundary, or failure;
+- no descendant work starts after outward decision boundary.
 
-### Goal
+### Acceptance gate
 
-Turn REFINE into a genuine zoom mechanism:
-
-```text
-large unresolved region
-→ identify persistent defect
-→ split only that region
-→ repeat until resolved or budget exhausted
-```
+Recursive REFINE can zoom multiple levels without weakening ownership or resource accounting. No claim that the chosen refinement policy improves Elo yet.
 
 ---
 
-## PR #26 — Engine-specific cross-feed adapters
+## PR #27 — Engine-specific cross-feed adapters
 
 ### Purpose
 
-Let each backend consume typed information in the way that matches its native search paradigm.
+Let each engine consume typed candidate information in a way compatible with its own search paradigm while remaining inside explicit VERIFY/REFINE/ADJUDICATE semantics.
 
-### Initial subprocess-safe adapters
+### Add
 
-Examples:
+- adapters/crossfeed/stockfish.py;
+- adapters/crossfeed/reckless.py;
+- adapters/crossfeed/lc0.py;
+- corresponding tests and contract fixtures.
 
-- common candidate-set adjudication through `searchmoves`;
-- candidate subset VERIFY;
+### Initial subprocess-safe operations
+
+- common candidate-set search via searchmoves;
+- candidate-subset VERIFY;
 - PV-prefix REFINE;
 - tactical-alarm nomination;
-- source-rank-informed budget priority.
+- source-rank-informed route priority.
 
-### Do not yet claim
+### Nonclaims
 
-- LC0 policy directly rewrites Stockfish native move ordering;
-- Stockfish tactical score directly rewrites LC0 Q values;
-- engine-native trees are unified.
+Do not yet claim:
 
-Those require native integration or separately validated translation semantics.
+- LC0 policy directly rewrites native Stockfish move ordering;
+- Stockfish cp directly rewrites LC0 Q/value;
+- native search trees are unified.
 
-### Add
-
-- `adapters/crossfeed/stockfish.py`
-- `adapters/crossfeed/reckless.py`
-- `adapters/crossfeed/lc0.py`
-- corresponding tests.
-
-### Acceptance
-
-Every adapter exposes what it consumed and how the hint affected dispatch. No hidden heuristic injection.
+Those require later native hooks and separate validation.
 
 ---
 
-## PR #27 — Search-regime classifier
+## PR #28 — Search-regime classifier
 
 ### Purpose
 
-Use current evidence to classify what type of search state the controller is in, then condition routing without pretending that one policy is optimal everywhere.
+Classify the current search situation from source-typed evidence so the router can condition later route proposals without pretending one policy is optimal everywhere.
 
 ### Add
 
-- `controller/regimes.py`
-- `controller/regime_calibration.py`
-- `tests/controller/test_regimes.py`
-- `scripts/regime-sweep.py`
-- `docs/SEARCH_REGIMES.md`
+- controller/regimes.py;
+- controller/regime_calibration.py;
+- tests/controller/test_regimes.py;
+- scripts/regime-sweep.py;
+- docs/SEARCH_REGIMES.md.
 
-### Candidate regimes
+### Candidate regime vocabulary
 
-These are hypotheses to calibrate, not frozen truth:
+Hypotheses to calibrate, not truth labels:
 
-```text
+~~~text
 STABLE_CONVERGENT
 TACTICAL_RUPTURE
 CROSS_ENGINE_DISAGREEMENT
@@ -949,63 +1183,40 @@ TIME_CRITICAL
 REFINEMENT_PRODUCTIVE
 REFINEMENT_STALLED
 OUT_OF_DOMAIN
-```
+~~~
 
-### Inputs
-
-Prefer scale-free / source-typed evidence:
-
-- leader turnover;
-- top-k churn;
-- PV-prefix divergence;
-- VERIFY triad state;
-- unresolved-set size;
-- work-after-stability ratio;
-- tablebase/terminal evidence;
-- prefix-refinement persistence;
-- source-specific rank entropy where valid.
-
-### Output
-
-A regime may change what work is nominated. It does not itself authorize a move.
+A regime may nominate work. It does not authorize a move.
 
 ---
 
-## PR #28 — Decision-router v1
+## PR #29 — Unified value-of-compute decision router
 
 ### Purpose
 
-Unify resource routing, regime state, calibrated value-of-compute, and hybrid decision authorization into one typed controller loop.
+Bring current routing, new decision calibration, regime state, and hybrid authorization into one typed loop without collapsing their authorities.
 
-### Proposed loop
+### Target loop
 
-```text
+~~~text
 observe
-→ summarize
-→ classify regime
-→ identify unresolved decision mass
-→ generate route proposals
-→ estimate value/cost
-→ authorize one bounded route
-→ reserve
-→ dispatch
-→ settle
-→ update evidence
-→ repeat or decide
-```
+-> summarize
+-> classify regime
+-> estimate unresolved decision mass
+-> propose route
+-> estimate value/cost
+-> authorize resource
+-> reserve
+-> dispatch
+-> settle
+-> update evidence
+-> decide / repeat / fallback
+~~~
 
-### Modify
+### Route vocabulary
 
-- `controller/routing.py`
-- `controller/budget.py`
-- `controller/decision.py`
-- `controller/regimes.py`
-- `controller/refinement_policy.py`
-- `controller/shadow.py`
+Evolve the current RouteAction family toward explicit actions such as:
 
-### Required actions
-
-```text
+~~~text
 CONTINUE_OWNER
 VERIFY_SET
 REFINE_PREFIX
@@ -1015,158 +1226,124 @@ STOP_OWNER
 FALLBACK_ANCHOR
 ABSTAIN_BUY_COMPUTE
 DECIDE_HYBRID
-```
+~~~
 
-### Acceptance
-
-One route action per authorization point; no action has hidden side effects outside its declared scope.
+The decision action still requires DecisionAuthorization; RouteAction alone never becomes bestmove authority.
 
 ---
 
-## PR #29 — Structured IPC / local protocol
+## PR #30 — Structured IPC experiment
 
 ### Purpose
 
-Measure and remove avoidable subprocess/UCI parsing overhead before embedding full engine libraries.
+Measure whether a typed local protocol improves latency/control enough to justify replacing selected UCI text boundaries.
 
 ### Add
 
-A versioned structured local protocol for:
+A versioned request/result/telemetry protocol for one backend first.
 
-- search request;
-- root restriction;
-- telemetry frames;
-- cancellation;
-- result;
-- resource metadata.
+Compare:
 
-### Strategy
+~~~text
+current UCI process adapter
+vs
+structured local adapter
+~~~
 
-Do not rewrite all three engines at once.
+Keep the UCI adapter as parity/reference implementation.
 
-First wrap one backend behind a structured adapter and run A/B comparisons against the UCI adapter.
-
-### Promotion condition
-
-Native/structured transport is retained only if it improves:
-
-- latency;
-- control granularity;
-- telemetry fidelity;
-- cancellation behavior;
-- compute efficiency;
-
-without changing chess semantics unexpectedly.
+Promotion requires measured benefit and no unexplained chess-semantic drift.
 
 ---
 
-## PR #30 — Selective native engine integration
+## PR #31 — Selective native engine integration
 
 ### Purpose
 
-Embed only the interfaces whose measured value justifies losing process isolation.
+Embed only the hooks whose measured value justifies tighter coupling.
 
 ### Candidate order
 
-1. Stockfish restricted search / root ordering control;
+1. Stockfish restricted-search / ordering hooks;
 2. Reckless alpha-beta hooks;
 3. LC0 policy/search hooks.
 
-### Potential native capabilities
+### Required parity
 
-- native candidate ordering;
-- cheaper partial-search continuation;
-- direct node/visit counters;
-- richer stop conditions;
-- subtree/prefix targeting;
-- lower-latency telemetry;
-- policy hints;
-- tactical alarms.
+Every native adapter must pass a compatibility harness against the process adapter for the behavior the controller depends on.
 
-### Hard requirement
-
-Each native adapter must have a compatibility harness proving its externally relevant behavior against the corresponding process adapter before it can replace it.
-
-Process adapters remain the fallback/reference implementation.
+Native integration is an optimization of an already-demonstrated hybrid mechanism, not a prerequisite for learning whether the hybrid mechanism works.
 
 ---
 
-## PR #31 — Offline policy evolution laboratory
+## PR #32 — Offline governed policy evolution laboratory
 
 ### Purpose
 
-Allow Allfather to improve its controller policy without live self-mutation.
+Generate and qualify controller-policy candidates without live self-mutation.
 
 ### Add
 
-- `controller/policy.py`
-- `controller/policy_registry.py`
-- `scripts/policy-candidate-evaluate.py`
-- `scripts/policy-promotion-contract.py`
-- `tests/controller/test_policy_registry.py`
-- `docs/POLICY_EVOLUTION.md`
+- controller/policy.py;
+- controller/policy_registry.py;
+- scripts/policy-candidate-evaluate.py;
+- scripts/policy-promotion-contract.py;
+- tests/controller/test_policy_registry.py;
+- docs/POLICY_EVOLUTION.md.
 
-### Policy candidates may tune
+### Candidate parameters
+
+Examples:
 
 - reserve fractions;
 - stage budgets;
 - regime thresholds;
 - candidate-set widths;
-- verify triggers;
-- refinement triggers;
+- VERIFY triggers;
+- REFINE triggers/depth caps;
 - stop floors;
 - adjudication budget;
 - engine priority;
 - cross-feed eligibility.
 
-### Immutable lifecycle
+### Promotion lifecycle
 
-```text
+~~~text
 ACTIVE_POLICY_n
-→ telemetry
-→ CANDIDATE_POLICY_n+1
-→ frozen train/calibration
-→ holdout
-→ paired games / SPRT where applicable
-→ promotion decision
-→ ACTIVE_POLICY_n+1
-```
+-> telemetry
+-> CANDIDATE_POLICY_n+1
+-> frozen train/calibration
+-> holdout
+-> paired games / confirmatory test
+-> promotion decision
+-> ACTIVE_POLICY_n+1
+~~~
 
-Never:
-
-```text
-recent win
-→ mutate active thresholds in-place
-```
-
-### Anti-self-grading
-
-The candidate policy does not choose its own scorer, holdout, promotion threshold, or baseline after seeing results.
+The candidate policy cannot choose its own scorer, holdout, stopping rule, or baseline after observing results.
 
 ---
 
-## PR #32 — Strength campaign infrastructure
+## PR #33 — Strength campaign infrastructure
 
 ### Purpose
 
-Make strength qualification reproducible and separate from development CI.
+Build reproducible confirmatory match infrastructure separate from development CI.
 
 ### Add
 
-- `scripts/strength-campaign.py`
-- `scripts/match-runner.py`
-- `scripts/sprt.py` or equivalent statistical harness;
-- `docs/STRENGTH_QUALIFICATION.md`;
+- scripts/strength-campaign.py;
+- scripts/match-runner.py;
+- statistical stopping / SPRT tooling;
+- docs/STRENGTH_QUALIFICATION.md;
 - machine-readable match manifests;
-- fixed opening suites;
-- fixed hardware profiles;
-- fixed time/node/resource controls.
+- frozen opening suites;
+- qualification hardware profiles.
 
 ### Required arms
 
 At minimum:
 
-```text
+~~~text
 Stockfish baseline
 Reckless baseline
 LC0 baseline
@@ -1174,64 +1351,46 @@ Allfather anchor-only
 Allfather observation-only
 Allfather VERIFY-only
 Allfather REFINE-only
-Allfather cross-feed counterfactual policy
+Allfather cross-feed/counterfactual
 Allfather active hybrid
 Allfather active hybrid minus each major component
-```
+~~~
 
-### Required resource regimes
-
-- fixed nodes where meaningful;
-- fixed wall time;
-- fixed CPU budget;
-- fixed GPU budget / hardware allocation;
-- mixed CPU+GPU declared envelope;
-- tournament-style time controls.
-
-### Required statistical discipline
+### Discipline
 
 - paired openings/colors;
-- seed/config freeze;
+- predeclared protocol;
+- fixed policy generation;
 - no tuning on confirmatory matches;
-- explicit stopping rule;
+- fixed stopping rule;
 - confidence interval / SPRT reporting;
-- draw-rate reporting;
-- crashes/time losses counted;
-- all exclusions disclosed.
+- crash/time loss inclusion;
+- explicit resource accounting;
+- disclosed exclusions.
 
 ---
 
-## PR #33 — External qualification and release candidate
+## PR #34 — External qualification and release candidate
 
 ### Purpose
 
-Turn a development engine into a defensible release candidate.
+Freeze the first release candidate that can support an equal-resource strength statement bounded to a declared platform/protocol.
 
-### Requirements
+### Gate
 
-- all three backend strength profiles qualified;
-- measured resource accounting available on the qualification platform;
-- no unresolved controller reservation leaks;
-- no orphan processes;
-- deterministic replay for internal controller artifacts where applicable;
-- hybrid policy frozen;
-- strength campaign positive against each declared baseline;
-- regression suite green;
-- UCI compatibility tested against real GUIs/tournament harness;
+- all three backend strength identities pinned;
+- real LC0 profile qualified;
+- required measured resources available;
+- policy generation frozen;
+- no open reservation leaks;
+- hybrid decision replayable;
+- ablations complete;
+- confirmatory campaign positive against each declared constituent baseline under the same resource contract;
+- UCI compatibility tested against real harnesses/GUI;
 - licensing/provenance review complete;
-- claim ledger updated with exact achieved claims and explicit nonclaims.
+- CLAIM_LEDGER updated with exact claims and nonclaims.
 
-The release claim must state the exact:
-
-- hardware;
-- network/model versions;
-- engine commits;
-- controller policy generation;
-- time/resource control;
-- benchmark/match protocol;
-- statistical result.
-
-No generic “best chess engine in the world” claim follows from one local match suite.
+No generic global best-engine claim follows from one local platform/match suite.
 
 ---
 
@@ -1594,15 +1753,15 @@ These shortcuts would destroy the causal information the current architecture ha
 
 # 19. Recommended immediate next implementation
 
-The next code PR should be **PR #19 — Typed cross-feed substrate, shadow-only**.
+The next code PR is **PR #20 — Typed cross-feed evidence plane, shadow-only**.
 
-It is the smallest step that moves toward actual hybrid intelligence without throwing away the safety and experiment discipline already built.
+The repo already contains the expensive cross-engine common-support operation in VERIFY. PR #20 should therefore **not** add another search phase. It should formalize and seal the information that existing EXPLORE / VERIFY / REFINE already produced.
 
-It gives the project a clean answer to:
+The immediate implementation question becomes:
 
-> How can one engine tell the controller something useful that another engine may investigate, without pretending that their scores are interchangeable and without granting the message automatic decision authority?
+> How do we expose one engine's candidate information as typed, provenance-bound evidence that another controller layer may reason over, without converting native scores, weakening ownership, or granting automatic move authority?
 
-Only after that object model is stable should the project build the counterfactual hybrid decision laboratory.
+After that object model is stable, PR #21 builds the counterfactual hybrid decision laboratory on top of it.
 
 ---
 
@@ -1630,25 +1789,25 @@ AllfatherChess is ready for a genuine equal-resource strength claim only when al
 The shortest form of the remaining programme is:
 
 ```text
-PR #18
-resource-governed specialist observation
+PR #19
+extended build-plan documentation (merged)
         ↓
-PR #19–23
-typed cross-feed + counterfactual decisions + useful labels + real backend/resource qualification
+PR #20–24
+typed cross-feed evidence + counterfactual decisions + value-of-compute + real backend/resource qualification
         ↓
-PR #24–28
-bounded hybrid decision authority + recursive refinement + regime/value routing
+PR #25–29
+bounded hybrid decision authority + recursive refinement + engine-specific cross-feed + regime/value routing
         ↓
-PR #29–30
-measured transport/native optimization
-        ↓
-PR #31
-offline governed policy evolution
+PR #30–31
+measured transport / selective native optimization
         ↓
 PR #32
-confirmatory equal-resource strength campaign
+offline governed policy evolution
         ↓
 PR #33
+confirmatory equal-resource strength campaign
+        ↓
+PR #34
 release qualification
 ```
 

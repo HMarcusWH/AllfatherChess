@@ -339,8 +339,7 @@ Nothing below is established by this milestone.
 - The VERIFY child artifact hash-binds the finalized parent replay and its own
   streams. Candidate, PV-head and final-bestmove containment is checked against
   the declared common root set.
-- VERIFY is rejected in active mode until its compute can be settled through
-  the global budget ledger.
+- Active VERIFY requires a prior specialist reservation and settlement through the global BudgetLedger; REFINE uses the same rule for its child oracle and descendant stages.
 - No VERIFY result changes outward decision authority; the unrestricted
   Stockfish anchor remains sole bestmove authority.
 

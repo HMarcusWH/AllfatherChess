@@ -88,6 +88,31 @@ class ShadowRouter(Protocol):
     def on_run_end(self, context: "RunContext") -> None:
         ...
 
+    def authorize_specialist(
+        self,
+        context: "RunContext",
+        *,
+        phase: str,
+        owner: str | None = None,
+        target_id: str | None = None,
+    ) -> str | None:
+        ...
+
+    def settle_specialist(
+        self,
+        token: str,
+        *,
+        actual_wall_ms: float | None = None,
+        threads: int = 1,
+    ) -> None:
+        ...
+
+    def release_specialist(self, token: str, *, reason: str) -> None:
+        ...
+
+    def charge_controller_elapsed(self, label: str, elapsed_ms: float) -> None:
+        ...
+
     @property
     def checkpoint_interval_s(self) -> float:
         ...
@@ -295,6 +320,7 @@ class _ActiveRun:
     refinement: RefinementRun | None = None
     refinement_positioned: set[str] = field(default_factory=set)
     refinement_oracle_active: bool = False
+    specialist_tokens: dict[str, str] = field(default_factory=dict)
     cancelled: bool = False
     cancel_reason: str | None = None
     worker: threading.Thread | None = None
@@ -836,6 +862,13 @@ class ShadowRunCoordinator:
         if refinement_stage is not None and not refinement_stage.done.is_set():
             if active.refinement is not None:
                 message = f"{instance} exited unexpectedly during REFINE; rc={rc}"
+                self._settle_specialist(
+                    active,
+                    key=f"refine:{refinement_stage.target_id}:{refinement_stage.owner}",
+                    dispatched_ms=refinement_stage.dispatched_ms,
+                    completed_ms=elapsed,
+                    instance=refinement_stage.instance,
+                )
                 active.refinement.record_completion(
                     refinement_stage,
                     completed_ms=elapsed,
@@ -849,6 +882,13 @@ class ShadowRunCoordinator:
             return
         if verification_stage is not None and not verification_stage.done.is_set():
             if active.verification is not None:
+                self._settle_specialist(
+                    active,
+                    key=f"verify:{verification_stage.owner}",
+                    dispatched_ms=verification_stage.dispatched_ms,
+                    completed_ms=elapsed,
+                    instance=verification_stage.instance,
+                )
                 active.verification.record_completion(
                     verification_stage,
                     completed_ms=elapsed,
@@ -1053,9 +1093,17 @@ class ShadowRunCoordinator:
                     self.runtime.record_shadow_failure(
                         stage.instance, message, generation=active.generation
                     )
+                    failed_ms = (time.monotonic() - active.started_monotonic) * 1000.0
+                    self._settle_specialist(
+                        active,
+                        key=f"verify:{stage.owner}",
+                        dispatched_ms=stage.dispatched_ms,
+                        completed_ms=failed_ms,
+                        instance=stage.instance,
+                    )
                     active.verification.record_completion(
                         stage,
-                        completed_ms=(time.monotonic() - active.started_monotonic) * 1000.0,
+                        completed_ms=failed_ms,
                         disposition="failed",
                         failure=message,
                     )
@@ -1069,9 +1117,17 @@ class ShadowRunCoordinator:
                     self.runtime.record_shadow_failure(
                         stage.instance, message, generation=active.generation
                     )
+                    failed_ms = (time.monotonic() - active.started_monotonic) * 1000.0
+                    self._settle_specialist(
+                        active,
+                        key=f"refine:{stage.target_id}:{stage.owner}",
+                        dispatched_ms=stage.dispatched_ms,
+                        completed_ms=failed_ms,
+                        instance=stage.instance,
+                    )
                     active.refinement.record_completion(
                         stage,
-                        completed_ms=(time.monotonic() - active.started_monotonic) * 1000.0,
+                        completed_ms=failed_ms,
                         disposition="failed",
                         failure=message,
                     )
@@ -1186,9 +1242,17 @@ class ShadowRunCoordinator:
                         self.runtime.record_shadow_failure(
                             stage.instance, message, generation=active.generation
                         )
+                        failed_ms = (time.monotonic() - active.started_monotonic) * 1000.0
+                        self._settle_specialist(
+                            active,
+                            key=f"verify:{stage.owner}",
+                            dispatched_ms=stage.dispatched_ms,
+                            completed_ms=failed_ms,
+                            instance=stage.instance,
+                        )
                         active.verification.record_completion(
                             stage,
-                            completed_ms=(time.monotonic() - active.started_monotonic) * 1000.0,
+                            completed_ms=failed_ms,
                             disposition="failed",
                             failure=message,
                         )
@@ -1206,9 +1270,17 @@ class ShadowRunCoordinator:
                         self.runtime.record_shadow_failure(
                             stage.instance, message, generation=active.generation
                         )
+                        failed_ms = (time.monotonic() - active.started_monotonic) * 1000.0
+                        self._settle_specialist(
+                            active,
+                            key=f"refine:{stage.target_id}:{stage.owner}",
+                            dispatched_ms=stage.dispatched_ms,
+                            completed_ms=failed_ms,
+                            instance=stage.instance,
+                        )
                         active.refinement.record_completion(
                             stage,
-                            completed_ms=(time.monotonic() - active.started_monotonic) * 1000.0,
+                            completed_ms=failed_ms,
                             disposition="failed",
                             failure=message,
                         )
@@ -1324,6 +1396,112 @@ class ShadowRunCoordinator:
             return
         active.router_finished = True
         self.router.on_run_end(active.context)
+
+    def _authorize_specialist(
+        self,
+        active: _ActiveRun,
+        *,
+        key: str,
+        phase: str,
+        owner: str | None = None,
+        target_id: str | None = None,
+    ) -> bool:
+        if self.router is None:
+            return True
+        authorize = getattr(self.router, "authorize_specialist", None)
+        if authorize is None:
+            return False
+        try:
+            token = authorize(
+                active.context,
+                phase=phase,
+                owner=owner,
+                target_id=target_id,
+            )
+        except Exception as exc:  # pragma: no cover - router isolation
+            active.run.note(
+                f"specialist authorization failed for {key}: "
+                f"{type(exc).__name__}: {exc}"
+            )
+            return False
+        if token is None:
+            active.run.note(f"specialist authorization denied for {key}")
+            return False
+        active.specialist_tokens[key] = token
+        return True
+
+    def _settle_specialist(
+        self,
+        active: _ActiveRun,
+        *,
+        key: str,
+        dispatched_ms: float,
+        completed_ms: float,
+        instance: str,
+    ) -> None:
+        token = active.specialist_tokens.pop(key, None)
+        if token is None or self.router is None:
+            return
+        settle = getattr(self.router, "settle_specialist", None)
+        if settle is None:
+            return
+        threads = 1
+        try:
+            threads = max(1, int(self.runtime.spec(instance).options.get("Threads", 1)))
+        except (TypeError, ValueError):
+            threads = 1
+        try:
+            settle(
+                token,
+                actual_wall_ms=max(0.0, completed_ms - dispatched_ms),
+                threads=threads,
+            )
+        except Exception as exc:  # pragma: no cover - router isolation
+            active.run.note(
+                f"specialist settlement failed for {key}: "
+                f"{type(exc).__name__}: {exc}"
+            )
+
+    def _release_specialist(
+        self,
+        active: _ActiveRun,
+        *,
+        key: str,
+        reason: str,
+    ) -> None:
+        token = active.specialist_tokens.pop(key, None)
+        if token is None or self.router is None:
+            return
+        release = getattr(self.router, "release_specialist", None)
+        if release is None:
+            return
+        try:
+            release(token, reason=reason)
+        except Exception as exc:  # pragma: no cover - router isolation
+            active.run.note(
+                f"specialist release failed for {key}: "
+                f"{type(exc).__name__}: {exc}"
+            )
+
+    def _charge_controller_elapsed(
+        self,
+        active: _ActiveRun,
+        *,
+        label: str,
+        elapsed_ms: float,
+    ) -> None:
+        if self.router is None:
+            return
+        charge = getattr(self.router, "charge_controller_elapsed", None)
+        if charge is None:
+            return
+        try:
+            charge(label, max(0.0, float(elapsed_ms)))
+        except Exception as exc:  # pragma: no cover - router isolation
+            active.run.note(
+                f"controller overhead accounting failed for {label}: "
+                f"{type(exc).__name__}: {exc}"
+            )
 
     def _execute(self, active: _ActiveRun) -> tuple[str, str | None]:
         run = active.run
@@ -1613,12 +1791,20 @@ class ShadowRunCoordinator:
         # note_anchor_complete(). If the anchor wins the race this stage never
         # starts; if this dispatch wins, it is already in flight and the
         # declared drain/cancel policy applies.
+        reservation_key = f"verify:{owner}"
         with self._lock:
             if (
                 active.cancelled
                 or self._closed
                 or active.anchor_completed.is_set()
                 or not self.runtime.shadow_available(instance)
+            ):
+                return False
+            if not self._authorize_specialist(
+                active,
+                key=reservation_key,
+                phase="verify",
+                owner=owner,
             ):
                 return False
             verification.activate_stream(instance)
@@ -1651,6 +1837,11 @@ class ShadowRunCoordinator:
                 on_complete=on_complete,
             )
         if not dispatched:
+            self._release_specialist(
+                active,
+                key=reservation_key,
+                reason="VERIFY reservation released because backend dispatch failed",
+            )
             verification.record_completion(
                 stage,
                 completed_ms=(time.monotonic() - active.started_monotonic) * 1000.0,
@@ -1714,6 +1905,14 @@ class ShadowRunCoordinator:
                         )
                         break
 
+        self._settle_specialist(
+            active,
+            key=f"verify:{owner}",
+            dispatched_ms=stage.dispatched_ms,
+            completed_ms=elapsed,
+            instance=stage.instance,
+        )
+
         if failure is not None:
             self.runtime.record_shadow_failure(
                 stage.instance, failure, generation=active.generation
@@ -1771,9 +1970,17 @@ class ShadowRunCoordinator:
                     self.runtime.record_shadow_failure(
                         stage.instance, message, generation=active.generation
                     )
+                    failed_ms = (time.monotonic() - active.started_monotonic) * 1000.0
+                    self._settle_specialist(
+                        active,
+                        key=f"verify:{stage.owner}",
+                        dispatched_ms=stage.dispatched_ms,
+                        completed_ms=failed_ms,
+                        instance=stage.instance,
+                    )
                     verification.record_completion(
                         stage,
-                        completed_ms=(time.monotonic() - active.started_monotonic) * 1000.0,
+                        completed_ms=failed_ms,
                         disposition="failed",
                         failure=message,
                     )
@@ -1889,6 +2096,7 @@ class ShadowRunCoordinator:
                 moves=tuple(active.context.position.moves) + (target.root_move,),
                 variant=active.context.position.variant,
             )
+            oracle_key = f"refine-oracle:{target.target_id}"
             with self._lock:
                 if active.cancelled or active.anchor_completed.is_set():
                     all_completed = False
@@ -1897,7 +2105,22 @@ class ShadowRunCoordinator:
                         "decision boundary reached before REFINE child oracle",
                     )
                     break
+                if not self._authorize_specialist(
+                    active,
+                    key=oracle_key,
+                    phase="refine_oracle",
+                    target_id=target.target_id,
+                ):
+                    all_completed = False
+                    refinement.set_disposition(
+                        "incomplete",
+                        f"active budget denied child oracle for {target.root_move}",
+                    )
+                    break
                 active.refinement_oracle_active = True
+                oracle_dispatched_ms = (
+                    time.monotonic() - active.started_monotonic
+                ) * 1000.0
             try:
                 children = self.runtime.legal_moves_at_shadow_position(
                     instance=self.settings.oracle,
@@ -1912,6 +2135,16 @@ class ShadowRunCoordinator:
                 )
                 break
             finally:
+                oracle_completed_ms = (
+                    time.monotonic() - active.started_monotonic
+                ) * 1000.0
+                self._settle_specialist(
+                    active,
+                    key=oracle_key,
+                    dispatched_ms=oracle_dispatched_ms,
+                    completed_ms=oracle_completed_ms,
+                    instance=self.settings.oracle,
+                )
                 with self._lock:
                     active.refinement_oracle_active = False
 
@@ -2039,8 +2272,14 @@ class ShadowRunCoordinator:
                         )
                         break
                     try:
+                        positioned_started = time.monotonic()
                         self.runtime.set_shadow_position(
                             instance, descendant_position.command()
+                        )
+                        self._charge_controller_elapsed(
+                            active,
+                            label="refine_position",
+                            elapsed_ms=(time.monotonic() - positioned_started) * 1000.0,
                         )
                         prepared_instances.append(instance)
                         with self._lock:
@@ -2185,6 +2424,7 @@ class ShadowRunCoordinator:
                 line,
             )
 
+        reservation_key = f"refine:{target_id}:{owner}"
         with self._lock:
             if (
                 active.cancelled
@@ -2193,10 +2433,23 @@ class ShadowRunCoordinator:
                 or not self.runtime.shadow_available(instance)
             ):
                 return False
+            if not self._authorize_specialist(
+                active,
+                key=reservation_key,
+                phase="refine",
+                owner=owner,
+                target_id=target_id,
+            ):
+                return False
             try:
                 for shard_id in shard_ids:
                     refinement.ledger.activate_shard(shard_id, owner=owner)
             except PrefixShardLedgerError as exc:
+                self._release_specialist(
+                    active,
+                    key=reservation_key,
+                    reason="REFINE reservation released because shard activation failed",
+                )
                 refinement.note(
                     f"could not activate REFINE shards for {owner}: {exc}"
                 )
@@ -2240,6 +2493,11 @@ class ShadowRunCoordinator:
                 on_complete=on_complete,
             )
         if not dispatched:
+            self._release_specialist(
+                active,
+                key=reservation_key,
+                reason="REFINE reservation released because backend dispatch failed",
+            )
             refinement.record_completion(
                 stage,
                 completed_ms=(time.monotonic() - active.started_monotonic) * 1000.0,
@@ -2312,6 +2570,14 @@ class ShadowRunCoordinator:
                             "its assigned child region"
                         )
                         break
+
+        self._settle_specialist(
+            active,
+            key=f"refine:{target_id}:{owner}",
+            dispatched_ms=stage.dispatched_ms,
+            completed_ms=elapsed,
+            instance=stage.instance,
+        )
 
         target_abort = refinement.target_abort_requested(target_id)
         if failure is None and not active.cancelled and not target_abort:
@@ -2400,9 +2666,17 @@ class ShadowRunCoordinator:
                     self.runtime.record_shadow_failure(
                         stage.instance, message, generation=active.generation
                     )
+                    failed_ms = (time.monotonic() - active.started_monotonic) * 1000.0
+                    self._settle_specialist(
+                        active,
+                        key=f"refine:{stage.target_id}:{stage.owner}",
+                        dispatched_ms=stage.dispatched_ms,
+                        completed_ms=failed_ms,
+                        instance=stage.instance,
+                    )
                     refinement.record_completion(
                         stage,
-                        completed_ms=(time.monotonic() - active.started_monotonic) * 1000.0,
+                        completed_ms=failed_ms,
                         disposition="failed",
                         failure=message,
                     )
@@ -2428,7 +2702,13 @@ class ShadowRunCoordinator:
                 if not self.runtime.shadow_available(instance):
                     restored = False
                     continue
+                restore_started = time.monotonic()
                 self.runtime.restore_shadow_position(instance)
+                self._charge_controller_elapsed(
+                    active,
+                    label="refine_restore",
+                    elapsed_ms=(time.monotonic() - restore_started) * 1000.0,
+                )
             except ControllerRuntimeError as exc:
                 restored = False
                 message = (
@@ -2455,7 +2735,13 @@ class ShadowRunCoordinator:
                 if not self.runtime.shadow_available(instance):
                     ok = False
                     continue
+                restore_started = time.monotonic()
                 self.runtime.restore_shadow_position(instance)
+                self._charge_controller_elapsed(
+                    active,
+                    label="refine_restore_cleanup",
+                    elapsed_ms=(time.monotonic() - restore_started) * 1000.0,
+                )
             except ControllerRuntimeError as exc:
                 ok = False
                 if active.refinement is not None:

@@ -822,7 +822,7 @@ class VerificationExecutionTests(unittest.TestCase):
                 all(":verify:" not in stage["search_id"] for stage in parent["stages"])
             )
 
-    def test_active_mode_refuses_unaccounted_verification(self):
+    def test_active_mode_refuses_verification_without_budget_reserve(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = write_shadow_config(
                 Path(tmp),
@@ -832,7 +832,10 @@ class VerificationExecutionTests(unittest.TestCase):
             )
             with self.assertRaises(RuntimeError) as ctx:
                 load_runtime_config(path)
-            self.assertIn("only in mode='shadow'", str(ctx.exception))
+            self.assertIn(
+                "active verification requires budget.verification_reserve_fraction > 0",
+                str(ctx.exception),
+            )
 
 
 class ReviewRegressionRoundFourTests(unittest.TestCase):

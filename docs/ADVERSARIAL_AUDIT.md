@@ -1038,3 +1038,46 @@ nothing else.
     touches five scripts including two contract harnesses, and this branch's
     own defect history is the argument against making that change here. Left
     OPEN deliberately, not overlooked.
+
+
+## PR #18 specialist-budget audit
+
+### Can VERIFY consume the whole CPU envelope merely because it is called verification?
+
+No. The earlier `purpose="verify"` path could see the whole CPU ceiling while
+ordinary solver work merely had a VERIFY reserve withheld. PR #18 converts that
+reserve into an actual purpose cap. VERIFY and REFINE have independent CPU/GPU
+partitions and cannot borrow from one another in scheduler v1.
+
+### Can REFINE's child oracle run for free?
+
+No in active mode. The temporary descendant-position Stockfish `go perft 1`
+requires a REFINE reservation before it begins and settles the interval that
+contains descendant positioning, the oracle request, and restoration.
+
+### Can a specialist reservation exist without real work?
+
+A backend/shard dispatch failure releases the reservation. Cancellation, exit,
+deadline and quiesce paths settle already-dispatched work. Finalization
+conservatively settles any reservation whose terminal callback was lost, so
+`route.json` cannot close with phantom open capacity.
+
+### Can an underestimate make the envelope look compliant?
+
+Not by clamping. Actual specialist CPU settlement is wall time × configured
+threads and may exceed the reservation. The full amount remains charged.
+Additionally, a run whose actual solver/VERIFY/REFINE purpose spend exceeds its
+declared partition sets `within_partition_caps=false` and cannot claim
+specialist-envelope compliance.
+
+### Is GPU usage measured?
+
+No. PR #18 remains estimate-based for accelerator occupancy. A non-zero GPU
+envelope cannot be claimed accounted unless ordinary and every enabled
+specialist phase declares non-zero GPU estimates. This is an explicit
+limitation, not a process-level GPU measurement claim.
+
+### Can specialist work change the outward move?
+
+No new path is introduced. Authorization governs compute only. VERIFY/REFINE
+remain observational; Stockfish anchor remains sole outward bestmove authority.

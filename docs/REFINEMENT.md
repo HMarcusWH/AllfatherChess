@@ -3,8 +3,9 @@
 ## Status
 
 PR #17 wires the qualified recursive PrefixShardLedger v2 substrate into the
-live **shadow research path** without changing outward decision authority or the
-active equal-resource controller.
+live **shadow research path** without changing outward decision authority.
+PR #18 reuses the same raw REFINE mechanics in active mode only after the
+global router has reserved REFINE/oracle capacity from the declared envelope.
 
 The live research chain is now:
 
@@ -38,7 +39,7 @@ It cannot:
 - replace or constrain the anchor;
 - start a new stage after the anchor completion boundary;
 - authorize a branch from descriptive RELOCK;
-- run in active mode;
+- bypass active-mode budget authorization;
 - claim that disagreement predicts chess error.
 
 An in-flight REFINE stage follows the existing
@@ -332,3 +333,21 @@ It does **not** establish:
 
 Those are the questions for active budget integration and later causal/strength
 experiments.
+
+
+## Active-mode accounting
+
+When `mode: active` enables REFINE, the nomination, PrefixShardLedger and raw
+artifact semantics above are unchanged. What changes is resource authority:
+
+- every target's Stockfish perft-1 child oracle needs a REFINE reservation;
+- every non-empty owner child region needs its own REFINE reservation before
+  dispatch;
+- descendant positioning/restoration overhead is charged to the controller;
+- denied reservations produce no hidden computation;
+- stage settlement uses observed wall duration × configured threads;
+- the final route certificate must close with zero open reservations and with
+  the REFINE partition inside its declared cap.
+
+Shadow mode remains the deliberately over-budget research observatory. See
+`docs/ACTIVE_SPECIALIST_SCHEDULER.md`.

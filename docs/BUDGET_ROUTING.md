@@ -38,9 +38,12 @@ context manager that measures with a monotonic clock and charges the
 `controller` lane inside `B`. Metareasoning that costs more than it saves shows
 up in the ledger.
 
-**Reserves are withheld.** `verification_reserve_fraction` and
-`controller_overhead_reserve_ms` are subtracted from the ceiling available to
-solver work, so exploration cannot eat the verification budget.
+**Reserves are withheld and partitioned.** `verification_reserve_fraction`,
+`refinement_reserve_fraction`, and `controller_overhead_reserve_ms` are
+withheld from ordinary solver/anchor capacity. VERIFY and REFINE have distinct
+purpose caps: solver work cannot eat either specialist reserve, VERIFY cannot
+borrow REFINE capacity, and REFINE cannot borrow VERIFY capacity. The same
+specialist fractions partition a declared GPU envelope.
 
 **Engine-native counters are never summed across semantics.** The ledger keeps
 `stockfish.uci_nodes`, `reckless.uci_nodes`, and `lc0.uci_nodes` separately and
@@ -57,7 +60,9 @@ separately from `cpu_ms`; exhausting it triggers anchor-only fallback.
 | `anchor` | its full declared reservation. Shadow finalization happens before the anchor completes, so the controller cannot measure the real figure at settle time; charging the reservation errs toward over-counting, the safe direction for an envelope claim. |
 | `shadow:<owner>` | the measured duration of each dispatched stage, including a stage ended early by a stop — the worker burned that CPU producing the observations that authorized the stop, so only the unspent remainder is released |
 | `controller` | measured metareasoning time |
-| `verify` | reserved but still unused by **active mode**; shadow VERIFY and shadow REFINE are deliberately over-budget research evidence until active integration |
+| `verify:...` | active common-support VERIFY stages, reserved before dispatch and settled from measured stage wall × configured threads |
+| `refine:...` | active REFINE descendant stages plus the separately reserved descendant child oracle |
+| `controller:refine_*` | measured per-instance descendant positioning/restoration overhead |
 
 ## The routing pipeline
 
@@ -242,7 +247,8 @@ envelope_claim.anchor_request_reason    why, in words
 envelope_claim.anchor_cost_reserved     was the anchor's cost actually recorded
 envelope_claim.gpu_accounted            does a declared GPU envelope have a per-stage estimate
 envelope_claim.reservations_within_envelope
-envelope_claim.claimed                  all of the above, and nothing less
+envelope_claim.specialist_partitions_within_caps
+envelope_claim.claimed                  all of the above, wall compliance, and nothing less
 ```
 
 `anchor_cost_reserved` matters because the anchor is already searching by the
@@ -303,14 +309,27 @@ thresholds it was judged against.
   resources. Nothing in this milestone tests that.
 
 
-## REFINE remains outside active mode
+## Active specialist work
 
-PR #17 adds one-level recursive REFINE only to the shadow observatory. Runtime
-configuration rejects REFINE in `mode: active`, just as active VERIFY remains
-forbidden. The existing verification reserve therefore does not yet authorize
-or account for REFINE work.
+PR #18 closes the previous accounting gap. `mode: active` may enable VERIFY
+only with a positive `verification_reserve_fraction`, and may enable REFINE
+only with VERIFY enabled plus a positive `refinement_reserve_fraction`.
 
-The next budget milestone must charge VERIFY and REFINE dispatches, descendant
-oracle work, per-instance positioning overhead, CPU/GPU occupancy and
-controller overhead through the same run-wide envelope before either can become
-an active action.
+Every specialist computation follows:
+
+```text
+nominate → authorize → reserve → dispatch → settle
+```
+
+The router records these operations in `route.json.specialist_actions`.
+REFINE's Stockfish perft-1 child oracle is charged from the REFINE partition;
+descendant engine stages require their own REFINE reservations; per-instance
+positioning/restoration is charged as controller overhead. A denied reservation
+means the work is not dispatched.
+
+Actual CPU settlement is intentionally unclamped. If a stage exceeds its
+estimate, the full wall×threads estimate is recorded. This can make
+`specialist_partitions_within_caps=false` even when the global envelope still
+has spare capacity, and such a run cannot claim envelope compliance.
+
+See `docs/ACTIVE_SPECIALIST_SCHEDULER.md`.

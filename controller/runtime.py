@@ -477,10 +477,9 @@ def _load_verification_settings(
     raw_value = data.get("verification")
     if raw_value is None:
         return None
-    if mode != "shadow":
+    if mode not in ("shadow", "active"):
         raise RuntimeError(
-            "verification settings are supported only in mode='shadow' until "
-            "VERIFY work is charged through the active BudgetLedger"
+            "verification settings are supported only in shadow/active modes"
         )
     if shadow is None:  # pragma: no cover - mode validation already guarantees this
         raise RuntimeError("verification requires shadow settings")
@@ -534,10 +533,9 @@ def _load_refinement_settings(
     raw_value = data.get("refinement")
     if raw_value is None:
         return None
-    if mode != "shadow":
+    if mode not in ("shadow", "active"):
         raise RuntimeError(
-            "refinement settings are supported only in mode='shadow' until "
-            "REFINE work is charged through the active BudgetLedger"
+            "refinement settings are supported only in shadow/active modes"
         )
     if shadow is None:
         raise RuntimeError("refinement requires shadow settings")
@@ -652,6 +650,29 @@ def load_runtime_config(path: Path) -> RuntimeConfig:
         raise RuntimeError("active mode requires an explicit routing configuration")
     if mode == "active" and budget is None:
         raise RuntimeError("active mode requires an explicit budget configuration")
+
+    if mode == "active" and verification is not None:
+        raw_verify_reserve = budget.get("verification_reserve_fraction", 0.0)
+        if (
+            isinstance(raw_verify_reserve, bool)
+            or not isinstance(raw_verify_reserve, (int, float))
+            or not math.isfinite(float(raw_verify_reserve))
+            or float(raw_verify_reserve) <= 0.0
+        ):
+            raise RuntimeError(
+                "active verification requires budget.verification_reserve_fraction > 0"
+            )
+    if mode == "active" and refinement is not None:
+        raw_refine_reserve = budget.get("refinement_reserve_fraction", 0.0)
+        if (
+            isinstance(raw_refine_reserve, bool)
+            or not isinstance(raw_refine_reserve, (int, float))
+            or not math.isfinite(float(raw_refine_reserve))
+            or float(raw_refine_reserve) <= 0.0
+        ):
+            raise RuntimeError(
+                "active refinement requires budget.refinement_reserve_fraction > 0"
+            )
 
     return RuntimeConfig(
         path=path,

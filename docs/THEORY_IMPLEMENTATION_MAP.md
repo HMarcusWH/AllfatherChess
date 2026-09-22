@@ -89,3 +89,16 @@ mathematics does not apply to chess search without independent proof:
   branch. The offline `terminal-suffix-v1` RELOCK descriptor records only
   complete three-way terminal convergence; the older `stable_to_end` label
   remains an engine-self-reversal label used by the separate calibration path.
+
+
+## Active specialist resource routing
+
+PR #18 extends the RACR observe → nominate → authorize separation to expensive
+VERIFY and REFINE computations. Raw disagreement may nominate specialist work,
+but only the global BudgetLedger can authorize its resource spend. VERIFY,
+REFINE-oracle, and REFINE-stage reservations are distinct from the evidence that
+nominated them; denial means no computation, not an improvised chess decision.
+
+This is an implementation of resource-aware computational routing, not a
+theorem that specialist work is valuable. The value-of-compute question remains
+empirical.

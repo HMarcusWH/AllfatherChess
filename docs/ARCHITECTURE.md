@@ -191,3 +191,24 @@ release a stale descendant position into the next generation.
 
 REFINE writes a sibling `refinement/` artifact and does not extend Replay
 schema v1. Active routing and `BudgetLedger` do not consume it yet.
+
+
+## Active specialist resource plane
+
+PR #18 adds resource authority without adding chess decision authority:
+
+```text
+EXPLORE ───────┐
+VERIFY ────────┼─> one BudgetLedger / one wall deadline
+REFINE oracle ─┤
+REFINE stages ─┤
+controller ────┘
+
+Stockfish anchor ─────────────────────> outward bestmove
+```
+
+Solver/anchor, VERIFY, and REFINE occupy separate declared CPU/GPU partitions.
+Every active VERIFY/REFINE/oracle dispatch must hold a reservation first, and
+all dispatched work is settled before the run certificate closes. Raw replay,
+VERIFY, and REFINE artifacts remain separated from the routing/audit record.
+See `docs/ACTIVE_SPECIALIST_SCHEDULER.md`.

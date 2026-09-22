@@ -28,6 +28,7 @@ from controller.counterfactual import (
     load_counterfactual_artifact,
     verify_counterfactual_integrity,
 )
+from controller.crossfeed import load_crossfeed_manifest
 from controller.replay import load_manifest, sha256_file
 from controller.verification import load_verification_manifest
 from controller.verification_analysis import (
@@ -286,6 +287,7 @@ class ComputeTransition:
 def _upstream_payload(
     parent: dict[str, Any],
     verification: dict[str, Any],
+    crossfeed: dict[str, Any],
     decision: dict[str, Any],
 ) -> dict[str, Any]:
     """Everything that must stay fixed when VERIFY budget is the intervention."""
@@ -330,10 +332,7 @@ def _upstream_payload(
             "candidate_roots": nomination.get("candidate_roots"),
             "participants": verification.get("participants"),
         },
-        "crossfeed_policy": (
-            (decision.get("source") or {}).get("crossfeed_id", "").split(":crossfeed-v1:")[0]
-            and "typed_verify_refine_v1"
-        ),
+        "crossfeed_policy": crossfeed.get("policy"),
         "decision_policy": decision.get("policy"),
     }
 
@@ -375,6 +374,7 @@ def load_budget_point(
     parent = load_manifest(run_dir)
     verification = load_verification_manifest(run_dir)
     decision = load_counterfactual_artifact(run_dir)
+    crossfeed = load_crossfeed_manifest(run_dir)
 
     dispatch_limit = verification.get("dispatch_limit") or {}
     nodes = _positive_int(dispatch_limit.get("nodes"), "verification.dispatch_limit.nodes")
@@ -441,7 +441,9 @@ def load_budget_point(
     if not isinstance(disposition, dict):
         raise ValueOfComputeError("counterfactual proposal disposition is malformed")
 
-    upstream = canonical_digest(_upstream_payload(parent, verification, decision))
+    upstream = canonical_digest(
+        _upstream_payload(parent, verification, crossfeed, decision)
+    )
     position_id = str((parent.get("position") or {}).get("position_id") or "")
     group = position_id if position_group is None else str(position_group)
     evidence_complete = (

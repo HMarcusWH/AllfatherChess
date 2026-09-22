@@ -370,6 +370,15 @@ def _proposal_from_artifact(data: dict[str, Any]) -> DecisionProposal:
     disposition = data.get("disposition") or {}
     if not isinstance(disposition, dict):
         raise CounterfactualError("proposal disposition must be an object")
+    move = data.get("move")
+    if move is not None and not isinstance(move, str):
+        raise CounterfactualError("proposal move must be a string or null")
+    source_owner = data.get("source_owner")
+    if source_owner is not None and not isinstance(source_owner, str):
+        raise CounterfactualError("proposal source_owner must be a string or null")
+    frozen_before_anchor = data.get("frozen_before_anchor")
+    if not isinstance(frozen_before_anchor, bool):
+        raise CounterfactualError("proposal frozen_before_anchor must be boolean")
     try:
         return DecisionProposal(
             policy=str(data.get("policy") or ""),
@@ -377,15 +386,11 @@ def _proposal_from_artifact(data: dict[str, Any]) -> DecisionProposal:
                 code=str(disposition.get("code") or ""),
                 reason=str(disposition.get("reason") or ""),
             ),
-            move=data.get("move") if isinstance(data.get("move"), str) else None,
-            source_owner=(
-                data.get("source_owner")
-                if isinstance(data.get("source_owner"), str)
-                else None
-            ),
+            move=move,
+            source_owner=source_owner,
             evidence_digest=str(data.get("evidence_digest") or ""),
             frozen_observed_ms=float(data.get("frozen_observed_ms")),
-            frozen_before_anchor=bool(data.get("frozen_before_anchor")),
+            frozen_before_anchor=frozen_before_anchor,
         )
     except (TypeError, ValueError, DecisionError) as exc:
         raise CounterfactualError(f"invalid stored proposal: {exc}") from exc

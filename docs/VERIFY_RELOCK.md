@@ -62,3 +62,13 @@ disagreement predicts error, that VERIFY is worth its compute, that
 random/backend-light LC0 is strength-qualified, or that Allfather is stronger
 than Stockfish. The derived definitions and artifact format are specified in
 `docs/COMPARE_RELOCK.md`.
+
+
+## Active-mode resource authority
+
+Raw VERIFY semantics do not change in active mode. The three common-support
+searches still have no outward decision authority, but each participant must
+obtain a `verify` reservation before dispatch. A denied reservation leaves the
+VERIFY artifact incomplete rather than silently running uncharged work.
+Settlement and audit details live in `route.json`; raw VERIFY evidence remains
+policy-free. See `docs/ACTIVE_SPECIALIST_SCHEDULER.md`.

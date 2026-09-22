@@ -139,6 +139,14 @@ class CrossFeedSettings:
 
 
 @dataclass(frozen=True)
+class CounterfactualSettings:
+    """Counterfactual proposal generation with no outward decision authority."""
+
+    enabled: bool
+    policy: str
+
+
+@dataclass(frozen=True)
 class RuntimeConfig:
     path: Path
     root: Path
@@ -149,6 +157,7 @@ class RuntimeConfig:
     verification: VerificationSettings | None = None
     refinement: RefinementSettings | None = None
     crossfeed: CrossFeedSettings | None = None
+    counterfactual: CounterfactualSettings | None = None
     budget: dict[str, object] | None = None
     routing: dict[str, object] | None = None
 
@@ -649,6 +658,48 @@ def _load_crossfeed_settings(
     return CrossFeedSettings(enabled=True, policy=str(policy))
 
 
+def _load_counterfactual_settings(
+    data: dict[str, object],
+    *,
+    mode: str,
+    crossfeed: CrossFeedSettings | None,
+) -> CounterfactualSettings | None:
+    """Load the counterfactual-only hybrid decision policy.
+
+    This layer consumes an already-built CrossFeedView. It performs no engine
+    search and grants no outward authority, so enabling it without cross-feed
+    would make its evidence boundary undefined.
+    """
+
+    raw_value = data.get("counterfactual")
+    if raw_value is None:
+        return None
+    if mode not in ("shadow", "active"):
+        raise RuntimeError(
+            "counterfactual settings are supported only in shadow/active modes"
+        )
+
+    raw = _require_object(raw_value, "counterfactual")
+    enabled = raw.get("enabled")
+    if not isinstance(enabled, bool):
+        raise RuntimeError("counterfactual.enabled must be a boolean")
+    if not enabled:
+        return None
+    if crossfeed is None or not crossfeed.enabled:
+        raise RuntimeError("counterfactual requires crossfeed.enabled")
+
+    policy = raw.get("policy", "unanimous_verify_v1")
+    if policy != "unanimous_verify_v1":
+        raise RuntimeError(
+            "counterfactual.policy currently supports exactly 'unanimous_verify_v1'"
+        )
+    unknown = sorted(set(raw) - {"enabled", "policy"})
+    if unknown:
+        raise RuntimeError(f"counterfactual contains unsupported keys: {unknown}")
+
+    return CounterfactualSettings(enabled=True, policy=str(policy))
+
+
 def load_runtime_config(path: Path) -> RuntimeConfig:
     path = path.resolve()
     try:
@@ -692,6 +743,11 @@ def load_runtime_config(path: Path) -> RuntimeConfig:
         data,
         mode=str(mode),
         verification=verification,
+    )
+    counterfactual = _load_counterfactual_settings(
+        data,
+        mode=str(mode),
+        crossfeed=crossfeed,
     )
 
     budget = data.get("budget")
@@ -738,6 +794,7 @@ def load_runtime_config(path: Path) -> RuntimeConfig:
         verification=verification,
         refinement=refinement,
         crossfeed=crossfeed,
+        counterfactual=counterfactual,
         budget=budget,
         routing=routing,
     )

@@ -147,8 +147,8 @@ The final product is promoted only on statistically credible strength gains agai
 17. **PR #17 — Shadow REFINE execution + recursive provenance**. **Merged.**
 18. **PR #18 — Active VERIFY / REFINE + CPU/GPU resource scheduler**. **Merged.**
 19. **PR #19 — Extended post-PR18 build-plan documentation**. **Merged.**
-21. **PR #21 — Typed cross-feed evidence plane, shadow-only**: consume existing VERIFY/REFINE evidence; no new search phase; no outward behavior change.
-22. **PR #22 — Counterfactual hybrid decision laboratory**: freeze deterministic hybrid proposals while Stockfish remains outward authority.
+21. **PR #21 — Typed cross-feed evidence plane, shadow-only**: consume existing VERIFY/REFINE evidence; no new search phase; no outward behavior change. **Merged.**
+22. **PR #22 — Counterfactual hybrid decision laboratory**: freeze deterministic hybrid proposals while Stockfish remains outward authority. **Current.**
 23. **PR #23 — Prospective chess-specific value-of-compute calibration**: decision-relevant labels with strict no-hindsight boundaries.
 24. **PR #24 — Strength-qualified LC0 profile**: real network/backend/hardware identity; preserve fast random-backend CI separately.
 25. **PR #25 — Measured process resource accounting**: preserve reservations while adding measured CPU/GPU/memory/controller cost where supported.

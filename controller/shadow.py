@@ -1834,6 +1834,7 @@ class ShadowRunCoordinator:
             plan=plan,
             run_dir=active.run.run_dir,
             ledger=prefix_ledger,
+            oracle_instance=self.settings.oracle,
             source_root_v1_snapshot=source_root_snapshot,
             initial_v2_snapshot=initial_v2_snapshot,
         )

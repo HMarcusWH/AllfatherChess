@@ -83,7 +83,6 @@ def terminal_evidence_from_verification_run(
         verification.disposition == "completed"
         and not faults
         and all(disposition == "completed" for _, disposition in stage_dispositions)
-        and all(move is not None for _, move in final_by_owner)
     )
 
     return VerificationTerminalEvidence(
@@ -135,7 +134,6 @@ def terminal_evidence_from_manifest(
         run_disposition == "completed"
         and not faults
         and all(disposition == "completed" for _, disposition in stage_dispositions)
-        and all(move is not None for _, move in final_by_owner)
     )
 
     return VerificationTerminalEvidence(

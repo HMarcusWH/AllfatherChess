@@ -549,12 +549,12 @@ class BudgetLedger:
 
         Actual spend is intentionally allowed to exceed a reservation so the
         ledger never rounds consumption down. Such an overrun invalidates the
-        partition claim even when the global envelope still happens to have
-        spare capacity.
+        solver/specialist/controller partition claim even when the global envelope
+        still happens to have spare capacity.
         """
 
         with self._lock:
-            for purpose in ("solver", "verify", "refine"):
+            for purpose in ("solver", "verify", "refine", "controller"):
                 cpu, gpu = self._purpose_committed(purpose)
                 cap_cpu, cap_gpu = self._purpose_caps(purpose)
                 if cpu > cap_cpu or gpu > cap_gpu:

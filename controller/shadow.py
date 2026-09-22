@@ -1756,10 +1756,6 @@ class ShadowRunCoordinator:
                 if elapsed_ms - stage.dispatched_ms > stage_budget_ms
             ]
             if overrun:
-                refinement.request_target_abort(
-                    target_id,
-                    "REFINE stage deadline exceeded; stopping target stages",
-                )
                 instances = list(dict.fromkeys(stage.instance for stage in pending))
                 self._stop_instances(instances)
                 deadline = time.monotonic() + self.settings.drain_timeout_s
@@ -2384,6 +2380,10 @@ class ShadowRunCoordinator:
                 if elapsed_ms - stage.dispatched_ms > stage_budget_ms
             ]
             if overrun:
+                refinement.request_target_abort(
+                    target_id,
+                    "REFINE stage deadline exceeded; stopping target stages",
+                )
                 instances = list(dict.fromkeys(stage.instance for stage in pending))
                 self._stop_instances(instances)
                 deadline = time.monotonic() + self.settings.drain_timeout_s

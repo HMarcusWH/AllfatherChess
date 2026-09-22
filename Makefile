@@ -1,4 +1,4 @@
-.PHONY: vendor verify-vendor build-baselines smoke-baselines golden-baselines record-golden-baselines telemetry-contract telemetry-adapters telemetry-adapter-integration controller-tests shard-ledger-tests prefix-shard-tests refinement-tests active-specialist-tests crossfeed-tests shard-ledger-contract prefix-shard-contract refinement-execution-contract active-specialist-contract crossfeed-contract hybrid-shell-contract shadow-tests replay-tests residual-tests routing-tests verification-tests verification-analysis-tests shadow-execution-contract verification-execution-contract verification-analysis-contract active-routing-contract shadow-evidence-sweep verification-evidence-sweep refinement-evidence-sweep residual-calibration verification-analysis run-allfather run-allfather-shadow run-allfather-verify run-allfather-refine run-allfather-crossfeed run-allfather-active-specialist
+.PHONY: vendor verify-vendor build-baselines smoke-baselines golden-baselines record-golden-baselines telemetry-contract telemetry-adapters telemetry-adapter-integration controller-tests shard-ledger-tests prefix-shard-tests refinement-tests active-specialist-tests crossfeed-tests decision-tests counterfactual-tests shard-ledger-contract prefix-shard-contract refinement-execution-contract active-specialist-contract crossfeed-contract counterfactual-decision-contract hybrid-shell-contract shadow-tests replay-tests residual-tests routing-tests verification-tests verification-analysis-tests shadow-execution-contract verification-execution-contract verification-analysis-contract active-routing-contract shadow-evidence-sweep verification-evidence-sweep refinement-evidence-sweep counterfactual-decision-sweep residual-calibration verification-analysis run-allfather run-allfather-shadow run-allfather-verify run-allfather-refine run-allfather-crossfeed run-allfather-counterfactual run-allfather-active-specialist
 
 vendor:
 	@echo "Refusing implicit destructive vendor refresh." >&2
@@ -44,6 +44,8 @@ controller-tests:
 	python3 tests/controller/test_refinement.py
 	python3 tests/controller/test_active_specialist_budget.py
 	python3 tests/controller/test_crossfeed.py
+	python3 tests/controller/test_decision.py
+	python3 tests/controller/test_counterfactual.py
 
 shard-ledger-tests:
 	python3 tests/controller/test_shard_ledger.py
@@ -59,6 +61,12 @@ active-specialist-tests:
 
 crossfeed-tests:
 	python3 tests/controller/test_crossfeed.py
+
+decision-tests:
+	python3 tests/controller/test_decision.py
+
+counterfactual-tests:
+	python3 tests/controller/test_counterfactual.py
 
 shadow-tests:
 	python3 tests/controller/test_shadow_runtime.py
@@ -93,6 +101,9 @@ active-specialist-contract:
 crossfeed-contract:
 	python3 scripts/crossfeed-contract.py
 
+counterfactual-decision-contract:
+	python3 scripts/counterfactual-decision-contract.py
+
 hybrid-shell-contract:
 	python3 scripts/hybrid-shell-contract.py
 
@@ -119,6 +130,9 @@ verification-evidence-sweep:
 refinement-evidence-sweep:
 	python3 scripts/refinement-evidence-sweep.py
 
+counterfactual-decision-sweep:
+	python3 scripts/counterfactual-decision-sweep.py
+
 verification-analysis:
 	python3 scripts/verification-analysis.py
 
@@ -139,6 +153,9 @@ run-allfather-refine:
 
 run-allfather-crossfeed:
 	python3 -m controller --config config/allfather.crossfeed.validation.json
+
+run-allfather-counterfactual:
+	python3 -m controller --config config/allfather.counterfactual.validation.json
 
 run-allfather-active-specialist:
 	python3 -m controller --config config/allfather.active.specialist.validation.json

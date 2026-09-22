@@ -524,3 +524,48 @@ Nothing below is established by this milestone.
 - measured rather than estimated process/accelerator resource accounting;
 - any Elo or equal-resource strength gain.
 
+## Counterfactual hybrid decision laboratory
+
+### PROVED by code/contracts
+
+- the decision policy consumes typed CrossFeedView evidence plus authoritative
+  VERIFY terminal bestmove facts; it does not infer final verifier choice from
+  the last candidate.update event;
+- `unanimous_verify_v1` proposes a move only when all three completed verifier
+  terminal bestmoves are the same member of the exact common-support candidate
+  set;
+- two-out-of-three agreement, three-way disagreement, incomplete evidence,
+  evidence-loss flags, and out-of-support terminal moves do not produce a move
+  proposal;
+- policy v1 does not consume a cross-engine numeric score, weighted vote, score
+  conversion, or correctness label;
+- DecisionProposal and DecisionAuthorization are separate types; the
+  counterfactual milestone rejects every authorization grant;
+- policy evaluation runs on the shadow worker, not the anchor stdout thread;
+  only the final PRE_ANCHOR / POST_ANCHOR causal stamp is published under the
+  same coordinator lock used by anchor completion;
+- a live proposal carries a canonical evidence SHA-256 built before any later
+  anchor comparison or outcome label is attached;
+- after source finalization, `decision/counterfactual.json` binds the parent
+  replay, VERIFY manifest and cross-feed artifact hashes plus the frozen
+  proposal and later anchor relation;
+- counterfactual integrity independently reconstructs CrossFeedView from raw
+  source telemetry, rebuilds VERIFY terminal facts, re-runs the policy and
+  requires the stored proposal semantics/evidence digest to match;
+- the stored anchor relation is descriptive only and the artifact requires
+  `outward_authority = stockfish-anchor`;
+- no decision/counterfactual engine search phase is added;
+- `controller/uci_frontend.py` remains unchanged and exactly one Stockfish
+  anchor bestmove remains the outward UCI answer.
+
+### OPEN
+
+- whether three-way VERIFY unanimity predicts a better chess move;
+- whether a counterfactual proposal that differs from Stockfish improves game
+  outcome;
+- which specialist evidence is worth purchasing under equal-resource limits;
+- decision-relevant value-of-compute calibration and no-hindsight labels;
+- live DecisionAuthorization and bounded hybrid outward authority;
+- strength-qualified LC0 evidence and measured process/accelerator resources;
+- any Elo or equal-resource strength gain.
+

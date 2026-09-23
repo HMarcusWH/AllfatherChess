@@ -1098,6 +1098,15 @@ resource accounting and a fixed competitive platform are separately qualified.
 
 ## M14-B — Measured process resource accounting
 
+### Implementation status
+
+Current implementation milestone. The branch implements Linux procfs process
+CPU/RSS measurement, controller process CPU, stage/run attribution,
+content-addressed `resource.json`, measured settlement provenance, and
+resource-qualified active/LC0 reference contracts. GPU device-time remains an
+explicitly unsupported/fail-closed requirement rather than an estimate promoted
+to measurement.
+
 ### Purpose
 
 Preserve the PR #18 reservation model while separating declared/reserved cost from measured physical consumption.
@@ -1146,8 +1155,8 @@ Do not overwrite one with the other.
 - controller CPU time;
 - wall time;
 - RSS / memory;
-- accelerator utilization or device time;
-- GPU memory;
+- accelerator utilization or device time where a qualified provider exists;
+- GPU memory where a qualified provider exists;
 - IPC/controller overhead.
 
 The existing wall x configured-threads estimate remains available as an estimate, but it must be labeled as such once measured CPU data exists.

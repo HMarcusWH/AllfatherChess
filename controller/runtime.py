@@ -1186,8 +1186,29 @@ class BackendManager:
                 raise RuntimeError(str(exc)) from exc
 
     def ready_all(self) -> None:
+        """Synchronize every live backend.
+
+        Startup/state-mutation barriers use this stronger form because a shadow
+        that is about to receive synchronized state must either acknowledge the
+        barrier or be quarantined before the mutation proceeds.
+        """
         self._require_started()
         self._for_each_instance(lambda name, process: process.ready(), label="backend readiness")
+        self._require_healthy()
+
+    def ready_authority(self) -> None:
+        """Synchronize only authority-bearing instances for external isready.
+
+        Observational shadows are intentionally unable to delay the outward UCI
+        readiness path. Their health is still checked/quarantined at the
+        synchronization barriers that actually mutate shared state.
+        """
+        self._require_started()
+        self._for_each_instance(
+            lambda name, process: process.ready(),
+            label="authority readiness",
+            instances=self.authority_instances,
+        )
         self._require_healthy()
 
     def set_chess960(self, enabled: bool) -> None:

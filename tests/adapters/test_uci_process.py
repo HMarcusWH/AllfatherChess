@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import sys
 import threading
+import time
 import unittest
 from pathlib import Path
 
@@ -98,6 +99,50 @@ class UciProcessTests(unittest.TestCase):
             process.stop()
         finally:
             process.close()
+
+    def test_blocked_stdin_write_is_bounded_and_kills_backend(self):
+        class BlockingStdin:
+            def __init__(self):
+                self.entered = threading.Event()
+                self.release = threading.Event()
+
+            def write(self, _value):
+                self.entered.set()
+                self.release.wait(5.0)
+                return 1
+
+            def flush(self):
+                return None
+
+        class StubProcess:
+            def __init__(self):
+                self.stdin = BlockingStdin()
+                self.killed = False
+
+            def poll(self):
+                return -9 if self.killed else None
+
+            def kill(self):
+                self.killed = True
+                self.stdin.release.set()
+
+        process = UciProcess(
+            name="blocked",
+            binary=Path(sys.executable),
+            cwd=ROOT,
+            timeout=0.05,
+        )
+        stub = StubProcess()
+        process.proc = stub  # type: ignore[assignment]
+
+        started = time.monotonic()
+        with self.assertRaisesRegex(UciProcessError, "timeout writing command"):
+            process.send("isready", timeout=0.05)
+        elapsed = time.monotonic() - started
+
+        self.assertTrue(stub.stdin.entered.is_set())
+        self.assertTrue(stub.killed)
+        self.assertLess(elapsed, 1.0)
 
     def test_unexpected_exit_reports_active_token(self):
         exit_seen = threading.Event()

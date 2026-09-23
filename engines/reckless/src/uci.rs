@@ -187,8 +187,8 @@ fn reset(threads: &mut ThreadPool, shared: &Arc<SharedContext>) {
 
 fn go(threads: &mut ThreadPool, settings: &Settings, board: &Board, shared: &Arc<SharedContext>, tokens: &[&str]) {
     let (limit_tokens, requested_searchmoves) = split_searchmoves(tokens);
-    let limits = parse_limits(board.side_to_move(), limit_tokens);
-    let root_restriction = resolve_searchmoves(board, requested_searchmoves);
+    let limits = parse_limits(board.side_to_move(), &limit_tokens);
+    let root_restriction = resolve_searchmoves(board, requested_searchmoves.as_deref());
     let time_manager = TimeManager::new(limits, board.fullmove_number(), settings.move_overhead);
 
     threads.execute_searches(
@@ -259,11 +259,38 @@ fn go(threads: &mut ThreadPool, settings: &Settings, board: &Board, shared: &Arc
     crate::misc::dbg_print();
 }
 
-fn split_searchmoves<'a>(tokens: &'a [&'a str]) -> (&'a [&'a str], Option<&'a [&'a str]>) {
-    match tokens.iter().position(|token| *token == "searchmoves") {
-        Some(index) => (&tokens[..index], Some(&tokens[index + 1..])),
-        None => (tokens, None),
+fn is_go_keyword(token: &str) -> bool {
+    matches!(
+        token,
+        "searchmoves"
+            | "ponder"
+            | "wtime"
+            | "btime"
+            | "winc"
+            | "binc"
+            | "movestogo"
+            | "depth"
+            | "nodes"
+            | "mate"
+            | "movetime"
+            | "infinite"
+    )
+}
+
+fn split_searchmoves<'a>(tokens: &'a [&'a str]) -> (Vec<&'a str>, Option<Vec<&'a str>>) {
+    let Some(index) = tokens.iter().position(|token| *token == "searchmoves") else {
+        return (tokens.to_vec(), None);
+    };
+
+    let mut limits = tokens[..index].to_vec();
+    let mut requested = Vec::new();
+    let mut cursor = index + 1;
+    while cursor < tokens.len() && !is_go_keyword(tokens[cursor]) {
+        requested.push(tokens[cursor]);
+        cursor += 1;
     }
+    limits.extend_from_slice(&tokens[cursor..]);
+    (limits, Some(requested))
 }
 
 fn resolve_searchmoves(board: &Board, requested: Option<&[&str]>) -> Option<Vec<Move>> {
@@ -477,7 +504,7 @@ mod tests {
     fn test_split_searchmoves_absent() {
         let tokens = ["nodes", "1000"];
         let (limits, searchmoves) = split_searchmoves(&tokens);
-        assert_eq!(limits, &["nodes", "1000"]);
+        assert_eq!(limits, vec!["nodes", "1000"]);
         assert!(searchmoves.is_none());
     }
 
@@ -485,8 +512,26 @@ mod tests {
     fn test_split_searchmoves_suffix() {
         let tokens = ["nodes", "1000", "searchmoves", "e2e4", "d2d4"];
         let (limits, searchmoves) = split_searchmoves(&tokens);
-        assert_eq!(limits, &["nodes", "1000"]);
-        assert_eq!(searchmoves, Some(&["e2e4", "d2d4"][..]));
+        assert_eq!(limits, vec!["nodes", "1000"]);
+        assert_eq!(searchmoves, Some(vec!["e2e4", "d2d4"]));
+    }
+
+    #[test]
+    fn test_split_searchmoves_allows_following_go_options() {
+        let tokens = [
+            "wtime",
+            "1000",
+            "searchmoves",
+            "e2e4",
+            "d2d4",
+            "btime",
+            "900",
+            "winc",
+            "5",
+        ];
+        let (limits, searchmoves) = split_searchmoves(&tokens);
+        assert_eq!(limits, vec!["wtime", "1000", "btime", "900", "winc", "5"]);
+        assert_eq!(searchmoves, Some(vec!["e2e4", "d2d4"]));
     }
 
     #[test]

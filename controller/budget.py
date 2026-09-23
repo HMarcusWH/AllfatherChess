@@ -289,6 +289,15 @@ class BudgetLedger:
             return self.envelope.controller_overhead_reserve_ms, 0.0
         return self.envelope.solver_cpu_ceiling_ms, self.envelope.solver_gpu_ceiling_ms
 
+    @staticmethod
+    def _finite_nonnegative(value: float, label: str) -> float:
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise BudgetError(f"{label} must be numeric")
+        number = float(value)
+        if not math.isfinite(number) or number < 0.0:
+            raise BudgetError(f"{label} must be finite and non-negative")
+        return number
+
     def available_cpu_ms(self, *, purpose: str = "solver") -> float:
         with self._lock:
             committed_total, _ = self._committed()
@@ -331,8 +340,8 @@ class BudgetLedger:
         purpose: str = "solver",
     ) -> Reservation:
         """Claim envelope capacity before the work starts."""
-        if cpu_ms < 0 or gpu_ms < 0:
-            raise BudgetError("reservations must be non-negative")
+        cpu_ms = self._finite_nonnegative(cpu_ms, "cpu reservation")
+        gpu_ms = self._finite_nonnegative(gpu_ms, "gpu reservation")
         with self._lock:
             group = self._purpose_class(purpose)
             committed_cpu, committed_gpu = self._committed()
@@ -394,6 +403,16 @@ class BudgetLedger:
         Actual spend above the reservation is still charged: the envelope
         records what was consumed, not what was hoped for.
         """
+        spent_cpu = (
+            reservation.cpu_ms
+            if actual_cpu_ms is None
+            else self._finite_nonnegative(actual_cpu_ms, "actual_cpu_ms")
+        )
+        spent_gpu = (
+            reservation.gpu_ms
+            if actual_gpu_ms is None
+            else self._finite_nonnegative(actual_gpu_ms, "actual_gpu_ms")
+        )
         with self._lock:
             if self._open.pop(reservation.reservation_id, None) is None:
                 raise BudgetError(f"reservation {reservation.reservation_id} is not open")
@@ -407,8 +426,6 @@ class BudgetLedger:
             self._purpose_reserved_gpu[group] = max(
                 0.0, self._purpose_reserved_gpu.get(group, 0.0) - reservation.gpu_ms
             )
-            spent_cpu = reservation.cpu_ms if actual_cpu_ms is None else actual_cpu_ms
-            spent_gpu = reservation.gpu_ms if actual_gpu_ms is None else actual_gpu_ms
             account.spent_cpu_ms += spent_cpu
             account.spent_gpu_ms += spent_gpu
             self._purpose_spent_cpu[group] = self._purpose_spent_cpu.get(group, 0.0) + spent_cpu
@@ -464,10 +481,11 @@ class BudgetLedger:
         """
         if not isinstance(semantics, str) or not semantics:
             raise BudgetError("native work requires a semantics tag")
+        value = self._finite_nonnegative(value, "native work")
         with self._lock:
             account = self._lane(lane)
             key = (semantics, str(stage))
-            account.stage_work[key] = max(account.stage_work.get(key, 0.0), float(value))
+            account.stage_work[key] = max(account.stage_work.get(key, 0.0), value)
             account.native_work[semantics] = sum(
                 amount
                 for (tag, _stage), amount in account.stage_work.items()

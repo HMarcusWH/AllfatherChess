@@ -182,7 +182,7 @@ class UciFrontend:
             self._diagnostic(self.runtime.unhealthy_reason or "runtime is unhealthy")
             return
         try:
-            self.runtime.ready_all()
+            self.runtime.ready_authority()
         except RuntimeError as exc:
             if self.state != ShellState.UNHEALTHY:
                 self._runtime_failed(str(exc), None)

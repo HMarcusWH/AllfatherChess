@@ -8,6 +8,7 @@ import json
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -16,12 +17,15 @@ sys.path.insert(0, str(ROOT))
 from controller.replay import (
     REPLAY_SCHEMA_VERSION,
     ReplayError,
+    ReplayRun,
     TelemetryStreamWriter,
     discover_replay_bundles,
     load_manifest,
     sha256_file,
     verify_bundle_integrity,
 )
+from common.search_request import PositionRequest
+from common.telemetry import STARTPOS_FEN
 from tests.controller.test_shadow_runtime import run_shell, write_shadow_config
 
 
@@ -169,6 +173,56 @@ class ReplayManifestTests(unittest.TestCase):
             (run_dir / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
             with self.assertRaises(ReplayError):
                 load_manifest(run_dir)
+
+    def test_manifest_semantic_tampering_is_detected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir, manifest = single_run(Path(tmp))
+            completed = next(
+                stage for stage in manifest["stages"] if stage.get("bestmove")
+            )
+            completed["bestmove"] = "a1a2"
+            (run_dir / "manifest.json").write_text(
+                json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            problems = verify_bundle_integrity(run_dir)
+            self.assertTrue(
+                any("bestmove does not match search.complete" in item for item in problems)
+            )
+
+    def test_failed_manifest_commit_does_not_poison_finalization_state(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run = ReplayRun(
+                run_id="retryable-finalize",
+                generation=1,
+                run_dir=Path(tmp),
+                mode="shadow",
+                telemetry_execution_mode="shadow",
+                position=PositionRequest(
+                    base_fen=STARTPOS_FEN,
+                    moves=(),
+                    variant="standard",
+                ),
+                external_go_command="go nodes 1",
+                config_path="fixture.json",
+                config_sha256="0" * 64,
+                engine_identities={},
+                ledger_owners=(),
+                partition_method="root_index_modulo",
+                created_utc="2026-09-23T00:00:00+00:00",
+            )
+            with mock.patch(
+                "controller.replay.atomic_write_text",
+                side_effect=OSError("disk full"),
+            ):
+                with self.assertRaises(OSError):
+                    run.finalize(disposition="completed")
+            self.assertFalse(run.finalized)
+
+            manifest = run.finalize(disposition="completed")
+            self.assertTrue(run.finalized)
+            self.assertEqual(manifest["disposition"]["run"], "completed")
+            self.assertTrue((Path(tmp) / "manifest.json").is_file())
 
     def test_tampered_stream_fails_integrity_verification(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -8,6 +8,7 @@ import sys
 import tempfile
 import threading
 import unittest
+from unittest import mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -170,6 +171,34 @@ class BudgetLedgerTests(unittest.TestCase):
         self.assertEqual(ledger.snapshot()["open_reservations"], 0)
         with self.assertRaises(BudgetError):
             ledger.settle(second)
+
+    def test_non_finite_or_negative_runtime_measurements_are_rejected(self):
+        ledger = BudgetLedger(
+            envelope(
+                cpu_ms=1000.0,
+                verification_reserve_fraction=0.0,
+                controller_overhead_reserve_ms=0.0,
+            )
+        )
+        with self.assertRaises(BudgetError):
+            ledger.reserve("nan", cpu_ms=float("nan"))
+        reservation = ledger.reserve("worker", cpu_ms=100.0)
+        for bad in (float("nan"), float("inf"), -1.0):
+            with self.subTest(actual_cpu_ms=bad):
+                with self.assertRaises(BudgetError):
+                    ledger.settle(reservation, actual_cpu_ms=bad)
+        # Invalid settlement must not consume/drop the open reservation.
+        self.assertEqual(ledger.snapshot()["open_reservations"], 1)
+        ledger.release(reservation)
+
+        for bad in (float("nan"), float("inf"), -1.0):
+            with self.subTest(native_work=bad):
+                with self.assertRaises(BudgetError):
+                    ledger.record_native_work(
+                        "shadow:stockfish",
+                        value=bad,
+                        semantics="stockfish.uci_nodes",
+                    )
 
     def test_controller_overhead_is_charged_to_the_same_envelope(self):
         ledger = BudgetLedger(envelope())
@@ -384,8 +413,28 @@ class ReviewRegressionTests(unittest.TestCase):
         self.assertEqual(lane["reserved_cpu_ms"], 0.0, "unspent capacity was not returned")
 
         # The anchor reservation is still open here; it settles at run end.
-        router.on_run_end(context)
+        # Routing evidence is now mandatory rather than best-effort, so this
+        # otherwise pure accounting regression needs a writable run directory.
+        with tempfile.TemporaryDirectory() as tmp:
+            context.run_dir = Path(tmp)
+            router.on_run_end(context)
+            self.assertTrue((context.run_dir / "route.json").is_file())
         self.assertEqual(router.ledger.snapshot()["open_reservations"], 0)
+
+    def test_route_persistence_failure_is_explicit(self):
+        router = ConservativeRouter(
+            envelope=envelope(),
+            policy=policy(),
+            clock=lambda: 0.0,
+        )
+        context = _FakeContext()
+        router.on_run_start(context)
+        with mock.patch(
+            "controller.routing.atomic_write_text",
+            side_effect=OSError("disk full"),
+        ):
+            with self.assertRaisesRegex(RoutingError, "could not persist route.json"):
+                router.on_run_end(context)
 
     def test_unbounded_outward_request_cannot_claim_envelope_compliance(self):
         router = ConservativeRouter(
@@ -1284,7 +1333,7 @@ class _WorkContext:
     """A context whose single worker reports engine-native work."""
 
     run_id = "unit-test-work"
-    run_dir = Path("/nonexistent")
+    run_dir = Path(tempfile.gettempdir()) / "allfather-routing-tests"
     owners = ("lc0",)
     owner_roots: dict[str, tuple[str, ...]] = {"lc0": ("g1f3",)}
     external_go_command = "go movetime 1000"
@@ -1323,7 +1372,7 @@ class _WorkContext:
 
 class _FakeContext:
     run_id = "unit-test-run"
-    run_dir = Path("/nonexistent")
+    run_dir = Path(tempfile.gettempdir()) / "allfather-routing-unit-tests"
     owners = ("stockfish", "reckless", "lc0")
     owner_roots: dict[str, tuple[str, ...]] = {}
     external_go_command = "go movetime 1000"

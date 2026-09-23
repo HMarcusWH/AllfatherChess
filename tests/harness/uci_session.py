@@ -202,4 +202,13 @@ class UciSession:
             except subprocess.TimeoutExpired:
                 proc.kill()
                 proc.wait(timeout=2.0)
+        if self._reader is not None:
+            self._reader.join(timeout=1.0)
+        for handle in (proc.stdin, proc.stdout, proc.stderr):
+            if handle is None:
+                continue
+            try:
+                handle.close()
+            except OSError:
+                pass
         self.proc = None

@@ -51,6 +51,7 @@ from controller.calibration import (
 )
 from common.residuals import past_only_features
 from common.search_request import SearchRequestError, parse_go_request
+from controller.replay import atomic_write_text
 from controller.replay_analysis import SearchTrajectory, reconstruct_stream
 from controller.shadow import RouterCommand
 
@@ -776,11 +777,16 @@ class ConservativeRouter:
             ),
         }
         try:
-            (Path(context.run_dir) / "route.json").write_text(
-                json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+            atomic_write_text(
+                Path(context.run_dir) / "route.json",
+                json.dumps(payload, indent=2, sort_keys=True) + "\n",
             )
-        except OSError:  # pragma: no cover - routing evidence is best effort
-            pass
+        except OSError as exc:
+            # The outward anchor has already answered, so this must not rewrite
+            # chess authority. It *must* however invalidate the evidence run:
+            # ShadowRunCoordinator catches this RoutingError and records it in
+            # the parent replay manifest before that manifest is finalized.
+            raise RoutingError(f"could not persist route.json: {exc}") from exc
 
     def _gpu_accounted(self) -> bool:
         """A declared GPU envelope with no per-stage estimate accounts nothing.

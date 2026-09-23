@@ -427,6 +427,29 @@ class ShadowRuntimeHealthTests(unittest.TestCase):
                 manager.close()
             self.assertTrue(all(not process.alive for process in manager.backends.values()))
 
+    def test_authority_readiness_does_not_wait_for_observational_shadows(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            manager = BackendManager.from_path(write_shadow_config(Path(tmp)))
+            manager.start()
+            try:
+                shadow = manager.backends["lc0-shadow"]
+                original_ready = shadow.ready
+
+                def slow_shadow_ready(*, timeout=None):
+                    time.sleep(0.5)
+                    return original_ready(timeout=timeout)
+
+                shadow.ready = slow_shadow_ready  # type: ignore[method-assign]
+                started = time.monotonic()
+                manager.ready_authority()
+                elapsed = time.monotonic() - started
+                self.assertLess(
+                    elapsed,
+                    0.25,
+                    "external authority readiness waited for a shadow worker",
+                )
+            finally:
+                manager.close()
     def test_oracle_runs_on_the_shadow_not_the_anchor(self):
         with tempfile.TemporaryDirectory() as tmp:
             manager = BackendManager.from_path(write_shadow_config(Path(tmp)))

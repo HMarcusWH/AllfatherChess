@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import collections
+import math
 import os
 import re
 import subprocess
@@ -237,19 +238,83 @@ class UciProcess:
             except Exception as exc:  # pragma: no cover - owner callback isolation
                 self._callback_errors.append(f"exit callback {type(exc).__name__}: {exc}")
 
-    def send(self, command: str) -> None:
+    def send(self, command: str, *, timeout: float | None = None) -> None:
+        """Write one UCI command without allowing a wedged stdin pipe to hang forever.
+
+        OS pipe writes can block when a backend stops draining stdin. Response
+        timeouts do not help in that state because the caller never reaches the
+        response wait. The actual write therefore runs behind the same bounded
+        process contract as reads. On timeout the child is killed to release the
+        pipe and the process is treated as failed rather than letting a shadow
+        stall authority/state synchronization indefinitely.
+        """
+
         proc = self.proc
         if proc is None or proc.stdin is None:
             raise UciProcessError(f"{self.name}: process not started")
         if proc.poll() is not None:
             raise UciProcessError(f"{self.name}: engine exited before command: {command}")
-        with self._stdin_lock:
-            self._transcript.append(f">> {command}")
+
+        write_timeout = self.timeout if timeout is None else float(timeout)
+        if not math.isfinite(write_timeout) or write_timeout <= 0:
+            raise UciProcessError(
+                f"{self.name}: command write timeout must be finite and positive"
+            )
+
+        done = threading.Event()
+        errors: list[BaseException] = []
+
+        def _write() -> None:
             try:
-                proc.stdin.write(command + "\n")
-                proc.stdin.flush()
-            except (BrokenPipeError, OSError) as exc:
-                raise UciProcessError(f"{self.name}: failed to send {command!r}: {exc}") from exc
+                with self._stdin_lock:
+                    if proc.poll() is not None:
+                        raise UciProcessError(
+                            f"{self.name}: engine exited before command: {command}"
+                        )
+                    self._transcript.append(f">> {command}")
+                    proc.stdin.write(command + "\n")
+                    proc.stdin.flush()
+            except BaseException as exc:  # isolated writer boundary
+                errors.append(exc)
+            finally:
+                done.set()
+
+        writer = threading.Thread(
+            target=_write,
+            name=f"allfather-stdin-{self.name}",
+            daemon=True,
+        )
+        writer.start()
+
+        if not done.wait(write_timeout):
+            self._transcript.append(f"!! stdin write timeout: {command}")
+            try:
+                if proc.poll() is None:
+                    proc.kill()
+            except OSError:
+                pass
+            # Killing the child closes the read side of the pipe and normally
+            # releases the blocked writer immediately. Do not wait without a
+            # bound here either: the daemon writer is expendable once the child
+            # has been failed closed.
+            done.wait(min(1.0, write_timeout))
+            raise UciProcessError(
+                f"{self.name}: timeout writing command {command!r}\n"
+                + self._diagnostic_tail()
+            )
+
+        if errors:
+            exc = errors[0]
+            if isinstance(exc, UciProcessError):
+                raise exc
+            if isinstance(exc, (BrokenPipeError, OSError)):
+                raise UciProcessError(
+                    f"{self.name}: failed to send {command!r}: {exc}"
+                ) from exc
+            raise UciProcessError(
+                f"{self.name}: unexpected stdin failure for {command!r}: "
+                f"{type(exc).__name__}: {exc}"
+            ) from exc
 
     def _request(
         self,
@@ -264,7 +329,7 @@ class UciProcess:
         with self._state_lock:
             self._waiters.append(waiter)
         try:
-            self.send(command)
+            self.send(command, timeout=self.timeout if timeout is None else timeout)
         except Exception:
             with self._state_lock:
                 if waiter in self._waiters:
@@ -390,7 +455,7 @@ class UciProcess:
             self._closing = True
         if proc.poll() is None:
             try:
-                self.send("quit")
+                self.send("quit", timeout=min(self.timeout, 1.0))
             except UciProcessError:
                 pass
             try:
@@ -402,3 +467,16 @@ class UciProcess:
             self._stdout_thread.join(timeout=1.0)
         if self._stderr_thread is not None:
             self._stderr_thread.join(timeout=1.0)
+
+        # Popen does not close our parent-side pipe objects merely because the
+        # child exited. Leaving them to GC leaked file descriptors across
+        # repeated controller lifecycles and produced ResourceWarning noise in
+        # the hardening suite.
+        for handle in (proc.stdin, proc.stdout, proc.stderr):
+            if handle is None:
+                continue
+            try:
+                handle.close()
+            except OSError:
+                pass
+        self.proc = None

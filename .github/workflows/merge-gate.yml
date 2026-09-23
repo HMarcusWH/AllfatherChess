@@ -1,0 +1,35 @@
+name: Merge gate
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: merge-gate-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: validate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Compile Python and validate configuration syntax
+        run: |
+          python3 -m compileall -q controller common adapters scripts tests
+          python3 -m py_compile allfather-chess
+          for config in config/*.json; do python3 -m json.tool "$config" >/dev/null; done
+
+      - name: Run engine-independent contract and controller suites
+        run: |
+          make telemetry-contract
+          make telemetry-adapters
+          make controller-tests

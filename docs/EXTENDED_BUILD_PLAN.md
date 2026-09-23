@@ -1,10 +1,10 @@
 # AllfatherChess Extended Build Plan
 
-**Status:** Post-PR #23 implementation baseline; PR #24 LC0 real-inference qualification in progress  
-**Date:** 2026-09-22  
+**Status:** Post-PR #24 implementation baseline; repo-wide hardening in progress  
+**Date:** 2026-09-23  
 **Scope:** Expand the existing `docs/BUILD_PLAN.md` from the current M12 control/resource milestone through typed cross-feed evidence, counterfactual and active hybrid decision authority, backend/resource qualification, recursive refinement, native integration, governed policy evolution, and the final equal-resource strength campaign.
 
-This document is intentionally more detailed than `docs/BUILD_PLAN.md`. It does not replace the existing build plan, telemetry contracts, shard ledgers, replay contracts, or claim ledger. PR #19 and PR #20 were documentation-only. PR #21 added the typed cross-feed evidence plane and PR #22 added deterministic counterfactual hybrid proposals with PRE/POST_ANCHOR timing. Both are merged. The current implementation milestone is PR #23.
+This document is intentionally more detailed than `docs/BUILD_PLAN.md`. It does not replace the existing build plan, telemetry contracts, shard ledgers, replay contracts, or claim ledger. PR #19 and PR #20 were documentation-only. PR #21 added the typed cross-feed evidence plane, PR #22 added deterministic counterfactual hybrid proposals, PR #23 added prospective VERIFY value-of-compute calibration, and PR #24 added the pinned real-network LC0 reference qualification. All are merged. A repo-wide hardening pass now repairs provenance, liveness, replay-integrity, and CI-governance defects before measured-resource work begins.
 
 ---
 
@@ -39,9 +39,9 @@ The final product must therefore satisfy all of these simultaneously:
 
 ---
 
-## 2. Current repository baseline after PR #19
+## 2. Current repository baseline after PR #24
 
-PR #19 was documentation-only. The current runtime codebase is still the PR #18 implementation state, which already has the control substrate required to begin the actual hybrid-strength work.
+The runtime now includes the PR #21–24 cross-feed, counterfactual decision, prospective value-of-compute, and real-LC0 qualification layers in addition to the PR #18 control substrate.
 
 ### 2.1 Implemented control layers
 
@@ -63,7 +63,11 @@ The repository currently provides:
 - reservation-before-dispatch budgeting for VERIFY / REFINE / oracle work;
 - controller overhead accounting;
 - global CPU/GPU/wall envelope validation;
-- separate raw, derived, routing, verification, and refinement artifacts.
+- separate raw, derived, routing, verification, refinement, cross-feed, and counterfactual artifacts;
+- typed cross-feed evidence over sealed VERIFY/REFINE sources;
+- deterministic frozen counterfactual hybrid proposals with no outward authority;
+- prospective VERIFY value-of-compute calibration with feature/label separation;
+- a separate pinned real-network LC0 BLAS reference qualification profile.
 
 ### 2.2 Current authority boundary
 
@@ -79,7 +83,7 @@ This is exactly where the next programme begins.
 
 The following remain open and must not be hidden by future work:
 
-- LC0 validation remains backend-light/random and is not strength-qualified.
+- fast controller CI still uses backend-light/random LC0, while a separate pinned real-network BLAS reference profile is qualified for inference provenance only and remains ineligible for strength-campaign claims.
 - CPU consumption is still derived from stage wall duration × configured thread count rather than independently measured process CPU time.
 - GPU consumption is estimate-based when declared, not measured accelerator occupancy.
 - current reversal-risk calibration measures self-reversal/stability, not objective move correctness;
@@ -88,8 +92,6 @@ The following remain open and must not be hidden by future work:
 - descriptive RELOCK is not a chess certificate;
 - current specialist reserve fractions are policy choices, not proven optima;
 - REFINE is one descendant shell only;
-- no typed cross-feed evidence layer exists yet; however, PR #14/#15 VERIFY already performs the expensive common-support re-search that cross-feed v1 should consume rather than duplicate;
-- no hybrid decision has been prospectively frozen and scored against later outcomes;
 - no equal-resource strength claim exists.
 
 ---
@@ -473,7 +475,7 @@ The final strength engine should not depend on all three solvers being equally a
 
 ## 6. Cross-feed design
 
-Cross-feed is the next implementation milestone because PR #18 made specialist work accountable and the existing VERIFY path already performs the expensive common-support operation.
+Cross-feed is implemented by PR #21 and consumes existing VERIFY/REFINE evidence without creating a duplicate search phase.
 
 The important repo-level correction is:
 
@@ -580,7 +582,7 @@ That evidence is required before any cross-feed result gets chess decision autho
 
 # 7. Extended PR train
 
-PR #19 and PR #20 are merged documentation-only milestones. The implementation train begins at PR #21; PR #21 is now merged and PR #22 is the current implementation.
+PR #19 and PR #20 are merged documentation-only milestones. PR #21–24 are merged implementation milestones. A hardening repair is inserted after PR #24 before measured-resource accounting.
 
 The sequencing below is anchored to the current repository boundaries:
 
@@ -809,7 +811,7 @@ The record should include:
 - disposition/reason;
 - outward_authority = anchor.
 
-### Runtime preparation for PR #26
+### Runtime preparation for M14-C
 
 The decision builder should be pure and usable both:
 
@@ -1037,7 +1039,7 @@ It does not yet support:
 
 ## PR #24 — Strength-qualified LC0 profile
 
-**Status: current implementation.**
+**Status: merged.**
 
 ### Purpose
 
@@ -1094,7 +1096,7 @@ resource accounting and a fixed competitive platform are separately qualified.
 
 ---
 
-## PR #25 — Measured process resource accounting
+## M14-B — Measured process resource accounting
 
 ### Purpose
 
@@ -1156,7 +1158,7 @@ A run may be development-valid with partial measurement, but the strongest equal
 
 ---
 
-## PR #26 — Active hybrid decision authority v0
+## M14-C — Active hybrid decision authority v0
 
 ### Purpose
 
@@ -1172,7 +1174,7 @@ Today controller.uci_frontend._on_search_complete():
 2. marks the UCI shell ready;
 3. immediately writes the anchor bestmove.
 
-PR #26 must change this path without blocking the anchor stdout reader on engine work or filesystem IO.
+M14-C must change this path without blocking the anchor stdout reader on engine work or filesystem IO.
 
 ### Required authority design
 
@@ -1247,7 +1249,7 @@ Any failure returns the buffered anchor move.
 
 ---
 
-## PR #27 — Multi-level recursive REFINE
+## M14-D — Multi-level recursive REFINE
 
 ### Purpose
 
@@ -1286,7 +1288,7 @@ Recursive REFINE can zoom multiple levels without weakening ownership or resourc
 
 ---
 
-## PR #28 — Engine-specific cross-feed adapters
+## M14-E — Engine-specific cross-feed adapters
 
 ### Purpose
 
@@ -1319,7 +1321,7 @@ Those require later native hooks and separate validation.
 
 ---
 
-## PR #29 — Search-regime classifier
+## M14-F — Search-regime classifier
 
 ### Purpose
 
@@ -1353,7 +1355,7 @@ A regime may nominate work. It does not authorize a move.
 
 ---
 
-## PR #30 — Unified value-of-compute decision router
+## M14-G — Unified value-of-compute decision router
 
 ### Purpose
 
@@ -1396,7 +1398,7 @@ The decision action still requires DecisionAuthorization; RouteAction alone neve
 
 ---
 
-## PR #31 — Structured IPC experiment
+## M14-H — Structured IPC experiment
 
 ### Purpose
 
@@ -1420,7 +1422,7 @@ Promotion requires measured benefit and no unexplained chess-semantic drift.
 
 ---
 
-## PR #32 — Selective native engine integration
+## M14-I — Selective native engine integration
 
 ### Purpose
 
@@ -1440,7 +1442,7 @@ Native integration is an optimization of an already-demonstrated hybrid mechanis
 
 ---
 
-## PR #33 — Offline governed policy evolution laboratory
+## M15-A — Offline governed policy evolution laboratory
 
 ### Purpose
 
@@ -1487,7 +1489,7 @@ The candidate policy cannot choose its own scorer, holdout, stopping rule, or ba
 
 ---
 
-## PR #34 — Strength campaign infrastructure
+## M15-B — Strength campaign infrastructure
 
 ### Purpose
 
@@ -1534,7 +1536,7 @@ Allfather active hybrid minus each major component
 
 ---
 
-## PR #35 — External qualification and release candidate
+## M15-C — External qualification and release candidate
 
 ### Purpose
 
@@ -1917,15 +1919,17 @@ These shortcuts would destroy the causal information the current architecture ha
 
 # 19. Recommended immediate next implementation
 
-The next code PR is **PR #23 — Prospective VERIFY value-of-compute calibration**.
+The immediate task is the **post-PR #24 repository-hardening pass**. It closes
+the audit findings around exact-source qualification, post-merge LC0
+qualification, bounded UCI stdin writes, authority-only external readiness,
+transactional replay finalization, manifest↔telemetry integrity, finite budget
+inputs, atomic route evidence, robust Reckless `searchmoves` parsing, and pinned
+GitHub Actions.
 
-PR #21 and PR #22 are merged: the repo now has typed replayable specialist evidence plus deterministic frozen hybrid proposals. PR #23 measures, prospectively and without hindsight leakage, whether additional VERIFY compute changes those proposals under a matching upstream state.
-
-The immediate implementation question becomes:
-
-> How do we freeze a deterministic hybrid proposal from typed cross-feed plus the actual terminal VERIFY bestmoves, record whether that proposal existed before the anchor boundary, and independently replay it without granting outward authority?
-
-The counterfactual laboratory must use actual VERIFY terminal bestmoves, not infer final verifier choice from the last candidate.update event.
+After that repair is green and merged, the next architecture milestone is
+**M14-B — Measured process resource accounting**. Hybrid move authority remains
+blocked until measured resource accounting is good enough to state honestly
+what the full controller and its specialists consumed.
 
 ---
 
@@ -1956,22 +1960,28 @@ The shortest form of the remaining programme is:
 PR #19–20
 extended build-plan documentation (merged)
         ↓
-PR #21–25
-typed cross-feed evidence + counterfactual decisions + value-of-compute + real backend/resource qualification
+PR #21–24
+typed cross-feed + counterfactual decisions + prospective value-of-compute + real LC0 reference qualification (merged)
         ↓
-PR #26–30
-bounded hybrid decision authority + recursive refinement + engine-specific cross-feed + regime/value routing
+post-PR #24 hardening
+provenance + liveness + replay integrity + CI/supply-chain repair
         ↓
-PR #31–32
+M14-B
+measured process/resource accounting
+        ↓
+M14-C–G
+bounded hybrid authority + recursive refinement + engine-specific cross-feed + regime/value routing
+        ↓
+M14-H–I
 measured transport / selective native optimization
         ↓
-PR #33
+M15-A
 offline governed policy evolution
         ↓
-PR #34
+M15-B
 confirmatory equal-resource strength campaign
         ↓
-PR #35
+M15-C
 release qualification
 ```
 

@@ -303,6 +303,7 @@ class DecisionAuthorizationSnapshot:
     external_root_restriction: tuple[str, ...]
     anchor_request_bounded: bool
     anchor_reserved: bool
+    open_anchor_reservations: int
     budget_within_envelope: bool
     partitions_within_caps: bool
     wall_within_envelope: bool
@@ -339,6 +340,7 @@ class DecisionAuthorizationSnapshot:
                     raise DecisionError(f"authorization snapshot {label} contains duplicates")
                 seen.add(canonical)
         for label, value in (
+            ("open_anchor_reservations", self.open_anchor_reservations),
             ("open_specialist_reservations", self.open_specialist_reservations),
             ("open_solver_reservations", self.open_solver_reservations),
             (
@@ -367,6 +369,7 @@ class DecisionAuthorizationSnapshot:
             "external_root_restriction": list(self.external_root_restriction),
             "anchor_request_bounded": self.anchor_request_bounded,
             "anchor_reserved": self.anchor_reserved,
+            "open_anchor_reservations": self.open_anchor_reservations,
             "budget_within_envelope": self.budget_within_envelope,
             "partitions_within_caps": self.partitions_within_caps,
             "wall_within_envelope": self.wall_within_envelope,
@@ -723,6 +726,8 @@ def authorize_decision(
         reasons.append("anchor request is not bounded by the declared wall envelope")
     if not snapshot.anchor_reserved:
         reasons.append("anchor resource reservation is missing")
+    if snapshot.open_anchor_reservations != 1:
+        reasons.append("exactly one in-flight anchor reservation is required")
     if not snapshot.budget_within_envelope:
         reasons.append("known budget state exceeds the declared resource envelope")
     if not snapshot.partitions_within_caps:

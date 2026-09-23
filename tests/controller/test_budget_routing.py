@@ -408,6 +408,13 @@ class ReviewRegressionTests(unittest.TestCase):
         self.assertIsNotNone(command)
         self.assertEqual(command.action, "stop_worker")
 
+        # Stop authorization does not guess the terminal CPU boundary.
+        # Simulate the backend's later bestmove/failure boundary, then settle.
+        lane = router.ledger.snapshot()["lanes"]["shadow:stockfish"]
+        self.assertEqual(lane["spent_cpu_ms"], 0.0)
+        self.assertEqual(lane["reserved_cpu_ms"], 400.0)
+        context.stage_ms = context.stage_elapsed_ms
+        router._settle_owner(context, "stockfish")
         lane = router.ledger.snapshot()["lanes"]["shadow:stockfish"]
         self.assertEqual(lane["spent_cpu_ms"], 250.0, "consumed work was not charged")
         self.assertEqual(lane["reserved_cpu_ms"], 0.0, "unspent capacity was not returned")
@@ -533,6 +540,8 @@ class ReviewRegressionRoundTwoTests(unittest.TestCase):
         decision = router._authorize(propose(subject, router.policy), subject, 100.0)
         self.assertTrue(decision.granted)
         router._to_command(decision, context)
+        context.stage_ms = context.stage_elapsed_ms
+        router._settle_owner(context, "stockfish")
 
         lane = router.ledger.snapshot()["lanes"]["shadow:stockfish"]
         self.assertEqual(lane["spent_cpu_ms"], 900.0, "the overrun was clamped away")
@@ -922,6 +931,7 @@ class ReviewRegressionRoundSixTests(unittest.TestCase):
                 router.ledger.snapshot()["lanes"]["shadow:stockfish"]["spent_cpu_ms"],
                 0.0,
             )
+            context.stage_ms = context.stage_elapsed_ms
             router._settle_owner(context, "stockfish")
             lane = router.ledger.snapshot()["lanes"]["shadow:stockfish"]
             charged[threads] = lane["spent_cpu_ms"]
@@ -1199,7 +1209,7 @@ class ActiveModeEndToEndTests(unittest.TestCase):
             blob = json.dumps(manifest).lower()
             for needle in ("routing_decision", "reversal_risk", "proposal", "calibration"):
                 self.assertNotIn(needle, blob)
-            self.assertEqual(route["schema_version"], 1)
+            self.assertEqual(route["schema_version"], 2)
             self.assertTrue(route["decisions"])
             for decision in route["decisions"]:
                 self.assertIn("gates", decision)

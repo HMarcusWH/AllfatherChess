@@ -1000,6 +1000,7 @@ class ShadowRunCoordinator:
             anchor_move=anchor_move,
             proposal=proposal,
             authorization=authorization,
+            authorization_snapshot=snapshot,
         )
         active.final_decision = final
         return final

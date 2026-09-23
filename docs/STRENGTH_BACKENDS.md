@@ -165,9 +165,12 @@ The qualification report therefore binds both:
 ```text
 requested_backend
 observed_backend
+backend_evidence[]
 ```
 
-and requires them to agree.
+and requires them to agree. The report also hashes the exact
+`vendor.lock.json`, strength lock, strength profile, and runtime config bytes,
+so changing a qualification rule/configuration changes the report identity.
 
 ## Warmup
 

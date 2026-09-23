@@ -10,8 +10,10 @@ on:
       - config/allfather.strength.validation.json
       - controller/strength_profile.py
       - controller/runtime.py
+      - controller/resource_measurement.py
       - controller/replay.py
       - adapters/process/**
+      - adapters/resource/**
       - adapters/telemetry/**
       - common/search_request.py
       - common/telemetry.py
@@ -20,6 +22,9 @@ on:
       - scripts/build-lc0-strength.sh
       - scripts/fetch-lc0-network.py
       - tests/controller/test_strength_profile.py
+      - tests/controller/test_resource_measurement.py
+      - tests/adapters/test_linux_proc_resource.py
+      - tests/fixtures/resource_worker.py
       - tests/telemetry/**
       - engines/lc0/**
       - vendor.lock.json
@@ -30,8 +35,10 @@ on:
       - config/allfather.strength.validation.json
       - controller/strength_profile.py
       - controller/runtime.py
+      - controller/resource_measurement.py
       - controller/replay.py
       - adapters/process/**
+      - adapters/resource/**
       - adapters/telemetry/**
       - common/search_request.py
       - common/telemetry.py
@@ -40,6 +47,9 @@ on:
       - scripts/build-lc0-strength.sh
       - scripts/fetch-lc0-network.py
       - tests/controller/test_strength_profile.py
+      - tests/controller/test_resource_measurement.py
+      - tests/adapters/test_linux_proc_resource.py
+      - tests/fixtures/resource_worker.py
       - tests/telemetry/**
       - engines/lc0/**
       - vendor.lock.json
@@ -74,6 +84,8 @@ jobs:
           ./scripts/verify-vendor.sh
           python3 scripts/lc0-strength-lock.py validate
           python3 tests/controller/test_strength_profile.py
+          python3 tests/controller/test_resource_measurement.py
+          python3 tests/adapters/test_linux_proc_resource.py
           python3 -m json.tool qualification/lc0-strength.lock.json >/dev/null
           python3 -m json.tool qualification/lc0-strength-profile.json >/dev/null
           python3 -m json.tool config/allfather.strength.validation.json >/dev/null

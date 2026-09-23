@@ -2,10 +2,11 @@
 
 ## Status
 
-PR #17 wires the qualified recursive PrefixShardLedger v2 substrate into the
-live **shadow research path** without changing outward decision authority.
-PR #18 reuses the same raw REFINE mechanics in active mode only after the
-global router has reserved REFINE/oracle capacity from the declared envelope.
+PR #17 wired the qualified PrefixShardLedger v2 substrate into the live
+one-shell shadow REFINE path. PR #18 added active-mode resource authorization.
+M14-D (PR #30) generalizes that shell into optional bounded multi-level
+recursion while preserving the same ownership, measurement and authority
+firewalls.
 
 The live research chain is now:
 
@@ -24,10 +25,17 @@ PrefixShardLedger v2 split + deterministic child partition
         ↓
 descendant-position REFINE searches
         ↓
+clean regional terminal nominations
+        ↓
+optional breadth-first recursive zoom
+        ↓
 raw refinement/manifest.json
 ```
 
-The unrestricted Stockfish anchor remains the sole outward bestmove authority.
+REFINE itself carries no outward bestmove authority. M14-C may authorize a
+separately frozen hybrid proposal from VERIFY evidence, but M14-D explicitly
+rejects `hybrid_authority` profiles with `refinement.max_depth > 2`.
+Deeper recursion is therefore evidence-only in this milestone.
 
 ## Authority boundary
 
@@ -289,13 +297,54 @@ engine output into the VERIFY stream.
 Completed artifacts must contain the complete nominated target set. Honest
 incomplete artifacts may contain only a deterministic prefix of that target set.
 
-## Scope limit
+## Bounded recursive REFINE
 
-Live REFINE v1 goes exactly one level below a nominated root.
+The compatibility default remains:
 
-PrefixShardLedger v2 can represent arbitrary recursive depth, and the standalone
-contract already qualified deeper prefixes mechanically. PR #17 intentionally
-does not add repeated recursive scheduling in one controller generation.
+~~~text
+max_depth = 2
+~~~
+
+where a nominated root is depth 1 and the existing child shell is depth 2.
+Every shipped profile that predates M14-D pins that limit explicitly.
+
+A research/active-specialist profile may opt into deeper recursion with:
+
+~~~json
+{
+  "recursive_nomination_method": "stage_terminal_bestmove_v1",
+  "max_depth": 4,
+  "max_expansions": 6
+}
+~~~
+
+The recursive controller is deterministic breadth-first. A deeper expansion is
+eligible only when its full prefix is still a SEALED PrefixShardLedger frontier
+leaf, the source restricted stage completed cleanly, and a fresh resource
+reservation is granted.
+
+`stage_terminal_bestmove_v1` means only that one clean restricted regional
+search ended on an owned child. It is a nomination to zoom that region again,
+not a global best-move claim.
+
+Each deeper expansion repeats the same sequence:
+
+~~~text
+SEALED nominated leaf
+  -> reserve REFINE_ORACLE
+  -> exact Stockfish perft-1 children
+  -> atomic split / transfer
+  -> reserve every non-empty owner stage
+  -> restricted descendant searches
+  -> telemetry containment audit
+  -> seal clean children
+  -> restore external positions
+  -> derive next regional nominations
+~~~
+
+Recursion stops on the depth cap, expansion cap, terminal child universe,
+resource denial, outward decision boundary, cancellation or failure. Work is
+never inherited from a parent's resource authorization.
 
 ## Validation
 
@@ -313,12 +362,15 @@ execute actual descendant child regions produced by the Stockfish perft oracle.
 
 ## Claim boundary
 
-PR #17 establishes that the live shadow controller can safely execute:
+The qualified REFINE stack now establishes that the live controller can safely
+execute:
 
 ```text
 root disagreement
 → exact one-ply child shell
 → pairwise-disjoint descendant search
+→ explicit regional nomination
+→ bounded repeated exact-prefix zoom
 ```
 
 It does **not** establish:
@@ -327,8 +379,9 @@ It does **not** establish:
 - that REFINE resolves disagreement;
 - that REFINE improves Stockfish;
 - that recursive localization saves compute;
+- that the recursive nomination policy improves move quality;
 - that REFINE is worth its CPU/GPU/time cost;
-- that active mode may spend verification reserve on REFINE;
+- that deeper recursion may participate in M14-C hybrid authority;
 - any Elo or equal-resource strength improvement.
 
 Those are the questions for active budget integration and later causal/strength
@@ -340,8 +393,8 @@ experiments.
 When `mode: active` enables REFINE, the nomination, PrefixShardLedger and raw
 artifact semantics above are unchanged. What changes is resource authority:
 
-- every target's Stockfish perft-1 child oracle needs a REFINE reservation;
-- every non-empty owner child region needs its own REFINE reservation before
+- every root or deeper Stockfish perft-1 child oracle needs a fresh REFINE reservation;
+- every non-empty owner child region at every depth needs its own REFINE reservation before
   dispatch;
 - descendant positioning/restoration overhead is charged to the controller;
 - denied reservations produce no hidden computation;

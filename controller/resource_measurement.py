@@ -198,11 +198,16 @@ class ResourceMeasurementRun:
         """
         with self._lock:
             completed = tuple(self._measurements.values())
+            process_failure = any(
+                record.get("complete") is False
+                for record in self._process_totals.values()
+            )
             known_failure = (
                 self.settings.enabled
                 and (
                     self._provider is None
                     or any(not item.complete for item in completed)
+                    or process_failure
                 )
             )
             return {

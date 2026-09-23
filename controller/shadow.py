@@ -2181,6 +2181,12 @@ class ShadowRunCoordinator:
                 command=command,
                 dispatched_ms=(time.monotonic() - active.started_monotonic) * 1000.0,
             )
+            self._begin_resource_stage(
+                active,
+                key=search_id,
+                instance=instance,
+                phase="VERIFY",
+            )
             dispatched = self.runtime.start_shadow_search(
                 instance,
                 command,
@@ -2189,6 +2195,11 @@ class ShadowRunCoordinator:
                 on_complete=on_complete,
             )
         if not dispatched:
+            self._abandon_resource_stage(
+                active,
+                search_id,
+                reason="VERIFY backend dispatch was rejected",
+            )
             self._release_specialist(
                 active,
                 key=reservation_key,
@@ -2839,6 +2850,12 @@ class ShadowRunCoordinator:
                 prefixes=prefixes,
                 dispatched_ms=(time.monotonic() - active.started_monotonic) * 1000.0,
             )
+            self._begin_resource_stage(
+                active,
+                key=search_id,
+                instance=instance,
+                phase="REFINE",
+            )
             dispatched = self.runtime.start_shadow_search(
                 instance,
                 dispatch.go_command,
@@ -2847,6 +2864,11 @@ class ShadowRunCoordinator:
                 on_complete=on_complete,
             )
         if not dispatched:
+            self._abandon_resource_stage(
+                active,
+                search_id,
+                reason="REFINE backend dispatch was rejected",
+            )
             self._release_specialist(
                 active,
                 key=reservation_key,

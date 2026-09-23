@@ -31,6 +31,7 @@ BASE_CONFIG = ROOT / "config" / "allfather.value.validation.json"
 RESULT_DIR = ROOT / "build" / "test-results" / "value-of-compute"
 REPLAY_ROOT = RESULT_DIR / "replays"
 BUDGETS = (64, 128)
+ANCHOR_MOVETIME_MS = 5000
 
 
 class ContractError(RuntimeError):
@@ -53,14 +54,21 @@ def _wait_run(known: set[str]) -> Path:
     deadline = time.monotonic() + 30.0
     while time.monotonic() < deadline:
         discovery = discover_replay_bundles(REPLAY_ROOT)
-        candidates = [
-            path
-            for path in discovery.bundles
-            if path.name not in known
-            and (path / "decision" / "counterfactual.json").is_file()
-        ]
-        if candidates:
-            return candidates[-1]
+        fresh = [path for path in discovery.bundles if path.name not in known]
+        if fresh:
+            candidate = fresh[-1]
+            if (candidate / "decision" / "counterfactual.json").is_file():
+                return candidate
+            # A finalized parent manifest with no decision artifact is terminal
+            # for this arm: VERIFY/counterfactual work was never launched or was
+            # cut off. Fail immediately with the actual lifecycle boundary
+            # instead of waiting 30 seconds for an artifact that cannot appear.
+            manifest = load_manifest(candidate)
+            raise ContractError(
+                "paired arm sealed without counterfactual evidence; "
+                f"disposition={manifest.get('disposition')}, "
+                f"notes={manifest.get('notes')}"
+            )
         time.sleep(0.05)
     raise ContractError("timed out waiting for paired counterfactual run")
 
@@ -79,7 +87,11 @@ def _run_arm(config: Path) -> tuple[Path, str]:
         shell.configure({"UCI_Chess960": False})
         shell.new_game()
         shell.set_position({"startpos_moves": []})
-        shell.send("go nodes 4096")
+        # A short fixed-node anchor can finish before LC0 EXPLORE completes.
+        # Once the outward anchor boundary is crossed, shadow mode drains
+        # already-dispatched work but does not start new VERIFY stages. Keep the
+        # anchor deliberately alive so both budget arms actually reach VERIFY.
+        shell.send(f"go movetime {ANCHOR_MOVETIME_MS}")
         lines = shell.read_until(
             lambda line: line.startswith("bestmove "),
             label="value-of-compute anchor bestmove",

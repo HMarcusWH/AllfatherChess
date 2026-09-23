@@ -108,6 +108,19 @@ def verify_final_decision_integrity(run_dir: Path | str) -> list[str]:
     if artifact.get("content_sha256") != expected:
         problems.append("final decision content digest mismatch")
 
+    decision = artifact.get("decision")
+    if isinstance(decision, dict):
+        authorization = decision.get("authorization")
+        snapshot = decision.get("authorization_snapshot")
+        if isinstance(authorization, dict) and isinstance(snapshot, dict):
+            expected_snapshot = canonical_digest(snapshot)
+            if authorization.get("snapshot_digest") != expected_snapshot:
+                problems.append("final decision authorization snapshot digest mismatch")
+        else:
+            problems.append("final decision authorization evidence is incomplete")
+    else:
+        problems.append("final decision decision payload must be an object")
+
     stored_sources = artifact.get("sources")
     if not isinstance(stored_sources, dict):
         problems.append("final decision sources must be an object")

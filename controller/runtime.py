@@ -127,12 +127,12 @@ class RefinementSettings:
 
     enabled: bool
     nomination_method: str
-    recursive_nomination_method: str
     child_partition: str
     dispatch_limit: dict[str, object]
     max_targets: int
-    max_depth: int
-    max_expansions: int
+    recursive_nomination_method: str = "stage_terminal_bestmove_v1"
+    max_depth: int = 2
+    max_expansions: int = 3
 
 @dataclass(frozen=True)
 class CrossFeedSettings:

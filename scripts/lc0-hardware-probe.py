@@ -11,6 +11,16 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 
+BUILD_PACKAGES = (
+    "meson",
+    "ninja-build",
+    "pkg-config",
+    "libprotobuf-dev",
+    "protobuf-compiler",
+    "zlib1g-dev",
+    "libopenblas-dev",
+)
+
 
 def command(*args: str) -> str | None:
     try:
@@ -80,6 +90,24 @@ def main() -> int:
         "cpu_model": cpu_model(),
         "logical_cpus": os.cpu_count(),
         "memory_bytes": memory_bytes(),
+        "packages": {
+            package: command(
+                "dpkg-query", "-W", "-f=${Package}=${Version}", package
+            )
+            for package in BUILD_PACKAGES
+        },
+        "toolchain": {
+            "gcc": command("gcc", "--version"),
+            "g++": command("g++", "--version"),
+            "meson": command("meson", "--version"),
+            "ninja": command("ninja", "--version"),
+            "pkg-config": command("pkg-config", "--version"),
+            "protoc": command("protoc", "--version"),
+        },
+        "runner_image": {
+            "image_os": os.environ.get("ImageOS"),
+            "image_version": os.environ.get("ImageVersion"),
+        },
         "openblas_package": command(
             "dpkg-query", "-W", "-f=${Package}=${Version}", "libopenblas-dev"
         ),

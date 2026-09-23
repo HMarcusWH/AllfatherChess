@@ -121,6 +121,8 @@ class ShadowRouter(Protocol):
         *,
         actual_wall_ms: float | None = None,
         threads: int = 1,
+        actual_cpu_ms: float | None = None,
+        measurement_source: str = "estimated_fallback",
     ) -> None:
         ...
 
@@ -1686,6 +1688,7 @@ class ShadowRunCoordinator:
         dispatched_ms: float,
         completed_ms: float,
         instance: str,
+        resource_key: str | None = None,
     ) -> None:
         token = active.specialist_tokens.pop(key, None)
         if token is None or self.router is None:
@@ -1698,11 +1701,20 @@ class ShadowRunCoordinator:
             threads = max(1, int(self.runtime.spec(instance).options.get("Threads", 1)))
         except (TypeError, ValueError):
             threads = 1
+        measured_cpu: float | None = None
+        source = "estimated_fallback"
+        if resource_key is not None:
+            measured = self._finish_resource_stage(active, resource_key)
+            if measured is not None and measured.complete and measured.cpu_ms is not None:
+                measured_cpu = float(measured.cpu_ms)
+                source = "measured"
         try:
             settle(
                 token,
                 actual_wall_ms=max(0.0, completed_ms - dispatched_ms),
                 threads=threads,
+                actual_cpu_ms=measured_cpu,
+                measurement_source=source,
             )
         except Exception as exc:  # pragma: no cover - router isolation
             active.run.note(

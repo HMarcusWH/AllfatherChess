@@ -15,6 +15,7 @@ on:
       - scripts/**
       - tests/**
       - vendor.lock.json
+      - qualification/**
       - Makefile
       - .github/workflows/baseline.yml
   pull_request:
@@ -28,6 +29,7 @@ on:
       - scripts/**
       - tests/**
       - vendor.lock.json
+      - qualification/**
       - Makefile
       - .github/workflows/baseline.yml
 
@@ -65,6 +67,10 @@ jobs:
             scripts/value-of-compute-contract.py \
             scripts/value-of-compute-sweep.py \
             scripts/decision-calibration.py \
+            scripts/lc0-strength-lock.py \
+            scripts/fetch-lc0-network.py \
+            scripts/lc0-hardware-probe.py \
+            scripts/lc0-strength-profile-contract.py \
             scripts/refinement-evidence-sweep.py \
             scripts/validate-telemetry-contract.py \
             scripts/telemetry-adapter-integration.py \
@@ -93,6 +99,7 @@ jobs:
           bash -n scripts/fetch-stockfish-network.sh
           bash -n scripts/fetch-reckless-network.sh
           bash -n scripts/build-baselines.sh
+          bash -n scripts/build-lc0-strength.sh
           bash -n scripts/smoke-baselines.sh
 
       - name: Verify declared engine ancestry

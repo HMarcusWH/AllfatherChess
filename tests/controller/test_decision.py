@@ -282,7 +282,8 @@ class DecisionPolicyTests(unittest.TestCase):
             frozen_observed_ms=50.0,
             frozen_before_anchor=True,
         )
-        authorization = authorize_decision(proposal, evidence, _snapshot())
+        snapshot = _snapshot()
+        authorization = authorize_decision(proposal, evidence, snapshot)
         self.assertEqual(authorization.policy, AUTHORIZATION_POLICY)
         self.assertTrue(authorization.authorized)
         self.assertEqual(authorization.move, "g1f3")
@@ -291,6 +292,7 @@ class DecisionPolicyTests(unittest.TestCase):
             anchor_move="e2e4",
             proposal=proposal,
             authorization=authorization,
+            authorization_snapshot=snapshot,
         )
         self.assertEqual(final.authority, "HYBRID")
         self.assertEqual(final.emitted_move, "g1f3")
@@ -305,10 +307,11 @@ class DecisionPolicyTests(unittest.TestCase):
             frozen_observed_ms=50.0,
             frozen_before_anchor=True,
         )
+        snapshot = _snapshot(open_specialist_reservations=1)
         authorization = authorize_decision(
             proposal,
             evidence,
-            _snapshot(open_specialist_reservations=1),
+            snapshot,
         )
         self.assertFalse(authorization.authorized)
         self.assertIn("specialist reservation", authorization.reason)
@@ -316,6 +319,7 @@ class DecisionPolicyTests(unittest.TestCase):
             anchor_move="e2e4",
             proposal=proposal,
             authorization=authorization,
+            authorization_snapshot=snapshot,
         )
         self.assertEqual(final.authority, "ANCHOR_FALLBACK")
         self.assertEqual(final.emitted_move, "e2e4")

@@ -149,7 +149,7 @@ The final product is promoted only on statistically credible strength gains agai
 19. **PR #19 — Extended post-PR18 build-plan documentation**. **Merged.**
 21. **PR #21 — Typed cross-feed evidence plane, shadow-only**: consume existing VERIFY/REFINE evidence; no new search phase; no outward behavior change. **Merged.**
 22. **PR #22 — Counterfactual hybrid decision laboratory**: freeze deterministic hybrid proposals while Stockfish remains outward authority. **Merged.**
-23. **PR #23 — Prospective VERIFY value-of-compute calibration**: real stopped-search VERIFY budget interventions, upstream causal fingerprinting, separate feature/label digests, position-group train/calibration/holdout splits, and an auditable decision-change model. **Current.**
+23. **PR #23 — Prospective VERIFY value-of-compute calibration**: real stopped-search VERIFY budget interventions, upstream causal fingerprinting, separate feature/label digests, position-group train/calibration/holdout splits, and an auditable decision-change model. **Merged.**
 24. **PR #24 — Strength-qualified LC0 profile**: real network/backend/hardware identity; preserve fast random-backend CI separately.
 25. **PR #25 — Measured process resource accounting**: preserve reservations while adding measured CPU/GPU/memory/controller cost where supported.
 26. **PR #26 — Active hybrid decision authority v0**: bounded in-memory authorization at the anchor-completion boundary; deterministic Stockfish fallback.

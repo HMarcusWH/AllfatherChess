@@ -1458,27 +1458,12 @@ class ConservativeRouter:
     def _to_command(self, decision: RouteDecision, context: Any = None) -> RouterCommand | None:
         owner = decision.observation.owner
         if decision.action is RouteAction.STOP_WORKER and decision.granted:
-            # The worker already burned CPU producing the observations that
-            # authorized this stop. Releasing the whole reservation would record
-            # none of it, free capacity that was in fact consumed, and let
-            # route.json claim envelope compliance while omitting the work.
-            consumed = self._consumed_ms(context, owner)
-            if consumed is not None:
-                # Same scaling as `_settle_owner`. Adding it there only left
-                # this path charging a four-thread worker stopped after 400 ms
-                # as 400 CPU-ms rather than 1600, so an authorized stop could
-                # leave the envelope falsely compliant.
-                consumed = float(consumed) * self._owner_threads(context, owner)
-            reservations = self._reservations.pop(owner, [])
-            for index, reservation in enumerate(reservations):
-                if index == len(reservations) - 1 and consumed is not None:
-                    # Unclamped on purpose: a stage that outran its estimate
-                    # really did consume that CPU, and BudgetLedger.settle
-                    # supports charging above the reservation. Clamping would
-                    # free capacity that was spent and understate the run.
-                    self.ledger.settle(reservation, actual_cpu_ms=consumed)
-                else:
-                    self.ledger.release(reservation)
+            # Keep the reservation open until the backend actually terminates
+            # the stage. Settling here used the checkpoint timestamp and omitted
+            # CPU consumed between the stop request and the terminal bestmove.
+            # The completion/finalization path now takes the physical endpoint
+            # sample and settles the reservation from that measurement. Holding
+            # capacity until then is conservative and prevents phantom reuse.
             return RouterCommand(action="stop_worker", owner=owner, reason=decision.reason)
         if (
             decision.action in (RouteAction.EXTEND, RouteAction.ABSTAIN_BUY_COMPUTE)

@@ -738,6 +738,27 @@ class RefinementRun:
             expansion.disposition = disposition
             expansion.stop_reason = reason
 
+    def set_scope_disposition(
+        self,
+        scope_id: str,
+        disposition: str,
+        reason: str | None = None,
+    ) -> None:
+        """Set target or recursive-expansion disposition by stage scope id."""
+
+        with self._lock:
+            target = self._targets.get(scope_id)
+            if target is not None:
+                target.disposition = disposition
+                target.stop_reason = reason
+                return
+            expansion = self._expansions.get(scope_id)
+            if expansion is not None:
+                expansion.disposition = disposition
+                expansion.stop_reason = reason
+                return
+            raise RefinementError(f"unknown refinement scope: {scope_id!r}")
+
     def set_disposition(self, disposition: str, reason: str | None = None) -> None:
         with self._lock:
             self.disposition = disposition

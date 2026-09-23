@@ -107,14 +107,19 @@ def _wait_new_run(
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         discovery = discover_replay_bundles(replay_root)
-        candidates = [
-            path
-            for path in discovery.bundles
-            if path.name not in known
-            and (path / "decision" / "counterfactual.json").is_file()
-        ]
-        if candidates:
-            return candidates[-1]
+        fresh = [path for path in discovery.bundles if path.name not in known]
+        if fresh:
+            candidate = fresh[-1]
+            if (candidate / "decision" / "counterfactual.json").is_file():
+                return candidate
+            manifest = json.loads(
+                (candidate / "manifest.json").read_text(encoding="utf-8")
+            )
+            raise ValueOfComputeError(
+                "value-of-compute arm sealed without counterfactual evidence; "
+                f"disposition={manifest.get('disposition')}, "
+                f"notes={manifest.get('notes')}"
+            )
         time.sleep(0.05)
     raise ValueOfComputeError("timed out waiting for counterfactual arm artifact")
 

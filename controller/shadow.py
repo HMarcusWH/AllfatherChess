@@ -2486,6 +2486,15 @@ class ShadowRunCoordinator:
                 oracle_dispatched_ms = (
                     time.monotonic() - active.started_monotonic
                 ) * 1000.0
+                oracle_resource_key = (
+                    f"{active.run.run_id}:refine-oracle:{target.target_id}"
+                )
+                self._begin_resource_stage(
+                    active,
+                    key=oracle_resource_key,
+                    instance=self.settings.oracle,
+                    phase="REFINE_ORACLE",
+                )
             try:
                 children = self.runtime.legal_moves_at_shadow_position(
                     instance=self.settings.oracle,
@@ -2509,6 +2518,7 @@ class ShadowRunCoordinator:
                     dispatched_ms=oracle_dispatched_ms,
                     completed_ms=oracle_completed_ms,
                     instance=self.settings.oracle,
+                    resource_key=oracle_resource_key,
                 )
                 with self._lock:
                     active.refinement_oracle_active = False

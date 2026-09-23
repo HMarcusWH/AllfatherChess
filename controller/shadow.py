@@ -1544,6 +1544,17 @@ class ShadowRunCoordinator:
                             "the authority stream is incomplete"
                         )
                         break
+                if (
+                    active.resources is not None
+                    and active.resources.settings.enabled
+                    and active.anchor_done.is_set()
+                    and not active.anchor_resource_done.wait(timeout=1.0)
+                ):
+                    active.run.note(
+                        "anchor resource terminal sample was not published within 1s; "
+                        "the measured-resource certificate will fail closed"
+                    )
+
                 # Now that the anchor has answered (or is never going to), the
                 # router's run can be closed against the whole elapsed time.
                 # Every qualification failure -- a terminal position, a dead

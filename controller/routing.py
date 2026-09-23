@@ -551,20 +551,22 @@ class ConservativeRouter:
         post-output terminal resource sample, so only specialist reservations
         are required to be fully settled here.
         """
+        open_counts = self.ledger.open_reservation_counts()
         return {
             "anchor_request_bounded": bool(self._anchor_bound[0]),
             "anchor_request_reason": str(self._anchor_bound[1]),
             "anchor_reserved": bool(self._anchor_reserved),
+            "open_anchor_reservations": int(open_counts.get("anchor", 0)),
             "budget_within_envelope": self.ledger.within_envelope(),
             "partitions_within_caps": self.ledger.within_partition_caps(),
             "wall_within_envelope": (
                 self.ledger.elapsed_ms() <= self.envelope.wall_ms
             ),
             "specialist_settlement_complete": not self._specialist_unresolved,
-            "open_specialist_reservations": len(self._specialist_reservations),
-            "open_solver_reservations": sum(
-                len(reservations) for reservations in self._reservations.values()
+            "open_specialist_reservations": int(
+                open_counts.get("verify", 0) + open_counts.get("refine", 0)
             ),
+            "open_solver_reservations": int(open_counts.get("solver", 0)),
             "gpu_accounted": self._gpu_accounted(),
             "controller_fallback_latched": bool(self._fallback),
         }

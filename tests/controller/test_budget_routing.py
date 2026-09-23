@@ -1232,7 +1232,7 @@ class ActiveModeEndToEndTests(unittest.TestCase):
             self.assertTrue(manifest["legal_root_oracle"]["terminal_universe"])
 
             # The audit exists and describes the envelope the anchor ran inside.
-            self.assertEqual(route["schema_version"], 1)
+            self.assertEqual(route["schema_version"], 2)
             self.assertIn("envelope_claim", route)
             self.assertIn("budget", route)
             self.assertTrue(route["budget"]["envelope"]["cpu_ms"] > 0)

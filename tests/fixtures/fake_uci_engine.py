@@ -185,6 +185,7 @@ def main() -> int:
             emit("option name Threads type spin default 1 min 1 max 8")
             emit("option name Hash type spin default 16 min 1 max 256")
             emit("option name MultiPV type spin default 1 min 1 max 8")
+            emit("option name ScoreType type combo default centipawn var centipawn var WDL_mu")
             emit("uciok")
         elif command == "isready":
             maybe_exit("isready")

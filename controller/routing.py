@@ -717,13 +717,47 @@ class ConservativeRouter:
             )
 
         if self._anchor_reservation is not None:
-            # The anchor is charged its full declared reservation, not a
-            # measured value: shadow finalization happens before the anchor
-            # completes, so the controller cannot observe the real figure here.
-            # Charging the reservation errs toward over-counting, which is the
-            # safe direction for an envelope claim.
-            self.ledger.settle(self._anchor_reservation)
+            anchor_cpu: float | None = None
+            anchor_source = "declared_fallback"
+            try:
+                anchor_resource = context.anchor_resource()
+            except AttributeError:  # pragma: no cover - older/fake contexts
+                anchor_resource = None
+            if isinstance(anchor_resource, dict) and anchor_resource.get("complete") is True:
+                value = anchor_resource.get("cpu_ms")
+                if isinstance(value, (int, float)) and not isinstance(value, bool):
+                    anchor_cpu = float(value)
+                    anchor_source = "measured"
+            self.ledger.settle(
+                self._anchor_reservation,
+                actual_cpu_ms=anchor_cpu,
+                cpu_source=anchor_source,
+            )
             self._anchor_reservation = None
+
+        try:
+            resource_required = bool(context.resource_measurement_required())
+        except AttributeError:  # pragma: no cover - older/fake contexts
+            resource_required = False
+        try:
+            resource_summary = context.seal_resource_report()
+        except AttributeError:  # pragma: no cover
+            resource_summary = None
+
+        resource_qualified = not resource_required
+        physical_cpu_within = not resource_required
+        cpu_measurement = "stage_wall_ms_x_configured_threads"
+        if isinstance(resource_summary, dict):
+            if resource_required:
+                resource_qualified = bool(resource_summary.get("qualified"))
+            physical_cpu = resource_summary.get("physical_cpu_ms")
+            if isinstance(physical_cpu, (int, float)) and not isinstance(physical_cpu, bool):
+                physical_cpu_within = float(physical_cpu) <= self.envelope.cpu_ms
+            elif resource_required:
+                physical_cpu_within = False
+            provider = resource_summary.get("provider")
+            if resource_summary.get("qualified") and isinstance(provider, str):
+                cpu_measurement = provider
 
         payload = {
             "schema_version": ROUTE_SCHEMA_VERSION,
@@ -733,6 +767,7 @@ class ConservativeRouter:
             "envelope": self.envelope.as_dict(),
             "calibration": self._calibration_provenance(),
             "budget": self.ledger.snapshot(),
+            "resource_measurement": resource_summary,
             "envelope_claim": {
                 # Reservation accounting staying inside B is necessary but not
                 # sufficient: if the outward request itself is not bounded by the
@@ -753,10 +788,10 @@ class ConservativeRouter:
                 "wall_within_envelope": (
                     self.ledger.elapsed_ms() <= self.envelope.wall_ms
                 ),
-                # CPU spend is derived from stage wall time scaled by each
-                # engine's configured thread count. That is an estimate, not a
-                # measurement of process CPU, and is labelled as such.
-                "cpu_measurement": "stage_wall_ms_x_configured_threads",
+                "cpu_measurement": cpu_measurement,
+                "physical_measurement_required": resource_required,
+                "physical_measurement_qualified": resource_qualified,
+                "physical_cpu_within_envelope": physical_cpu_within,
                 "claimed": (
                     self._anchor_bound[0]
                     and self._anchor_reserved
@@ -765,6 +800,8 @@ class ConservativeRouter:
                     and self.ledger.within_partition_caps()
                     and not self._specialist_unresolved
                     and self.ledger.elapsed_ms() <= self.envelope.wall_ms
+                    and resource_qualified
+                    and physical_cpu_within
                 ),
             },
             "decisions": audit.decisions,

@@ -9,8 +9,12 @@ covered separately by scripts/prefix-shard-contract.py.
 from __future__ import annotations
 
 import json
+import sys
 import tempfile
 from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
 
 from controller.refinement import (
     load_refinement_manifest,
@@ -24,7 +28,6 @@ from tests.controller.test_shadow_runtime import (
 )
 
 
-ROOT = Path(__file__).resolve().parent.parent
 RESULT_DIR = ROOT / "build" / "test-results" / "recursive-refinement"
 
 

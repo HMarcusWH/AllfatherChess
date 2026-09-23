@@ -418,6 +418,7 @@ class FinalDecision:
     anchor_move: str
     proposal_move: str | None
     authorization: DecisionAuthorization
+    authorization_snapshot: DecisionAuthorizationSnapshot
 
     def __post_init__(self) -> None:
         _canonical_move(self.emitted_move, "final emitted move")
@@ -426,6 +427,10 @@ class FinalDecision:
             _canonical_move(self.proposal_move, "final proposal move")
         if self.authority not in (HYBRID_AUTHORITY, ANCHOR_FALLBACK):
             raise DecisionError(f"unknown final-decision authority: {self.authority!r}")
+        if self.authorization.snapshot_digest != self.authorization_snapshot.digest:
+            raise DecisionError(
+                "DecisionAuthorization does not bind the supplied authorization snapshot"
+            )
         if self.authority == HYBRID_AUTHORITY:
             if not self.authorization.authorized:
                 raise DecisionError("HYBRID final decision requires granted authorization")
@@ -448,6 +453,7 @@ class FinalDecision:
             "anchor_move": self.anchor_move,
             "proposal_move": self.proposal_move,
             "authorization": self.authorization.as_dict(),
+            "authorization_snapshot": self.authorization_snapshot.as_dict(),
         }
 
 
@@ -743,6 +749,7 @@ def select_final_decision(
     anchor_move: str,
     proposal: DecisionProposal | None,
     authorization: DecisionAuthorization,
+    authorization_snapshot: DecisionAuthorizationSnapshot,
 ) -> FinalDecision:
     anchor = _canonical_move(anchor_move, "anchor move")
     proposal_move = None if proposal is None else proposal.move
@@ -753,6 +760,7 @@ def select_final_decision(
             anchor_move=anchor,
             proposal_move=proposal_move,
             authorization=authorization,
+            authorization_snapshot=authorization_snapshot,
         )
     return FinalDecision(
         authority=ANCHOR_FALLBACK,
@@ -760,6 +768,7 @@ def select_final_decision(
         anchor_move=anchor,
         proposal_move=proposal_move,
         authorization=authorization,
+        authorization_snapshot=authorization_snapshot,
     )
 
 

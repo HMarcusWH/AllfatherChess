@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "profile_id": "lc0-strength-v1",
+  "qualification_tier": "real-inference-reference",
+  "strength_campaign_eligible": false,
+  "hardware_policy": {
+    "runner_class": "github-hosted-ubuntu-24.04-cpu-reference",
+    "os": "ubuntu-24.04",
+    "architecture": "x86_64",
+    "accelerator_kind": "cpu",
+    "cpu_model": "record-and-bind",
+    "memory": "record-and-bind"
+  },
+  "build": {
+    "backend": "blas",
+    "meson_options": [
+      "-Dbuild_backends=true",
+      "-Dblas=true",
+      "-Dplain_cuda=false",
+      "-Dcudnn=false",
+      "-Dopencl=false",
+      "-Donnx=false",
+      "-Dmetal=disabled",
+      "-Dsycl=off",
+      "-Dhip=false",
+      "-Dgtest=false",
+      "-Db_lto=false"
+    ],
+    "required_packages": [
+      "libopenblas-dev"
+    ]
+  },
+  "runtime": {
+    "Backend": "blas",
+    "BackendOptions": "",
+    "ScoreType": "WDL_mu",
+    "NNCacheSize": 0,
+    "MinibatchSize": 32,
+    "MaxConcurrentSearchers": 1,
+    "TaskWorkers": 0,
+    "Threads": 1,
+    "MultiPV": 3
+  },
+  "warmup": {
+    "policy": "one-fixed-node-search",
+    "nodes": 64
+  }
+}

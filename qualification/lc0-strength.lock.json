@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "profile_id": "lc0-strength-v1",
+  "qualification_status": "frozen",
+  "engine": {
+    "family": "lc0",
+    "vendor_commit": "5cbfeb924c0fcf5efc1b2a43813ac8d63cfd9904",
+    "vendor_tree": "6dd8aad55c79fddc291abfede17934f9ce4ca928"
+  },
+  "network": {
+    "training_id": 791556,
+    "filename": "791556.pb.gz",
+    "url": "https://training.lczero.org/get_network?sha=f404e156ceb2882470fd8c032b8754af0fa0b71168328912eaef14671a256e34",
+    "expected_size_bytes": 18648209,
+    "sha256": "b1c7047582a8ad37620849bf328935cb46f2ccbbecb7f2696c30c6b913ed690d",
+    "provenance": "Training id 791556 and LCZero lookup hash are pinned by the vendored LC0 appveyor.yml; file SHA-256 is independently observed and verified by the Allfather qualification workflow.",
+    "training_sha256": "f404e156ceb2882470fd8c032b8754af0fa0b71168328912eaef14671a256e34"
+  }
+}

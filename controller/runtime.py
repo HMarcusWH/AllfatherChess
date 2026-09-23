@@ -237,6 +237,41 @@ def _hash_file(path: Path) -> str | None:
         return None
 
 
+def _file_identity(path: Path) -> dict[str, object]:
+    """Best-effort immutable identity for a configured external artifact."""
+    resolved = Path(path).resolve()
+    try:
+        size = resolved.stat().st_size
+    except OSError:
+        size = None
+    return {
+        "path": str(resolved),
+        "size": size,
+        "sha256": _hash_file(resolved),
+    }
+
+
+def _engine_identity(spec: "BackendSpec") -> dict[str, object]:
+    identity: dict[str, object] = {
+        "engine": spec.family,
+        "role": spec.role,
+        "binary": str(spec.binary),
+        "binary_sha256": _hash_file(spec.binary),
+        "args": list(spec.args),
+        "options": dict(spec.options),
+    }
+    if spec.family == "lc0":
+        weights = spec.options.get("WeightsFile")
+        if isinstance(weights, str) and weights and weights != "<autodiscover>":
+            weights_path = Path(weights)
+            if not weights_path.is_absolute():
+                weights_path = spec.cwd / weights_path
+            identity["artifacts"] = {
+                "weights": _file_identity(weights_path),
+            }
+    return identity
+
+
 def _build_spec(
     *,
     root: Path,
@@ -452,6 +487,21 @@ def _load_shadow_settings(
             f"shadow.lc0_score_type {score_type!r} is not a supported LC0 ScoreType; "
             f"supported: {sorted(SUPPORTED_SCORE_TYPES)}"
         )
+
+    lc0_instance = instance_by_owner.get("lc0")
+    if lc0_instance is not None:
+        configured_score_type = specs[lc0_instance].options.get("ScoreType")
+        if not isinstance(configured_score_type, str) or not configured_score_type:
+            raise RuntimeError(
+                f"shadow LC0 instance {lc0_instance!r} must set the ScoreType UCI "
+                "option explicitly; telemetry semantics may not rely on LC0 defaults"
+            )
+        if configured_score_type != score_type:
+            raise RuntimeError(
+                f"shadow LC0 ScoreType mismatch: instance option is "
+                f"{configured_score_type!r} but shadow.lc0_score_type is "
+                f"{score_type!r}"
+            )
 
     replay_value = raw.get("replay_root", "build/replays")
     if not isinstance(replay_value, str) or not replay_value:
@@ -851,14 +901,7 @@ class BackendManager:
         # though the running controller and processes came from the old bytes.
         self.config_sha256: str = _hash_file(config.path) or ""
         self.engine_identity: dict[str, Any] = {
-            name: {
-                "engine": spec.family,
-                "role": spec.role,
-                "binary": str(spec.binary),
-                "binary_sha256": _hash_file(spec.binary),
-                "args": list(spec.args),
-                "options": dict(spec.options),
-            }
+            name: _engine_identity(spec)
             for name, spec in sorted(config.backends.items())
         }
         self._position_command: str | None = None

@@ -631,3 +631,50 @@ Nothing below is established by this milestone.
 - promotion of this model into live resource routing or DecisionAuthorization;
 - any equal-resource strength gain.
 
+## LC0 real-inference qualification
+
+### PROVED by code/contracts
+
+- every shipped shadow/active LC0 profile now sets the engine's UCI `ScoreType`
+  explicitly, and runtime loading rejects any mismatch with
+  `shadow.lc0_score_type`;
+- the strength-facing profile forbids the random backend, empty weights and
+  network autodiscovery;
+- the qualification lock binds the vendored LC0 source commit/tree and the
+  candidate network's training id, filename, URL and SHA-256;
+- a frozen lock additionally requires the exact positive network byte size;
+- the strength-facing runtime pins Backend, BackendOptions, ScoreType,
+  NNCacheSize, MinibatchSize, MaxConcurrentSearchers, TaskWorkers, Threads and
+  MultiPV;
+- BackendManager replay identity now binds explicit LC0 weight files by resolved
+  path, byte size and SHA-256 before process launch;
+- the real-inference contract requires requested and observed backend identity to
+  agree using LC0's backend-specific runtime diagnostics; for the BLAS reference
+  it requires the emitted BLAS vendor and max-batch lines and retains them in
+  the qualification report;
+- the qualified real search is processed through the production LC0 telemetry
+  adapter and must expose the ScoreType-qualified semantics declared by the
+  profile;
+- hardware/software identity is recorded in the qualification report rather
+  than inferred from the workflow label;
+- ordinary baseline/controller CI remains on the backend-light random LC0
+  profile and cannot be promoted as strength evidence.
+
+### QUALIFIED only after the dedicated workflow passes with a frozen network lock
+
+- real network bytes load successfully;
+- a non-random BLAS backend performs warmup and qualification searches;
+- canonical bestmoves and real candidate telemetry are produced;
+- source, binary, network, backend, runtime options and observed host environment
+  are bound into one content-addressed report.
+
+### OPEN
+
+- any Elo or move-quality claim;
+- equal-resource comparability against Stockfish/Reckless;
+- GPU/accelerator qualification;
+- whether BLAS is an optimal LC0 backend;
+- physical CPU/GPU accounting and scheduling cost;
+- promotion of hybrid DecisionAuthorization;
+- strength-campaign eligibility of the GitHub-hosted CPU reference profile.
+

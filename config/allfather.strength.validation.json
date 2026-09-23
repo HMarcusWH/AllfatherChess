@@ -19,8 +19,8 @@
     "dispatch_limit": {
       "nodes": 2000
     },
-    "lc0_score_type": "centipawn",
-    "replay_root": "build/replays-counterfactual",
+    "lc0_score_type": "WDL_mu",
+    "replay_root": "build/replays-strength",
     "oracle_timeout_s": 10,
     "drain_timeout_s": 5,
     "on_anchor_complete": "drain"
@@ -74,17 +74,17 @@
       "cwd": ".",
       "args": [],
       "options": {
-        "WeightsFile": "",
-        "Backend": "random",
-        "BackendOptions": "seed=20260920",
+        "WeightsFile": "build/artifacts/lc0/791556.pb.gz",
+        "Backend": "blas",
+        "BackendOptions": "",
         "NNCacheSize": 0,
-        "MinibatchSize": 1,
+        "MinibatchSize": 32,
         "MaxConcurrentSearchers": 1,
         "TaskWorkers": 0,
         "MultiPV": 3,
         "UCI_Chess960": false,
         "Threads": 1,
-        "ScoreType": "centipawn"
+        "ScoreType": "WDL_mu"
       }
     }
   },

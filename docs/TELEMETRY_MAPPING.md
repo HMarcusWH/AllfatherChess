@@ -47,7 +47,7 @@ LC0 `ThinkingInfo` can expose depth, seldepth, time, nodes, score cp/mate, WDL, 
 Important semantic caveats:
 
 - LC0 UCI `nodes` is produced from LC0 playout/visit accounting, not alpha-beta node accounting. Map it as unit `count` with semantics `lc0.uci_nodes` until a stronger common unit is qualified.
-- LC0 score output depends on configured `ScoreType` and can represent several transformations (centipawn variants, Q, W-L, win percentage, WDL_mu). `Lc0TelemetryAdapter` is constructed with the active ScoreType and emits semantics such as `lc0.uci_score.centipawn` or `lc0.uci_score.Q` rather than guessing from `score cp` text.
+- LC0 score output depends on configured `ScoreType` and can represent several transformations (centipawn variants, Q, W-L, win percentage, WDL_mu). `Lc0TelemetryAdapter` is constructed with the active ScoreType and emits semantics such as `lc0.uci_score.centipawn` or `lc0.uci_score.Q` rather than guessing from `score cp` text. Runtime loading now requires every shadow/active LC0 instance to set the UCI `ScoreType` option explicitly and requires it to equal `shadow.lc0_score_type`; adapter semantics may not rely on LC0's compiled default.
 - LC0 omits the `multipv` token for the default single-PV case. A PV-bearing primary line without `multipv` is normalized by the adapter to `candidate.multipv_index = 1`; no atomic ranking frame is inferred.
 - WDL, when emitted, is a separate evaluation channel with semantics `lc0.uci_wdl`; it does not replace the scalar score channel.
 - eps, moves-left, depth/seldepth/hashfull/tbhits/nps and similar fields remain under `lc0.uci.v1` unless/until promoted by a later contract.

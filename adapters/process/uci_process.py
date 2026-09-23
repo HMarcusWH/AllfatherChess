@@ -91,6 +91,12 @@ class UciProcess:
         proc = self.proc
         return proc is not None and proc.poll() is None
 
+    @property
+    def stderr_tail(self) -> tuple[str, ...]:
+        """Snapshot recent backend stderr for qualification/diagnostics."""
+        with self._state_lock:
+            return tuple(self._stderr_tail)
+
     def _diagnostic_tail(self) -> str:
         transcript = "\n".join(self._transcript)
         stderr = "\n".join(self._stderr_tail)

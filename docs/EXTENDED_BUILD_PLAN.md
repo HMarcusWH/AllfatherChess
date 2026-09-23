@@ -1,6 +1,6 @@
 # AllfatherChess Extended Build Plan
 
-**Status:** Post-PR #22 implementation baseline; PR #23 VERIFY value-of-compute calibration in progress  
+**Status:** Post-PR #23 implementation baseline; PR #24 LC0 real-inference qualification in progress  
 **Date:** 2026-09-22  
 **Scope:** Expand the existing `docs/BUILD_PLAN.md` from the current M12 control/resource milestone through typed cross-feed evidence, counterfactual and active hybrid decision authority, backend/resource qualification, recursive refinement, native integration, governed policy evolution, and the final equal-resource strength campaign.
 
@@ -831,7 +831,7 @@ When specialist evidence finishes, controller.shadow freezes an in-memory Decisi
 
 ## PR #23 — Prospective chess-specific value-of-compute calibration
 
-**Status: current implementation.**
+**Status: merged.**
 
 ### Purpose
 
@@ -1037,37 +1037,60 @@ It does not yet support:
 
 ## PR #24 — Strength-qualified LC0 profile
 
+**Status: current implementation.**
+
 ### Purpose
 
-Remove the largest backend qualification blocker before LC0 evidence can support a strength claim or active hybrid move.
+Remove the largest backend qualification blocker by proving exact-network, non-random LC0 inference with explicit score semantics and replay-bound provenance. The portable CPU reference remains distinct from the later equal-resource strength platform.
 
 ### Modify / add
 
-- vendor.lock.json or another existing locked-artifact section for the selected LC0 network identity;
+- qualification/lc0-strength.lock.json for source/network identity;
+- qualification/lc0-strength-profile.json for the portable reference environment;
 - config/allfather.strength.validation.json;
-- LC0 runtime/adapter configuration needed for the chosen real backend;
+- controller/strength_profile.py;
+- runtime provenance binding for explicit LC0 weight files;
+- explicit LC0 ScoreType agreement across every shadow/active profile;
+- scripts/fetch-lc0-network.py;
+- scripts/build-lc0-strength.sh;
+- scripts/lc0-hardware-probe.py;
 - scripts/lc0-strength-profile-contract.py;
+- .github/workflows/lc0-strength-qualification.yml;
 - docs/STRENGTH_BACKENDS.md;
 - qualification tests that do not replace the fast random-backend CI profile.
 
 ### Pin
 
+For the portable real-inference reference:
+
 - LC0 source/tree identity;
-- network file identity and SHA-256;
-- backend;
-- GPU model;
-- driver/runtime;
-- batch/minibatch settings;
+- LCZero training id and lookup hash;
+- downloaded network byte size and independent file SHA-256;
+- BLAS backend and build options;
+- BackendOptions;
+- concrete MinibatchSize rather than backend-auto;
 - cache settings;
-- searcher/thread settings;
-- memory limits;
+- searcher/thread/task-worker settings;
 - warmup policy;
 - ScoreType;
+- actual host CPU/memory/OpenBLAS/platform identity in the generated report;
 - reproducibility limitations.
+
+The hosted CPU model is **record-and-bind**, not declared a fixed competitive
+hardware class. GPU model/driver/runtime qualification is deferred to a later
+accelerator strength profile rather than invented in this PR.
 
 ### Acceptance gate
 
-The backend-light random profile remains the controller CI profile, but no strength-facing run may call it LC0 strength evidence.
+The backend-light random profile remains the controller CI profile.
+
+A passing dedicated qualification run must prove exact network bytes,
+non-random real inference, requested-versus-observed backend agreement, explicit
+ScoreType-to-telemetry semantics, and one content-addressed environment report.
+
+That qualifies LC0 evidence as **real inference on the recorded host**. The
+reference remains `strength_campaign_eligible = false` until measured physical
+resource accounting and a fixed competitive platform are separately qualified.
 
 ---
 

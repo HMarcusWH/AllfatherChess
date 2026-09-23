@@ -32,7 +32,7 @@ GUI / tournament
       v
 AllfatherChess UCI shell
       |
-      +--> stockfish-anchor   [unrestricted / sole outward authority]
+      +--> stockfish-anchor   [unrestricted / deterministic fallback authority]
       +--> stockfish-shadow   [restricted ledger owner / perft oracle]
       +--> reckless-shadow    [restricted ledger owner]
       '--> lc0-shadow         [restricted ledger owner]
@@ -50,6 +50,7 @@ that matters operationally.
 | `anchor` | `config/allfather.validation.json` | the frozen PR #9/#10 profile: three managed backends, Stockfish alone searches. Unchanged. |
 | `shadow` | `config/allfather.shadow.validation.json` | four instances; three restricted workers observe pairwise-disjoint regions; no routing. |
 | `active` | `config/allfather.active.validation.json` | shadow plus a conservative routing policy that allocates observation compute inside a declared envelope. |
+| `active` hybrid | `config/allfather.hybrid.validation.json` | the same governed active substrate plus bounded M14-C DecisionAuthorization for qualified `go movetime` requests; Stockfish remains deterministic fallback. |
 
 The runtime config loader accepts `schema_version: 1` (the legacy family-keyed
 anchor profile) and `schema_version: 2` (role-keyed `instances`). Legacy configs,
@@ -87,14 +88,14 @@ search carries an explicit generation token and every callback checks it.
 
 ## What the controller still does not do
 
-No voting, no cross-engine score conversion, no RELOCK authorization, no
-VERIFY-based decision influence, no cross-feed, no native integration, and no
-strength claim. PrefixShardLedger v2 has both a shadow REFINE consumer and an
-active consumer whose specialist work is reservation-gated; neither can alter
-the outward decision. A descriptive
-terminal-suffix RELOCK is now derived offline, but it is not a controller
-certificate. Explicit VERIFY overlap remains observational only; the outward
-move is the unrestricted anchor's in every mode.
+No majority voting, no cross-engine score conversion, no RELOCK-as-correctness
+authorization, no native tree unification, and no strength claim. Cross-feed
+and `unanimous_verify_v1` can now influence the outward move only through the
+explicit M14-C hybrid profile and its separate fail-closed authorization gate.
+All other profiles preserve Stockfish authority. PrefixShardLedger v2 remains
+bounded specialist-search infrastructure; recursive multi-level REFINE and
+strength qualification are later milestones. A descriptive terminal-suffix
+RELOCK remains evidence, not a chess-correctness certificate.
 
 
 ## Explicit VERIFY evidence
@@ -144,3 +145,13 @@ Per-instance position divergence is tracked by the coordinator and must be
 restored or quarantined before a generation is released. In active mode the
 child oracle and each descendant stage are independently reservation-backed;
 REFINE still has no outward decision authority.
+
+## M14-C live authority seam
+
+`DecisionProposal` and `DecisionAuthorization` remain distinct. The hybrid
+profile supports only a PRE_ANCHOR frozen proposal on a qualified
+`go movetime` request. The anchor-completion callback performs bounded
+in-memory checks only; no engine search, filesystem IO, calibration load, or
+procfs sampling may occur ahead of stdout emission. A denial emits the original
+Stockfish line exactly. The actual selected authority is persisted afterwards
+in `decision/final.json`.

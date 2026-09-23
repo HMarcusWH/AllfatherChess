@@ -122,8 +122,17 @@ comparable across instances. Engine-native work counters are not.
 ## Integrity
 
 `verify_bundle_integrity(run_dir)` re-hashes every declared stream and reports
-missing files, hash mismatches, and size mismatches. A tampered stream is
-detected by the test suite.
+missing files, hash mismatches, size mismatches, malformed JSON, duplicate or
+undeclared search ids, and semantic disagreement between the manifest and raw
+telemetry (instance/family/position identity, owner/root assignment, and
+terminal bestmove). A stream whose bytes are unchanged but whose orchestration
+metadata was edited therefore fails integrity as well.
+
+`manifest.json` is committed transactionally: it is written to a flushed,
+fsynced temporary file and atomically replaced only after every stream snapshot
+has succeeded. A failed finalization does not mark the in-memory run finalized,
+so a recoverable filesystem failure cannot poison the run into a false
+completed state.
 
 ## Analysis contract
 

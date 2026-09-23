@@ -206,6 +206,33 @@ def validate_profile(data: dict[str, Any]) -> None:
         if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
             raise StrengthProfileError(f"runtime.{field} must be positive integer")
 
+    resource = data.get("resource_measurement")
+    if not isinstance(resource, dict):
+        raise StrengthProfileError("resource_measurement must be an object")
+    if resource.get("provider") != "linux-procfs-v1":
+        raise StrengthProfileError(
+            "profile v1 resource_measurement.provider must be linux-procfs-v1"
+        )
+    if resource.get("require_cpu") is not True:
+        raise StrengthProfileError(
+            "profile v1 resource measurement must require CPU evidence"
+        )
+    if resource.get("require_gpu") is not False:
+        raise StrengthProfileError(
+            "CPU/BLAS reference profile may not require GPU measurement"
+        )
+    if resource.get("record_memory") is not True:
+        raise StrengthProfileError(
+            "profile v1 resource measurement must record memory evidence"
+        )
+    unknown_resource = sorted(
+        set(resource) - {"provider", "require_cpu", "require_gpu", "record_memory"}
+    )
+    if unknown_resource:
+        raise StrengthProfileError(
+            f"resource_measurement contains unsupported keys: {unknown_resource}"
+        )
+
     warmup = data.get("warmup")
     if not isinstance(warmup, dict):
         raise StrengthProfileError("warmup must be an object")
@@ -269,6 +296,25 @@ def validate_runtime_config(
             "shadow.lc0_score_type must equal LC0 ScoreType option exactly"
         )
 
+    runtime_resource = config.get("resource_measurement")
+    profile_resource = profile.get("resource_measurement")
+    if not isinstance(runtime_resource, dict):
+        raise StrengthProfileError(
+            "strength runtime must declare resource_measurement"
+        )
+    expected_runtime_resource = {
+        "enabled": True,
+        "provider": profile_resource["provider"],
+        "require_cpu_for_claim": profile_resource["require_cpu"],
+        "require_gpu_for_claim": profile_resource["require_gpu"],
+        "record_memory": profile_resource["record_memory"],
+    }
+    if runtime_resource != expected_runtime_resource:
+        raise StrengthProfileError(
+            "strength runtime resource_measurement does not match qualified profile: "
+            f"expected {expected_runtime_resource!r}, got {runtime_resource!r}"
+        )
+
 
 def verify_network_file(
     path: Path | str,
@@ -316,6 +362,7 @@ class QualificationReport:
     warmup_bestmove: str
     qualification_bestmove: str
     telemetry_score_semantics: str
+    resource_measurement: dict[str, Any]
 
     def as_dict(self) -> dict[str, Any]:
         core = {
@@ -333,6 +380,7 @@ class QualificationReport:
             "warmup_bestmove": self.warmup_bestmove,
             "qualification_bestmove": self.qualification_bestmove,
             "telemetry_score_semantics": self.telemetry_score_semantics,
+            "resource_measurement": self.resource_measurement,
             "claim": (
                 "Real-network, real-backend LC0 inference qualification only. "
                 "This report does not establish Elo, move superiority or "

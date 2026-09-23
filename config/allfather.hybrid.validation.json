@@ -102,7 +102,10 @@
     "dispatch_limit": {
       "nodes": 256
     },
-    "max_targets": 3
+    "max_targets": 3,
+    "recursive_nomination_method": "stage_terminal_bestmove_v1",
+    "max_depth": 2,
+    "max_expansions": 3
   },
   "budget": {
     "wall_ms": 7000,

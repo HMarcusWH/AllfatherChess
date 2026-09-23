@@ -168,6 +168,11 @@ def main() -> int:
 
     hardware = hardware_probe()
     policy = profile["hardware_policy"]
+    if hardware.get("runner_class") != policy["runner_class"]:
+        raise ContractError(
+            f"hardware runner class {hardware.get('runner_class')!r} does not "
+            f"match profile {policy['runner_class']!r}"
+        )
     if hardware.get("architecture") not in {policy["architecture"], "amd64"}:
         raise ContractError(
             f"hardware architecture {hardware.get('architecture')!r} does not "
@@ -235,6 +240,12 @@ def main() -> int:
         profile_id=profile["profile_id"],
         commit_sha=os.environ.get("ALLFATHER_SOURCE_SHA")
         or os.environ.get("GITHUB_SHA", ""),
+        contracts={
+            "vendor_lock_sha256": sha256_file(ROOT / "vendor.lock.json"),
+            "strength_lock_sha256": sha256_file(LOCK_PATH),
+            "strength_profile_sha256": sha256_file(PROFILE_PATH),
+            "runtime_config_sha256": sha256_file(CONFIG_PATH),
+        },
         binary=binary_identity,
         network=network_identity,
         requested_backend=options["Backend"],

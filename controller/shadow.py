@@ -1478,7 +1478,7 @@ class ShadowRunCoordinator:
                             dispatched_ms=stage.dispatched_ms,
                             completed_ms=failed_ms,
                             instance=stage.instance,
-                        resource_key=stage.search_id,
+                            resource_key=stage.search_id,
                         )
                         active.verification.record_completion(
                             stage,
@@ -1507,7 +1507,7 @@ class ShadowRunCoordinator:
                             dispatched_ms=stage.dispatched_ms,
                             completed_ms=failed_ms,
                             instance=stage.instance,
-                        resource_key=stage.search_id,
+                            resource_key=stage.search_id,
                         )
                         active.refinement.record_completion(
                             stage,
@@ -1519,12 +1519,6 @@ class ShadowRunCoordinator:
                             stage.target_id, "incomplete", message
                         )
                         active.refinement.set_disposition("incomplete", message)
-                if active.resources is not None and active.resources.settings.enabled:
-                    # Active routing may already have sealed this report while
-                    # constructing route.json. Shadow-only strength profiles
-                    # have no router, so finalization owns the seal there.
-                    self._seal_resource_report(active.generation)
-
                 if (
                     active.refinement is not None
                     and not active.refinement.active_stages()
@@ -1579,6 +1573,17 @@ class ShadowRunCoordinator:
                         "the measured-resource certificate will fail closed"
                     )
 
+                # No engine work may occur after the physical process totals
+                # are sealed. Restore every temporarily positioned REFINE worker
+                # first so its cleanup CPU is included in the run-level process
+                # deltas that route.json will certify.
+                if (
+                    active.refinement is not None
+                    and not active.refinement.active_stages()
+                    and active.refinement_positioned
+                ):
+                    self._restore_all_refinement_positions(active)
+
                 # Now that the anchor has answered (or is never going to), the
                 # router's run can be closed against the whole elapsed time.
                 # Every qualification failure -- a terminal position, a dead
@@ -1594,12 +1599,16 @@ class ShadowRunCoordinator:
                         active.run.note(
                             f"router finalization error: {type(exc).__name__}: {exc}"
                         )
+
                 if (
-                    active.refinement is not None
-                    and not active.refinement.active_stages()
-                    and active.refinement_positioned
+                    active.resources is not None
+                    and active.resources.settings.enabled
+                    and self.router is None
                 ):
-                    self._restore_all_refinement_positions(active)
+                    # Active mode seals resource.json while constructing the
+                    # hash-bound route certificate. Shadow-only strength runs
+                    # have no route artifact, so finalization owns the seal.
+                    self._seal_resource_report(active.generation)
                 if active.ledger is not None:
                     active.run.post_ledger_snapshot = active.ledger.snapshot()
                 active.run.shadow_health = {
@@ -2291,7 +2300,7 @@ class ShadowRunCoordinator:
             dispatched_ms=stage.dispatched_ms,
             completed_ms=elapsed,
             instance=stage.instance,
-                        resource_key=stage.search_id,
+            resource_key=stage.search_id,
         )
 
         if failure is not None:
@@ -2980,7 +2989,7 @@ class ShadowRunCoordinator:
             dispatched_ms=stage.dispatched_ms,
             completed_ms=elapsed,
             instance=stage.instance,
-                        resource_key=stage.search_id,
+            resource_key=stage.search_id,
         )
 
         target_abort = refinement.target_abort_requested(target_id)

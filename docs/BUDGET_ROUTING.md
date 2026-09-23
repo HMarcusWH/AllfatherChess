@@ -33,10 +33,11 @@ happen under one lock, so two workers cannot each observe "enough budget" and
 both proceed past the ceiling. A test starts twenty-four threads on a barrier
 against a ten-slot ceiling and asserts exactly ten grants.
 
-**Controller overhead is charged, never free.** `controller_overhead()` is a
-context manager that measures with a monotonic clock and charges the
-`controller` lane inside `B`. Metareasoning that costs more than it saves shows
-up in the ledger.
+**Controller overhead is charged, never free.** The routing ledger preserves
+its named overhead lanes, while M14-B also samples whole-controller CPU with
+`time.process_time_ns()`. The physical certificate therefore does not confuse
+elapsed wall time with controller CPU and does not lose IPC/telemetry work merely
+because it occurred outside one named routing context.
 
 **Reserves are withheld and partitioned.** `verification_reserve_fraction`,
 `refinement_reserve_fraction`, and `controller_overhead_reserve_ms` are
@@ -57,12 +58,12 @@ separately from `cpu_ms`; exhausting it triggers anchor-only fallback.
 
 | Lane | Charge |
 | --- | --- |
-| `anchor` | its full declared reservation. Shadow finalization happens before the anchor completes, so the controller cannot measure the real figure at settle time; charging the reservation errs toward over-counting, the safe direction for an envelope claim. |
-| `shadow:<owner>` | the measured duration of each dispatched stage, including a stage ended early by a stop — the worker burned that CPU producing the observations that authorized the stop, so only the unspent remainder is released |
-| `controller` | measured metareasoning time |
-| `verify:...` | active common-support VERIFY stages, reserved before dispatch and settled from measured stage wall × configured threads |
-| `refine:...` | active REFINE descendant stages plus the separately reserved descendant child oracle |
-| `controller:refine_*` | measured per-instance descendant positioning/restoration overhead |
+| `anchor` | reserved before routing work starts; on the Linux qualification platform the terminal procfs CPU delta is the settlement value, otherwise the declaration is retained as a labelled fallback |
+| `shadow:<owner>` | physical process CPU for the completed stage when coverage exists; wall × configured threads remains an explicitly labelled estimated fallback |
+| `controller` | named routing charges plus a separate whole-controller `process_time_ns` measurement in the physical certificate |
+| `verify:...` | reservation-backed VERIFY; physical process CPU is primary settlement, wall × threads is fallback only |
+| `refine:...` | reservation-backed REFINE stage/oracle; physical process CPU is primary settlement |
+| `controller:refine_*` | named controller-side positioning/restoration attribution; whole-controller CPU captures uncategorized runtime/IPC overhead as well |
 
 ## The routing pipeline
 
@@ -270,8 +271,7 @@ exists, and an initial dispatch is refused once it has.
 
 Note what the audit certificate's `claimed` field actually requires: a bounded
 outward request, a reserved anchor cost, GPU accounting, reservations inside
-the CPU/GPU envelope, AND wall-time compliance. `budget.within_envelope` is
-only the reservation part. A report that asserts the latter and describes the
+the CPU/GPU envelope, AND wall-time compliance. `budget.within_envelope` is only the reservation/accounted-spend part. M14-B additionally requires a qualified physical resource certificate and measured physical CPU within the declared CPU envelope before the strongest `claimed` bit can be true. A report that asserts the latter and describes the
 former is claiming more than it checked; the active contract now asserts every
 component.
 

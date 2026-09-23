@@ -1,0 +1,258 @@
+#!/usr/bin/env python3
+"""Run the LC0 real-network / real-backend qualification contract."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import re
+import subprocess
+import sys
+import threading
+import time
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+
+from adapters.process import UciProcess, UciProcessError
+from adapters.telemetry import Lc0TelemetryAdapter
+from controller.strength_profile import (
+    QualificationReport,
+    StrengthProfileError,
+    load_json,
+    validate_profile,
+    validate_runtime_config,
+    verify_network_file,
+)
+
+LOCK_PATH = ROOT / "qualification" / "lc0-strength.lock.json"
+PROFILE_PATH = ROOT / "qualification" / "lc0-strength-profile.json"
+CONFIG_PATH = ROOT / "config" / "allfather.strength.validation.json"
+RESULT_DIR = ROOT / "build" / "test-results" / "lc0-strength"
+_MOVE_RE = re.compile(r"^[a-h][1-8][a-h][1-8][qrbn]?$")
+
+
+class ContractError(RuntimeError):
+    pass
+
+
+def sha256_file(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def run_search(
+    process: UciProcess,
+    *,
+    token: int,
+    nodes: int,
+    adapter: Lc0TelemetryAdapter | None = None,
+) -> tuple[str, list[dict]]:
+    done = threading.Event()
+    bestmove: list[str] = []
+    events: list[dict] = []
+    started = time.monotonic()
+
+    if adapter is not None:
+        events.append(
+            adapter.start(
+                position={"command": "position startpos", "variant": "standard"},
+                request={"kind": "nodes", "nodes": nodes},
+                observed_ms=0,
+                controller={"execution_mode": "strength-qualification"},
+            )
+        )
+
+    def observed_ms() -> int:
+        return int((time.monotonic() - started) * 1000)
+
+    def on_info(_token: int, line: str) -> None:
+        if adapter is not None:
+            events.extend(adapter.consume(line, observed_ms=observed_ms()))
+
+    def on_complete(_token: int, line: str) -> None:
+        fields = line.split()
+        if len(fields) < 2 or _MOVE_RE.fullmatch(fields[1].lower()) is None:
+            bestmove.append("")
+        else:
+            bestmove.append(fields[1].lower())
+        if adapter is not None:
+            events.extend(adapter.consume(line, observed_ms=observed_ms()))
+        done.set()
+
+    process.new_game()
+    process.send_position("position startpos")
+    process.start_search(
+        f"go nodes {nodes}",
+        token=token,
+        on_info=on_info,
+        on_complete=on_complete,
+    )
+    if not done.wait(60.0):
+        process.stop()
+        raise ContractError(f"LC0 search n{nodes} timed out")
+    if len(bestmove) != 1 or not bestmove[0]:
+        raise ContractError(f"LC0 search n{nodes} did not return one canonical bestmove")
+    return bestmove[0], events
+
+
+def hardware_probe() -> dict:
+    raw = subprocess.check_output(
+        [sys.executable, str(ROOT / "scripts" / "lc0-hardware-probe.py")],
+        text=True,
+    )
+    data = json.loads(raw)
+    if not isinstance(data, dict):
+        raise ContractError("hardware probe did not return an object")
+    return data
+
+
+def main() -> int:
+    lock = load_json(LOCK_PATH)
+    profile = load_json(PROFILE_PATH)
+    config = load_json(CONFIG_PATH)
+    validate_profile(profile)
+    validate_runtime_config(config, lock, profile)
+
+    network_path = ROOT / "build" / "artifacts" / "lc0" / lock["network"]["filename"]
+    network_identity = verify_network_file(network_path, lock, require_frozen=True)
+
+    lc0_name = config["shadow"]["instance_by_owner"]["lc0"]
+    lc0 = config["instances"][lc0_name]
+    binary = (ROOT / lc0["binary"]).resolve()
+    if not binary.is_file():
+        raise ContractError(f"LC0 strength binary is missing: {binary}")
+    binary_identity = {
+        "path": str(binary),
+        "size": binary.stat().st_size,
+        "sha256": sha256_file(binary),
+    }
+
+    hardware = hardware_probe()
+    policy = profile["hardware_policy"]
+    if hardware.get("architecture") not in {policy["architecture"], "amd64"}:
+        raise ContractError(
+            f"hardware architecture {hardware.get('architecture')!r} does not "
+            f"match profile {policy['architecture']!r}"
+        )
+    if not hardware.get("cpu_model"):
+        raise ContractError("hardware probe did not bind a CPU model")
+    if not hardware.get("openblas_package"):
+        raise ContractError("OpenBLAS package identity is missing")
+
+    options = dict(lc0["options"])
+    process = UciProcess(
+        name="lc0-strength",
+        binary=binary,
+        cwd=ROOT,
+        args=list(lc0.get("args") or []),
+        timeout=30.0,
+    )
+    try:
+        process.start()
+        process.configure(options)
+
+        warmup_move, _ = run_search(
+            process,
+            token=1,
+            nodes=int(profile["warmup"]["nodes"]),
+        )
+
+        adapter = Lc0TelemetryAdapter(
+            search_id="lc0-strength-qualification",
+            engine_instance="lc0-strength",
+            position_id="startpos",
+            variant="standard",
+            score_type=options["ScoreType"],
+        )
+        qualification_move, events = run_search(
+            process,
+            token=2,
+            nodes=256,
+            adapter=adapter,
+        )
+
+        expected_backend_line = f"Creating backend [{options['Backend']}]"
+        stderr = "\n".join(process.stderr_tail)
+        if expected_backend_line not in stderr:
+            raise ContractError(
+                f"did not observe backend initialization {expected_backend_line!r}; "
+                f"stderr tail={process.stderr_tail!r}"
+            )
+    finally:
+        process.close()
+
+    expected_semantics = f"lc0.uci_score.{options['ScoreType']}"
+    semantics = {
+        evaluation.get("semantics")
+        for event in events
+        if event.get("event") == "candidate.update"
+        for evaluation in (event.get("candidate") or {}).get("evaluations", [])
+        if isinstance(evaluation, dict)
+    }
+    if expected_semantics not in semantics:
+        raise ContractError(
+            f"real LC0 telemetry did not expose expected score semantics "
+            f"{expected_semantics!r}; observed={sorted(str(x) for x in semantics)}"
+        )
+
+    report = QualificationReport(
+        profile_id=profile["profile_id"],
+        commit_sha=os.environ.get("GITHUB_SHA", ""),
+        binary=binary_identity,
+        network=network_identity,
+        requested_backend=options["Backend"],
+        observed_backend=options["Backend"],
+        runtime_options={
+            name: options[name]
+            for name in (
+                "Backend",
+                "BackendOptions",
+                "WeightsFile",
+                "ScoreType",
+                "NNCacheSize",
+                "MinibatchSize",
+                "MaxConcurrentSearchers",
+                "TaskWorkers",
+                "Threads",
+                "MultiPV",
+            )
+        },
+        hardware=hardware,
+        warmup_bestmove=warmup_move,
+        qualification_bestmove=qualification_move,
+        telemetry_score_semantics=expected_semantics,
+    ).as_dict()
+
+    RESULT_DIR.mkdir(parents=True, exist_ok=True)
+    path = RESULT_DIR / "report.json"
+    path.write_text(
+        json.dumps(report, indent=2, sort_keys=True, allow_nan=False) + "\n",
+        encoding="utf-8",
+    )
+    print(
+        "LC0 real-inference qualification passed: "
+        f"report={report['report_id']} backend={options['Backend']} "
+        f"network={network_identity['sha256'][:16]}..."
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        raise SystemExit(main())
+    except (
+        ContractError,
+        StrengthProfileError,
+        UciProcessError,
+        OSError,
+        ValueError,
+        subprocess.CalledProcessError,
+    ) as exc:
+        print(f"lc0-strength-profile contract failed: {exc}", file=sys.stderr)
+        raise SystemExit(1)

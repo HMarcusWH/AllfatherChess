@@ -587,6 +587,21 @@ class BudgetLedger:
 
     # -- reporting -----------------------------------------------------------
 
+    def open_reservation_counts(self) -> dict[str, int]:
+        """Return an atomic count of in-flight reservations by exact purpose.
+
+        The M14-C authority gate uses this instead of peeking at router-side
+        bookkeeping dictionaries. A reservation remains visible here until
+        `settle()` removes it under the same ledger lock that records spend,
+        so there is no pop-before-settle window in which unfinished work can
+        look closed.
+        """
+        with self._lock:
+            counts: dict[str, int] = {}
+            for reservation in self._open.values():
+                counts[reservation.purpose] = counts.get(reservation.purpose, 0) + 1
+            return counts
+
     def snapshot(self) -> dict[str, Any]:
         with self._lock:
             committed_cpu, committed_gpu = self._committed()

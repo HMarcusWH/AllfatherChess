@@ -1116,7 +1116,7 @@ class ShadowRunCoordinator:
                     disposition="failed",
                     failure=message,
                 )
-                active.refinement.set_target_disposition(
+                active.refinement.set_scope_disposition(
                     refinement_stage.target_id, "incomplete", message
                 )
                 active.refinement.set_disposition("incomplete", message)
@@ -1519,7 +1519,7 @@ class ShadowRunCoordinator:
                         disposition="failed",
                         failure=message,
                     )
-                    active.refinement.set_target_disposition(
+                    active.refinement.set_scope_disposition(
                         stage.target_id, "incomplete", message
                     )
                     active.refinement.set_disposition("incomplete", message)

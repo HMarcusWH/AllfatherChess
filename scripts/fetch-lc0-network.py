@@ -9,6 +9,7 @@ import os
 import shutil
 import sys
 import tempfile
+import urllib.error
 import urllib.request
 from pathlib import Path
 

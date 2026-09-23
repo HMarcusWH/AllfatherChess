@@ -381,9 +381,7 @@ class PrefixShardLedgerTests(unittest.TestCase):
 
 class PrefixDispatchTests(unittest.TestCase):
     def test_descendant_position_advances_by_complete_prefix(self):
-        from common.search_request import PositionRequest
-
-        base = PositionRequest(base_fen="startpos", moves=("d2d4",), variant="standard")
+        base = parse_position_command("position startpos moves d2d4")
         built = descendant_position(base, ("d7d5", "c2c4"))
         self.assertEqual(built.moves, ("d2d4", "d7d5", "c2c4"))
 

@@ -657,10 +657,13 @@ Nothing below is established by this milestone.
   profile;
 - hardware/software identity is recorded in the qualification report rather
   than inferred from the workflow label;
+- the dedicated qualification checks out exactly the declared source SHA, independently measures `git rev-parse HEAD`, refuses any mismatch, and records that measured SHA in both the hardware probe and qualification report;
+- the dedicated qualification now runs for relevant pull-request changes **and** relevant pushes to `main`, so a merged commit must earn its own real-inference certificate rather than inheriting a PR merge-ref run;
 - ordinary baseline/controller CI remains on the backend-light random LC0
-  profile and cannot be promoted as strength evidence.
+  profile and cannot be promoted as strength evidence;
+- the GitHub-hosted reference contract verifies the observed Ubuntu 24.04 runner class, architecture, CPU identity, positive memory record, required package identity, and checked-out commit instead of trusting a hard-coded runner label.
 
-### QUALIFIED only after the dedicated workflow passes with a frozen network lock
+### QUALIFIED only after the repaired dedicated workflow passes with a frozen network lock
 
 - real network bytes load successfully;
 - a non-random BLAS backend performs warmup and qualification searches;

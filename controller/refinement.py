@@ -1256,9 +1256,20 @@ def verify_refinement_integrity(run_dir: Path | str) -> list[str]:
             for owner in expected_stage_owners:
                 for shard_id in child_shards.get(owner) or []:
                     shard = final_shards.get(shard_id)
-                    if shard is None or shard.get("state") != "sealed":
+                    if shard is None:
+                        problems.append(
+                            f"{row.get('target_id')}:{owner}: completed child shard is missing"
+                        )
+                    elif manifest.get("schema_version") == 1 and shard.get("state") != "sealed":
                         problems.append(
                             f"{row.get('target_id')}:{owner}: completed child shard is not SEALED"
+                        )
+                    elif manifest.get("schema_version") >= 2 and shard.get("state") not in (
+                        "sealed",
+                        "retired",
+                    ):
+                        problems.append(
+                            f"{row.get('target_id')}:{owner}: completed child shard has invalid recursive state"
                         )
 
         for record in row.get("streams") or []:
@@ -1786,5 +1797,21 @@ def verify_refinement_integrity(run_dir: Path | str) -> list[str]:
                             problems.append(
                                 f"{expansion_id}:{record.get('instance')}: recursive telemetry bestmove mismatch"
                             )
+
+        recursive_source_ids = {
+            row.get("source_shard_id")
+            for row in expansion_rows
+            if isinstance(row, dict)
+        }
+        for shard_id, shard in final_shards.items():
+            if (
+                isinstance(shard, dict)
+                and shard.get("state") == "retired"
+                and int(shard.get("depth") or 0) >= 2
+                and shard_id not in recursive_source_ids
+            ):
+                problems.append(
+                    f"{shard_id}: retired recursive shard has no recorded expansion"
+                )
 
     return problems

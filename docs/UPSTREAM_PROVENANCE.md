@@ -92,3 +92,18 @@ No moving branch head is considered a reproducible dependency.
 Repository validation CI is read-only with respect to source control. It validates lock syntax, provenance declarations, structural anchors, pinned artifact integrity, engine builds, and UCI startup.
 
 CI must not auto-commit or auto-revendor engine source. This prevents the validation system from erasing legitimate derived-engine development and ensures that source mutations remain explicit reviewed repository changes.
+
+## LC0 strength-facing network provenance
+
+Backend-light LC0 validation intentionally uses no neural network. Strength-facing
+LC0 experiments use the separate
+`qualification/lc0-strength.lock.json` contract.
+
+An explicit LC0 `WeightsFile` is hashed before process launch and recorded in
+the replay engine identity by resolved path, byte size and SHA-256. Changing the
+bytes at the same path therefore changes upstream experiment identity.
+
+The initial qualification candidate is network 791556, whose SHA-256 is pinned
+by the vendored LC0 release configuration. A strength-facing qualification is
+not frozen until its exact byte size is also committed and verified.
+

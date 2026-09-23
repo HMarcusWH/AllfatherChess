@@ -39,6 +39,37 @@ class ContractError(RuntimeError):
     pass
 
 
+def observe_backend(requested: str, stderr_lines: tuple[str, ...]) -> tuple[str, tuple[str, ...]]:
+    """Infer only from backend-specific runtime diagnostics emitted by LC0."""
+
+    if requested == "blas":
+        vendor = tuple(line for line in stderr_lines if line.startswith("BLAS vendor:"))
+        max_batch = tuple(
+            line for line in stderr_lines if line.startswith("BLAS max batch size is ")
+        )
+        implementation = tuple(
+            line for line in stderr_lines
+            if line.startswith("OpenBLAS [") or line.startswith("OpenBLAS found ")
+        )
+        if not vendor or not max_batch:
+            raise ContractError(
+                "requested BLAS backend but LC0 did not emit the required "
+                f"BLAS runtime diagnostics; stderr tail={stderr_lines!r}"
+            )
+        return "blas", vendor + implementation + max_batch
+
+    explicit = tuple(
+        line for line in stderr_lines
+        if f"Creating backend [{requested}]" in line
+    )
+    if explicit:
+        return requested, explicit
+    raise ContractError(
+        f"cannot prove requested backend {requested!r} from LC0 runtime "
+        f"diagnostics; stderr tail={stderr_lines!r}"
+    )
+
+
 def sha256_file(path: Path) -> str:
     h = hashlib.sha256()
     with path.open("rb") as handle:
@@ -179,14 +210,10 @@ def main() -> int:
             adapter=adapter,
         )
 
-        stderr = "\n".join(process.stderr_tail)
-        observed_backends = re.findall(r"Creating backend \[([^\]]+)\]", stderr)
-        if options["Backend"] not in observed_backends:
-            raise ContractError(
-                f"did not observe requested backend {options['Backend']!r}; "
-                f"observed={observed_backends!r}; stderr tail={process.stderr_tail!r}"
-            )
-        observed_backend = options["Backend"]
+        observed_backend, backend_evidence = observe_backend(
+            options["Backend"],
+            process.stderr_tail,
+        )
     finally:
         process.close()
 
@@ -212,6 +239,7 @@ def main() -> int:
         network=network_identity,
         requested_backend=options["Backend"],
         observed_backend=observed_backend,
+        backend_evidence=backend_evidence,
         runtime_options={
             name: options[name]
             for name in (

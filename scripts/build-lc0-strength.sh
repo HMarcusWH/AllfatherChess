@@ -7,7 +7,7 @@ PROFILE="$ROOT/qualification/lc0-strength-profile.json"
 python3 - <<'PY' "$PROFILE"
 import json, sys
 p=json.load(open(sys.argv[1], encoding="utf-8"))
-assert p["schema_version"] == 1
+assert p["schema_version"] == 2
 assert p["build"]["backend"] == "blas"
 assert p["runtime"]["Backend"] == "blas"
 PY

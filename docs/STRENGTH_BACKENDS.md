@@ -147,13 +147,18 @@ same.
 
 Configuration alone is not accepted as proof that the requested backend ran.
 
-The real-inference contract requires LC0 stderr to contain:
+The real-inference contract does not accept configuration text alone as proof
+that BLAS actually ran. The vendored LC0 build emits backend-specific runtime
+diagnostics during real network initialization, including:
 
 ```text
-Creating backend [blas]
+BLAS vendor: ...
+OpenBLAS [...]
+BLAS max batch size is ...
 ```
 
-after the qualified options are applied and a real search is executed.
+The BLAS reference requires the vendor and max-batch diagnostics and stores the
+observed lines as backend evidence in the qualification report.
 
 The qualification report therefore binds both:
 

@@ -39,11 +39,41 @@ def memory_bytes() -> int | None:
     return None
 
 
+def os_release() -> dict[str, str]:
+    path = Path("/etc/os-release")
+    if not path.is_file():
+        return {}
+    result: dict[str, str] = {}
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        if "=" not in line or line.lstrip().startswith("#"):
+            continue
+        key, value = line.split("=", 1)
+        result[key] = value.strip().strip('"')
+    return result
+
+
 def main() -> int:
+    release = os_release()
+    runner_environment = os.environ.get("ALLFATHER_RUNNER_ENVIRONMENT")
+    is_reference_runner = (
+        os.environ.get("GITHUB_ACTIONS") == "true"
+        and runner_environment == "github-hosted"
+        and platform.system() == "Linux"
+        and release.get("ID") == "ubuntu"
+        and release.get("VERSION_ID") == "24.04"
+    )
     report = {
         "schema_version": 1,
-        "runner_class": "github-hosted-ubuntu-24.04-cpu-reference",
+        "runner_class": (
+            "github-hosted-ubuntu-24.04-cpu-reference"
+            if is_reference_runner
+            else "unclassified"
+        ),
+        "runner_environment": runner_environment,
+        "runner_os": os.environ.get("RUNNER_OS"),
+        "runner_arch": os.environ.get("RUNNER_ARCH"),
         "os": platform.platform(),
+        "os_release": release,
         "system": platform.system(),
         "release": platform.release(),
         "architecture": platform.machine(),
@@ -54,9 +84,7 @@ def main() -> int:
             "dpkg-query", "-W", "-f=${Package}=${Version}", "libopenblas-dev"
         ),
         "python": platform.python_version(),
-        "commit_sha": os.environ.get("ALLFATHER_SOURCE_SHA")
-        or os.environ.get("GITHUB_SHA")
-        or command("git", "-C", str(ROOT), "rev-parse", "HEAD"),
+        "commit_sha": command("git", "-C", str(ROOT), "rev-parse", "HEAD"),
     }
     print(json.dumps(report, indent=2, sort_keys=True))
     return 0

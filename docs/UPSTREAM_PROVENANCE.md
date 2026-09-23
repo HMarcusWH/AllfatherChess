@@ -103,7 +103,9 @@ An explicit LC0 `WeightsFile` is hashed before process launch and recorded in
 the replay engine identity by resolved path, byte size and SHA-256. Changing the
 bytes at the same path therefore changes upstream experiment identity.
 
-The initial qualification candidate is network 791556, whose SHA-256 is pinned
-by the vendored LC0 release configuration. A strength-facing qualification is
-not frozen until its exact byte size is also committed and verified.
+The qualification network is training id 791556. The vendored LC0 release
+configuration pins its LCZero lookup hash; Allfather independently freezes the
+downloaded file as 18,648,209 bytes with SHA-256
+`b1c7047582a8ad37620849bf328935cb46f2ccbbecb7f2696c30c6b913ed690d`.
+The lookup hash and downloaded-file SHA are recorded as distinct identities.
 

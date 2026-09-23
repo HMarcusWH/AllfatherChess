@@ -466,6 +466,66 @@ class RefinementLiveArtifactTests(unittest.TestCase):
             )
             self.assertNotIn("REFINE", json.dumps(verification))
 
+    def test_multi_level_recursive_refine_is_bounded_and_integrity_checked(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config = write_shadow_config(
+                root,
+                refinement=True,
+                dispatch_nodes=64,
+                verification_nodes=32,
+                refinement_nodes=32,
+                instance_args={
+                    ANCHOR: ["--info-lines", "400", "--info-delay-ms", "10"],
+                    "stockfish-shadow": ["--leader-schedule", "e2e4"],
+                    "reckless-shadow": ["--leader-schedule", "d2d4"],
+                    "lc0-shadow": ["--leader-schedule", "g1f3"],
+                },
+            )
+            document = json.loads(config.read_text(encoding="utf-8"))
+            document["refinement"]["max_depth"] = 3
+            document["refinement"]["max_expansions"] = 2
+            document["refinement"]["recursive_nomination_method"] = (
+                "stage_terminal_bestmove_v1"
+            )
+            config.write_text(json.dumps(document), encoding="utf-8")
+
+            run_shell(config, ["go nodes 64", "await:bestmove "], timeout=40.0)
+            run_dir = next(
+                path for path in (root / "replays").iterdir() if path.is_dir()
+            )
+            manifest = load_refinement_manifest(run_dir)
+            self.assertEqual(manifest["schema_version"], 2)
+            self.assertEqual(
+                manifest["recursive_policy"]["method"],
+                "stage_terminal_bestmove_v1",
+            )
+            self.assertEqual(manifest["recursive_policy"]["max_depth"], 3)
+            self.assertEqual(manifest["recursive_policy"]["max_expansions"], 2)
+            self.assertEqual(len(manifest["expansions"]), 2)
+            self.assertEqual(verify_refinement_integrity(run_dir), [])
+
+            for expansion in manifest["expansions"]:
+                prefix = tuple(expansion["prefix"])
+                self.assertEqual(len(prefix), 2)
+                self.assertEqual(expansion["depth"], 2)
+                self.assertEqual(
+                    expansion["disposition"]["expansion"],
+                    "completed",
+                )
+                self.assertEqual(len(expansion["stages"]), 3)
+                for stage in expansion["stages"]:
+                    for full_prefix in stage["prefixes"]:
+                        self.assertEqual(tuple(full_prefix[:-1]), prefix)
+
+            final_snapshot = manifest["prefix_ledger"]["final_v2_snapshot"]
+            final_shards = {
+                row["id"]: row for row in final_snapshot["shards"]
+            }
+            for expansion in manifest["expansions"]:
+                source = final_shards[expansion["source_shard_id"]]
+                self.assertEqual(source["state"], "retired")
+
     def test_anchor_completion_before_refine_suppresses_new_recursive_work(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

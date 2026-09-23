@@ -366,6 +366,7 @@ class _ActiveRun:
     finished: threading.Event = field(default_factory=threading.Event)
     anchor_done: threading.Event = field(default_factory=threading.Event)
     anchor_completed: threading.Event = field(default_factory=threading.Event)
+    anchor_resource_done: threading.Event = field(default_factory=threading.Event)
     started_monotonic: float = 0.0
     #: True while the legal-root oracle request is outstanding. Owner states do
     #: not exist yet at that point, so without this the quiesce barrier sees no
@@ -888,10 +889,27 @@ class ShadowRunCoordinator:
         # configuration choice, never an implicit one.
         if self.settings.on_anchor_complete == "cancel":
             # This runs on the ANCHOR's stdout reader thread, which is the
-            # thread that carries the outward `bestmove`. A shadow whose stdin
-            # blocks must not be able to stall it, so the `stop` writes are
-            # detached; `quiesce()` joins them before any state change.
+            # thread that carries the outward bestmove. A shadow whose stdin
+            # blocks must not be able to stall it, so the stop writes are
+            # detached; quiesce() joins them before any state change.
             self.cancel(generation, reason="anchor_complete", detach=True)
+
+    def note_anchor_emitted(self, generation: int) -> None:
+        """Take the terminal anchor sample only after bestmove left stdout.
+
+        Procfs reads are evidence work. Even tiny filesystem reads may not sit
+        in front of the authority write, so the frontend calls this after
+        emitting bestmove. The shadow worker, not the authority thread, waits
+        for this measurement before sealing the resource certificate.
+        """
+        with self._lock:
+            active = self._run
+            if active is None or active.generation != generation:
+                return
+            stage = active.anchor_stage
+        if stage is not None:
+            self._finish_resource_stage(active, stage.search_id)
+        active.anchor_resource_done.set()
 
     def _on_shadow_exit(self, instance: str, rc: int | None, token: int | None) -> None:
         with self._lock:

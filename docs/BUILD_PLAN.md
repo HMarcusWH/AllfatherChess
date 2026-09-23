@@ -147,23 +147,27 @@ The final product is promoted only on statistically credible strength gains agai
 17. **PR #17 — Shadow REFINE execution + recursive provenance**. **Merged.**
 18. **PR #18 — Active VERIFY / REFINE + CPU/GPU resource scheduler**. **Merged.**
 19. **PR #19 — Extended post-PR18 build-plan documentation**. **Merged.**
+20. **PR #20 — Post-PR19 build-plan synchronization**. **Merged.**
 21. **PR #21 — Typed cross-feed evidence plane, shadow-only**: consume existing VERIFY/REFINE evidence; no new search phase; no outward behavior change. **Merged.**
 22. **PR #22 — Counterfactual hybrid decision laboratory**: freeze deterministic hybrid proposals while Stockfish remains outward authority. **Merged.**
 23. **PR #23 — Prospective VERIFY value-of-compute calibration**: real stopped-search VERIFY budget interventions, upstream causal fingerprinting, separate feature/label digests, position-group train/calibration/holdout splits, and an auditable decision-change model. **Merged.**
-24. **PR #24 — Strength-qualified LC0 profile**: real network/backend/hardware identity; preserve fast random-backend CI separately.
-25. **PR #25 — Measured process resource accounting**: preserve reservations while adding measured CPU/GPU/memory/controller cost where supported.
-26. **PR #26 — Active hybrid decision authority v0**: bounded in-memory authorization at the anchor-completion boundary; deterministic Stockfish fallback.
-27. **PR #27 — Multi-level recursive REFINE**: bounded deeper prefix splitting under exact ownership and budget rules.
-28. **PR #28 — Engine-specific cross-feed adapters**: source-typed candidate transfer into subprocess-safe VERIFY/REFINE/adjudication operations.
-29. **PR #29 — Search-regime classifier**: calibrated state classes that may nominate work but do not authorize moves.
-30. **PR #30 — Unified value-of-compute decision router**: combine regime, route-value, resource authorization and separate decision authorization.
-31. **PR #31 — Structured IPC experiment**: compare typed local transport against current UCI boundaries.
-32. **PR #32 — Selective native integration**: embed only measured-value hooks with process-adapter parity.
-33. **PR #33 — Offline governed policy evolution laboratory**: immutable candidate generations, holdout evaluation, rollback and promotion discipline.
-34. **PR #34 — Strength campaign infrastructure**: frozen openings, hardware profiles, match manifests, ablations and statistical stopping rules.
-35. **PR #35 — External qualification / release candidate**: freeze the first claim-bounded equal-resource release.
+24. **PR #24 — Strength-qualified LC0 profile**: real network/backend/hardware identity; preserve fast random-backend CI separately. **Merged.**
 
-The detailed file-by-file plan, authority transitions, and acceptance gates for PR #21 onward live in `docs/EXTENDED_BUILD_PLAN.md`.
+A repo-wide hardening repair is inserted immediately after PR #24. From this point onward the architecture uses milestone IDs rather than reserving future GitHub PR numbers; emergency repairs must not silently renumber the plan.
+
+- **M14-B — Measured process resource accounting**: preserve reservations while adding measured CPU/GPU/memory/controller cost where supported.
+- **M14-C — Active hybrid decision authority v0**: bounded in-memory authorization at the anchor-completion boundary; deterministic Stockfish fallback.
+- **M14-D — Multi-level recursive REFINE**: bounded deeper prefix splitting under exact ownership and budget rules.
+- **M14-E — Engine-specific cross-feed adapters**: source-typed candidate transfer into subprocess-safe VERIFY/REFINE/adjudication operations.
+- **M14-F — Search-regime classifier**: calibrated state classes that may nominate work but do not authorize moves.
+- **M14-G — Unified value-of-compute decision router**: combine regime, route-value, resource authorization and separate decision authorization.
+- **M14-H — Structured IPC experiment**: compare typed local transport against current UCI boundaries.
+- **M14-I — Selective native integration**: embed only measured-value hooks with process-adapter parity.
+- **M15-A — Offline governed policy evolution laboratory**: immutable candidate generations, holdout evaluation, rollback and promotion discipline.
+- **M15-B — Strength campaign infrastructure**: frozen openings, hardware profiles, match manifests, ablations and statistical stopping rules.
+- **M15-C — External qualification / release candidate**: freeze the first claim-bounded equal-resource release.
+
+The detailed file-by-file plan, authority transitions, and acceptance gates for the remaining milestones live in `docs/EXTENDED_BUILD_PLAN.md`.
 
 ## Foundation-hardening acceptance gate
 

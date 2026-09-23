@@ -29,15 +29,15 @@ DecisionAuthorization
 Outward Decision
 ```
 
-For this milestone:
+Current M14-C state:
 
 ```text
 Observation             IMPLEMENTED
 DecisionEvidence        IMPLEMENTED
 DecisionProposal        IMPLEMENTED
-DecisionAuthorization   TYPE EXISTS, NEVER GRANTED
-Hybrid outward move     NOT IMPLEMENTED
-Stockfish fallback      STILL THE ONLY OUTWARD PATH
+DecisionAuthorization   IMPLEMENTED / BOUNDED GRANT
+Hybrid outward move     IMPLEMENTED FOR QUALIFIED movetime_v0
+Stockfish fallback      DETERMINISTIC DEFAULT ON ANY DENIAL
 ```
 
 ## Why the decision layer is separate

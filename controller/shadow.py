@@ -36,7 +36,7 @@ from adapters.telemetry import (
     RecklessTelemetryAdapter,
     StockfishTelemetryAdapter,
 )
-from common.prefix_dispatch import compile_descendant_region
+from common.prefix_dispatch import compile_descendant_region, descendant_position
 from common.search_request import (
     PositionRequest,
     SearchRequestError,
@@ -76,6 +76,10 @@ from controller.refinement import (
     RefinementRun,
     build_refinement_plan,
     partition_children,
+)
+from controller.refinement_policy import (
+    RefinementStageEvidence,
+    evaluate_recursive_nominations,
 )
 from controller.runtime import BackendManager, RuntimeError as ControllerRuntimeError
 from controller.verification import (
@@ -2949,8 +2953,843 @@ class ShadowRunCoordinator:
                 )
                 break
 
+        if (
+            all_completed
+            and refinement.disposition == "running"
+            and settings.max_depth > 2
+        ):
+            all_completed = self._execute_recursive_refinement(
+                active,
+                prefix_ledger,
+            )
+
         if all_completed and refinement.disposition == "running":
             refinement.set_disposition("completed")
+
+    def _recursive_nominations_from_stages(
+        self,
+        *,
+        refinement: RefinementRun,
+        expansion_id: str,
+        parent_prefix: tuple[str, ...],
+        stages: list[Any],
+        stream_getter: Callable[[str], TelemetryStreamWriter | None],
+    ) -> tuple[Any, ...]:
+        evidence: list[RefinementStageEvidence] = []
+        for stage in stages:
+            stream = stream_getter(stage.instance)
+            evidence.append(
+                RefinementStageEvidence(
+                    expansion_id=expansion_id,
+                    parent_prefix=parent_prefix,
+                    owner=stage.owner,
+                    search_id=stage.search_id,
+                    child_moves=tuple(stage.child_moves),
+                    bestmove=stage.bestmove,
+                    disposition=stage.disposition,
+                    evidence_lossy=(False if stream is None else stream.evidence_lossy),
+                    evidence_truncated=(
+                        False if stream is None else stream.tracked_events_truncated
+                    ),
+                )
+            )
+        return evaluate_recursive_nominations(
+            evidence,
+            owner_order=refinement.plan.owners,
+            policy=refinement.plan.recursive_nomination_method,
+        )
+
+    def _execute_recursive_refinement(
+        self,
+        active: _ActiveRun,
+        prefix_ledger: PrefixShardLedger,
+    ) -> bool:
+        """Breadth-first bounded recursive zoom below completed root shells."""
+
+        refinement = active.refinement
+        settings = self.runtime.config.refinement
+        if refinement is None or settings is None:
+            return True
+
+        queue: list[dict[str, Any]] = []
+        for target in refinement.targets():
+            if target.disposition != "completed":
+                continue
+            nominations = self._recursive_nominations_from_stages(
+                refinement=refinement,
+                expansion_id=target.target.target_id,
+                parent_prefix=(target.target.root_move,),
+                stages=list(
+                    sorted(
+                        target.stages.values(),
+                        key=lambda stage: refinement.plan.owners.index(stage.owner),
+                    )
+                ),
+                stream_getter=lambda instance, target_id=target.target.target_id: refinement.stream(
+                    target_id, instance
+                ),
+            )
+            for nomination in nominations:
+                queue.append(
+                    {
+                        "seed_target_id": target.target.target_id,
+                        "prefix": tuple(nomination.prefix),
+                        "source_owner": nomination.owner,
+                        "source_search_id": nomination.source_search_id,
+                        "nomination": nomination.as_dict(),
+                    }
+                )
+
+        expansions_started = 0
+        while queue:
+            if active.cancelled or self._closed or active.anchor_completed.is_set():
+                refinement.note(
+                    "recursive REFINE stopped at decision/cancellation boundary"
+                )
+                return True
+            item = queue.pop(0)
+            prefix = tuple(item["prefix"])
+            if len(prefix) >= settings.max_depth:
+                refinement.note(
+                    f"recursive REFINE depth cap reached at {' '.join(prefix)}"
+                )
+                continue
+            if expansions_started >= settings.max_expansions:
+                refinement.note(
+                    "recursive REFINE expansion cap reached before remaining nominations"
+                )
+                break
+
+            leaf = prefix_ledger.sealed_frontier_leaf(prefix)
+            if leaf is None:
+                refinement.set_disposition(
+                    "incomplete",
+                    f"recursive nomination is not a SEALED frontier leaf: {prefix}",
+                )
+                return False
+            if leaf.get("owner") != item["source_owner"]:
+                refinement.set_disposition(
+                    "incomplete",
+                    f"recursive nomination owner mismatch at {prefix}",
+                )
+                return False
+
+            expansion_id = (
+                f"exp-d{len(prefix):03d}-" + ".".join(prefix)
+            )
+            outcome = self._execute_refinement_expansion(
+                active,
+                prefix_ledger=prefix_ledger,
+                expansion_id=expansion_id,
+                seed_target_id=str(item["seed_target_id"]),
+                prefix=prefix,
+                source_owner=str(item["source_owner"]),
+                source_search_id=str(item["source_search_id"]),
+                nomination=dict(item["nomination"]),
+            )
+            if outcome is None:
+                # Resource denial is a normal bounded stop; structural/runtime
+                # failure sets the run disposition to incomplete.
+                return refinement.disposition != "incomplete"
+
+            expansions_started += 1
+            for nomination in outcome:
+                queue.append(
+                    {
+                        "seed_target_id": item["seed_target_id"],
+                        "prefix": tuple(nomination.prefix),
+                        "source_owner": nomination.owner,
+                        "source_search_id": nomination.source_search_id,
+                        "nomination": nomination.as_dict(),
+                    }
+                )
+        return True
+
+    def _execute_refinement_expansion(
+        self,
+        active: _ActiveRun,
+        *,
+        prefix_ledger: PrefixShardLedger,
+        expansion_id: str,
+        seed_target_id: str,
+        prefix: tuple[str, ...],
+        source_owner: str,
+        source_search_id: str,
+        nomination: dict[str, Any],
+    ) -> tuple[Any, ...] | None:
+        refinement = active.refinement
+        settings = self.runtime.config.refinement
+        if refinement is None or settings is None:
+            return ()
+
+        source_leaf = prefix_ledger.sealed_frontier_leaf(prefix)
+        if source_leaf is None or source_leaf.get("owner") != source_owner:
+            refinement.set_disposition(
+                "incomplete",
+                f"{expansion_id}: source leaf is no longer eligible",
+            )
+            return None
+        source_shard_id = str(source_leaf["id"])
+        oracle_position = descendant_position(active.context.position, prefix)
+
+        oracle_key = f"refine-oracle:{expansion_id}"
+        with self._lock:
+            if active.cancelled or active.anchor_completed.is_set():
+                return ()
+            if not self._authorize_specialist(
+                active,
+                key=oracle_key,
+                phase="refine_oracle",
+                target_id=expansion_id,
+            ):
+                refinement.note(
+                    f"{expansion_id}: recursive child oracle denied by active budget"
+                )
+                return None
+            active.refinement_oracle_active = True
+            oracle_dispatched_ms = (
+                time.monotonic() - active.started_monotonic
+            ) * 1000.0
+            oracle_resource_key = (
+                f"{active.run.run_id}:refine-oracle:{expansion_id}"
+            )
+            self._begin_resource_stage(
+                active,
+                key=oracle_resource_key,
+                instance=self.settings.oracle,
+                phase="REFINE_ORACLE",
+            )
+        try:
+            children = self.runtime.legal_moves_at_shadow_position(
+                instance=self.settings.oracle,
+                position_command=oracle_position.command(),
+                timeout=self.settings.oracle_timeout_s,
+            )
+        except ControllerRuntimeError as exc:
+            refinement.set_disposition(
+                "incomplete",
+                f"{expansion_id}: recursive child oracle failed: {exc}",
+            )
+            return None
+        finally:
+            oracle_completed_ms = (
+                time.monotonic() - active.started_monotonic
+            ) * 1000.0
+            self._settle_specialist(
+                active,
+                key=oracle_key,
+                dispatched_ms=oracle_dispatched_ms,
+                completed_ms=oracle_completed_ms,
+                instance=self.settings.oracle,
+                resource_key=oracle_resource_key,
+            )
+            with self._lock:
+                active.refinement_oracle_active = False
+
+        child_partition = partition_children(children, refinement.plan.owners)
+        if not children:
+            refinement.register_expansion(
+                expansion_id=expansion_id,
+                seed_target_id=seed_target_id,
+                prefix=prefix,
+                source_owner=source_owner,
+                source_shard_id=source_shard_id,
+                nomination=nomination,
+                oracle_position_command=oracle_position.command(),
+                oracle_children=children,
+                child_partition=child_partition,
+                child_shards={owner: () for owner in refinement.plan.owners},
+            )
+            refinement.set_expansion_disposition(
+                expansion_id,
+                "terminal",
+                "exact child oracle returned an empty legal continuation set",
+            )
+            return ()
+
+        try:
+            child_ids = prefix_ledger.split_shard(
+                source_shard_id,
+                children,
+                owner=source_owner,
+            )
+            child_id_by_move = {
+                str(prefix_ledger.get(shard_id)["prefix"][-1]): shard_id
+                for shard_id in child_ids
+            }
+            child_shards = {
+                owner: tuple(
+                    child_id_by_move[move] for move in child_partition[owner]
+                )
+                for owner in refinement.plan.owners
+            }
+            for owner in refinement.plan.owners:
+                shard_ids = child_shards[owner]
+                if owner == source_owner or not shard_ids:
+                    continue
+                prefix_ledger.transfer_shards(
+                    shard_ids,
+                    from_owner=source_owner,
+                    to_owner=owner,
+                )
+        except PrefixShardLedgerError as exc:
+            refinement.set_disposition(
+                "incomplete",
+                f"{expansion_id}: recursive split/transfer failed: {exc}",
+            )
+            return None
+
+        record = refinement.register_expansion(
+            expansion_id=expansion_id,
+            seed_target_id=seed_target_id,
+            prefix=prefix,
+            source_owner=source_owner,
+            source_shard_id=source_shard_id,
+            nomination={
+                **nomination,
+                "source_search_id": source_search_id,
+            },
+            oracle_position_command=oracle_position.command(),
+            oracle_children=children,
+            child_partition=child_partition,
+            child_shards=child_shards,
+        )
+
+        prepared_instances: list[str] = []
+        for owner in refinement.plan.owners:
+            moves = child_partition[owner]
+            if not moves:
+                continue
+            instance = refinement.plan.participants[owner]
+            spec = self.runtime.spec(instance)
+            stream_path = (
+                refinement.refinement_dir
+                / "recursive"
+                / expansion_id
+                / f"{instance}.jsonl"
+            )
+            opened, stream = self._within_prepare_budget(
+                f"{active.run.run_id}-recursive-{expansion_id}-{instance}-stream",
+                discard=lambda late: self._release_late_stream(None, late),
+                work=lambda spec=spec, instance=instance, stream_path=stream_path, oracle_position=oracle_position: TelemetryStreamWriter(
+                    instance=instance,
+                    family=spec.family,
+                    role=spec.role,
+                    path=stream_path,
+                    adapter_factory=self._adapter_factory(
+                        family=spec.family,
+                        instance=instance,
+                        position_id=oracle_position.position_id,
+                        variant=oracle_position.variant,
+                    ),
+                    track_events=True,
+                ),
+            )
+            if not opened or stream is None:
+                refinement.set_expansion_disposition(
+                    expansion_id,
+                    "incomplete",
+                    f"recursive REFINE stream setup failed for {instance}",
+                )
+                refinement.set_disposition(
+                    "incomplete",
+                    f"{expansion_id}: stream setup failed",
+                )
+                self._restore_recursive_refinement_instances(
+                    active, expansion_id, prepared_instances
+                )
+                return None
+            refinement.register_expansion_stream(expansion_id, stream)
+
+        for owner in refinement.plan.owners:
+            if not child_partition[owner]:
+                continue
+            instance = refinement.plan.participants[owner]
+            if (
+                active.cancelled
+                or self._closed
+                or active.anchor_completed.is_set()
+                or not self.runtime.shadow_available(instance)
+            ):
+                refinement.set_expansion_disposition(
+                    expansion_id,
+                    "incomplete",
+                    "decision boundary or shadow health changed during recursive REFINE setup",
+                )
+                refinement.set_disposition(
+                    "incomplete",
+                    f"{expansion_id}: setup lost decision/health preconditions",
+                )
+                self._restore_recursive_refinement_instances(
+                    active, expansion_id, prepared_instances
+                )
+                return None
+            try:
+                positioned_started = time.monotonic()
+                self.runtime.set_shadow_position(instance, oracle_position.command())
+                self._charge_controller_elapsed(
+                    active,
+                    label="recursive_refine_position",
+                    elapsed_ms=(time.monotonic() - positioned_started) * 1000.0,
+                )
+                prepared_instances.append(instance)
+                with self._lock:
+                    active.refinement_positioned.add(instance)
+            except ControllerRuntimeError as exc:
+                refinement.set_expansion_disposition(
+                    expansion_id,
+                    "incomplete",
+                    f"could not position {instance} for recursive REFINE: {exc}",
+                )
+                refinement.set_disposition(
+                    "incomplete",
+                    f"{expansion_id}: positioning failed",
+                )
+                self._restore_recursive_refinement_instances(
+                    active, expansion_id, prepared_instances
+                )
+                return None
+
+        dispatched_all = True
+        for owner in refinement.plan.owners:
+            if not child_partition[owner]:
+                continue
+            if not self._dispatch_recursive_refinement_stage(
+                active,
+                expansion_id=expansion_id,
+                owner=owner,
+                descendant_position=oracle_position,
+            ):
+                dispatched_all = False
+                refinement.set_expansion_disposition(
+                    expansion_id,
+                    "incomplete",
+                    f"recursive REFINE dispatch failed for {owner}",
+                )
+                refinement.set_disposition(
+                    "incomplete",
+                    f"{expansion_id}: recursive dispatch failed",
+                )
+                break
+
+        if not dispatched_all:
+            refinement.request_expansion_abort(
+                expansion_id,
+                "partial recursive REFINE dispatch",
+            )
+            pending_instances = [
+                stage.instance
+                for stage in refinement.active_stages()
+                if stage.target_id == expansion_id
+            ]
+            if pending_instances:
+                self._stop_instances(list(dict.fromkeys(pending_instances)))
+
+        self._await_recursive_refinement_expansion(active, expansion_id)
+        restored = self._restore_recursive_refinement_instances(
+            active, expansion_id, prepared_instances
+        )
+
+        required_owners = {
+            owner for owner in refinement.plan.owners if child_partition[owner]
+        }
+        completed_owners = {
+            stage.owner
+            for stage in record.stages.values()
+            if stage.disposition == "completed"
+        }
+        if not dispatched_all or not restored or completed_owners != required_owners:
+            refinement.set_expansion_disposition(
+                expansion_id,
+                "incomplete",
+                "not all recursive REFINE stages completed and restored",
+            )
+            refinement.set_disposition(
+                "incomplete",
+                f"{expansion_id}: recursive expansion incomplete",
+            )
+            return None
+
+        refinement.set_expansion_disposition(expansion_id, "completed")
+        return self._recursive_nominations_from_stages(
+            refinement=refinement,
+            expansion_id=expansion_id,
+            parent_prefix=prefix,
+            stages=list(
+                sorted(
+                    record.stages.values(),
+                    key=lambda stage: refinement.plan.owners.index(stage.owner),
+                )
+            ),
+            stream_getter=lambda instance: refinement.expansion_stream(
+                expansion_id, instance
+            ),
+        )
+
+    def _dispatch_recursive_refinement_stage(
+        self,
+        active: _ActiveRun,
+        *,
+        expansion_id: str,
+        owner: str,
+        descendant_position: PositionRequest,
+    ) -> bool:
+        refinement = active.refinement
+        settings = self.runtime.config.refinement
+        if refinement is None or settings is None:
+            return False
+        record = refinement.expansion_record(expansion_id)
+        if record is None:
+            return False
+        child_moves = record.child_partition.get(owner, ())
+        shard_ids = record.child_shards.get(owner, ())
+        if not child_moves or not shard_ids:
+            return False
+        instance = refinement.plan.participants[owner]
+        spec = self.runtime.spec(instance)
+        stream = refinement.expansion_stream(expansion_id, instance)
+        if stream is None:
+            return False
+        try:
+            dispatch = compile_descendant_region(
+                active.context.position,
+                parent_prefix=record.prefix,
+                child_moves=child_moves,
+                limit=dict(settings.dispatch_limit),
+            )
+        except SearchRequestError:
+            return False
+        if dispatch.position != descendant_position:
+            return False
+
+        generation = active.generation
+        search_id = (
+            f"{active.run.run_id}:refine:{expansion_id}:{instance}"
+        )
+
+        def on_info(token: int, line: str) -> None:
+            return None
+
+        def on_complete(token: int, line: str) -> None:
+            self._on_recursive_refinement_complete(
+                generation,
+                expansion_id,
+                owner,
+                token,
+                line,
+            )
+
+        reservation_key = f"refine:{expansion_id}:{owner}"
+        with self._lock:
+            if (
+                active.cancelled
+                or self._closed
+                or active.anchor_completed.is_set()
+                or not self.runtime.shadow_available(instance)
+            ):
+                return False
+            if not self._authorize_specialist(
+                active,
+                key=reservation_key,
+                phase="refine",
+                owner=owner,
+                target_id=expansion_id,
+            ):
+                return False
+            try:
+                for shard_id in shard_ids:
+                    refinement.ledger.activate_shard(shard_id, owner=owner)
+            except PrefixShardLedgerError as exc:
+                self._release_specialist(
+                    active,
+                    key=reservation_key,
+                    reason="recursive REFINE reservation released because shard activation failed",
+                )
+                refinement.note(
+                    f"{expansion_id}: could not activate shards for {owner}: {exc}"
+                )
+                return False
+
+            refinement.activate_expansion_stream(expansion_id, instance)
+            stream.begin_stage(
+                search_id=search_id,
+                position=descendant_position.telemetry_position(),
+                request=parse_go_request(dispatch.go_command),
+                controller={
+                    "execution_mode": self.runtime.config.telemetry_execution_mode,
+                    "phase": "REFINE",
+                    "instance_role": "shadow",
+                    "owner": owner,
+                    "decision_authority": False,
+                    "expansion_id": expansion_id,
+                    "prefix_depth": len(record.prefix),
+                },
+                observed_ms=(time.monotonic() - active.started_monotonic) * 1000.0,
+            )
+            prefixes = tuple(
+                record.prefix + (move,) for move in child_moves
+            )
+            stage = refinement.record_expansion_dispatch(
+                expansion_id=expansion_id,
+                owner=owner,
+                instance=instance,
+                family=spec.family,
+                search_id=search_id,
+                position_command=descendant_position.command(),
+                command=dispatch.go_command,
+                child_moves=child_moves,
+                shard_ids=shard_ids,
+                prefixes=prefixes,
+                dispatched_ms=(time.monotonic() - active.started_monotonic) * 1000.0,
+            )
+            self._begin_resource_stage(
+                active,
+                key=search_id,
+                instance=instance,
+                phase="REFINE",
+            )
+            dispatched = self.runtime.start_shadow_search(
+                instance,
+                dispatch.go_command,
+                token=generation,
+                on_info=on_info,
+                on_complete=on_complete,
+            )
+        if not dispatched:
+            self._abandon_resource_stage(
+                active,
+                search_id,
+                reason="recursive REFINE backend dispatch was rejected",
+            )
+            self._release_specialist(
+                active,
+                key=reservation_key,
+                reason="recursive REFINE reservation released because backend dispatch failed",
+            )
+            refinement.record_completion(
+                stage,
+                completed_ms=(time.monotonic() - active.started_monotonic) * 1000.0,
+                disposition="failed",
+                failure="recursive REFINE dispatch rejected",
+            )
+            return False
+        return True
+
+    def _on_recursive_refinement_complete(
+        self,
+        generation: int,
+        expansion_id: str,
+        owner: str,
+        token: int,
+        line: str,
+    ) -> None:
+        with self._lock:
+            active = self._run
+            if active is None or active.generation != generation or token != generation:
+                return
+            refinement = active.refinement
+            stage = (
+                None
+                if refinement is None
+                else refinement.stage_for_expansion_owner(expansion_id, owner)
+            )
+            elapsed = (time.monotonic() - active.started_monotonic) * 1000.0
+        if refinement is None or stage is None:
+            return
+
+        tokens = line.split()
+        bestmove = (
+            tokens[1]
+            if line.startswith("bestmove ") and len(tokens) > 1
+            else None
+        )
+        allowed = set(stage.child_moves)
+        failure: str | None = None
+        if bestmove is not None and bestmove not in allowed:
+            failure = (
+                f"recursive REFINE instance {stage.instance} answered {bestmove} "
+                f"outside its child region {list(stage.child_moves)}"
+            )
+
+        stream = refinement.expansion_stream(expansion_id, stage.instance)
+        if failure is None and stream is not None:
+            if not stream.drain_barrier(0.25):
+                failure = (
+                    f"recursive REFINE telemetry for {stage.instance} did not drain"
+                )
+            elif stream.evidence_lossy:
+                failure = f"recursive REFINE telemetry for {stage.instance} lost evidence"
+            elif stream.tracked_events_truncated:
+                failure = (
+                    f"recursive REFINE live evidence for {stage.instance} was truncated"
+                )
+            else:
+                for event in stream.tracked_events():
+                    if event.get("event_type") != "candidate.update":
+                        continue
+                    candidate = event.get("candidate") or {}
+                    move = candidate.get("move")
+                    pv = candidate.get("pv") or []
+                    if move not in allowed or (pv and pv[0] not in allowed):
+                        failure = (
+                            f"recursive REFINE telemetry for {stage.instance} escaped "
+                            "its assigned child region"
+                        )
+                        break
+
+        self._settle_specialist(
+            active,
+            key=f"refine:{expansion_id}:{owner}",
+            dispatched_ms=stage.dispatched_ms,
+            completed_ms=elapsed,
+            instance=stage.instance,
+            resource_key=stage.search_id,
+        )
+
+        abort = refinement.expansion_abort_requested(expansion_id)
+        if failure is None and not active.cancelled and not abort:
+            try:
+                for shard_id in stage.shard_ids:
+                    refinement.ledger.seal_shard(shard_id, owner=owner)
+            except PrefixShardLedgerError as exc:
+                failure = f"recursive REFINE shard sealing failed for {owner}: {exc}"
+
+        if failure is not None:
+            self.runtime.record_shadow_failure(
+                stage.instance, failure, generation=active.generation
+            )
+            refinement.record_completion(
+                stage,
+                completed_ms=elapsed,
+                disposition="failed",
+                bestmove=bestmove,
+                stop_reason="recursive_refine_region_escape_or_loss",
+                failure=failure,
+            )
+            refinement.set_expansion_disposition(expansion_id, "incomplete", failure)
+            refinement.set_disposition("incomplete", failure)
+            return
+
+        disposition = "stopped" if active.cancelled or abort else "completed"
+        refinement.record_completion(
+            stage,
+            completed_ms=elapsed,
+            disposition=disposition,
+            bestmove=bestmove,
+            stop_reason=(
+                active.cancel_reason
+                if active.cancelled
+                else "recursive_refine_abort"
+                if abort
+                else None
+            ),
+        )
+
+    def _await_recursive_refinement_expansion(
+        self,
+        active: _ActiveRun,
+        expansion_id: str,
+    ) -> None:
+        refinement = active.refinement
+        if refinement is None:
+            return
+        interval = 0.02
+        stage_budget_ms = float(self.settings.stage_timeout_s) * 1000.0
+        while True:
+            pending = [
+                stage
+                for stage in refinement.active_stages()
+                if stage.target_id == expansion_id
+            ]
+            if not pending:
+                return
+            elapsed_ms = (time.monotonic() - active.started_monotonic) * 1000.0
+            if any(
+                elapsed_ms - stage.dispatched_ms > stage_budget_ms
+                for stage in pending
+            ):
+                refinement.request_expansion_abort(
+                    expansion_id,
+                    "recursive REFINE stage deadline exceeded",
+                )
+                self._stop_instances(
+                    list(dict.fromkeys(stage.instance for stage in pending))
+                )
+                deadline = time.monotonic() + self.settings.drain_timeout_s
+                for stage in pending:
+                    stage.done.wait(timeout=max(0.0, deadline - time.monotonic()))
+                for stage in pending:
+                    if stage.done.is_set():
+                        continue
+                    failed_ms = (
+                        time.monotonic() - active.started_monotonic
+                    ) * 1000.0
+                    message = (
+                        f"recursive REFINE instance {stage.instance} exceeded "
+                        "the stage budget and did not drain"
+                    )
+                    self.runtime.record_shadow_failure(
+                        stage.instance, message, generation=active.generation
+                    )
+                    self._settle_specialist(
+                        active,
+                        key=f"refine:{expansion_id}:{stage.owner}",
+                        dispatched_ms=stage.dispatched_ms,
+                        completed_ms=failed_ms,
+                        instance=stage.instance,
+                        resource_key=stage.search_id,
+                    )
+                    refinement.record_completion(
+                        stage,
+                        completed_ms=failed_ms,
+                        disposition="failed",
+                        failure=message,
+                    )
+                refinement.set_expansion_disposition(
+                    expansion_id, "incomplete", "recursive REFINE deadline exceeded"
+                )
+                refinement.set_disposition(
+                    "incomplete", "recursive REFINE deadline exceeded"
+                )
+                return
+            self._wait_slice(pending, interval)
+
+    def _restore_recursive_refinement_instances(
+        self,
+        active: _ActiveRun,
+        expansion_id: str,
+        instances: list[str],
+    ) -> bool:
+        refinement = active.refinement
+        if refinement is None:
+            return False
+        restored = True
+        for instance in dict.fromkeys(instances):
+            try:
+                if not self.runtime.shadow_available(instance):
+                    restored = False
+                    continue
+                started = time.monotonic()
+                self.runtime.restore_shadow_position(instance)
+                self._charge_controller_elapsed(
+                    active,
+                    label="recursive_refine_restore",
+                    elapsed_ms=(time.monotonic() - started) * 1000.0,
+                )
+            except ControllerRuntimeError as exc:
+                restored = False
+                message = (
+                    f"recursive REFINE instance {instance} could not restore: {exc}"
+                )
+                refinement.note(message)
+                refinement.set_expansion_disposition(
+                    expansion_id, "incomplete", message
+                )
+                refinement.set_disposition("incomplete", message)
+            finally:
+                with self._lock:
+                    active.refinement_positioned.discard(instance)
+        return restored
 
     def _dispatch_refinement_stage(
         self,

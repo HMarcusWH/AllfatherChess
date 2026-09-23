@@ -308,8 +308,10 @@ class DecisionAuthorizationSnapshot:
     wall_within_envelope: bool
     specialist_settlement_complete: bool
     open_specialist_reservations: int
+    open_solver_reservations: int
     gpu_accounted: bool
     measurement_enabled: bool
+    open_non_anchor_measurement_stages: int
     measurement_provider_available: bool
     measurement_known_failure: bool
     backend_generation_current: bool
@@ -336,14 +338,22 @@ class DecisionAuthorizationSnapshot:
                 if canonical in seen:
                     raise DecisionError(f"authorization snapshot {label} contains duplicates")
                 seen.add(canonical)
-        if (
-            isinstance(self.open_specialist_reservations, bool)
-            or not isinstance(self.open_specialist_reservations, int)
-            or self.open_specialist_reservations < 0
+        for label, value in (
+            ("open_specialist_reservations", self.open_specialist_reservations),
+            ("open_solver_reservations", self.open_solver_reservations),
+            (
+                "open_non_anchor_measurement_stages",
+                self.open_non_anchor_measurement_stages,
+            ),
         ):
-            raise DecisionError(
-                "authorization snapshot open_specialist_reservations must be >= 0"
-            )
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, int)
+                or value < 0
+            ):
+                raise DecisionError(
+                    f"authorization snapshot {label} must be >= 0"
+                )
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -362,8 +372,12 @@ class DecisionAuthorizationSnapshot:
             "wall_within_envelope": self.wall_within_envelope,
             "specialist_settlement_complete": self.specialist_settlement_complete,
             "open_specialist_reservations": self.open_specialist_reservations,
+            "open_solver_reservations": self.open_solver_reservations,
             "gpu_accounted": self.gpu_accounted,
             "measurement_enabled": self.measurement_enabled,
+            "open_non_anchor_measurement_stages": (
+                self.open_non_anchor_measurement_stages
+            ),
             "measurement_provider_available": self.measurement_provider_available,
             "measurement_known_failure": self.measurement_known_failure,
             "backend_generation_current": self.backend_generation_current,
@@ -714,10 +728,14 @@ def authorize_decision(
         reasons.append("specialist settlement is incomplete")
     if snapshot.open_specialist_reservations:
         reasons.append("indispensable specialist reservation remains open")
+    if snapshot.open_solver_reservations:
+        reasons.append("completed EXPLORE solver reservation remains open")
     if not snapshot.gpu_accounted:
         reasons.append("declared GPU resource is not accounted")
     if not snapshot.measurement_enabled:
         reasons.append("physical resource measurement is disabled")
+    if snapshot.open_non_anchor_measurement_stages:
+        reasons.append("non-anchor physical measurement stage remains open")
     if not snapshot.measurement_provider_available:
         reasons.append("physical resource measurement provider is unavailable")
     if snapshot.measurement_known_failure:

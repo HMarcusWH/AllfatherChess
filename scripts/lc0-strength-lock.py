@@ -10,13 +10,21 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from controller.strength_profile import StrengthProfileError, load_json, validate_lock
+from controller.strength_profile import (
+    StrengthProfileError,
+    load_json,
+    validate_lock,
+    validate_vendor_binding,
+)
 
 LOCK = ROOT / "qualification" / "lc0-strength.lock.json"
+VENDOR_LOCK = ROOT / "vendor.lock.json"
 
 
 def main(argv: list[str]) -> int:
     data = load_json(LOCK)
+    vendor = load_json(VENDOR_LOCK)
+    validate_vendor_binding(data, vendor)
     if argv == ["validate"]:
         validate_lock(data)
         print(f"LC0 strength lock OK: {data['qualification_status']}")

@@ -24,6 +24,7 @@ from controller.strength_profile import (
     load_json,
     validate_profile,
     validate_runtime_config,
+    validate_vendor_binding,
     verify_network_file,
 )
 
@@ -113,8 +114,10 @@ def hardware_probe() -> dict:
 
 def main() -> int:
     lock = load_json(LOCK_PATH)
+    vendor = load_json(ROOT / "vendor.lock.json")
     profile = load_json(PROFILE_PATH)
     config = load_json(CONFIG_PATH)
+    validate_vendor_binding(lock, vendor)
     validate_profile(profile)
     validate_runtime_config(config, lock, profile)
 

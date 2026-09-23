@@ -978,6 +978,150 @@ class ShadowRunCoordinator:
             return active.owners.get(owner)
 
     # ------------------------------------------------------------------
+    # physical resource measurement
+    # ------------------------------------------------------------------
+
+    def _begin_resource_stage(
+        self,
+        active: _ActiveRun,
+        *,
+        key: str,
+        instance: str,
+        phase: str,
+    ) -> None:
+        resources = active.resources
+        if resources is None:
+            return
+        try:
+            resources.begin_stage(
+                key=key,
+                instance=instance,
+                phase=phase,
+                pid=self.runtime.process_pid(instance),
+            )
+        except Exception as exc:
+            # Measurement is evidence, never chess authority. A failed sample
+            # invalidates the measured-resource certificate but may not stop the
+            # already-authorized search.
+            active.run.note(
+                f"resource measurement could not begin for {key}: "
+                f"{type(exc).__name__}: {exc}"
+            )
+
+    def _finish_resource_stage(
+        self,
+        active: _ActiveRun,
+        key: str,
+    ) -> StageResourceMeasurement | None:
+        resources = active.resources
+        if resources is None:
+            return None
+        try:
+            return resources.finish_stage(key)
+        except Exception as exc:
+            active.run.note(
+                f"resource measurement could not finish for {key}: "
+                f"{type(exc).__name__}: {exc}"
+            )
+            return None
+
+    def _abandon_resource_stage(
+        self,
+        active: _ActiveRun,
+        key: str,
+        *,
+        reason: str,
+    ) -> None:
+        resources = active.resources
+        if resources is None:
+            return
+        try:
+            resources.abandon_stage(key, reason=reason)
+        except Exception as exc:
+            active.run.note(
+                f"resource measurement could not abandon {key}: "
+                f"{type(exc).__name__}: {exc}"
+            )
+
+    def _resource_measurement(
+        self,
+        generation: int,
+        key: str,
+        *,
+        finish: bool = False,
+    ) -> dict[str, object] | None:
+        with self._lock:
+            active = self._run
+            if active is None or active.generation != generation or active.resources is None:
+                return None
+            resources = active.resources
+        try:
+            measurement = (
+                resources.finish_or_measurement(key)
+                if finish
+                else resources.measurement(key)
+            )
+        except Exception as exc:
+            active.run.note(
+                f"resource lookup failed for {key}: {type(exc).__name__}: {exc}"
+            )
+            return None
+        return None if measurement is None else measurement.as_dict()
+
+    def _anchor_resource_measurement(
+        self,
+        generation: int,
+    ) -> dict[str, object] | None:
+        with self._lock:
+            active = self._run
+            if active is None or active.generation != generation or active.anchor_stage is None:
+                return None
+            key = active.anchor_stage.search_id
+        return self._resource_measurement(generation, key, finish=True)
+
+    def _seal_resource_report(self, generation: int) -> dict[str, object] | None:
+        with self._lock:
+            active = self._run
+            if active is None or active.generation != generation or active.resources is None:
+                return None
+            resources = active.resources
+            path = active.run.run_dir / "resource.json"
+        try:
+            return resources.seal(path)
+        except Exception as exc:
+            active.run.note(
+                f"resource report could not be sealed: {type(exc).__name__}: {exc}"
+            )
+            return {
+                "path": "resource.json",
+                "sha256": None,
+                "report_id": None,
+                "provider": resources.provider_id,
+                "qualified": False,
+                "physical_cpu_ms": None,
+                "coverage": {
+                    "cpu": {"required": True, "complete": False},
+                    "gpu": {"required": False, "complete": False},
+                },
+                "error": f"{type(exc).__name__}: {exc}",
+            }
+
+    def note_anchor_dispatch(self, generation: int) -> None:
+        """Take the anchor's physical start sample immediately before go."""
+        with self._lock:
+            active = self._run
+            if active is None or active.generation != generation or active.anchor_stage is None:
+                return
+            key = active.anchor_stage.search_id
+            instance = self.runtime.anchor_name
+        self._begin_resource_stage(
+            active,
+            key=key,
+            instance=instance,
+            phase="ANCHOR",
+        )
+
+    # ------------------------------------------------------------------
     # cancellation and draining
     # ------------------------------------------------------------------
 

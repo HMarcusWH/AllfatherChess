@@ -947,6 +947,14 @@ class ShadowRunCoordinator:
             )
         )
 
+        active_resource_keys = tuple(resource.get("active_stage_keys") or ())
+        anchor_resource_key = (
+            None if active.anchor_stage is None else active.anchor_stage.search_id
+        )
+        non_anchor_resource_keys = tuple(
+            key for key in active_resource_keys if key != anchor_resource_key
+        )
+
         snapshot = DecisionAuthorizationSnapshot(
             run_id=active.run.run_id,
             generation=active.generation,
@@ -967,8 +975,12 @@ class ShadowRunCoordinator:
             open_specialist_reservations=int(
                 route.get("open_specialist_reservations", 0)
             ),
+            open_solver_reservations=int(
+                route.get("open_solver_reservations", 0)
+            ),
             gpu_accounted=bool(route.get("gpu_accounted", False)),
             measurement_enabled=bool(resource.get("enabled", False)),
+            open_non_anchor_measurement_stages=len(non_anchor_resource_keys),
             measurement_provider_available=bool(
                 resource.get("provider_available", False)
             ),

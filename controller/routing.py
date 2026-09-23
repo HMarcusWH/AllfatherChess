@@ -833,9 +833,10 @@ class ConservativeRouter:
             "notes": audit.notes,
             "authority": (
                 "Resource routing grants compute authority only, never move authority. "
-                "The actual outward move authority is selected separately by the "
-                "M14-C DecisionAuthorization gate when enabled; otherwise the "
-                "unrestricted Stockfish anchor is the deterministic fallback."
+                "Without the explicit M14-C hybrid gate the outward bestmove remained "
+                "the unrestricted Stockfish anchor's; when that gate is enabled, "
+                "DecisionAuthorization selects HYBRID or deterministic anchor fallback "
+                "separately from this routing record."
             ),
         }
         try:

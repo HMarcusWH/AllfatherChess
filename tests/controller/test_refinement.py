@@ -360,6 +360,56 @@ class RefinementConfigTests(unittest.TestCase):
                     load_runtime_config(path)
 
 
+    def test_recursive_limits_default_to_legacy_one_shell(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write_shadow_config(Path(tmp), refinement=True)
+            config = load_runtime_config(path)
+        assert config.refinement is not None
+        self.assertEqual(config.refinement.max_depth, 2)
+        self.assertEqual(config.refinement.max_expansions, 3)
+        self.assertEqual(
+            config.refinement.recursive_nomination_method,
+            "stage_terminal_bestmove_v1",
+        )
+
+    def test_recursive_limits_are_range_checked(self):
+        for key, value in (
+            ("max_depth", 1),
+            ("max_depth", 9),
+            ("max_depth", True),
+            ("max_expansions", 0),
+            ("max_expansions", 65),
+            ("max_expansions", False),
+            ("recursive_nomination_method", "vote-the-scores"),
+        ):
+            with tempfile.TemporaryDirectory() as tmp:
+                path = write_shadow_config(Path(tmp), refinement=True)
+                document = json.loads(path.read_text(encoding="utf-8"))
+                document["refinement"][key] = value
+                path.write_text(json.dumps(document), encoding="utf-8")
+                with self.assertRaises(RuntimeError):
+                    load_runtime_config(path)
+
+    def test_hybrid_authority_rejects_deeper_recursive_refine(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            shipped = json.loads(
+                (ROOT / "config" / "allfather.hybrid.validation.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            for spec in shipped["instances"].values():
+                spec["binary"] = sys.executable
+                spec.pop("fallback_glob", None)
+            shipped["root"] = "."
+            shipped["refinement"]["max_depth"] = 3
+            path = Path(tmp) / "hybrid.json"
+            path.write_text(json.dumps(shipped), encoding="utf-8")
+            with self.assertRaises(RuntimeError) as ctx:
+                load_runtime_config(path)
+        self.assertIn("hybrid_authority", str(ctx.exception))
+        self.assertIn("max_depth=2", str(ctx.exception))
+
+
 class RefinementLiveArtifactTests(unittest.TestCase):
     def _run(self, root: Path) -> Path:
         config = write_shadow_config(

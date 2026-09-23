@@ -47,17 +47,20 @@ through the LCZero training service.
 
 ## Network identity
 
-The initial network candidate is the exact network already pinned by the
-vendored LC0 `appveyor.yml` for its non-OpenCL/non-DX release builds:
+The network is the exact training id already pinned by the vendored LC0
+`appveyor.yml` for its non-OpenCL/non-DX release builds:
 
 ```text
-training id: 791556
-sha256: f404e156ceb2882470fd8c032b8754af0fa0b71168328912eaef14671a256e34
+training id:        791556
+LCZero lookup hash: f404e156ceb2882470fd8c032b8754af0fa0b71168328912eaef14671a256e34
+file SHA-256:       b1c7047582a8ad37620849bf328935cb46f2ccbbecb7f2696c30c6b913ed690d
+file bytes:         18648209
 ```
 
-The qualification workflow downloads the file, verifies SHA-256, and records
-its observed byte size. The lock is not considered frozen until that byte size
-is committed as a positive integer.
+The LCZero lookup hash names the training artifact at the distribution service;
+it is not assumed to equal the downloaded gzip file's SHA-256. The qualification
+workflow independently measured the file bytes, froze the byte size and file
+SHA-256, and now verifies both on every qualification run.
 
 No strength-facing run may use:
 

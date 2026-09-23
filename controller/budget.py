@@ -185,6 +185,15 @@ class LaneAccount:
     reserved_gpu_ms: float = 0.0
     spent_cpu_ms: float = 0.0
     spent_gpu_ms: float = 0.0
+    declared_cpu_ms: float = 0.0
+    declared_gpu_ms: float = 0.0
+    measured_cpu_ms: float = 0.0
+    estimated_cpu_ms: float = 0.0
+    declared_fallback_cpu_ms: float = 0.0
+    measured_gpu_ms: float = 0.0
+    estimated_gpu_ms: float = 0.0
+    declared_fallback_gpu_ms: float = 0.0
+    settlements: int = 0
     #: engine-native counters, keyed by semantics; never summed across keys.
     native_work: dict[str, float] = field(default_factory=dict)
     #: Per-stage maxima, keyed by (semantics, stage). A UCI `nodes` counter is
@@ -200,6 +209,15 @@ class LaneAccount:
             "reserved_gpu_ms": round(self.reserved_gpu_ms, 3),
             "spent_cpu_ms": round(self.spent_cpu_ms, 3),
             "spent_gpu_ms": round(self.spent_gpu_ms, 3),
+            "declared_cpu_ms": round(self.declared_cpu_ms, 3),
+            "declared_gpu_ms": round(self.declared_gpu_ms, 3),
+            "measured_cpu_ms": round(self.measured_cpu_ms, 3),
+            "estimated_cpu_ms": round(self.estimated_cpu_ms, 3),
+            "declared_fallback_cpu_ms": round(self.declared_fallback_cpu_ms, 3),
+            "measured_gpu_ms": round(self.measured_gpu_ms, 3),
+            "estimated_gpu_ms": round(self.estimated_gpu_ms, 3),
+            "declared_fallback_gpu_ms": round(self.declared_fallback_gpu_ms, 3),
+            "settlements": self.settlements,
             "native_work": {key: round(value, 3) for key, value in sorted(self.native_work.items())},
             # The per-stage decomposition the totals above are summed from, so a
             # reader can check the arithmetic instead of trusting it.
@@ -397,11 +415,15 @@ class BudgetLedger:
         *,
         actual_cpu_ms: float | None = None,
         actual_gpu_ms: float | None = None,
+        cpu_source: str | None = None,
+        gpu_source: str | None = None,
     ) -> None:
-        """Convert a reservation into spend.
+        """Convert a reservation into spend without erasing provenance.
 
-        Actual spend above the reservation is still charged: the envelope
-        records what was consumed, not what was hoped for.
+        The reservation remains the admission-time declaration. Settlement
+        records the actual value used by the envelope together with whether it
+        came from a physical measurement, a conservative estimate, or the
+        declaration itself because terminal evidence was unavailable.
         """
         spent_cpu = (
             reservation.cpu_ms
@@ -413,6 +435,21 @@ class BudgetLedger:
             if actual_gpu_ms is None
             else self._finite_nonnegative(actual_gpu_ms, "actual_gpu_ms")
         )
+        cpu_source = (
+            ("declared_fallback" if actual_cpu_ms is None else "estimated_fallback")
+            if cpu_source is None
+            else cpu_source
+        )
+        gpu_source = (
+            ("declared_fallback" if actual_gpu_ms is None else "estimated_fallback")
+            if gpu_source is None
+            else gpu_source
+        )
+        valid_sources = {"measured", "estimated_fallback", "declared_fallback"}
+        if cpu_source not in valid_sources:
+            raise BudgetError(f"unknown CPU settlement source: {cpu_source!r}")
+        if gpu_source not in valid_sources:
+            raise BudgetError(f"unknown GPU settlement source: {gpu_source!r}")
         with self._lock:
             if self._open.pop(reservation.reservation_id, None) is None:
                 raise BudgetError(f"reservation {reservation.reservation_id} is not open")
@@ -426,8 +463,23 @@ class BudgetLedger:
             self._purpose_reserved_gpu[group] = max(
                 0.0, self._purpose_reserved_gpu.get(group, 0.0) - reservation.gpu_ms
             )
+            account.declared_cpu_ms += reservation.cpu_ms
+            account.declared_gpu_ms += reservation.gpu_ms
             account.spent_cpu_ms += spent_cpu
             account.spent_gpu_ms += spent_gpu
+            account.settlements += 1
+            if cpu_source == "measured":
+                account.measured_cpu_ms += spent_cpu
+            elif cpu_source == "estimated_fallback":
+                account.estimated_cpu_ms += spent_cpu
+            else:
+                account.declared_fallback_cpu_ms += spent_cpu
+            if gpu_source == "measured":
+                account.measured_gpu_ms += spent_gpu
+            elif gpu_source == "estimated_fallback":
+                account.estimated_gpu_ms += spent_gpu
+            else:
+                account.declared_fallback_gpu_ms += spent_gpu
             self._purpose_spent_cpu[group] = self._purpose_spent_cpu.get(group, 0.0) + spent_cpu
             self._purpose_spent_gpu[group] = self._purpose_spent_gpu.get(group, 0.0) + spent_gpu
 

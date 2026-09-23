@@ -305,6 +305,7 @@ def verify_network_file(
 class QualificationReport:
     profile_id: str
     commit_sha: str
+    contracts: dict[str, str]
     binary: dict[str, Any]
     network: dict[str, Any]
     requested_backend: str
@@ -321,6 +322,7 @@ class QualificationReport:
             "schema_version": REPORT_SCHEMA_VERSION,
             "profile_id": self.profile_id,
             "commit_sha": self.commit_sha,
+            "contracts": self.contracts,
             "binary": self.binary,
             "network": self.network,
             "requested_backend": self.requested_backend,

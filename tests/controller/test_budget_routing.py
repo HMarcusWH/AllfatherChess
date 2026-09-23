@@ -1367,7 +1367,7 @@ class _WorkContext:
 
 class _FakeContext:
     run_id = "unit-test-run"
-    run_dir = Path("/nonexistent")
+    run_dir = Path(tempfile.gettempdir()) / "allfather-routing-unit-tests"
     owners = ("stockfish", "reckless", "lc0")
     owner_roots: dict[str, tuple[str, ...]] = {}
     external_go_command = "go movetime 1000"

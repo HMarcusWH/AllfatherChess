@@ -33,7 +33,7 @@ def main(argv: list[str]) -> int:
         validate_lock(data, require_frozen=True)
         print("LC0 strength lock is frozen")
         return 0
-    if len(argv) == 3 and argv[0] in {"engine", "network"}:
+    if len(argv) == 2 and argv[0] in {"engine", "network"}:
         section = data.get(argv[0])
         if not isinstance(section, dict) or argv[1] not in section:
             raise StrengthProfileError(f"unknown {argv[0]} field: {argv[1]}")

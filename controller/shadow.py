@@ -966,6 +966,9 @@ class ShadowRunCoordinator:
             external_root_restriction=root_restriction,
             anchor_request_bounded=bool(route.get("anchor_request_bounded", False)),
             anchor_reserved=bool(route.get("anchor_reserved", False)),
+            open_anchor_reservations=int(
+                route.get("open_anchor_reservations", 0)
+            ),
             budget_within_envelope=bool(route.get("budget_within_envelope", False)),
             partitions_within_caps=bool(route.get("partitions_within_caps", False)),
             wall_within_envelope=bool(route.get("wall_within_envelope", False)),

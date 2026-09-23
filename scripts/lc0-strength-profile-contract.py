@@ -229,6 +229,9 @@ def main() -> int:
     if not hardware.get("openblas_package"):
         raise ContractError("OpenBLAS package identity is missing")
 
+    package_evidence = hardware.get("packages")
+    if not isinstance(package_evidence, dict):
+        raise ContractError("hardware probe did not bind build package identities")
     for package in profile["build"]["required_packages"]:
         observed = subprocess.check_output(
             ["dpkg-query", "-W", "-f=${Package}=${Version}", package],
@@ -238,6 +241,19 @@ def main() -> int:
             raise ContractError(
                 f"required package {package!r} could not be bound: {observed!r}"
             )
+        if package_evidence.get(package) != observed:
+            raise ContractError(
+                f"hardware package evidence mismatch for {package!r}: "
+                f"probe={package_evidence.get(package)!r}, live={observed!r}"
+            )
+
+    toolchain = hardware.get("toolchain")
+    if not isinstance(toolchain, dict):
+        raise ContractError("hardware probe did not bind the LC0 build toolchain")
+    for name in ("gcc", "g++", "meson", "ninja", "pkg-config", "protoc"):
+        value = toolchain.get(name)
+        if not isinstance(value, str) or not value.strip():
+            raise ContractError(f"hardware probe did not bind toolchain component {name!r}")
 
     options = dict(lc0["options"])
     process = UciProcess(

@@ -20,8 +20,8 @@ from adapters.telemetry import SUPPORTED_SCORE_TYPES
 
 
 LOCK_SCHEMA_VERSION = 1
-PROFILE_SCHEMA_VERSION = 1
-REPORT_SCHEMA_VERSION = 1
+PROFILE_SCHEMA_VERSION = 2
+REPORT_SCHEMA_VERSION = 2
 HEX40 = re.compile(r"^[0-9a-f]{40}$")
 HEX64 = re.compile(r"^[0-9a-f]{64}$")
 FORBIDDEN_BACKENDS = {"", "random", "<none>"}
@@ -145,12 +145,12 @@ def validate_vendor_binding(
 
 def validate_profile(data: dict[str, Any]) -> None:
     if data.get("schema_version") != PROFILE_SCHEMA_VERSION:
-        raise StrengthProfileError("LC0 strength profile schema_version must be 1")
+        raise StrengthProfileError("LC0 strength profile schema_version must be 2")
     if not isinstance(data.get("profile_id"), str) or not data["profile_id"]:
         raise StrengthProfileError("LC0 strength profile profile_id must be non-empty")
     if data.get("qualification_tier") != "real-inference-reference":
         raise StrengthProfileError(
-            "qualification_tier must be real-inference-reference in profile v1"
+            "qualification_tier must be real-inference-reference in profile v2"
         )
     if not isinstance(data.get("strength_campaign_eligible"), bool):
         raise StrengthProfileError("strength_campaign_eligible must be boolean")
@@ -162,9 +162,9 @@ def validate_profile(data: dict[str, Any]) -> None:
         if not isinstance(hardware.get(field), str) or not hardware[field]:
             raise StrengthProfileError(f"hardware_policy.{field} must be non-empty")
     if hardware.get("cpu_model") != "record-and-bind":
-        raise StrengthProfileError("profile v1 requires cpu_model=record-and-bind")
+        raise StrengthProfileError("profile v2 requires cpu_model=record-and-bind")
     if hardware.get("memory") != "record-and-bind":
-        raise StrengthProfileError("profile v1 requires memory=record-and-bind")
+        raise StrengthProfileError("profile v2 requires memory=record-and-bind")
 
     build = data.get("build")
     if not isinstance(build, dict):
@@ -211,11 +211,11 @@ def validate_profile(data: dict[str, Any]) -> None:
         raise StrengthProfileError("resource_measurement must be an object")
     if resource.get("provider") != "linux-procfs-v1":
         raise StrengthProfileError(
-            "profile v1 resource_measurement.provider must be linux-procfs-v1"
+            "profile v2 resource_measurement.provider must be linux-procfs-v1"
         )
     if resource.get("require_cpu") is not True:
         raise StrengthProfileError(
-            "profile v1 resource measurement must require CPU evidence"
+            "profile v2 resource measurement must require CPU evidence"
         )
     if resource.get("require_gpu") is not False:
         raise StrengthProfileError(
@@ -223,7 +223,7 @@ def validate_profile(data: dict[str, Any]) -> None:
         )
     if resource.get("record_memory") is not True:
         raise StrengthProfileError(
-            "profile v1 resource measurement must record memory evidence"
+            "profile v2 resource measurement must record memory evidence"
         )
     unknown_resource = sorted(
         set(resource) - {"provider", "require_cpu", "require_gpu", "record_memory"}
@@ -238,7 +238,7 @@ def validate_profile(data: dict[str, Any]) -> None:
         raise StrengthProfileError("warmup must be an object")
     if warmup.get("policy") != "one-fixed-node-search":
         raise StrengthProfileError(
-            "profile v1 warmup.policy must be one-fixed-node-search"
+            "profile v2 warmup.policy must be one-fixed-node-search"
         )
     nodes = warmup.get("nodes")
     if isinstance(nodes, bool) or not isinstance(nodes, int) or nodes <= 0:

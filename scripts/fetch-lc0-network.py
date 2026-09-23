@@ -63,7 +63,8 @@ def verify(path: Path, network: dict, *, allow_candidate_size: bool) -> tuple[in
         )
     if digest != network["sha256"]:
         raise StrengthProfileError(
-            f"network sha256 mismatch: expected {network['sha256']}, got {digest}"
+            f"network sha256 mismatch: expected {network['sha256']}, got {digest}; "
+            f"observed_size_bytes={size}"
         )
     return size, digest
 

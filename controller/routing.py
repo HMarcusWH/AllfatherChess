@@ -541,6 +541,29 @@ class ConservativeRouter:
     def checkpoint_interval_s(self) -> float:
         return max(0.005, self.policy.checkpoint_interval_ms / 1000.0)
 
+    def decision_authority_snapshot(self) -> dict[str, object]:
+        """Expose already-owned budget facts to the separate M14-C gate.
+
+        This method grants no move authority and performs no filesystem or
+        engine IO. The anchor reservation is expected to remain open until the
+        post-output terminal resource sample, so only specialist reservations
+        are required to be fully settled here.
+        """
+        return {
+            "anchor_request_bounded": bool(self._anchor_bound[0]),
+            "anchor_request_reason": str(self._anchor_bound[1]),
+            "anchor_reserved": bool(self._anchor_reserved),
+            "budget_within_envelope": self.ledger.within_envelope(),
+            "partitions_within_caps": self.ledger.within_partition_caps(),
+            "wall_within_envelope": (
+                self.ledger.elapsed_ms() <= self.envelope.wall_ms
+            ),
+            "specialist_settlement_complete": not self._specialist_unresolved,
+            "open_specialist_reservations": len(self._specialist_reservations),
+            "gpu_accounted": self._gpu_accounted(),
+            "controller_fallback_latched": bool(self._fallback),
+        }
+
     # ------------------------------------------------------------------
     # lifecycle
     # ------------------------------------------------------------------
@@ -809,8 +832,10 @@ class ConservativeRouter:
             "denials": audit.denials,
             "notes": audit.notes,
             "authority": (
-                "This record governs shadow observation compute only. The outward "
-                "bestmove remained the unrestricted anchor's in every decision below."
+                "Resource routing grants compute authority only, never move authority. "
+                "The actual outward move authority is selected separately by the "
+                "M14-C DecisionAuthorization gate when enabled; otherwise the "
+                "unrestricted Stockfish anchor is the deterministic fallback."
             ),
         }
         try:

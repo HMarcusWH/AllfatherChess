@@ -65,13 +65,16 @@ def write_shadow_config(
             # shadow qualification the way a real one does.
             args += ["--info-lines", "4", "--info-delay-ms", "25"]
         args += instance_args.get(name, [])
+        options = {"UCI_Chess960": False}
+        if FAMILY[name] == "lc0":
+            options["ScoreType"] = "centipawn"
         instances[name] = {
             "family": FAMILY[name],
             "role": "anchor" if name == ANCHOR else "shadow",
             "binary": sys.executable,
             "cwd": ".",
             "args": args,
-            "options": {"UCI_Chess960": False},
+            "options": options,
         }
 
     document = {

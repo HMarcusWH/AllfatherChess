@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from controller.decision import FinalDecision, canonical_digest
-from controller.replay import sha256_file
+from controller.replay import atomic_write_text, sha256_file
 
 
 FINAL_DECISION_SCHEMA_VERSION = 1
@@ -69,12 +69,10 @@ def seal_final_decision_artifact(
         "decision_id": f"final-v1:{digest[:16]}",
         "content_sha256": digest,
     }
-    target_dir = run_dir / "decision"
-    target_dir.mkdir(parents=True, exist_ok=True)
-    target = target_dir / "final.json"
-    target.write_text(
+    target = run_dir / "decision" / "final.json"
+    atomic_write_text(
+        target,
         json.dumps(artifact, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
     )
     return artifact
 

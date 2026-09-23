@@ -155,10 +155,11 @@ def parse_go_request(command: str) -> dict[str, Any]:
 
 
 def build_go_command(*, limit: dict[str, Any], searchmoves: tuple[str, ...] | list[str] | None) -> str:
-    """Build a restricted `go` command with `searchmoves` last.
+    """Build a restricted `go` command with one canonical token order.
 
-    `searchmoves` must be final because at least one vendored backend parses the
-    remainder of the line as the restricted root vector.
+    All vendored backends accept ordinary UCI option ordering; keeping
+    `searchmoves` last remains a deterministic serialization choice rather
+    than a hidden backend-parser requirement.
     """
     parts = ["go"]
     for name in sorted(limit):

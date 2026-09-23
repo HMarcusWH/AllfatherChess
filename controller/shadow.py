@@ -1700,6 +1700,14 @@ class ShadowRunCoordinator:
         instance: str,
         resource_key: str | None = None,
     ) -> None:
+        measured_cpu: float | None = None
+        source = "estimated_fallback"
+        if resource_key is not None:
+            measured = self._finish_resource_stage(active, resource_key)
+            if measured is not None and measured.complete and measured.cpu_ms is not None:
+                measured_cpu = float(measured.cpu_ms)
+                source = "measured"
+
         token = active.specialist_tokens.pop(key, None)
         if token is None or self.router is None:
             return
@@ -1711,13 +1719,6 @@ class ShadowRunCoordinator:
             threads = max(1, int(self.runtime.spec(instance).options.get("Threads", 1)))
         except (TypeError, ValueError):
             threads = 1
-        measured_cpu: float | None = None
-        source = "estimated_fallback"
-        if resource_key is not None:
-            measured = self._finish_resource_stage(active, resource_key)
-            if measured is not None and measured.complete and measured.cpu_ms is not None:
-                measured_cpu = float(measured.cpu_ms)
-                source = "measured"
         try:
             settle(
                 token,

@@ -1759,6 +1759,15 @@ class ShadowRunCoordinator:
             return "cancelled", active.cancel_reason
 
         # 1. Legal-root qualification on the dedicated shadow oracle.
+        qualification_resource_key = (
+            f"{run.run_id}:qualification:{self.settings.oracle}"
+        )
+        self._begin_resource_stage(
+            active,
+            key=qualification_resource_key,
+            instance=self.settings.oracle,
+            phase="QUALIFY",
+        )
         with self._lock:
             active.qualifying = True
         try:
@@ -1767,6 +1776,7 @@ class ShadowRunCoordinator:
             run.note(f"legal-root oracle unavailable: {exc}")
             return "oracle_failed", str(exc)
         finally:
+            self._finish_resource_stage(active, qualification_resource_key)
             with self._lock:
                 active.qualifying = False
         run.oracle_root_count = len(roots)

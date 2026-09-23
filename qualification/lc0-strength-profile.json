@@ -50,5 +50,11 @@
   "warmup": {
     "policy": "one-fixed-node-search",
     "nodes": 64
+  },
+  "resource_measurement": {
+    "provider": "linux-procfs-v1",
+    "require_cpu": true,
+    "require_gpu": false,
+    "record_memory": true
   }
 }

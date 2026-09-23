@@ -64,7 +64,6 @@ def run_search(
                 position={"command": "position startpos", "variant": "standard"},
                 request={"kind": "nodes", "nodes": nodes},
                 observed_ms=0,
-                controller={"execution_mode": "strength-qualification"},
             )
         )
 
@@ -192,7 +191,7 @@ def main() -> int:
     semantics = {
         evaluation.get("semantics")
         for event in events
-        if event.get("event") == "candidate.update"
+        if event.get("event_type") == "candidate.update"
         for evaluation in (event.get("candidate") or {}).get("evaluations", [])
         if isinstance(evaluation, dict)
     }

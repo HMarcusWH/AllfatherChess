@@ -35,6 +35,27 @@ class PrefixDispatch:
         return self.position.command()
 
 
+def descendant_position(
+    base_position: PositionRequest,
+    prefix: Sequence[str],
+) -> PositionRequest:
+    """Return external position advanced by the complete canonical prefix."""
+
+    if isinstance(prefix, (str, bytes)) or not isinstance(prefix, Sequence):
+        raise SearchRequestError("prefix must be a move sequence")
+    moves: list[str] = []
+    for index, raw in enumerate(prefix):
+        if not isinstance(raw, str) or not _MOVE_RE.fullmatch(raw):
+            raise SearchRequestError(
+                f"prefix[{index}] must be canonical lowercase UCI: {raw!r}"
+            )
+        moves.append(raw)
+    return PositionRequest(
+        base_fen=base_position.base_fen,
+        moves=tuple(base_position.moves) + tuple(moves),
+        variant=base_position.variant,
+    )
+
 def compile_prefix_dispatch(
     base_position: PositionRequest,
     prefix: Sequence[str],
@@ -125,11 +146,7 @@ def compile_descendant_region(
         seen.add(raw)
         children.append(raw)
 
-    compiled_position = PositionRequest(
-        base_fen=base_position.base_fen,
-        moves=tuple(base_position.moves) + tuple(parent),
-        variant=base_position.variant,
-    )
+    compiled_position = descendant_position(base_position, parent)
     go_command = build_go_command(limit=dict(limit), searchmoves=tuple(children))
     return PrefixDispatch(
         prefix=tuple(parent),

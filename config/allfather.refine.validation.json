@@ -83,7 +83,8 @@
         "TaskWorkers": 0,
         "MultiPV": 3,
         "UCI_Chess960": false,
-        "Threads": 1
+        "Threads": 1,
+        "ScoreType": "centipawn"
       }
     }
   },

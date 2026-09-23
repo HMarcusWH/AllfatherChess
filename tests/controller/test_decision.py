@@ -18,14 +18,17 @@ from controller.crossfeed import (
     NativeEvaluation,
 )
 from controller.decision import (
+    AUTHORIZATION_POLICY,
     COUNTERFACTUAL_POLICY,
-    DecisionAuthorization,
+    DecisionAuthorizationSnapshot,
     DecisionError,
     VerificationTerminalEvidence,
     attach_anchor,
+    authorize_decision,
     build_decision_evidence,
     evaluate_decision_policy,
     freeze_decision_proposal,
+    select_final_decision,
 )
 
 
@@ -100,6 +103,34 @@ def _terminal(
         complete=complete,
         faults=faults,
     )
+
+
+def _snapshot(**overrides) -> DecisionAuthorizationSnapshot:
+    values = {
+        "run_id": "run-1",
+        "generation": 1,
+        "position_id": "pos-1",
+        "request_class": "movetime_v0",
+        "request_eligible": True,
+        "request_reason": "single positive go movetime request",
+        "legal_roots": CANDIDATES,
+        "external_root_restriction": (),
+        "anchor_request_bounded": True,
+        "anchor_reserved": True,
+        "budget_within_envelope": True,
+        "partitions_within_caps": True,
+        "wall_within_envelope": True,
+        "specialist_settlement_complete": True,
+        "open_specialist_reservations": 0,
+        "gpu_accounted": True,
+        "measurement_enabled": True,
+        "measurement_provider_available": True,
+        "measurement_known_failure": False,
+        "backend_generation_current": True,
+        "controller_fallback_latched": False,
+    }
+    values.update(overrides)
+    return DecisionAuthorizationSnapshot(**values)
 
 
 class DecisionPolicyTests(unittest.TestCase):
@@ -241,13 +272,67 @@ class DecisionPolicyTests(unittest.TestCase):
         self.assertFalse(decision.proposal_matches_anchor)
         self.assertEqual(decision.outward_authority, "stockfish-anchor")
 
-    def test_counterfactual_layer_cannot_grant_authorization(self):
-        with self.assertRaises(DecisionError):
-            DecisionAuthorization(
-                authorized=True,
-                move="e2e4",
-                reason="forbidden in PR22",
-            )
+    def test_m14c_grants_only_after_all_independent_gates_pass(self):
+        evidence = build_decision_evidence(
+            _view(),
+            _terminal(("g1f3", "g1f3", "g1f3")),
+        )
+        proposal = freeze_decision_proposal(
+            evaluate_decision_policy(evidence),
+            frozen_observed_ms=50.0,
+            frozen_before_anchor=True,
+        )
+        authorization = authorize_decision(proposal, evidence, _snapshot())
+        self.assertEqual(authorization.policy, AUTHORIZATION_POLICY)
+        self.assertTrue(authorization.authorized)
+        self.assertEqual(authorization.move, "g1f3")
+
+        final = select_final_decision(
+            anchor_move="e2e4",
+            proposal=proposal,
+            authorization=authorization,
+        )
+        self.assertEqual(final.authority, "HYBRID")
+        self.assertEqual(final.emitted_move, "g1f3")
+
+    def test_any_failed_authorization_fact_returns_exact_anchor_fallback(self):
+        evidence = build_decision_evidence(
+            _view(),
+            _terminal(("g1f3", "g1f3", "g1f3")),
+        )
+        proposal = freeze_decision_proposal(
+            evaluate_decision_policy(evidence),
+            frozen_observed_ms=50.0,
+            frozen_before_anchor=True,
+        )
+        authorization = authorize_decision(
+            proposal,
+            evidence,
+            _snapshot(open_specialist_reservations=1),
+        )
+        self.assertFalse(authorization.authorized)
+        self.assertIn("specialist reservation", authorization.reason)
+        final = select_final_decision(
+            anchor_move="e2e4",
+            proposal=proposal,
+            authorization=authorization,
+        )
+        self.assertEqual(final.authority, "ANCHOR_FALLBACK")
+        self.assertEqual(final.emitted_move, "e2e4")
+
+    def test_post_anchor_proposal_is_never_authorized(self):
+        evidence = build_decision_evidence(
+            _view(),
+            _terminal(("g1f3", "g1f3", "g1f3")),
+        )
+        proposal = freeze_decision_proposal(
+            evaluate_decision_policy(evidence),
+            frozen_observed_ms=500.0,
+            frozen_before_anchor=False,
+        )
+        authorization = authorize_decision(proposal, evidence, _snapshot())
+        self.assertFalse(authorization.authorized)
+        self.assertIn("not frozen before anchor", authorization.reason)
 
 
 if __name__ == "__main__":

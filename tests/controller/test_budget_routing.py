@@ -413,7 +413,12 @@ class ReviewRegressionTests(unittest.TestCase):
         self.assertEqual(lane["reserved_cpu_ms"], 0.0, "unspent capacity was not returned")
 
         # The anchor reservation is still open here; it settles at run end.
-        router.on_run_end(context)
+        # Routing evidence is now mandatory rather than best-effort, so this
+        # otherwise pure accounting regression needs a writable run directory.
+        with tempfile.TemporaryDirectory() as tmp:
+            context.run_dir = Path(tmp)
+            router.on_run_end(context)
+            self.assertTrue((context.run_dir / "route.json").is_file())
         self.assertEqual(router.ledger.snapshot()["open_reservations"], 0)
 
     def test_route_persistence_failure_is_explicit(self):

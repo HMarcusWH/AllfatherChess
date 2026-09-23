@@ -60,6 +60,7 @@ jobs:
             scripts/shard-ledger-contract.py \
             scripts/prefix-shard-contract.py \
             scripts/refinement-execution-contract.py \
+            scripts/recursive-refinement-contract.py \
             scripts/active-specialist-contract.py \
             scripts/resource-accounting-contract.py \
             scripts/crossfeed-contract.py \
@@ -170,6 +171,9 @@ jobs:
       - name: Verify real-engine shadow REFINE contract
         run: python3 scripts/refinement-execution-contract.py
 
+      - name: Verify bounded recursive REFINE controller contract
+        run: python3 scripts/recursive-refinement-contract.py
+
       - name: Verify active VERIFY REFINE specialist envelope
         run: python3 scripts/active-specialist-contract.py
 
@@ -217,6 +221,7 @@ jobs:
             build/test-results/shard-ledger
             build/test-results/prefix-shards
             build/test-results/refine-execution
+            build/test-results/recursive-refinement
             build/test-results/active-specialist
             build/test-results/resource-accounting
             build/test-results/crossfeed

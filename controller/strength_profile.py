@@ -14,7 +14,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 from adapters.telemetry import SUPPORTED_SCORE_TYPES
 
@@ -99,6 +99,11 @@ def validate_lock(data: dict[str, Any], *, require_frozen: bool = False) -> None
         raise StrengthProfileError(
             "network.training_sha256 must be lowercase 64-hex"
         )
+    query_sha = parse_qs(parsed.query).get("sha", [])
+    if query_sha != [lookup_digest]:
+        raise StrengthProfileError(
+            "network.url sha query must equal network.training_sha256 exactly"
+        )
     digest = network.get("sha256")
     if not isinstance(digest, str) or HEX64.fullmatch(digest) is None:
         raise StrengthProfileError("network.sha256 must be lowercase 64-hex")
@@ -113,6 +118,28 @@ def validate_lock(data: dict[str, Any], *, require_frozen: bool = False) -> None
     ):
         raise StrengthProfileError(
             "candidate expected_size_bytes must be null or positive integer"
+        )
+
+
+def validate_vendor_binding(
+    lock: dict[str, Any],
+    vendor_lock: dict[str, Any],
+) -> None:
+    """Require the qualification source identity to equal the monorepo vendor lock."""
+
+    validate_lock(lock)
+    engines = vendor_lock.get("engines")
+    if not isinstance(engines, dict) or not isinstance(engines.get("lc0"), dict):
+        raise StrengthProfileError("vendor lock does not contain an LC0 engine entry")
+    lc0 = engines["lc0"]
+    engine = lock["engine"]
+    if lc0.get("commit") != engine.get("vendor_commit"):
+        raise StrengthProfileError(
+            "LC0 strength lock vendor_commit does not match vendor.lock.json"
+        )
+    if lc0.get("tree") != engine.get("vendor_tree"):
+        raise StrengthProfileError(
+            "LC0 strength lock vendor_tree does not match vendor.lock.json"
         )
 
 

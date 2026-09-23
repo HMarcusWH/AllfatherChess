@@ -139,8 +139,8 @@ def main() -> int:
         row = lanes.get(lane)
         if not isinstance(row, dict):
             raise ContractError(f"budget is missing lane {lane!r}")
-        if row.get("measured_cpu_ms", 0) <= 0:
-            raise ContractError(f"lane {lane!r} did not settle measured CPU: {row}")
+        if row.get("measured_settlements", 0) < 1:
+            raise ContractError(f"lane {lane!r} did not settle from measured CPU: {row}")
 
     report = {
         "schema_version": 1,

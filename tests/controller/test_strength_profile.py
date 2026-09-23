@@ -14,7 +14,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from controller.runtime import RuntimeError, load_runtime_config
+from controller.runtime import BackendManager, RuntimeError, load_runtime_config
 from controller.strength_profile import (
     StrengthProfileError,
     load_json,
@@ -109,6 +109,29 @@ class StrengthProfileStaticTests(unittest.TestCase):
             path.write_bytes(payload + b"x")
             with self.assertRaises(StrengthProfileError):
                 verify_network_file(path, lock, require_frozen=True)
+
+
+class ReplayNetworkIdentityTests(unittest.TestCase):
+    def test_backend_manager_binds_explicit_lc0_weight_bytes_before_start(self):
+        payload = b"fixture-lc0-network-bytes"
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            weights = directory / "weights.pb.gz"
+            weights.write_bytes(payload)
+            path = write_shadow_config(directory)
+            document = json.loads(path.read_text(encoding="utf-8"))
+            document["instances"]["lc0-shadow"]["options"]["WeightsFile"] = weights.name
+            path.write_text(json.dumps(document), encoding="utf-8")
+
+            manager = BackendManager.from_path(path)
+            identity = manager.engine_identity["lc0-shadow"]
+            recorded = identity["artifacts"]["weights"]
+            self.assertEqual(recorded["path"], str(weights.resolve()))
+            self.assertEqual(recorded["size"], len(payload))
+            self.assertEqual(
+                recorded["sha256"],
+                hashlib.sha256(payload).hexdigest(),
+            )
 
 
 class RuntimeScoreTypeFirewallTests(unittest.TestCase):

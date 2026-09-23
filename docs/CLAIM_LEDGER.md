@@ -649,7 +649,9 @@ Nothing below is established by this milestone.
 - BackendManager replay identity now binds explicit LC0 weight files by resolved
   path, byte size and SHA-256 before process launch;
 - the real-inference contract requires requested and observed backend identity to
-  agree via LC0's own `Creating backend [...]` diagnostic;
+  agree using LC0's backend-specific runtime diagnostics; for the BLAS reference
+  it requires the emitted BLAS vendor and max-batch lines and retains them in
+  the qualification report;
 - the qualified real search is processed through the production LC0 telemetry
   adapter and must expose the ScoreType-qualified semantics declared by the
   profile;

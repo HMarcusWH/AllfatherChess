@@ -30,7 +30,7 @@ from controller.verification import (
 )
 
 
-REFINEMENT_SCHEMA_VERSION = 1
+REFINEMENT_SCHEMA_VERSION = 2
 _MOVE_RE = re.compile(r"^[a-h][1-8][a-h][1-8][qrbn]?$")
 
 
@@ -61,6 +61,9 @@ class RefinementPlan:
     nomination_method: str
     child_partition: str
     max_targets: int
+    recursive_nomination_method: str
+    max_depth: int
+    max_expansions: int
 
 
 @dataclass
@@ -159,6 +162,70 @@ class RefinementTargetRecord:
         }
 
 
+@dataclass
+class RefinementExpansionRecord:
+    """One actual recursive expansion below a completed root REFINE shell."""
+
+    expansion_id: str
+    seed_target_id: str
+    prefix: tuple[str, ...]
+    source_owner: str
+    source_shard_id: str
+    nomination: dict[str, Any]
+    oracle_position_command: str
+    oracle_children: tuple[str, ...]
+    terminal: bool
+    child_partition: dict[str, tuple[str, ...]]
+    child_shards: dict[str, tuple[str, ...]]
+    stages: dict[str, RefinementStage] = field(default_factory=dict)
+    streams: dict[str, TelemetryStreamWriter] = field(default_factory=dict)
+    disposition: str = "running"
+    stop_reason: str | None = None
+    abort_requested: bool = field(default=False, repr=False, compare=False)
+
+    @property
+    def depth(self) -> int:
+        return len(self.prefix)
+
+    def snapshot(self, *, refinement_dir: Path) -> dict[str, Any]:
+        streams: list[dict[str, Any]] = []
+        for instance, writer in sorted(self.streams.items()):
+            record = writer.snapshot()
+            record["path"] = str(writer.path.relative_to(refinement_dir))
+            streams.append(record)
+        return {
+            "expansion_id": self.expansion_id,
+            "seed_target_id": self.seed_target_id,
+            "prefix": list(self.prefix),
+            "depth": self.depth,
+            "source_owner": self.source_owner,
+            "source_shard_id": self.source_shard_id,
+            "nomination": dict(self.nomination),
+            "child_oracle": {
+                "position_command": self.oracle_position_command,
+                "children": list(self.oracle_children),
+                "terminal": self.terminal,
+            },
+            "child_partition": {
+                owner: list(self.child_partition.get(owner, ()))
+                for owner in self.child_partition
+            },
+            "child_shards": {
+                owner: list(self.child_shards.get(owner, ()))
+                for owner in self.child_shards
+            },
+            "stages": [
+                stage.snapshot()
+                for stage in sorted(self.stages.values(), key=lambda item: item.dispatch_order)
+            ],
+            "streams": streams,
+            "disposition": {
+                "expansion": self.disposition,
+                "stop_reason": self.stop_reason,
+            },
+        }
+
+
 def build_refinement_plan(
     *,
     settings: RefinementSettings,
@@ -229,6 +296,9 @@ def build_refinement_plan(
         nomination_method=settings.nomination_method,
         child_partition=settings.child_partition,
         max_targets=settings.max_targets,
+        recursive_nomination_method=settings.recursive_nomination_method,
+        max_depth=settings.max_depth,
+        max_expansions=settings.max_expansions,
     )
 
 
@@ -263,6 +333,7 @@ class RefinementRun:
     source_root_v1_snapshot: dict[str, Any]
     initial_v2_snapshot: dict[str, Any]
     _targets: dict[str, RefinementTargetRecord] = field(default_factory=dict)
+    _expansions: dict[str, RefinementExpansionRecord] = field(default_factory=dict)
     _active_stream_by_instance: dict[str, tuple[str, TelemetryStreamWriter]] = field(
         default_factory=dict
     )
@@ -322,6 +393,57 @@ class RefinementRun:
                 sorted(self._targets.values(), key=lambda item: order[item.target.target_id])
             )
 
+    def register_expansion(
+        self,
+        *,
+        expansion_id: str,
+        seed_target_id: str,
+        prefix: tuple[str, ...],
+        source_owner: str,
+        source_shard_id: str,
+        nomination: dict[str, Any],
+        oracle_position_command: str,
+        oracle_children: tuple[str, ...],
+        child_partition: dict[str, tuple[str, ...]],
+        child_shards: dict[str, tuple[str, ...]],
+    ) -> RefinementExpansionRecord:
+        with self._lock:
+            if expansion_id in self._expansions:
+                raise RefinementError(f"expansion {expansion_id!r} registered twice")
+            if seed_target_id not in self._targets:
+                raise RefinementError(f"unknown seed target: {seed_target_id!r}")
+            record = RefinementExpansionRecord(
+                expansion_id=expansion_id,
+                seed_target_id=seed_target_id,
+                prefix=tuple(prefix),
+                source_owner=source_owner,
+                source_shard_id=source_shard_id,
+                nomination=dict(nomination),
+                oracle_position_command=oracle_position_command,
+                oracle_children=tuple(oracle_children),
+                terminal=not oracle_children,
+                child_partition={
+                    owner: tuple(child_partition.get(owner, ()))
+                    for owner in self.plan.owners
+                },
+                child_shards={
+                    owner: tuple(child_shards.get(owner, ()))
+                    for owner in self.plan.owners
+                },
+            )
+            if record.terminal:
+                record.disposition = "terminal"
+            self._expansions[expansion_id] = record
+            return record
+
+    def expansion_record(self, expansion_id: str) -> RefinementExpansionRecord | None:
+        with self._lock:
+            return self._expansions.get(expansion_id)
+
+    def expansions(self) -> tuple[RefinementExpansionRecord, ...]:
+        with self._lock:
+            return tuple(self._expansions.values())
+
     def register_stream(
         self,
         target_id: str,
@@ -342,6 +464,28 @@ class RefinementRun:
             target = self._targets.get(target_id)
             return None if target is None else target.streams.get(instance)
 
+    def register_expansion_stream(
+        self,
+        expansion_id: str,
+        writer: TelemetryStreamWriter,
+    ) -> None:
+        with self._lock:
+            expansion = self._expansions.get(expansion_id)
+            if expansion is None:
+                raise RefinementError(f"unknown refinement expansion: {expansion_id!r}")
+            if writer.instance in expansion.streams:
+                raise RefinementError(
+                    f"expansion {expansion_id!r} already has stream for {writer.instance!r}"
+                )
+            expansion.streams[writer.instance] = writer
+
+    def expansion_stream(
+        self, expansion_id: str, instance: str
+    ) -> TelemetryStreamWriter | None:
+        with self._lock:
+            expansion = self._expansions.get(expansion_id)
+            return None if expansion is None else expansion.streams.get(instance)
+
     def activate_stream(self, target_id: str, instance: str) -> None:
         with self._lock:
             writer = self.stream(target_id, instance)
@@ -356,6 +500,21 @@ class RefinementRun:
                     f"{current[0]!r}"
                 )
             self._active_stream_by_instance[instance] = (target_id, writer)
+
+    def activate_expansion_stream(self, expansion_id: str, instance: str) -> None:
+        with self._lock:
+            writer = self.expansion_stream(expansion_id, instance)
+            if writer is None:
+                raise RefinementError(
+                    f"no REFINE stream for expansion={expansion_id!r}, instance={instance!r}"
+                )
+            current = self._active_stream_by_instance.get(instance)
+            if current is not None:
+                raise RefinementError(
+                    f"instance {instance!r} already mapped to active REFINE stream "
+                    f"{current[0]!r}"
+                )
+            self._active_stream_by_instance[instance] = (expansion_id, writer)
 
     def deactivate_stream(self, target_id: str, instance: str) -> None:
         with self._lock:
@@ -409,6 +568,47 @@ class RefinementRun:
             target.stages[owner] = stage
             return stage
 
+    def record_expansion_dispatch(
+        self,
+        *,
+        expansion_id: str,
+        owner: str,
+        instance: str,
+        family: str,
+        search_id: str,
+        position_command: str,
+        command: str,
+        child_moves: tuple[str, ...],
+        shard_ids: tuple[str, ...],
+        prefixes: tuple[tuple[str, ...], ...],
+        dispatched_ms: float,
+    ) -> RefinementStage:
+        with self._lock:
+            expansion = self._expansions.get(expansion_id)
+            if expansion is None:
+                raise RefinementError(f"unknown refinement expansion: {expansion_id!r}")
+            if owner in expansion.stages:
+                raise RefinementError(
+                    f"expansion {expansion_id!r} owner {owner!r} dispatched twice"
+                )
+            self._dispatch_counter += 1
+            stage = RefinementStage(
+                target_id=expansion_id,
+                owner=owner,
+                instance=instance,
+                family=family,
+                search_id=search_id,
+                position_command=position_command,
+                command=command,
+                child_moves=tuple(child_moves),
+                shard_ids=tuple(shard_ids),
+                prefixes=tuple(prefixes),
+                dispatch_order=self._dispatch_counter,
+                dispatched_ms=dispatched_ms,
+            )
+            expansion.stages[owner] = stage
+            return stage
+
     def record_completion(
         self,
         stage: RefinementStage,
@@ -447,15 +647,27 @@ class RefinementRun:
                 for stage in target.stages.values():
                     if stage.instance == instance and not stage.done.is_set():
                         return stage
+            for expansion in self._expansions.values():
+                for stage in expansion.stages.values():
+                    if stage.instance == instance and not stage.done.is_set():
+                        return stage
             return None
 
     def active_stages(self) -> tuple[RefinementStage, ...]:
         with self._lock:
             return tuple(
-                stage
-                for target in self._targets.values()
-                for stage in target.stages.values()
-                if not stage.done.is_set()
+                [
+                    stage
+                    for target in self._targets.values()
+                    for stage in target.stages.values()
+                    if not stage.done.is_set()
+                ]
+                + [
+                    stage
+                    for expansion in self._expansions.values()
+                    for stage in expansion.stages.values()
+                    if not stage.done.is_set()
+                ]
             )
 
     def request_target_abort(self, target_id: str, reason: str) -> None:
@@ -492,6 +704,40 @@ class RefinementRun:
             target.disposition = disposition
             target.stop_reason = reason
 
+    def stage_for_expansion_owner(
+        self, expansion_id: str, owner: str
+    ) -> RefinementStage | None:
+        with self._lock:
+            expansion = self._expansions.get(expansion_id)
+            return None if expansion is None else expansion.stages.get(owner)
+
+    def request_expansion_abort(self, expansion_id: str, reason: str) -> None:
+        with self._lock:
+            expansion = self._expansions.get(expansion_id)
+            if expansion is None:
+                raise RefinementError(f"unknown refinement expansion: {expansion_id!r}")
+            expansion.abort_requested = True
+            expansion.disposition = "incomplete"
+            expansion.stop_reason = reason
+
+    def expansion_abort_requested(self, expansion_id: str) -> bool:
+        with self._lock:
+            expansion = self._expansions.get(expansion_id)
+            return False if expansion is None else expansion.abort_requested
+
+    def set_expansion_disposition(
+        self,
+        expansion_id: str,
+        disposition: str,
+        reason: str | None = None,
+    ) -> None:
+        with self._lock:
+            expansion = self._expansions.get(expansion_id)
+            if expansion is None:
+                raise RefinementError(f"unknown refinement expansion: {expansion_id!r}")
+            expansion.disposition = disposition
+            expansion.stop_reason = reason
+
     def set_disposition(self, disposition: str, reason: str | None = None) -> None:
         with self._lock:
             self.disposition = disposition
@@ -513,6 +759,7 @@ class RefinementRun:
                 return load_refinement_manifest(self.run_dir)
             self.finalized = True
             targets = list(self._targets.values())
+            expansions = list(self._expansions.values())
 
         for target in targets:
             for stage in target.stages.values():
@@ -522,10 +769,22 @@ class RefinementRun:
                     stage.done.set()
                     self.deactivate_stream(stage.target_id, stage.instance)
 
+        for expansion in expansions:
+            for stage in expansion.stages.values():
+                if stage.disposition == "running":
+                    stage.disposition = "unresolved"
+                    stage.failure = stage.failure or "recursive refinement finalized before completion"
+                    stage.done.set()
+                    self.deactivate_stream(stage.target_id, stage.instance)
+
         writers = [
             writer
             for target in targets
             for writer in target.streams.values()
+        ] + [
+            writer
+            for expansion in expansions
+            for writer in expansion.streams.values()
         ]
         for writer in writers:
             writer.close()
@@ -553,6 +812,12 @@ class RefinementRun:
             "dispatch_limit": dict(self.plan.dispatch_limit),
             "child_partition_method": self.plan.child_partition,
             "child_oracle_instance": self.oracle_instance,
+            "recursive_policy": {
+                "method": self.plan.recursive_nomination_method,
+                "queue": "breadth_first_v1",
+                "max_depth": self.plan.max_depth,
+                "max_expansions": self.plan.max_expansions,
+            },
             "prefix_ledger": {
                 "origin": "mirror_of_completed_root_v1",
                 "source_root_v1_snapshot": self.source_root_v1_snapshot,
@@ -562,6 +827,10 @@ class RefinementRun:
             "targets": [
                 target.snapshot(refinement_dir=self.refinement_dir)
                 for target in self.targets()
+            ],
+            "expansions": [
+                expansion.snapshot(refinement_dir=self.refinement_dir)
+                for expansion in self.expansions()
             ],
             "disposition": {
                 "run": self.disposition,
@@ -589,7 +858,7 @@ def load_refinement_manifest(run_dir: Path | str) -> dict[str, Any]:
     if (
         isinstance(version, bool)
         or not isinstance(version, int)
-        or version != REFINEMENT_SCHEMA_VERSION
+        or version not in (1, REFINEMENT_SCHEMA_VERSION)
     ):
         raise RefinementError(
             f"unsupported refinement manifest schema_version: {version!r}"

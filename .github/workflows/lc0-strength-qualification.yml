@@ -57,7 +57,6 @@ jobs:
     runs-on: ubuntu-24.04
     env:
       ALLFATHER_SOURCE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
-      ALLFATHER_RUNNER_ENVIRONMENT: ${{ runner.environment }}
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -66,6 +65,9 @@ jobs:
 
       - name: Verify checkout identity
         run: test "$(git rev-parse HEAD)" = "$ALLFATHER_SOURCE_SHA"
+
+      - name: Bind runner environment
+        run: echo "ALLFATHER_RUNNER_ENVIRONMENT=${{ runner.environment }}" >> "$GITHUB_ENV"
 
       - name: Validate source provenance and profile schemas
         run: |

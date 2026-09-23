@@ -309,6 +309,7 @@ class QualificationReport:
     network: dict[str, Any]
     requested_backend: str
     observed_backend: str
+    backend_evidence: tuple[str, ...]
     runtime_options: dict[str, Any]
     hardware: dict[str, Any]
     warmup_bestmove: str
@@ -324,6 +325,7 @@ class QualificationReport:
             "network": self.network,
             "requested_backend": self.requested_backend,
             "observed_backend": self.observed_backend,
+            "backend_evidence": list(self.backend_evidence),
             "runtime_options": self.runtime_options,
             "hardware": self.hardware,
             "warmup_bestmove": self.warmup_bestmove,

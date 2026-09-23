@@ -265,6 +265,10 @@ class RunContext:
         """Persist resource.json and return its content-addressed summary."""
         return self._coordinator._seal_resource_report(self.generation)
 
+    def resource_measurement_required(self) -> bool:
+        settings = self._coordinator.runtime.config.resource_measurement
+        return bool(settings is not None and settings.require_cpu_for_claim)
+
     def owner_events(self, owner: str) -> list[dict[str, Any]]:
         """Telemetry events written so far for this worker.
 

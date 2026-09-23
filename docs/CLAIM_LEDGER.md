@@ -314,8 +314,12 @@ Nothing below is established by this milestone.
 - **Whether LC0 disagreement carries information beyond Stockfish-vs-Reckless
   disagreement.** VERIFY now supplies the necessary common support, but the
   incremental-information analysis has not yet been derived or calibrated.
-- **LC0 strength qualification.** The validation profile is a backend-light
-  random configuration and is explicitly not strength-qualified.
+- **LC0 strength use in hybrid/competitive evidence.** The fast validation
+  profile remains backend-light/random and is not strength evidence. PR #24
+  added a separate frozen real-network CPU/BLAS reference qualification for
+  provenance and real inference, but it is still
+  `strength_campaign_eligible = false` and has not yet been used to establish
+  hybrid move quality or equal-resource strength.
 - **Transposition overlap.** Only assigned-prefix non-overlap is guaranteed;
   disjoint prefixes can still transpose.
 - **Whether routing overhead is worth its cost.** It is measured, not justified.
@@ -519,8 +523,8 @@ Nothing below is established by this milestone.
 - which evidence subset is sufficient for a useful counterfactual decision;
 - whether VERIFY convergence or REFINE evidence should ever authorize a hybrid
   outward move;
-- decision-relevant value-of-compute calibration;
-- strength-qualified LC0 evidence;
+- promotion of the PR #23 decision-change/value-of-compute model into live routing;
+- whether cross-feed conclusions generalize to the separate real-inference LC0 reference profile;
 - measured rather than estimated process/accelerator resource accounting;
 - any Elo or equal-resource strength gain.
 
@@ -555,8 +559,9 @@ Nothing below is established by this milestone.
 - the stored anchor relation is descriptive only and the artifact requires
   `outward_authority = stockfish-anchor`;
 - no decision/counterfactual engine search phase is added;
-- `controller/uci_frontend.py` remains unchanged and exactly one Stockfish
-  anchor bestmove remains the outward UCI answer.
+- the UCI frontend still has no path that consumes a DecisionProposal as move
+  authority; exactly one unrestricted Stockfish anchor bestmove remains the
+  outward UCI answer.
 
 ### OPEN
 
@@ -564,9 +569,11 @@ Nothing below is established by this milestone.
 - whether a counterfactual proposal that differs from Stockfish improves game
   outcome;
 - which specialist evidence is worth purchasing under equal-resource limits;
-- decision-relevant value-of-compute calibration and no-hindsight labels;
+- promotion of the PR #23 no-hindsight decision-change/value-of-compute model
+  into a live authorization rule;
 - live DecisionAuthorization and bounded hybrid outward authority;
-- strength-qualified LC0 evidence and measured process/accelerator resources;
+- rerunning relevant hybrid evidence under the separate real-inference LC0
+  reference profile together with measured process/accelerator resources;
 - any Elo or equal-resource strength gain.
 
 ## Prospective VERIFY value-of-compute calibration
@@ -626,8 +633,10 @@ Nothing below is established by this milestone.
 - whether additional VERIFY compute repays its physical CPU/GPU cost;
 - deep-reference agreement, game-outcome delta, REFINE intervention value and
   cross-feed ablation value;
-- generalization beyond the frozen mechanism corpus and backend-light LC0
-  validation profile;
+- generalization beyond the frozen mechanism corpus and the backend-light LC0
+  profile used to collect that calibration evidence; the separate PR #24
+  real-inference reference profile has not retroactively requalified this
+  dataset;
 - promotion of this model into live resource routing or DecisionAuthorization;
 - any equal-resource strength gain.
 
@@ -657,6 +666,9 @@ Nothing below is established by this milestone.
   profile;
 - hardware/software identity is recorded in the qualification report rather
   than inferred from the workflow label;
+- the qualification report binds the observed build package versions, compiler/
+  build-tool versions, and hosted-runner image identifiers when available, so
+  package/image drift is evidence rather than an invisible change;
 - the dedicated qualification checks out exactly the declared source SHA, independently measures `git rev-parse HEAD`, refuses any mismatch, and records that measured SHA in both the hardware probe and qualification report;
 - the dedicated qualification now runs for relevant pull-request changes **and** relevant pushes to `main`, so a merged commit must earn its own real-inference certificate rather than inheriting a PR merge-ref run;
 - ordinary baseline/controller CI remains on the backend-light random LC0

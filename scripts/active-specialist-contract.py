@@ -208,11 +208,50 @@ def main() -> int:
             f"{len(settles)} vs {len(grants)}"
         )
 
-    purpose = budget["purpose_totals"]
-    if purpose["verify"]["spent_cpu_ms"] <= 0:
-        raise ContractError("VERIFY purpose lane recorded no CPU spend")
-    if targets and purpose["refine"]["spent_cpu_ms"] <= 0:
-        raise ContractError("REFINE purpose lane recorded no CPU spend")
+    # /proc CPU counters are clock-tick quantized. A correctly completed
+    # 256-node specialist stage can therefore measure 0 ms when it starts and
+    # finishes inside one tick; requiring a strictly positive measured delta
+    # makes this real-engine contract scheduler-dependent. The accounting claim
+    # we need here is stronger and resolution-safe: every dispatched specialist
+    # was admitted with non-zero declared CPU, then explicitly settled exactly
+    # once. The separate resource certificate still records the physical
+    # measurement (including legitimate zero-tick deltas) and must qualify.
+    lanes = budget.get("lanes") or {}
+    verify_accounts = [
+        account
+        for lane, account in lanes.items()
+        if str(lane).startswith("verify:") and isinstance(account, dict)
+    ]
+    if sum(int(account.get("settlements") or 0) for account in verify_accounts) != len(
+        verify_stages
+    ):
+        raise ContractError("VERIFY budget lanes did not settle every dispatched stage")
+    if sum(float(account.get("declared_cpu_ms") or 0.0) for account in verify_accounts) <= 0:
+        raise ContractError("VERIFY budget lanes carried no declared CPU obligation")
+
+    if targets:
+        refine_accounts = [
+            account
+            for lane, account in lanes.items()
+            if (
+                str(lane).startswith("refine:")
+                or str(lane).startswith("refine_oracle:")
+            )
+            and isinstance(account, dict)
+        ]
+        expected_refine_settlements = (
+            len([row for row in grants if row.get("phase") == "refine"])
+            + len([row for row in grants if row.get("phase") == "refine_oracle"])
+        )
+        if sum(
+            int(account.get("settlements") or 0) for account in refine_accounts
+        ) != expected_refine_settlements:
+            raise ContractError("REFINE budget lanes did not settle every dispatched stage")
+        if sum(
+            float(account.get("declared_cpu_ms") or 0.0)
+            for account in refine_accounts
+        ) <= 0:
+            raise ContractError("REFINE budget lanes carried no declared CPU obligation")
 
     if budget["committed_cpu_ms"] > route["envelope"]["cpu_ms"]:
         raise ContractError("committed CPU exceeds declared envelope")

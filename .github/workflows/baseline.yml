@@ -191,6 +191,9 @@ jobs:
       - name: Verify real-engine hybrid UCI shell
         run: python3 scripts/hybrid-shell-contract.py
 
+      - name: Verify real-engine bounded hybrid decision authority
+        run: python3 scripts/active-hybrid-decision-contract.py --real
+
       - name: Verify real-engine shadow execution contract
         run: python3 scripts/shadow-execution-contract.py
 
@@ -221,6 +224,7 @@ jobs:
             build/test-results/value-of-compute
             build/test-results/telemetry-adapters
             build/test-results/hybrid-shell
+            build/test-results/active-hybrid-decision
             build/test-results/shadow-execution
             build/test-results/verify-execution
             build/test-results/verify-analysis

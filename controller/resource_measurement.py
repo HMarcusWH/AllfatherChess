@@ -189,6 +189,37 @@ class ResourceMeasurementRun:
     def provider_id(self) -> str:
         return self.settings.provider
 
+    def live_status(self) -> dict[str, object]:
+        """Return bounded in-memory measurement health without sampling procfs.
+
+        M14-C calls this on the anchor completion path. The method therefore
+        reports only already-known state: it never takes a fresh process sample,
+        seals an artifact, or performs filesystem IO.
+        """
+        with self._lock:
+            completed = tuple(self._measurements.values())
+            process_failure = any(
+                record.get("complete") is False
+                for record in self._process_totals.values()
+            )
+            known_failure = (
+                self.settings.enabled
+                and (
+                    self._provider is None
+                    or any(not item.complete for item in completed)
+                    or process_failure
+                )
+            )
+            return {
+                "enabled": self.settings.enabled,
+                "provider": self.provider_id if self.settings.enabled else None,
+                "provider_available": self._provider is not None,
+                "provider_error": self._provider_error,
+                "active_stage_keys": tuple(sorted(self._active)),
+                "completed_stage_count": len(completed),
+                "known_failure": bool(known_failure),
+            }
+
     def register_process(self, *, instance: str, pid: int | None) -> None:
         """Take one run-level baseline so IPC/idle gaps cannot disappear."""
         if not self.settings.enabled:

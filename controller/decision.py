@@ -1,14 +1,14 @@
-"""Pure counterfactual hybrid-decision semantics.
+"""Pure hybrid-decision proposal and bounded authorization semantics.
 
 This module owns no engine process, UCI output, routing, budget reservation, or
 filesystem mutation. It maps already-collected typed evidence into a frozen
-counterfactual proposal.
+proposal and, for M14-C, applies a separate fail-closed authorization gate over
+already-frozen in-memory facts.
 
 Authority firewall
 ------------------
-A DecisionProposal is not a DecisionAuthorization. PR #22 deliberately creates
-only counterfactual proposals while Stockfish anchor remains the sole outward
-authority.
+DecisionProposal != DecisionAuthorization. Resource authorization, observation,
+proposal generation, and outward move authority remain separate objects.
 """
 
 from __future__ import annotations
@@ -26,6 +26,9 @@ from controller.crossfeed import CrossFeedView
 DECISION_SCHEMA_VERSION = 1
 DECISION_EVIDENCE_VERSION = "decision-evidence-v1"
 COUNTERFACTUAL_POLICY = "unanimous_verify_v1"
+AUTHORIZATION_POLICY = "bounded_preanchor_v0"
+HYBRID_AUTHORITY = "HYBRID"
+ANCHOR_FALLBACK = "ANCHOR_FALLBACK"
 OWNER_ORDER = ("stockfish", "reckless", "lc0")
 _MOVE_RE = re.compile(r"^[a-h][1-8][a-h][1-8][qrbn]?$")
 
@@ -282,34 +285,200 @@ class DecisionProposal:
 
 
 @dataclass(frozen=True)
-class DecisionAuthorization:
-    """Separate authority type. PR #22 never grants one."""
+class DecisionAuthorizationSnapshot:
+    """Frozen in-memory facts the M14-C live authority gate may inspect.
 
-    authorized: bool
-    move: str | None
-    reason: str
+    This object deliberately contains no file paths, handles, callbacks, engine
+    objects, or lazy computations. Building it may read already-owned controller
+    state, but authorization itself is pure and bounded.
+    """
+
+    run_id: str
+    generation: int
+    position_id: str
+    request_class: str
+    request_eligible: bool
+    request_reason: str
+    legal_roots: tuple[str, ...]
+    external_root_restriction: tuple[str, ...]
+    anchor_request_bounded: bool
+    anchor_reserved: bool
+    budget_within_envelope: bool
+    partitions_within_caps: bool
+    wall_within_envelope: bool
+    specialist_settlement_complete: bool
+    open_specialist_reservations: int
+    open_solver_reservations: int
+    gpu_accounted: bool
+    measurement_enabled: bool
+    open_non_anchor_measurement_stages: int
+    measurement_provider_available: bool
+    measurement_known_failure: bool
+    backend_generation_current: bool
+    controller_fallback_latched: bool
 
     def __post_init__(self) -> None:
-        if self.authorized:
-            raise DecisionError(
-                "counterfactual milestone does not permit DecisionAuthorization"
-            )
-        if self.move is not None:
-            raise DecisionError("denied DecisionAuthorization cannot carry a move")
-        if not isinstance(self.reason, str) or not self.reason:
-            raise DecisionError("DecisionAuthorization reason must be non-empty")
+        if not isinstance(self.run_id, str) or not self.run_id:
+            raise DecisionError("authorization snapshot run_id must be non-empty")
+        if isinstance(self.generation, bool) or not isinstance(self.generation, int):
+            raise DecisionError("authorization snapshot generation must be an integer")
+        if not isinstance(self.position_id, str) or not self.position_id:
+            raise DecisionError("authorization snapshot position_id must be non-empty")
+        if not isinstance(self.request_class, str) or not self.request_class:
+            raise DecisionError("authorization snapshot request_class must be non-empty")
+        if not isinstance(self.request_reason, str) or not self.request_reason:
+            raise DecisionError("authorization snapshot request_reason must be non-empty")
+        for label, moves in (
+            ("legal_roots", self.legal_roots),
+            ("external_root_restriction", self.external_root_restriction),
+        ):
+            seen: set[str] = set()
+            for move in moves:
+                canonical = _canonical_move(move, f"authorization snapshot {label}")
+                if canonical in seen:
+                    raise DecisionError(f"authorization snapshot {label} contains duplicates")
+                seen.add(canonical)
+        for label, value in (
+            ("open_specialist_reservations", self.open_specialist_reservations),
+            ("open_solver_reservations", self.open_solver_reservations),
+            (
+                "open_non_anchor_measurement_stages",
+                self.open_non_anchor_measurement_stages,
+            ),
+        ):
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, int)
+                or value < 0
+            ):
+                raise DecisionError(
+                    f"authorization snapshot {label} must be >= 0"
+                )
 
     def as_dict(self) -> dict[str, Any]:
         return {
+            "run_id": self.run_id,
+            "generation": self.generation,
+            "position_id": self.position_id,
+            "request_class": self.request_class,
+            "request_eligible": self.request_eligible,
+            "request_reason": self.request_reason,
+            "legal_roots": list(self.legal_roots),
+            "external_root_restriction": list(self.external_root_restriction),
+            "anchor_request_bounded": self.anchor_request_bounded,
+            "anchor_reserved": self.anchor_reserved,
+            "budget_within_envelope": self.budget_within_envelope,
+            "partitions_within_caps": self.partitions_within_caps,
+            "wall_within_envelope": self.wall_within_envelope,
+            "specialist_settlement_complete": self.specialist_settlement_complete,
+            "open_specialist_reservations": self.open_specialist_reservations,
+            "open_solver_reservations": self.open_solver_reservations,
+            "gpu_accounted": self.gpu_accounted,
+            "measurement_enabled": self.measurement_enabled,
+            "open_non_anchor_measurement_stages": (
+                self.open_non_anchor_measurement_stages
+            ),
+            "measurement_provider_available": self.measurement_provider_available,
+            "measurement_known_failure": self.measurement_known_failure,
+            "backend_generation_current": self.backend_generation_current,
+            "controller_fallback_latched": self.controller_fallback_latched,
+        }
+
+    @property
+    def digest(self) -> str:
+        return canonical_digest(self.as_dict())
+
+
+@dataclass(frozen=True)
+class DecisionAuthorization:
+    """Independent outward-move authority result."""
+
+    policy: str
+    authorized: bool
+    move: str | None
+    reason: str
+    snapshot_digest: str
+
+    def __post_init__(self) -> None:
+        if self.policy != AUTHORIZATION_POLICY:
+            raise DecisionError(f"unsupported authorization policy: {self.policy!r}")
+        if self.authorized:
+            if self.move is None:
+                raise DecisionError("granted DecisionAuthorization requires a move")
+            _canonical_move(self.move, "authorized decision move")
+        elif self.move is not None:
+            raise DecisionError("denied DecisionAuthorization cannot carry a move")
+        if not isinstance(self.reason, str) or not self.reason:
+            raise DecisionError("DecisionAuthorization reason must be non-empty")
+        if not isinstance(self.snapshot_digest, str) or len(self.snapshot_digest) != 64:
+            raise DecisionError("DecisionAuthorization requires snapshot SHA-256")
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "policy": self.policy,
             "authorized": self.authorized,
             "move": self.move,
             "reason": self.reason,
+            "snapshot_digest": self.snapshot_digest,
+        }
+
+
+@dataclass(frozen=True)
+class FinalDecision:
+    """One already-selected outward move and the authority that selected it."""
+
+    authority: str
+    emitted_move: str
+    anchor_move: str
+    proposal_move: str | None
+    authorization: DecisionAuthorization
+    authorization_snapshot: DecisionAuthorizationSnapshot
+
+    def __post_init__(self) -> None:
+        _canonical_move(self.emitted_move, "final emitted move")
+        _canonical_move(self.anchor_move, "final anchor move")
+        if self.proposal_move is not None:
+            _canonical_move(self.proposal_move, "final proposal move")
+        if self.authority not in (HYBRID_AUTHORITY, ANCHOR_FALLBACK):
+            raise DecisionError(f"unknown final-decision authority: {self.authority!r}")
+        if self.authorization.snapshot_digest != self.authorization_snapshot.digest:
+            raise DecisionError(
+                "DecisionAuthorization does not bind the supplied authorization snapshot"
+            )
+        if self.authority == HYBRID_AUTHORITY:
+            if not self.authorization.authorized:
+                raise DecisionError("HYBRID final decision requires granted authorization")
+            if self.proposal_move is None:
+                raise DecisionError("HYBRID final decision requires a proposal move")
+            if self.authorization.move != self.proposal_move:
+                raise DecisionError("authorization move and proposal move disagree")
+            if self.emitted_move != self.proposal_move:
+                raise DecisionError("HYBRID emitted move must equal the proposal move")
+        else:
+            if self.authorization.authorized:
+                raise DecisionError("ANCHOR_FALLBACK cannot carry granted authorization")
+            if self.emitted_move != self.anchor_move:
+                raise DecisionError("ANCHOR_FALLBACK must emit the anchor move")
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "authority": self.authority,
+            "emitted_move": self.emitted_move,
+            "anchor_move": self.anchor_move,
+            "proposal_move": self.proposal_move,
+            "authorization": self.authorization.as_dict(),
+            "authorization_snapshot": self.authorization_snapshot.as_dict(),
         }
 
 
 @dataclass(frozen=True)
 class CounterfactualDecision:
-    """Proposal plus the later anchor comparison; never a correctness label."""
+    """Legacy PR #22 proposal-versus-anchor comparison, not live authority.
+
+    The outward_authority field is retained for replay-v1 compatibility and
+    names the comparison baseline used by the counterfactual laboratory. M14-C
+    actual authority is recorded separately by FinalDecision.
+    """
 
     proposal: DecisionProposal
     anchor_move: str
@@ -321,7 +490,7 @@ class CounterfactualDecision:
         _canonical_move(self.anchor_move, "anchor move")
         if self.outward_authority != "stockfish-anchor":
             raise DecisionError(
-                "counterfactual milestone must preserve stockfish-anchor authority"
+                "counterfactual replay-v1 comparison baseline must remain stockfish-anchor"
             )
         if self.proposal.move is None:
             if (
@@ -502,11 +671,137 @@ def freeze_decision_proposal(
     )
 
 
+def authorize_decision(
+    proposal: DecisionProposal,
+    evidence: DecisionEvidence,
+    snapshot: DecisionAuthorizationSnapshot,
+    *,
+    policy: str = AUTHORIZATION_POLICY,
+) -> DecisionAuthorization:
+    """Apply the M14-C fail-closed outward authority gate.
+
+    Every input is already frozen in memory. This function performs no engine
+    work, filesystem access, waiting, calibration loading, or resource sampling.
+    """
+
+    if policy != AUTHORIZATION_POLICY:
+        raise DecisionError(f"unsupported authorization policy: {policy!r}")
+
+    reasons: list[str] = []
+    if proposal.disposition.code != "PROPOSED" or proposal.move is None:
+        reasons.append("no frozen hybrid proposal")
+    if not proposal.frozen_before_anchor:
+        reasons.append("proposal was not frozen before anchor completion")
+    if proposal.evidence_digest != evidence.digest:
+        reasons.append("proposal/evidence digest mismatch")
+    if evidence.run_id != snapshot.run_id:
+        reasons.append("run_id mismatch")
+    if evidence.generation != snapshot.generation:
+        reasons.append("generation mismatch")
+    if evidence.position_id != snapshot.position_id:
+        reasons.append("position_id mismatch")
+    if evidence.evidence_faults:
+        reasons.append("decision evidence carries explicit faults")
+    if (
+        not evidence.crossfeed_verification_complete
+        or not evidence.verification_terminal.complete
+    ):
+        reasons.append("required VERIFY evidence is incomplete")
+
+    if proposal.move is not None:
+        if proposal.move not in set(snapshot.legal_roots):
+            reasons.append("proposal move is outside the qualified legal-root universe")
+        if (
+            snapshot.external_root_restriction
+            and proposal.move not in set(snapshot.external_root_restriction)
+        ):
+            reasons.append("proposal move is outside external searchmoves")
+
+    if snapshot.request_class != "movetime_v0" or not snapshot.request_eligible:
+        reasons.append(f"unsupported request class: {snapshot.request_reason}")
+    if not snapshot.anchor_request_bounded:
+        reasons.append("anchor request is not bounded by the declared wall envelope")
+    if not snapshot.anchor_reserved:
+        reasons.append("anchor resource reservation is missing")
+    if not snapshot.budget_within_envelope:
+        reasons.append("known budget state exceeds the declared resource envelope")
+    if not snapshot.partitions_within_caps:
+        reasons.append("known specialist partition cap is exceeded")
+    if not snapshot.wall_within_envelope:
+        reasons.append("wall envelope is already exhausted")
+    if not snapshot.specialist_settlement_complete:
+        reasons.append("specialist settlement is incomplete")
+    if snapshot.open_specialist_reservations:
+        reasons.append("indispensable specialist reservation remains open")
+    if snapshot.open_solver_reservations:
+        reasons.append("completed EXPLORE solver reservation remains open")
+    if not snapshot.gpu_accounted:
+        reasons.append("declared GPU resource is not accounted")
+    if not snapshot.measurement_enabled:
+        reasons.append("physical resource measurement is disabled")
+    if snapshot.open_non_anchor_measurement_stages:
+        reasons.append("non-anchor physical measurement stage remains open")
+    if not snapshot.measurement_provider_available:
+        reasons.append("physical resource measurement provider is unavailable")
+    if snapshot.measurement_known_failure:
+        reasons.append("completed physical resource evidence contains a known failure")
+    if not snapshot.backend_generation_current:
+        reasons.append("backend generation is stale or unhealthy")
+    if snapshot.controller_fallback_latched:
+        reasons.append("controller has already latched anchor-only fallback")
+
+    if reasons:
+        return DecisionAuthorization(
+            policy=policy,
+            authorized=False,
+            move=None,
+            reason="; ".join(reasons),
+            snapshot_digest=snapshot.digest,
+        )
+    return DecisionAuthorization(
+        policy=policy,
+        authorized=True,
+        move=proposal.move,
+        reason="all bounded M14-C authorization gates passed",
+        snapshot_digest=snapshot.digest,
+    )
+
+
+def select_final_decision(
+    *,
+    anchor_move: str,
+    proposal: DecisionProposal | None,
+    authorization: DecisionAuthorization,
+    authorization_snapshot: DecisionAuthorizationSnapshot,
+) -> FinalDecision:
+    anchor = _canonical_move(anchor_move, "anchor move")
+    proposal_move = None if proposal is None else proposal.move
+    if authorization.authorized:
+        return FinalDecision(
+            authority=HYBRID_AUTHORITY,
+            emitted_move=str(authorization.move),
+            anchor_move=anchor,
+            proposal_move=proposal_move,
+            authorization=authorization,
+            authorization_snapshot=authorization_snapshot,
+        )
+    return FinalDecision(
+        authority=ANCHOR_FALLBACK,
+        emitted_move=anchor,
+        anchor_move=anchor,
+        proposal_move=proposal_move,
+        authorization=authorization,
+        authorization_snapshot=authorization_snapshot,
+    )
+
+
 def denied_counterfactual_authorization() -> DecisionAuthorization:
     return DecisionAuthorization(
+        policy=AUTHORIZATION_POLICY,
         authorized=False,
         move=None,
-        reason="PR22 counterfactual-only milestone grants no outward decision authority",
+        reason="counterfactual-only path grants no outward decision authority",
+        snapshot_digest="0" * 64,
     )
 
 

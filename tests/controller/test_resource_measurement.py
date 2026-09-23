@@ -93,6 +93,22 @@ class ResourceMeasurementRunTests(unittest.TestCase):
         self.assertGreater(doc["engine_cpu_ms"], 0)
         self.assertGreaterEqual(doc["physical_cpu_ms"], doc["engine_cpu_ms"])
 
+    def test_live_status_reports_known_run_baseline_failure_without_sampling(self):
+        class _BrokenBaselineProvider(_Provider):
+            def snapshot(self, pid):
+                raise OSError("simulated procfs baseline failure")
+
+        run = ResourceMeasurementRun(
+            run_id="baseline-fault",
+            settings=self.settings(),
+            provider=_BrokenBaselineProvider(),
+        )
+        run.register_process(instance="stockfish-anchor", pid=99)
+        status = run.live_status()
+        self.assertTrue(status["enabled"])
+        self.assertTrue(status["provider_available"])
+        self.assertTrue(status["known_failure"])
+
     def test_one_instance_cannot_have_overlapping_stage_measurements(self):
         run = ResourceMeasurementRun(
             run_id="r2",

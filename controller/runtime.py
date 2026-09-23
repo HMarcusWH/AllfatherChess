@@ -141,10 +141,19 @@ class CrossFeedSettings:
 
 @dataclass(frozen=True)
 class CounterfactualSettings:
-    """Counterfactual proposal generation with no outward decision authority."""
+    """Counterfactual proposal generation over typed specialist evidence."""
 
     enabled: bool
     policy: str
+
+
+@dataclass(frozen=True)
+class HybridAuthoritySettings:
+    """Narrow M14-C outward decision authority configuration."""
+
+    enabled: bool
+    policy: str
+    request_class: str
 
 
 @dataclass(frozen=True)
@@ -159,6 +168,7 @@ class RuntimeConfig:
     refinement: RefinementSettings | None = None
     crossfeed: CrossFeedSettings | None = None
     counterfactual: CounterfactualSettings | None = None
+    hybrid_authority: HybridAuthoritySettings | None = None
     resource_measurement: ResourceMeasurementSettings | None = None
     budget: dict[str, object] | None = None
     routing: dict[str, object] | None = None
@@ -752,6 +762,59 @@ def _load_counterfactual_settings(
     return CounterfactualSettings(enabled=True, policy=str(policy))
 
 
+def _load_hybrid_authority_settings(
+    data: dict[str, object],
+    *,
+    mode: str,
+    counterfactual: CounterfactualSettings | None,
+    resource_measurement: ResourceMeasurementSettings,
+) -> HybridAuthoritySettings | None:
+    """Load the first live hybrid-authority gate."""
+
+    raw_value = data.get("hybrid_authority")
+    if raw_value is None:
+        return None
+    if mode != "active":
+        raise RuntimeError("hybrid_authority settings are supported only in active mode")
+    raw = _require_object(raw_value, "hybrid_authority")
+    enabled = raw.get("enabled")
+    if not isinstance(enabled, bool):
+        raise RuntimeError("hybrid_authority.enabled must be a boolean")
+    if not enabled:
+        return None
+    if counterfactual is None or not counterfactual.enabled:
+        raise RuntimeError("hybrid_authority requires counterfactual.enabled")
+    if not resource_measurement.enabled:
+        raise RuntimeError("hybrid_authority requires resource_measurement.enabled")
+    if not resource_measurement.require_cpu_for_claim:
+        raise RuntimeError(
+            "hybrid_authority v0 requires resource_measurement.require_cpu_for_claim=true"
+        )
+    if resource_measurement.require_gpu_for_claim:
+        raise RuntimeError(
+            "hybrid_authority v0 has no GPU device-time provider and cannot require GPU claims"
+        )
+
+    policy = raw.get("policy", "bounded_preanchor_v0")
+    if policy != "bounded_preanchor_v0":
+        raise RuntimeError(
+            "hybrid_authority.policy currently supports exactly 'bounded_preanchor_v0'"
+        )
+    request_class = raw.get("request_class", "movetime_v0")
+    if request_class != "movetime_v0":
+        raise RuntimeError(
+            "hybrid_authority.request_class currently supports exactly 'movetime_v0'"
+        )
+    unknown = sorted(set(raw) - {"enabled", "policy", "request_class"})
+    if unknown:
+        raise RuntimeError(f"hybrid_authority contains unsupported keys: {unknown}")
+    return HybridAuthoritySettings(
+        enabled=True,
+        policy=str(policy),
+        request_class=str(request_class),
+    )
+
+
 def load_runtime_config(path: Path) -> RuntimeConfig:
     path = path.resolve()
     try:
@@ -813,6 +876,13 @@ def load_runtime_config(path: Path) -> RuntimeConfig:
     except ResourceMeasurementError as exc:
         raise RuntimeError(str(exc)) from exc
 
+    hybrid_authority = _load_hybrid_authority_settings(
+        data,
+        mode=str(mode),
+        counterfactual=counterfactual,
+        resource_measurement=resource_measurement,
+    )
+
     budget = data.get("budget")
     if budget is not None:
         budget = _require_object(budget, "budget")
@@ -858,6 +928,7 @@ def load_runtime_config(path: Path) -> RuntimeConfig:
         refinement=refinement,
         crossfeed=crossfeed,
         counterfactual=counterfactual,
+        hybrid_authority=hybrid_authority,
         resource_measurement=resource_measurement,
         budget=budget,
         routing=routing,

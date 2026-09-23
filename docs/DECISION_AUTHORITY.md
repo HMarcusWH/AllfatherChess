@@ -1,13 +1,15 @@
-# Counterfactual decision authority
+# Hybrid decision authority
 
 ## Status
 
-PR #22 introduces the first hybrid chess-decision layer in AllfatherChess.
+PR #22 introduced the first deterministic hybrid **proposal** from typed
+specialist evidence while preserving Stockfish as the sole outward authority.
 
-It can now produce a deterministic hybrid **proposal** from typed specialist
-evidence, but it still cannot authorize or emit that move.
-
-The outward UCI move remains the Stockfish anchor move.
+M14-C adds the first deliberately narrow live authority transfer: an
+already-frozen PRE_ANCHOR proposal may replace the Stockfish move only in an
+explicit active hybrid profile and only after a separate bounded
+`DecisionAuthorization` gate passes. Any missing or failed gate returns the
+exact Stockfish anchor line.
 
 The authority ladder is therefore:
 
@@ -27,15 +29,15 @@ DecisionAuthorization
 Outward Decision
 ```
 
-For this milestone:
+Current M14-C state:
 
 ```text
 Observation             IMPLEMENTED
 DecisionEvidence        IMPLEMENTED
 DecisionProposal        IMPLEMENTED
-DecisionAuthorization   TYPE EXISTS, NEVER GRANTED
-Hybrid outward move     NOT IMPLEMENTED
-Stockfish fallback      STILL THE ONLY OUTWARD PATH
+DecisionAuthorization   IMPLEMENTED / BOUNDED GRANT
+Hybrid outward move     IMPLEMENTED FOR QUALIFIED movetime_v0
+Stockfish fallback      DETERMINISTIC DEFAULT ON ANY DENIAL
 ```
 
 ## Why the decision layer is separate
@@ -445,3 +447,93 @@ It does not establish:
 
 The next calibration milestone evaluates whether purchasing specialist evidence
 changes later frozen decisions in a useful, resource-justified way.
+
+
+---
+
+## M14-C — bounded active authority v0
+
+M14-C does not turn proposal generation into authority. The live sequence is:
+
+```text
+EXPLORE / VERIFY / optional REFINE
+        |
+        v
+typed CrossFeedView
+        |
+        v
+DecisionEvidence
+        |
+        v
+DecisionProposal        (must be frozen PRE_ANCHOR)
+        |
+anchor completion boundary
+        |
+        v
+DecisionAuthorization   (bounded in-memory only)
+      /      \
+ HYBRID      denied
+   |           |
+proposal    exact Stockfish fallback
+      \       /
+       outward bestmove
+```
+
+The callback may inspect only already-owned memory. It may not dispatch an
+engine, run an oracle, start VERIFY/REFINE, read or write an artifact, load a
+calibration, or take a procfs sample before stdout emission.
+
+### v0 request class
+
+Live hybrid authority is intentionally restricted to exactly one positive
+`go movetime N` limit (with optional `searchmoves`) inside the declared
+wall envelope. `nodes`, `depth`, clock controls, `ponder`, `infinite`,
+unknown tokens, and mixed limit sets remain Stockfish-authority requests.
+
+### Authorization facts
+
+A grant requires, simultaneously:
+
+- a `PROPOSED` move frozen before the anchor boundary;
+- proposal/evidence digest identity and current run/generation/position;
+- complete, fault-free VERIFY evidence;
+- membership in the qualified legal-root universe and any external
+  `searchmoves` restriction;
+- the supported request class and a bounded anchor request;
+- an anchor reservation;
+- budget, partition and wall state still inside the declared envelope;
+- zero open indispensable specialist reservations and complete settlement;
+- accounted declared GPU budget;
+- enabled/available physical measurement with no already-known completed-stage
+  measurement failure;
+- current healthy backend generation;
+- no previously latched anchor-only fallback.
+
+These are authorization conditions, not chess-correctness claims.
+
+### Resource timing
+
+The anchor's terminal physical resource sample remains deliberately
+**post-output**. M14-C must not move procfs IO in front of `bestmove`.
+Consequently the live gate uses only already-known resource state. The sealed
+`resource.json` can later invalidate an equal-resource experimental claim,
+but it cannot retroactively change a move that was already played.
+
+### Actual-decision artifact
+
+`decision/counterfactual.json` remains the PR #22 proposal-versus-anchor
+research artifact. M14-C additionally writes `decision/final.json` after
+output, binding the actual `HYBRID` or `ANCHOR_FALLBACK` choice to the
+available replay, VERIFY, cross-feed, route, resource, and counterfactual source
+hashes.
+
+A hybrid move different from the anchor root is emitted without the anchor's
+optional `ponder` continuation. Anchor fallback preserves the original anchor
+line byte-for-byte.
+
+### Claim boundary
+
+M14-C establishes a replayable authority mechanism. It does **not** establish
+that `unanimous_verify_v1` chooses a stronger move, that three-way agreement is
+a correctness certificate, or that Allfather is stronger than any constituent
+engine. Those remain strength-campaign questions.

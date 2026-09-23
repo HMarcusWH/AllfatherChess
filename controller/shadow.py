@@ -56,10 +56,18 @@ from controller.counterfactual import (
     seal_counterfactual_artifact,
 )
 from controller.decision import (
+    AUTHORIZATION_POLICY,
+    DecisionAuthorization,
+    DecisionAuthorizationSnapshot,
     DecisionError,
+    DecisionEvidence,
     DecisionProposal,
+    FinalDecision,
+    authorize_decision,
     freeze_decision_proposal,
+    select_final_decision,
 )
+from controller.final_decision import seal_final_decision_artifact
 from controller.replay import ReplayRun, StageRecord, TelemetryStreamWriter, sha256_file
 from controller.resource_measurement import ResourceMeasurementRun, StageResourceMeasurement
 from controller.prefix_shards import PrefixShardLedger, PrefixShardLedgerError
@@ -362,7 +370,9 @@ class _ActiveRun:
     verification: VerificationRun | None = None
     refinement: RefinementRun | None = None
     crossfeed_view: CrossFeedView | None = None
+    decision_evidence: DecisionEvidence | None = None
     decision_proposal: DecisionProposal | None = None
+    final_decision: FinalDecision | None = None
     refinement_positioned: set[str] = field(default_factory=set)
     refinement_oracle_active: bool = False
     specialist_tokens: dict[str, str] = field(default_factory=dict)
@@ -870,41 +880,186 @@ class ShadowRunCoordinator:
             return
         stream.submit(line, max(0.0, (observed_monotonic - t0) * 1000.0))
 
-    def note_anchor_complete(self, generation: int, line: str) -> None:
-        """Record the anchor's outward completion and release the shadows."""
+    def _select_final_decision(
+        self,
+        active: _ActiveRun,
+        *,
+        anchor_line: str,
+    ) -> FinalDecision | None:
+        """Run only bounded in-memory M14-C checks after the anchor boundary."""
+
+        settings = self.runtime.config.hybrid_authority
+        if settings is None:
+            return None
+
+        tokens = anchor_line.split()
+        if not anchor_line.startswith("bestmove ") or len(tokens) < 2:
+            return None
+        anchor_move = tokens[1].lower()
+
+        try:
+            request = parse_go_request(active.context.external_go_command)
+        except SearchRequestError as exc:
+            request = {"limits": [], "unknown_tokens": [str(exc)]}
+        limits = request.get("limits") or []
+        root_restriction = tuple(request.get("root_moves") or ())
+        request_eligible = (
+            not request.get("unknown_tokens")
+            and len(limits) == 1
+            and limits[0].get("name") == "movetime"
+            and isinstance(limits[0].get("value"), int)
+            and not isinstance(limits[0].get("value"), bool)
+            and int(limits[0]["value"]) > 0
+        )
+        request_reason = (
+            "single positive go movetime request"
+            if request_eligible
+            else "v0 requires exactly one positive movetime limit"
+        )
+
+        route: dict[str, object] = {}
+        snapshotter = (
+            None
+            if self.router is None
+            else getattr(self.router, "decision_authority_snapshot", None)
+        )
+        if snapshotter is not None:
+            try:
+                route = dict(snapshotter())
+            except Exception as exc:  # pragma: no cover - fail-closed isolation
+                request_reason += f"; routing snapshot failed: {type(exc).__name__}"
+
+        resource = (
+            {"enabled": False, "provider_available": False, "known_failure": True}
+            if active.resources is None
+            else active.resources.live_status()
+        )
+        legal_roots = (
+            ()
+            if active.ledger is None
+            else tuple(active.ledger.candidate_roots)
+        )
+        backend_current = (
+            not active.cancelled
+            and all(
+                self.runtime.shadow_available(self.settings.instance(owner))
+                for owner in self.settings.owners
+            )
+        )
+
+        active_resource_keys = tuple(resource.get("active_stage_keys") or ())
+        anchor_resource_key = (
+            None if active.anchor_stage is None else active.anchor_stage.search_id
+        )
+        non_anchor_resource_keys = tuple(
+            key for key in active_resource_keys if key != anchor_resource_key
+        )
+
+        snapshot = DecisionAuthorizationSnapshot(
+            run_id=active.run.run_id,
+            generation=active.generation,
+            position_id=active.context.position.position_id,
+            request_class=settings.request_class,
+            request_eligible=request_eligible,
+            request_reason=request_reason,
+            legal_roots=legal_roots,
+            external_root_restriction=root_restriction,
+            anchor_request_bounded=bool(route.get("anchor_request_bounded", False)),
+            anchor_reserved=bool(route.get("anchor_reserved", False)),
+            budget_within_envelope=bool(route.get("budget_within_envelope", False)),
+            partitions_within_caps=bool(route.get("partitions_within_caps", False)),
+            wall_within_envelope=bool(route.get("wall_within_envelope", False)),
+            specialist_settlement_complete=bool(
+                route.get("specialist_settlement_complete", False)
+            ),
+            open_specialist_reservations=int(
+                route.get("open_specialist_reservations", 0)
+            ),
+            open_solver_reservations=int(
+                route.get("open_solver_reservations", 0)
+            ),
+            gpu_accounted=bool(route.get("gpu_accounted", False)),
+            measurement_enabled=bool(resource.get("enabled", False)),
+            open_non_anchor_measurement_stages=len(non_anchor_resource_keys),
+            measurement_provider_available=bool(
+                resource.get("provider_available", False)
+            ),
+            measurement_known_failure=bool(resource.get("known_failure", True)),
+            backend_generation_current=backend_current,
+            controller_fallback_latched=bool(
+                route.get("controller_fallback_latched", True)
+            ),
+        )
+
+        proposal = active.decision_proposal
+        evidence = active.decision_evidence
+        if proposal is None or evidence is None:
+            authorization = DecisionAuthorization(
+                policy=settings.policy,
+                authorized=False,
+                move=None,
+                reason="no frozen pre-anchor DecisionProposal/DecisionEvidence pair",
+                snapshot_digest=snapshot.digest,
+            )
+        else:
+            authorization = authorize_decision(
+                proposal,
+                evidence,
+                snapshot,
+                policy=settings.policy,
+            )
+        final = select_final_decision(
+            anchor_move=anchor_move,
+            proposal=proposal,
+            authorization=authorization,
+            authorization_snapshot=snapshot,
+        )
+        active.final_decision = final
+        return final
+
+    def note_anchor_complete(self, generation: int, line: str) -> FinalDecision | None:
+        """Publish the anchor boundary and select one bounded outward decision."""
         with self._lock:
             active = self._run
             if active is None or active.generation != generation:
-                return
+                return None
             stage = active.anchor_stage
             elapsed = (time.monotonic() - active.started_monotonic) * 1000.0
             # Publish the decision boundary while holding the exact lock used
-            # by EXPLORE/VERIFY dispatch commits. The old placement set this
-            # flag after releasing the lock, leaving a window in which the
-            # anchor callback had already begun but a new observational stage
-            # could still acquire the lock and launch.
+            # by EXPLORE/VERIFY dispatch commits. No new specialist work may
+            # begin after this point.
             active.anchor_completed.set()
-        if stage is not None:
-            bestmove = line.split()[1] if line.startswith("bestmove ") and len(line.split()) > 1 else None
-            active.run.record_completion(
-                stage,
-                completed_ms=elapsed,
-                disposition="completed",
-                bestmove=bestmove,
-            )
-        # Finalization waits on anchor_done, not merely anchor_completed. Keep
-        # this second event after the authority StageRecord is complete.
-        active.anchor_done.set()
-        # The outward answer is already emitted. No *new* observational stage
-        # may be opened against a decision that has already been made. Whether
-        # an in-flight node-limited stage is drained or killed is a declared
-        # configuration choice, never an implicit one.
+
+            if stage is not None:
+                bestmove = (
+                    line.split()[1]
+                    if line.startswith("bestmove ") and len(line.split()) > 1
+                    else None
+                )
+                active.run.record_completion(
+                    stage,
+                    completed_ms=elapsed,
+                    disposition="completed",
+                    bestmove=bestmove,
+                )
+
+            # The authority choice is intentionally made before anchor_done is
+            # published, so finalization cannot race ahead of the in-memory
+            # M14-C gate. No engine or filesystem work is permitted here.
+            try:
+                final = self._select_final_decision(active, anchor_line=line)
+            except DecisionError as exc:
+                active.run.note(f"hybrid authority failed closed: {exc}")
+                final = None
+
+            # Finalization waits on anchor_done, not merely anchor_completed.
+            active.anchor_done.set()
+
+        # Selection is complete, but stdout emission has not happened yet. No
+        # new observational stage may be opened against the closed boundary.
         if self.settings.on_anchor_complete == "cancel":
-            # This runs on the ANCHOR's stdout reader thread, which is the
-            # thread that carries the outward bestmove. A shadow whose stdin
-            # blocks must not be able to stall it, so the stop writes are
-            # detached; quiesce() joins them before any state change.
             self.cancel(generation, reason="anchor_complete", detach=True)
+        return final
 
     def note_anchor_emitted(self, generation: int) -> None:
         """Take the terminal anchor sample only after bestmove left stdout.
@@ -1650,11 +1805,21 @@ class ShadowRunCoordinator:
                             active.run.run_dir,
                         )
                     except CounterfactualError as exc:
-                        # The proposal is counterfactual only. Failure to seal
-                        # its derived artifact cannot retroactively affect the
-                        # already-emitted Stockfish anchor move.
                         self._diagnostic(
                             f"counterfactual finalization failed: {exc}"
+                        )
+                if active.final_decision is not None:
+                    try:
+                        seal_final_decision_artifact(
+                            active.final_decision,
+                            active.run.run_dir,
+                        )
+                    except Exception as exc:
+                        # Actual authority was already selected and emitted.
+                        # Persistence failure can invalidate audit evidence but
+                        # may never rewrite the chess move.
+                        self._diagnostic(
+                            f"final decision artifact failed: {type(exc).__name__}: {exc}"
                         )
             except Exception as exc:  # pragma: no cover - finalization isolation
                 self._diagnostic(f"replay finalization failed: {type(exc).__name__}: {exc}")
@@ -2008,15 +2173,27 @@ class ShadowRunCoordinator:
             return
 
         started = time.monotonic()
+        charged = False
         try:
-            _, evaluation = prepare_counterfactual(
+            evidence, evaluation = prepare_counterfactual(
                 view=view,
                 verification=verification,
                 policy=settings.policy,
             )
-            # Do not hold the orchestration lock while hashing/evaluating. The
-            # anchor completion callback uses the same lock to publish the
-            # outward decision boundary and must never wait on policy work.
+            # Charge all proposal-building metareasoning BEFORE publication.
+            # Otherwise the anchor callback could observe a frozen proposal and
+            # authorize it against a budget snapshot that omitted the cost of
+            # creating the very proposal being authorized.
+            self._charge_controller_elapsed(
+                active,
+                label="counterfactual_decision_build",
+                elapsed_ms=(time.monotonic() - started) * 1000.0,
+            )
+            charged = True
+
+            # Do not hold the orchestration lock while hashing/evaluating or
+            # charging. The lock is used only for the causal PRE/POST stamp and
+            # publication of immutable evidence/proposal objects.
             with self._lock:
                 if self._run is not active:
                     return
@@ -2025,20 +2202,23 @@ class ShadowRunCoordinator:
                     (time.monotonic() - active.started_monotonic) * 1000.0,
                 )
                 frozen_before_anchor = not active.anchor_completed.is_set()
+                active.decision_evidence = evidence
                 active.decision_proposal = freeze_decision_proposal(
                     evaluation,
                     frozen_observed_ms=frozen_ms,
                     frozen_before_anchor=frozen_before_anchor,
                 )
         except (DecisionError, CounterfactualError) as exc:
+            active.decision_evidence = None
             active.decision_proposal = None
             active.run.note(f"counterfactual proposal rejected: {exc}")
         finally:
-            self._charge_controller_elapsed(
-                active,
-                label="counterfactual_decision_build",
-                elapsed_ms=(time.monotonic() - started) * 1000.0,
-            )
+            if not charged:
+                self._charge_controller_elapsed(
+                    active,
+                    label="counterfactual_decision_build",
+                    elapsed_ms=(time.monotonic() - started) * 1000.0,
+                )
 
     def _execute_verification(self, active: _ActiveRun) -> None:
         settings = self.runtime.config.verification

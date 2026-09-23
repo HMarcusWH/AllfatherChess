@@ -25,10 +25,11 @@ class ShellState(str, Enum):
 
 
 class UciFrontend:
-    """One external UCI identity with Stockfish as the transparent anchor.
+    """One external UCI identity with Stockfish as deterministic fallback.
 
-    Shadow workers, when configured, observe the same synchronized state but can
-    never write to this stream: only the anchor's `bestmove` leaves the process.
+    Shadow workers can never write to this stream directly. In an explicitly
+    qualified M14-C profile, an already-frozen hybrid proposal may replace the
+    anchor move only through the separate bounded DecisionAuthorization gate.
     """
 
     def __init__(
@@ -93,17 +94,31 @@ class UciFrontend:
         self._write(line)
 
     def _on_search_complete(self, token: int, line: str) -> None:
+        final_decision = None
         if self.shadow is not None:
             try:
-                self.shadow.note_anchor_complete(token, line)
-            except Exception as exc:  # pragma: no cover - shadow control is non-authoritative
-                self._diagnostic(f"shadow release failed: {exc}")
+                final_decision = self.shadow.note_anchor_complete(token, line)
+            except Exception as exc:  # pragma: no cover - fail closed to anchor
+                self._diagnostic(f"shadow decision boundary failed: {exc}")
+
         with self._state_lock:
             if self._state != ShellState.SEARCHING or self._active_generation != token:
                 return
             self._active_generation = None
             self._state = ShellState.READY if self.runtime.healthy else ShellState.UNHEALTHY
-        self._write(line)
+
+        # ANCHOR_FALLBACK preserves the exact anchor line byte-for-byte. If the
+        # hybrid root differs, never retain the anchor's optional ponder move:
+        # that continuation belongs to a different root.
+        outward_line = line
+        if (
+            final_decision is not None
+            and final_decision.authority == "HYBRID"
+            and final_decision.emitted_move != final_decision.anchor_move
+        ):
+            outward_line = f"bestmove {final_decision.emitted_move}"
+        self._write(outward_line)
+
         if self.shadow is not None:
             try:
                 self.shadow.note_anchor_emitted(token)

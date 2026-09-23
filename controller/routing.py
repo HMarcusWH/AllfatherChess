@@ -14,8 +14,10 @@ below a declared threshold, minimum observation spent, and budget available.
 Scope of authority
 ------------------
 This router allocates *shadow observation compute* inside a declared envelope.
-It cannot change the outward move: the unrestricted anchor remains the sole
-decision authority, exactly as in shadow mode. Stopping a shadow worker returns
+It never grants move authority. In ordinary active mode the unrestricted anchor
+remains the outward authority; in the explicit M14-C hybrid profile, a separate
+DecisionAuthorization gate may consume these resource facts before selecting a
+HYBRID move or deterministic anchor fallback. Stopping a shadow worker returns
 budget; it never elects a different bestmove.
 
 Fail-closed
@@ -541,6 +543,32 @@ class ConservativeRouter:
     def checkpoint_interval_s(self) -> float:
         return max(0.005, self.policy.checkpoint_interval_ms / 1000.0)
 
+    def decision_authority_snapshot(self) -> dict[str, object]:
+        """Expose already-owned budget facts to the separate M14-C gate.
+
+        This method grants no move authority and performs no filesystem or
+        engine IO. The anchor reservation is expected to remain open until the
+        post-output terminal resource sample, so only specialist reservations
+        are required to be fully settled here.
+        """
+        return {
+            "anchor_request_bounded": bool(self._anchor_bound[0]),
+            "anchor_request_reason": str(self._anchor_bound[1]),
+            "anchor_reserved": bool(self._anchor_reserved),
+            "budget_within_envelope": self.ledger.within_envelope(),
+            "partitions_within_caps": self.ledger.within_partition_caps(),
+            "wall_within_envelope": (
+                self.ledger.elapsed_ms() <= self.envelope.wall_ms
+            ),
+            "specialist_settlement_complete": not self._specialist_unresolved,
+            "open_specialist_reservations": len(self._specialist_reservations),
+            "open_solver_reservations": sum(
+                len(reservations) for reservations in self._reservations.values()
+            ),
+            "gpu_accounted": self._gpu_accounted(),
+            "controller_fallback_latched": bool(self._fallback),
+        }
+
     # ------------------------------------------------------------------
     # lifecycle
     # ------------------------------------------------------------------
@@ -809,8 +837,11 @@ class ConservativeRouter:
             "denials": audit.denials,
             "notes": audit.notes,
             "authority": (
-                "This record governs shadow observation compute only. The outward "
-                "bestmove remained the unrestricted anchor's in every decision below."
+                "Resource routing grants compute authority only, never move authority. "
+                "Without the explicit M14-C hybrid gate the outward bestmove remained "
+                "the unrestricted Stockfish anchor's; when that gate is enabled, "
+                "DecisionAuthorization selects HYBRID or deterministic anchor fallback "
+                "separately from this routing record."
             ),
         }
         try:

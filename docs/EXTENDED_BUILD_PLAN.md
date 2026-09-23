@@ -1100,12 +1100,11 @@ resource accounting and a fixed competitive platform are separately qualified.
 
 ### Implementation status
 
-Current implementation milestone. The branch implements Linux procfs process
-CPU/RSS measurement, controller process CPU, stage/run attribution,
-content-addressed `resource.json`, measured settlement provenance, and
-resource-qualified active/LC0 reference contracts. GPU device-time remains an
-explicitly unsupported/fail-closed requirement rather than an estimate promoted
-to measurement.
+Merged in PR #28. Linux procfs process CPU/RSS measurement, controller process
+CPU, stage/run attribution, content-addressed `resource.json`, measured
+settlement provenance, and resource-qualified active/LC0 reference contracts are
+now on main. GPU device-time remains an explicitly unsupported/fail-closed
+requirement rather than an estimate promoted to measurement.
 
 ### Purpose
 
@@ -1168,6 +1167,16 @@ A run may be development-valid with partial measurement, but the strongest equal
 ---
 
 ## M14-C — Active hybrid decision authority v0
+
+### Implementation status
+
+Current implementation milestone in PR #29. The branch adds a separate
+`DecisionAuthorization` gate over an already-frozen PRE_ANCHOR proposal,
+restricts live transfer to qualified `go movetime` requests, preserves exact
+Stockfish fallback on every denial, keeps terminal procfs sampling post-output,
+and seals the actual `HYBRID` / `ANCHOR_FALLBACK` choice in
+`decision/final.json`. This is an authority-mechanism milestone, not a strength
+claim.
 
 ### Purpose
 

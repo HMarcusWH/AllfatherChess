@@ -8,6 +8,7 @@ import sys
 import tempfile
 import threading
 import unittest
+from unittest import mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -414,6 +415,21 @@ class ReviewRegressionTests(unittest.TestCase):
         # The anchor reservation is still open here; it settles at run end.
         router.on_run_end(context)
         self.assertEqual(router.ledger.snapshot()["open_reservations"], 0)
+
+    def test_route_persistence_failure_is_explicit(self):
+        router = ConservativeRouter(
+            envelope=envelope(),
+            policy=policy(),
+            clock=lambda: 0.0,
+        )
+        context = _FakeContext()
+        router.on_run_start(context)
+        with mock.patch(
+            "controller.routing.atomic_write_text",
+            side_effect=OSError("disk full"),
+        ):
+            with self.assertRaisesRegex(RoutingError, "could not persist route.json"):
+                router.on_run_end(context)
 
     def test_unbounded_outward_request_cannot_claim_envelope_compliance(self):
         router = ConservativeRouter(
@@ -1312,7 +1328,7 @@ class _WorkContext:
     """A context whose single worker reports engine-native work."""
 
     run_id = "unit-test-work"
-    run_dir = Path("/nonexistent")
+    run_dir = Path(tempfile.gettempdir()) / "allfather-routing-tests"
     owners = ("lc0",)
     owner_roots: dict[str, tuple[str, ...]] = {"lc0": ("g1f3",)}
     external_go_command = "go movetime 1000"

@@ -473,7 +473,12 @@ class FinalDecision:
 
 @dataclass(frozen=True)
 class CounterfactualDecision:
-    """Proposal plus the later anchor comparison; never a correctness label."""
+    """Legacy PR #22 proposal-versus-anchor comparison, not live authority.
+
+    The outward_authority field is retained for replay-v1 compatibility and
+    names the comparison baseline used by the counterfactual laboratory. M14-C
+    actual authority is recorded separately by FinalDecision.
+    """
 
     proposal: DecisionProposal
     anchor_move: str
@@ -485,7 +490,7 @@ class CounterfactualDecision:
         _canonical_move(self.anchor_move, "anchor move")
         if self.outward_authority != "stockfish-anchor":
             raise DecisionError(
-                "counterfactual milestone must preserve stockfish-anchor authority"
+                "counterfactual replay-v1 comparison baseline must remain stockfish-anchor"
             )
         if self.proposal.move is None:
             if (

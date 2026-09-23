@@ -55,6 +55,18 @@ class StrengthProfileStaticTests(unittest.TestCase):
         validate_profile(self.profile)
         self.assertNotEqual(self.profile["runtime"]["Backend"], "random")
         self.assertGreater(self.profile["runtime"]["MinibatchSize"], 0)
+        self.assertEqual(
+            set(self.profile["build"]["required_packages"]),
+            {
+                "meson",
+                "ninja-build",
+                "pkg-config",
+                "libprotobuf-dev",
+                "protobuf-compiler",
+                "zlib1g-dev",
+                "libopenblas-dev",
+            },
+        )
 
     def test_strength_runtime_matches_lock_and_profile(self):
         validate_runtime_config(self.config, self.lock, self.profile)

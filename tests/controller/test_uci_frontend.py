@@ -3,15 +3,18 @@
 
 from __future__ import annotations
 
+import io
 import json
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
+from controller.uci_frontend import ShellState, UciFrontend
 from tests.harness.uci_session import UciSession
 
 
@@ -44,6 +47,27 @@ def write_config(directory: Path, *, stockfish_exit_on_go: bool = False) -> Path
         encoding="utf-8",
     )
     return path
+
+
+class _RuntimeStub:
+    def __init__(self):
+        self.healthy = True
+        self.failure_handler = None
+
+    def set_failure_handler(self, callback):
+        self.failure_handler = callback
+
+
+class _DecisionShadowStub:
+    def __init__(self, decision):
+        self.decision = decision
+        self.emitted = []
+
+    def note_anchor_complete(self, token, line):
+        return self.decision
+
+    def note_anchor_emitted(self, token):
+        self.emitted.append(token)
 
 
 class UciFrontendTests(unittest.TestCase):
@@ -110,6 +134,46 @@ class UciFrontendTests(unittest.TestCase):
                     timeout=3.0,
                 )
                 self.assertEqual(stop_lines[-1], "bestmove e2e4")
+
+    def test_different_hybrid_root_drops_anchor_ponder_and_emits_once(self):
+        runtime = _RuntimeStub()
+        output = io.StringIO()
+        decision = SimpleNamespace(
+            authority="HYBRID",
+            emitted_move="e2e4",
+            anchor_move="d2d4",
+        )
+        shadow = _DecisionShadowStub(decision)
+        frontend = UciFrontend(runtime, output=output, shadow=shadow)
+        frontend._state = ShellState.SEARCHING
+        frontend._active_generation = 7
+
+        frontend._on_search_complete(7, "bestmove d2d4 ponder d7d5")
+
+        self.assertEqual(output.getvalue().splitlines(), ["bestmove e2e4"])
+        self.assertEqual(shadow.emitted, [7])
+        self.assertEqual(frontend.state, ShellState.READY)
+
+    def test_anchor_fallback_preserves_original_bestmove_line_byte_for_byte(self):
+        runtime = _RuntimeStub()
+        output = io.StringIO()
+        decision = SimpleNamespace(
+            authority="ANCHOR_FALLBACK",
+            emitted_move="d2d4",
+            anchor_move="d2d4",
+        )
+        shadow = _DecisionShadowStub(decision)
+        frontend = UciFrontend(runtime, output=output, shadow=shadow)
+        frontend._state = ShellState.SEARCHING
+        frontend._active_generation = 8
+
+        frontend._on_search_complete(8, "bestmove d2d4 ponder d7d5")
+
+        self.assertEqual(
+            output.getvalue().splitlines(),
+            ["bestmove d2d4 ponder d7d5"],
+        )
+        self.assertEqual(shadow.emitted, [8])
 
     def test_anchor_failure_fails_closed_without_backend_fallback(self):
         with tempfile.TemporaryDirectory() as tmp:

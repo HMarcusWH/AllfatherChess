@@ -789,6 +789,12 @@ class ShadowRunCoordinator:
                 controller_cpu_started_ns=controller_cpu_started_ns,
             )
         )
+        if resources is not None and resources.settings.enabled:
+            for instance in sorted(self.runtime.backends):
+                resources.register_process(
+                    instance=instance,
+                    pid=self.runtime.process_pid(instance),
+                )
         active = _ActiveRun(
             generation=generation,
             run=run,

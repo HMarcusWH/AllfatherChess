@@ -885,13 +885,14 @@ def verify_bundle_integrity(run_dir: Path) -> list[str]:
                 problems.append(f"{search_id}: stage bestmove does not match search.complete")
 
     stage_ids = set(stage_by_search)
-    if declared_stream_searches != stage_ids:
-        missing = sorted(stage_ids - declared_stream_searches)
-        extra = sorted(declared_stream_searches - stage_ids)
-        if missing:
-            problems.append(f"manifest stages missing from streams: {missing}")
-        if extra:
-            problems.append(f"stream search_ids missing from stages: {extra}")
+    # A dispatched stage is allowed to have no surviving stream record. Replay
+    # schema v1 treats that as explicit missing evidence: load_bundle() reports
+    # the instance in missing_streams and downstream extraction must not impute
+    # observations. What is *not* allowed is the inverse -- a stream claiming a
+    # search the orchestration manifest never declared.
+    extra = sorted(declared_stream_searches - stage_ids)
+    if extra:
+        problems.append(f"stream search_ids missing from stages: {extra}")
     if observed_searches - stage_ids:
         problems.append(
             f"telemetry contains undeclared search_ids: {sorted(observed_searches - stage_ids)}"

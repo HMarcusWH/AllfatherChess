@@ -143,6 +143,16 @@ def hardware_probe() -> dict:
     return data
 
 
+def git_head_sha() -> str:
+    value = subprocess.check_output(
+        ["git", "-C", str(ROOT), "rev-parse", "HEAD"],
+        text=True,
+    ).strip()
+    if re.fullmatch(r"[0-9a-f]{40}", value) is None:
+        raise ContractError(f"checked-out source HEAD is not a canonical SHA: {value!r}")
+    return value
+
+
 def main() -> int:
     lock = load_json(LOCK_PATH)
     vendor = load_json(ROOT / "vendor.lock.json")
@@ -151,6 +161,14 @@ def main() -> int:
     validate_vendor_binding(lock, vendor)
     validate_profile(profile)
     validate_runtime_config(config, lock, profile)
+
+    source_sha = git_head_sha()
+    expected_source_sha = os.environ.get("ALLFATHER_SOURCE_SHA")
+    if expected_source_sha and expected_source_sha != source_sha:
+        raise ContractError(
+            f"workflow source identity mismatch: expected {expected_source_sha}, "
+            f"checked out {source_sha}"
+        )
 
     network_path = ROOT / "build" / "artifacts" / "lc0" / lock["network"]["filename"]
     network_identity = verify_network_file(network_path, lock, require_frozen=True)
@@ -168,10 +186,35 @@ def main() -> int:
 
     hardware = hardware_probe()
     policy = profile["hardware_policy"]
+    if hardware.get("commit_sha") != source_sha:
+        raise ContractError(
+            f"hardware probe source {hardware.get('commit_sha')!r} does not "
+            f"match checked-out source {source_sha!r}"
+        )
     if hardware.get("runner_class") != policy["runner_class"]:
         raise ContractError(
             f"hardware runner class {hardware.get('runner_class')!r} does not "
             f"match profile {policy['runner_class']!r}"
+        )
+    if hardware.get("runner_environment") != "github-hosted":
+        raise ContractError("reference qualification requires a GitHub-hosted runner")
+    if hardware.get("system") != "Linux":
+        raise ContractError(f"reference qualification requires Linux, got {hardware.get('system')!r}")
+    os_release = hardware.get("os_release")
+    if (
+        not isinstance(os_release, dict)
+        or os_release.get("ID") != "ubuntu"
+        or os_release.get("VERSION_ID") != "24.04"
+    ):
+        raise ContractError(
+            f"reference qualification requires Ubuntu 24.04, got {os_release!r}"
+        )
+    if policy.get("os") != "ubuntu-24.04":
+        raise ContractError(f"unsupported hardware policy OS: {policy.get('os')!r}")
+    if policy.get("accelerator_kind") != "cpu":
+        raise ContractError(
+            f"reference qualification currently supports accelerator_kind=cpu, "
+            f"got {policy.get('accelerator_kind')!r}"
         )
     if hardware.get("architecture") not in {policy["architecture"], "amd64"}:
         raise ContractError(
@@ -180,8 +223,21 @@ def main() -> int:
         )
     if not hardware.get("cpu_model"):
         raise ContractError("hardware probe did not bind a CPU model")
+    memory = hardware.get("memory_bytes")
+    if isinstance(memory, bool) or not isinstance(memory, int) or memory <= 0:
+        raise ContractError("hardware probe did not bind positive physical memory")
     if not hardware.get("openblas_package"):
         raise ContractError("OpenBLAS package identity is missing")
+
+    for package in profile["build"]["required_packages"]:
+        observed = subprocess.check_output(
+            ["dpkg-query", "-W", "-f=${Package}=${Version}", package],
+            text=True,
+        ).strip()
+        if not observed.startswith(package + "="):
+            raise ContractError(
+                f"required package {package!r} could not be bound: {observed!r}"
+            )
 
     options = dict(lc0["options"])
     process = UciProcess(
@@ -238,8 +294,7 @@ def main() -> int:
 
     report = QualificationReport(
         profile_id=profile["profile_id"],
-        commit_sha=os.environ.get("ALLFATHER_SOURCE_SHA")
-        or os.environ.get("GITHUB_SHA", ""),
+        commit_sha=source_sha,
         contracts={
             "vendor_lock_sha256": sha256_file(ROOT / "vendor.lock.json"),
             "strength_lock_sha256": sha256_file(LOCK_PATH),

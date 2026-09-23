@@ -56,7 +56,7 @@ from controller.replay_analysis import SearchTrajectory, reconstruct_stream
 from controller.shadow import RouterCommand
 
 
-ROUTE_SCHEMA_VERSION = 1
+ROUTE_SCHEMA_VERSION = 2
 #: Engine-native counters that really are alpha-beta node counts, and so share
 #: the `min_observation_nodes` floor.
 _ALPHA_BETA_NODE_SEMANTICS = ("stockfish.uci_nodes", "reckless.uci_nodes")
@@ -1123,24 +1123,41 @@ class ConservativeRouter:
         return commands
 
     def _settle_owner(self, context: Any, owner: str) -> None:
-        """Charge stage CPU, falling back to the declared estimate.
+        """Charge one EXPLORE stage from physical CPU when available.
 
-        Stage *wall* time is not stage *CPU* time. An engine configured with
-        `Threads: 4` running for 400 ms consumed roughly 1600 CPU-ms, and
-        charging 400 would let the ledger report compliance after the processes
-        had already exceeded `cpu_ms`. Nothing here measures process CPU, so the
-        wall duration is scaled by the engine's declared thread count; the claim
-        records that this is an estimate rather than a measurement.
+        Reservation size remains an admission-time declaration. A complete
+        procfs measurement becomes settlement spend; otherwise the pre-M14-B
+        wall-times-threads estimate remains a conservative development fallback
+        and is labelled as such in the ledger.
         """
-        measured = None
+        actual_cpu = None
+        source = "estimated_fallback"
         try:
-            measured = context.owner_last_stage_ms(owner)
-        except AttributeError:  # pragma: no cover - defensive against older contexts
-            measured = None
-        if measured is not None:
-            measured = float(measured) * self._owner_threads(context, owner)
+            resource = context.owner_last_stage_resource(owner)
+        except AttributeError:  # pragma: no cover - older contexts
+            resource = None
+        if isinstance(resource, dict) and resource.get("complete") is True:
+            value = resource.get("cpu_ms")
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                actual_cpu = float(value)
+                source = "measured"
+
+        if actual_cpu is None:
+            wall_ms = None
+            try:
+                wall_ms = context.owner_last_stage_ms(owner)
+            except AttributeError:  # pragma: no cover
+                wall_ms = None
+            if wall_ms is not None:
+                actual_cpu = float(wall_ms) * self._owner_threads(context, owner)
+                source = "estimated_fallback"
+
         for reservation in self._reservations.pop(owner, []):
-            self.ledger.settle(reservation, actual_cpu_ms=measured)
+            self.ledger.settle(
+                reservation,
+                actual_cpu_ms=actual_cpu,
+                cpu_source=(source if actual_cpu is not None else "declared_fallback"),
+            )
 
     def _record_final_native_work(self, context: Any) -> None:
         """Reconstruct each worker's last reported counter before finalizing."""

@@ -13,7 +13,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from common.prefix_dispatch import compile_descendant_region, compile_prefix_dispatch
+from common.prefix_dispatch import compile_descendant_region, compile_prefix_dispatch, descendant_position
 from common.search_request import SearchRequestError, parse_position_command
 from controller.prefix_shards import (
     PrefixShardLedger,
@@ -234,6 +234,24 @@ class PrefixShardLedgerTests(unittest.TestCase):
         )
         ledger.validate_invariants()
 
+    def test_recursive_lookup_helpers_require_a_sealed_frontier_leaf(self):
+        ledger = PrefixShardLedger(ROOTS)
+        ledger.assign_root_partition(valid_partition())
+        root = ledger.get_by_prefix(("e2e4",))
+        self.assertEqual(root["owner"], "stockfish")
+        self.assertIsNone(ledger.sealed_frontier_leaf(("e2e4",)))
+
+        ledger.activate_shard(str(root["id"]), owner="stockfish")
+        ledger.seal_shard(str(root["id"]), owner="stockfish")
+        eligible = ledger.sealed_frontier_leaf(("e2e4",))
+        self.assertIsNotNone(eligible)
+        self.assertEqual(eligible["state"], "sealed")
+
+        ledger.split_shard(str(root["id"]), ("e7e5",), owner="stockfish")
+        self.assertIsNone(ledger.sealed_frontier_leaf(("e2e4",)))
+        with self.assertRaises(PrefixShardLedgerError):
+            ledger.get_by_prefix(("a1a9",))
+
     def test_atomic_transfer_moves_only_leased_frontier_shards(self):
         ledger = PrefixShardLedger(ROOTS)
         ledger.assign_root_partition(valid_partition())
@@ -362,6 +380,13 @@ class PrefixShardLedgerTests(unittest.TestCase):
 
 
 class PrefixDispatchTests(unittest.TestCase):
+    def test_descendant_position_advances_by_complete_prefix(self):
+        from common.search_request import PositionRequest
+
+        base = PositionRequest(base_fen="startpos", moves=("d2d4",), variant="standard")
+        built = descendant_position(base, ("d7d5", "c2c4"))
+        self.assertEqual(built.moves, ("d2d4", "d7d5", "c2c4"))
+
     def test_depth_one_matches_root_v1_semantics(self):
         base = parse_position_command("position startpos")
         dispatch = compile_prefix_dispatch(base, ("e2e4",), limit={"nodes": 256})

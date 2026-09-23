@@ -939,6 +939,7 @@ class ShadowRunCoordinator:
                     dispatched_ms=refinement_stage.dispatched_ms,
                     completed_ms=elapsed,
                     instance=refinement_stage.instance,
+                    resource_key=refinement_stage.search_id,
                 )
                 active.refinement.record_completion(
                     refinement_stage,
@@ -959,6 +960,7 @@ class ShadowRunCoordinator:
                     dispatched_ms=verification_stage.dispatched_ms,
                     completed_ms=elapsed,
                     instance=verification_stage.instance,
+                    resource_key=verification_stage.search_id,
                 )
                 active.verification.record_completion(
                     verification_stage,
@@ -1315,6 +1317,7 @@ class ShadowRunCoordinator:
                         dispatched_ms=stage.dispatched_ms,
                         completed_ms=failed_ms,
                         instance=stage.instance,
+                        resource_key=stage.search_id,
                     )
                     active.verification.record_completion(
                         stage,
@@ -1339,6 +1342,7 @@ class ShadowRunCoordinator:
                         dispatched_ms=stage.dispatched_ms,
                         completed_ms=failed_ms,
                         instance=stage.instance,
+                        resource_key=stage.search_id,
                     )
                     active.refinement.record_completion(
                         stage,
@@ -1464,6 +1468,7 @@ class ShadowRunCoordinator:
                             dispatched_ms=stage.dispatched_ms,
                             completed_ms=failed_ms,
                             instance=stage.instance,
+                        resource_key=stage.search_id,
                         )
                         active.verification.record_completion(
                             stage,
@@ -1492,6 +1497,7 @@ class ShadowRunCoordinator:
                             dispatched_ms=stage.dispatched_ms,
                             completed_ms=failed_ms,
                             instance=stage.instance,
+                        resource_key=stage.search_id,
                         )
                         active.refinement.record_completion(
                             stage,
@@ -2257,6 +2263,7 @@ class ShadowRunCoordinator:
             dispatched_ms=stage.dispatched_ms,
             completed_ms=elapsed,
             instance=stage.instance,
+                        resource_key=stage.search_id,
         )
 
         if failure is not None:
@@ -2323,6 +2330,7 @@ class ShadowRunCoordinator:
                         dispatched_ms=stage.dispatched_ms,
                         completed_ms=failed_ms,
                         instance=stage.instance,
+                        resource_key=stage.search_id,
                     )
                     verification.record_completion(
                         stage,
@@ -2923,6 +2931,7 @@ class ShadowRunCoordinator:
             dispatched_ms=stage.dispatched_ms,
             completed_ms=elapsed,
             instance=stage.instance,
+                        resource_key=stage.search_id,
         )
 
         target_abort = refinement.target_abort_requested(target_id)
@@ -3019,6 +3028,7 @@ class ShadowRunCoordinator:
                         dispatched_ms=stage.dispatched_ms,
                         completed_ms=failed_ms,
                         instance=stage.instance,
+                        resource_key=stage.search_id,
                     )
                     refinement.record_completion(
                         stage,

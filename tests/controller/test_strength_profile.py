@@ -37,10 +37,10 @@ class StrengthProfileStaticTests(unittest.TestCase):
         self.profile = load_json(PROFILE_PATH)
         self.config = load_json(CONFIG_PATH)
 
-    def test_candidate_lock_is_valid_but_not_frozen(self):
+    def test_shipped_lock_is_frozen(self):
         validate_lock(self.lock)
-        with self.assertRaises(StrengthProfileError):
-            validate_lock(self.lock, require_frozen=True)
+        validate_lock(self.lock, require_frozen=True)
+        self.assertEqual(self.lock["network"]["expected_size_bytes"], 18648209)
 
     def test_profile_is_explicit_and_real_backend(self):
         validate_profile(self.profile)

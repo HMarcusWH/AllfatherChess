@@ -37,19 +37,20 @@ The repository foundation is reproducible: CI is read-only, engine ancestry and 
 
 The current stack includes the immediate controller layers plus an explicit common-support VERIFY evidence plane:
 
-1. **shadow execution and replay** — an unrestricted `stockfish-anchor` holds sole outward authority while `stockfish-shadow`, `reckless-shadow`, and `lc0-shadow` search pairwise-disjoint ledger-owned regions and emit replayable telemetry;
+1. **shadow execution and replay** — an unrestricted `stockfish-anchor` is the default/fallback authority while `stockfish-shadow`, `reckless-shadow`, and `lc0-shadow` search pairwise-disjoint ledger-owned regions and emit replayable telemetry;
 2. **residual and counterfactual calibration** — a derived layer turns replay bundles into scale-free disagreement/stability features and a calibrated reversal-risk model, with an enforced firewall against mixing engine evaluation scales;
 3. **active adaptive compute routing** — a conservative policy allocates shadow observation compute inside one declared resource envelope, where an instability signal may nominate computation but only a calibrated, in-domain, sufficiently supported, low-risk verdict may authorize stopping;
-4. **explicit VERIFY evidence** — after a clean three-owner EXPLORE run, the three distinct owner bestmoves form one deterministic common candidate set and the same three shadow processes independently re-search it. In shadow mode this remains deliberately over-budget research instrumentation; in active mode it is reservation-backed. It never alters the outward move;
+4. **explicit VERIFY evidence** — after a clean three-owner EXPLORE run, the three distinct owner bestmoves form one deterministic common candidate set and the same three shadow processes independently re-search it. In shadow mode this remains deliberately over-budget research instrumentation; in active mode it is reservation-backed. VERIFY itself carries no outward authority;
 5. **COMPARE / descriptive RELOCK analysis** — offline analysis reconstructs the three common-support trajectories, derives scale-free pairwise and three-way convergence geometry, attributes EXPLORE→VERIFY candidate adoption, and freezes a terminal-suffix RELOCK definition. The result is derived evidence only and is not consumed by routing;
 6. **recursive prefix-shard substrate** — `PrefixShardLedger` v2 qualifies deterministic move-prefix ownership, atomic split/transfer semantics, a prefix-free frontier, and descendant-position UCI dispatch;
-7. **shadow REFINE execution** — completed raw VERIFY disagreement can nominate one-ply root targets, which are split by the exact Stockfish perft oracle and searched as pairwise-disjoint descendant child regions;
-8. **active specialist scheduling** — active VERIFY, the REFINE child oracle, and REFINE descendant stages now require explicit reservations from separate specialist CPU/GPU partitions inside the same run-wide envelope. Resource authority still cannot influence the outward Stockfish anchor;
-9. **measured physical resource accounting (M14-B)** — reservations remain admission authority while Linux procfs measures backend CPU/RSS, controller process CPU is measured independently of wall time, and `resource.json` is hash-bound into the active route certificate. Missing required physical evidence fails the measured-envelope claim closed.
+7. **bounded recursive REFINE (M14-D)** — completed raw VERIFY disagreement seeds one-shell REFINE, and clean restricted regional terminals may nominate SEALED child prefixes for deterministic breadth-first re-expansion. Every deeper oracle/stage receives fresh resource authorization, exact Stockfish perft children, atomic PrefixShardLedger split/transfer, containment validation and restoration. All legacy/hybrid profiles remain pinned to depth 2;
+8. **active specialist scheduling** — active VERIFY, each REFINE child oracle, and every REFINE descendant stage require explicit reservations from separate specialist CPU/GPU partitions inside the same run-wide envelope. Resource authority is distinct from chess decision authority;
+9. **measured physical resource accounting (M14-B)** — reservations remain admission authority while Linux procfs measures backend CPU/RSS, controller process CPU is measured independently of wall time, and `resource.json` is hash-bound into the active route certificate. Missing required physical evidence fails the measured-envelope claim closed;
+10. **bounded hybrid decision authority (M14-C)** — only an already-frozen PRE_ANCHOR proposal in the qualified active `movetime_v0` profile may replace the Stockfish move after a separate fail-closed `DecisionAuthorization` gate. Every denial preserves exact Stockfish fallback. M14-D forbids deeper-than-one-shell REFINE in this authority profile.
 
 Documentation: `docs/BUILD_PLAN.md`, `docs/ARCHITECTURE.md`, `docs/UCI_SHELL.md`, `docs/SHARD_LEDGER.md`, `docs/PREFIX_SHARDS.md`, `docs/SHADOW_EXECUTION.md`, `docs/REPLAY_FORMAT.md`, `docs/RESIDUAL_CALIBRATION.md`, `docs/BUDGET_ROUTING.md`, `docs/VERIFY_RELOCK.md`, `docs/COMPARE_RELOCK.md`, `docs/PREFIX_SHARDS.md`, `docs/REFINEMENT.md`, `docs/ACTIVE_SPECIALIST_SCHEDULER.md`, `docs/RESOURCE_ACCOUNTING.md`, `docs/SEARCH_SPACE_OWNERSHIP.md`, `docs/TELEMETRY_SCHEMA.md`, `docs/TELEMETRY_MAPPING.md`, `docs/THEORY_IMPLEMENTATION_MAP.md`, `docs/CLAIM_LEDGER.md`, `docs/ADVERSARIAL_AUDIT.md`, `docs/CODEX_REVIEW_AUDIT.md`, `docs/UPSTREAM_PROVENANCE.md`, and `LICENSES.md`.
 
-**No strength claim is made.** No Elo experiment has been run. The outward move is still the unrestricted Stockfish anchor's in every mode, routing governs observation compute only, and shadow mode deliberately overspends compute to collect evidence. `docs/CLAIM_LEDGER.md` labels every claim as PROVED, MEASURED, DERIVED, CALIBRATED, POLICY, or OPEN. The fast LC0 random/backend-light profile remains deterministic regression infrastructure only. PR #24 added a separate pinned real-network BLAS qualification profile and recorded-host reference run. M14-B now binds Linux process-CPU/memory evidence into that reference and into active-run `resource.json` certificates. The reference remains explicitly `strength_campaign_eligible = false` until a fixed competitive platform and the later strength campaign are qualified.
+**No strength claim is made.** No Elo experiment has been run. Stockfish remains the exact fallback authority, and only the narrow M14-C active `movetime_v0` profile can emit an already-frozen authorized hybrid proposal. Routing/resource authority is separate from move authority, recursive REFINE is excluded from M14-C beyond depth 2, and shadow mode deliberately overspends compute to collect evidence. `docs/CLAIM_LEDGER.md` labels every claim as PROVED, MEASURED, DERIVED, CALIBRATED, POLICY, or OPEN. The fast LC0 random/backend-light profile remains deterministic regression infrastructure only. PR #24 added a separate pinned real-network BLAS qualification profile and recorded-host reference run. M14-B now binds Linux process-CPU/memory evidence into that reference and into active-run `resource.json` certificates. The reference remains explicitly `strength_campaign_eligible = false` until a fixed competitive platform and the later strength campaign are qualified.
 
 
 ## Run the Generation-1 validation shell
@@ -74,7 +75,8 @@ The validation configuration exists to prove process/UCI semantics, not playing 
 ```bash
 make run-allfather-shadow                # four instances, one outward identity
 make run-allfather-verify                # shadow mode + explicit common-support VERIFY
-make run-allfather-refine                # shadow mode + VERIFY-triggered one-level REFINE
+make run-allfather-refine                # compatibility profile: VERIFY-triggered depth-2 REFINE
+make run-allfather-recursive-refine      # active evidence-only bounded recursive REFINE
 make verification-analysis               # offline COMPARE / descriptive RELOCK derivation
 make verification-evidence-sweep         # research-only common-support corpus sweep
 make shadow-evidence-sweep               # collect replay bundles over the frozen corpus
@@ -93,9 +95,10 @@ For the active specialist validation profile:
 make run-allfather-active-specialist
 ```
 
-That profile enables reservation-backed VERIFY and one-level REFINE under
-explicit specialist reserves; it remains validation infrastructure, not a
-strength-qualified engine configuration.
+That profile enables reservation-backed VERIFY and compatibility depth-2
+REFINE under explicit specialist reserves. The separate recursive validation
+profile exercises deeper M14-D zoom without hybrid move authority. Both remain
+validation infrastructure, not strength-qualified engine configurations.
 
 ## Validation
 
@@ -105,6 +108,7 @@ make prefix-shard-tests                  # recursive ownership + descendant disp
 make prefix-shard-contract               # real engines: two-level split + depth-3 restriction
 make refinement-tests                    # live shadow REFINE planning/lifecycle/integrity
 make refinement-execution-contract       # real engines: VERIFY disagreement -> descendant REFINE
+make recursive-refinement-contract       # deterministic live multi-level scheduler + resource gate
 make active-specialist-tests              # fast specialist reserve/settlement integration
 make active-specialist-contract           # real engines: active VERIFY/REFINE under one envelope
 make shadow-execution-contract           # real engines: concurrency, containment, telemetry, replay

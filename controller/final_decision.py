@@ -32,13 +32,16 @@ _SOURCE_PATHS = (
 )
 
 
-def _source_hashes(run_dir: Path) -> dict[str, str]:
+def _source_hashes(run_dir: Path) -> tuple[dict[str, str], tuple[str, ...]]:
     sources: dict[str, str] = {}
+    missing: list[str] = []
     for relative in _SOURCE_PATHS:
         path = run_dir / relative
         if path.is_file():
             sources[relative] = sha256_file(path)
-    return sources
+        else:
+            missing.append(relative)
+    return sources, tuple(missing)
 
 
 def seal_final_decision_artifact(
@@ -48,10 +51,13 @@ def seal_final_decision_artifact(
     """Seal the actual selected authority after the source artifacts finalize."""
 
     run_dir = Path(run_dir)
+    sources, missing_sources = _source_hashes(run_dir)
     core = {
         "schema_version": FINAL_DECISION_SCHEMA_VERSION,
         "decision": decision.as_dict(),
-        "sources": _source_hashes(run_dir),
+        "sources": sources,
+        "missing_sources": list(missing_sources),
+        "audit_complete": not missing_sources,
         "semantics": {
             "authorization_timing": "bounded in-memory at anchor completion",
             "terminal_resource_timing": "post-output; may qualify claims but cannot rewrite the played move",
@@ -102,6 +108,8 @@ def verify_final_decision_integrity(run_dir: Path | str) -> list[str]:
         "schema_version": artifact.get("schema_version"),
         "decision": artifact.get("decision"),
         "sources": artifact.get("sources"),
+        "missing_sources": artifact.get("missing_sources"),
+        "audit_complete": artifact.get("audit_complete"),
         "semantics": artifact.get("semantics"),
     }
     expected = canonical_digest(core)
@@ -120,6 +128,16 @@ def verify_final_decision_integrity(run_dir: Path | str) -> list[str]:
             problems.append("final decision authorization evidence is incomplete")
     else:
         problems.append("final decision decision payload must be an object")
+
+    missing_sources = artifact.get("missing_sources")
+    if not isinstance(missing_sources, list):
+        problems.append("final decision missing_sources must be an array")
+    elif missing_sources:
+        problems.append(
+            "final decision audit sources missing: " + ", ".join(map(str, missing_sources))
+        )
+    if artifact.get("audit_complete") is not (not bool(missing_sources)):
+        problems.append("final decision audit_complete is inconsistent")
 
     stored_sources = artifact.get("sources")
     if not isinstance(stored_sources, dict):

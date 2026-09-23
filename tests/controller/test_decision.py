@@ -117,6 +117,7 @@ def _snapshot(**overrides) -> DecisionAuthorizationSnapshot:
         "external_root_restriction": (),
         "anchor_request_bounded": True,
         "anchor_reserved": True,
+        "open_anchor_reservations": 1,
         "budget_within_envelope": True,
         "partitions_within_caps": True,
         "wall_within_envelope": True,
@@ -325,6 +326,24 @@ class DecisionPolicyTests(unittest.TestCase):
         )
         self.assertEqual(final.authority, "ANCHOR_FALLBACK")
         self.assertEqual(final.emitted_move, "e2e4")
+
+    def test_anchor_reservation_must_still_be_exactly_one_in_flight(self):
+        evidence = build_decision_evidence(
+            _view(),
+            _terminal(("g1f3", "g1f3", "g1f3")),
+        )
+        proposal = freeze_decision_proposal(
+            evaluate_decision_policy(evidence),
+            frozen_observed_ms=50.0,
+            frozen_before_anchor=True,
+        )
+        authorization = authorize_decision(
+            proposal,
+            evidence,
+            _snapshot(open_anchor_reservations=0),
+        )
+        self.assertFalse(authorization.authorized)
+        self.assertIn("exactly one in-flight anchor reservation", authorization.reason)
 
     def test_post_anchor_proposal_is_never_authorized(self):
         evidence = build_decision_evidence(

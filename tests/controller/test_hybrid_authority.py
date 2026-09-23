@@ -4,9 +4,13 @@
 from __future__ import annotations
 
 import json
+import sys
 import tempfile
 import unittest
 from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
 
 from controller.final_decision import verify_final_decision_integrity
 from tests.controller.test_shadow_runtime import (

@@ -54,7 +54,8 @@ def main() -> int:
             "dpkg-query", "-W", "-f=${Package}=${Version}", "libopenblas-dev"
         ),
         "python": platform.python_version(),
-        "commit_sha": os.environ.get("GITHUB_SHA")
+        "commit_sha": os.environ.get("ALLFATHER_SOURCE_SHA")
+        or os.environ.get("GITHUB_SHA")
         or command("git", "-C", str(ROOT), "rev-parse", "HEAD"),
     }
     print(json.dumps(report, indent=2, sort_keys=True))

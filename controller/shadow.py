@@ -666,6 +666,7 @@ class ShadowRunCoordinator:
         # against a 1000 ms envelope, and the same milliseconds went uncharged
         # as controller overhead. Preparation is bounded, not free.
         started = time.monotonic()
+        controller_cpu_started_ns = time.process_time_ns()
         # One deadline for every pre-anchor filesystem step, taken from the
         # same origin as the run clock.
         prepare_deadline = started + max(0.001, float(self.settings.prepare_budget_s))
@@ -771,12 +772,23 @@ class ShadowRunCoordinator:
             started_monotonic=started,
             _coordinator=self,
         )
+        resource_settings = self.runtime.config.resource_measurement
+        resources = (
+            None
+            if resource_settings is None
+            else ResourceMeasurementRun(
+                run_id=run_id,
+                settings=resource_settings,
+                controller_cpu_started_ns=controller_cpu_started_ns,
+            )
+        )
         active = _ActiveRun(
             generation=generation,
             run=run,
             context=context,
             anchor_stage=anchor_stage,
             anchor_stream=anchor_stream,
+            resources=resources,
             started_monotonic=started,
         )
         # Controller overhead is recorded, never hidden. This is the only work

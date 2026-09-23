@@ -171,6 +171,34 @@ class BudgetLedgerTests(unittest.TestCase):
         with self.assertRaises(BudgetError):
             ledger.settle(second)
 
+    def test_non_finite_or_negative_runtime_measurements_are_rejected(self):
+        ledger = BudgetLedger(
+            envelope(
+                cpu_ms=1000.0,
+                verification_reserve_fraction=0.0,
+                controller_overhead_reserve_ms=0.0,
+            )
+        )
+        with self.assertRaises(BudgetError):
+            ledger.reserve("nan", cpu_ms=float("nan"))
+        reservation = ledger.reserve("worker", cpu_ms=100.0)
+        for bad in (float("nan"), float("inf"), -1.0):
+            with self.subTest(actual_cpu_ms=bad):
+                with self.assertRaises(BudgetError):
+                    ledger.settle(reservation, actual_cpu_ms=bad)
+        # Invalid settlement must not consume/drop the open reservation.
+        self.assertEqual(ledger.snapshot()["open_reservations"], 1)
+        ledger.release(reservation)
+
+        for bad in (float("nan"), float("inf"), -1.0):
+            with self.subTest(native_work=bad):
+                with self.assertRaises(BudgetError):
+                    ledger.record_native_work(
+                        "shadow:stockfish",
+                        value=bad,
+                        semantics="stockfish.uci_nodes",
+                    )
+
     def test_controller_overhead_is_charged_to_the_same_envelope(self):
         ledger = BudgetLedger(envelope())
         before = ledger.snapshot()["lanes"].get("controller")

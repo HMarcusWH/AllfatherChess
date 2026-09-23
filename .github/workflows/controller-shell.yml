@@ -8,9 +8,12 @@ on:
     paths:
       - controller/**
       - adapters/process/**
+      - adapters/resource/**
       - config/**
       - allfather-chess
       - tests/adapters/test_uci_process.py
+      - tests/adapters/test_linux_proc_resource.py
+      - tests/fixtures/resource_worker.py
       - tests/controller/**
       - tests/fixtures/fake_uci_engine.py
       - tests/harness/**
@@ -29,6 +32,7 @@ on:
       - docs/DECISION_AUTHORITY.md
       - docs/VALUE_OF_COMPUTE.md
       - docs/STRENGTH_BACKENDS.md
+      - docs/RESOURCE_ACCOUNTING.md
       - qualification/**
       - Makefile
       - .github/workflows/controller-shell.yml
@@ -36,9 +40,12 @@ on:
     paths:
       - controller/**
       - adapters/process/**
+      - adapters/resource/**
       - config/**
       - allfather-chess
       - tests/adapters/test_uci_process.py
+      - tests/adapters/test_linux_proc_resource.py
+      - tests/fixtures/resource_worker.py
       - tests/controller/**
       - tests/fixtures/fake_uci_engine.py
       - tests/harness/**
@@ -57,6 +64,7 @@ on:
       - docs/DECISION_AUTHORITY.md
       - docs/VALUE_OF_COMPUTE.md
       - docs/STRENGTH_BACKENDS.md
+      - docs/RESOURCE_ACCOUNTING.md
       - qualification/**
       - Makefile
       - .github/workflows/controller-shell.yml
@@ -80,13 +88,16 @@ jobs:
 
       - name: Compile controller shell
         run: |
-          python3 -m py_compile allfather-chess controller/*.py common/*.py adapters/process/*.py adapters/telemetry/*.py tests/fixtures/*.py tests/harness/*.py tests/adapters/test_uci_process.py tests/controller/*.py
-          python3 -m py_compile scripts/shard-ledger-contract.py scripts/prefix-shard-contract.py scripts/refinement-execution-contract.py scripts/active-specialist-contract.py scripts/crossfeed-contract.py scripts/counterfactual-decision-contract.py scripts/counterfactual-decision-sweep.py scripts/value-of-compute-contract.py scripts/value-of-compute-sweep.py scripts/decision-calibration.py scripts/lc0-strength-lock.py scripts/fetch-lc0-network.py scripts/lc0-hardware-probe.py scripts/lc0-strength-profile-contract.py scripts/refinement-evidence-sweep.py scripts/shadow-execution-contract.py scripts/verification-execution-contract.py scripts/verification-analysis-contract.py scripts/verification-analysis.py scripts/verification-evidence-sweep.py scripts/active-routing-contract.py scripts/residual-calibration.py scripts/shadow-evidence-sweep.py
+          python3 -m py_compile allfather-chess controller/*.py common/*.py adapters/process/*.py adapters/resource/*.py adapters/telemetry/*.py tests/fixtures/*.py tests/harness/*.py tests/adapters/test_uci_process.py tests/adapters/test_linux_proc_resource.py tests/controller/*.py
+          python3 -m py_compile scripts/resource-accounting-contract.py scripts/shard-ledger-contract.py scripts/prefix-shard-contract.py scripts/refinement-execution-contract.py scripts/active-specialist-contract.py scripts/crossfeed-contract.py scripts/counterfactual-decision-contract.py scripts/counterfactual-decision-sweep.py scripts/value-of-compute-contract.py scripts/value-of-compute-sweep.py scripts/decision-calibration.py scripts/lc0-strength-lock.py scripts/fetch-lc0-network.py scripts/lc0-hardware-probe.py scripts/lc0-strength-profile-contract.py scripts/refinement-evidence-sweep.py scripts/shadow-execution-contract.py scripts/verification-execution-contract.py scripts/verification-analysis-contract.py scripts/verification-analysis.py scripts/verification-evidence-sweep.py scripts/active-routing-contract.py scripts/residual-calibration.py scripts/shadow-evidence-sweep.py
           for config in config/*.json; do python3 -m json.tool "$config" >/dev/null; done
           ./allfather-chess --help >/dev/null
 
       - name: Validate process adapter
         run: python3 tests/adapters/test_uci_process.py
+
+      - name: Validate measured resource accounting primitives
+        run: make resource-measurement-tests
 
       - name: Validate transactional runtime
         run: python3 tests/controller/test_runtime.py

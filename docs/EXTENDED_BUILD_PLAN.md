@@ -1960,13 +1960,19 @@ The shortest form of the remaining programme is:
 PR #19–20
 extended build-plan documentation (merged)
         ↓
-PR #21–25
-typed cross-feed evidence + counterfactual decisions + value-of-compute + real backend/resource qualification
+PR #21–24
+typed cross-feed + counterfactual decisions + prospective value-of-compute + real LC0 reference qualification (merged)
         ↓
-M14-C–30
-bounded hybrid decision authority + recursive refinement + engine-specific cross-feed + regime/value routing
+post-PR #24 hardening
+provenance + liveness + replay integrity + CI/supply-chain repair
         ↓
-M14-H–32
+M14-B
+measured process/resource accounting
+        ↓
+M14-C–G
+bounded hybrid authority + recursive refinement + engine-specific cross-feed + regime/value routing
+        ↓
+M14-H–I
 measured transport / selective native optimization
         ↓
 M15-A

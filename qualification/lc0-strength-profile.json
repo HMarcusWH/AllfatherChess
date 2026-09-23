@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "profile_id": "lc0-strength-v1",
   "qualification_tier": "real-inference-reference",
   "strength_campaign_eligible": false,
@@ -50,5 +50,11 @@
   "warmup": {
     "policy": "one-fixed-node-search",
     "nodes": 64
+  },
+  "resource_measurement": {
+    "provider": "linux-procfs-v1",
+    "require_cpu": true,
+    "require_gpu": false,
+    "record_memory": true
   }
 }

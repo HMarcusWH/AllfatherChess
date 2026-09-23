@@ -56,7 +56,7 @@ from controller.replay_analysis import SearchTrajectory, reconstruct_stream
 from controller.shadow import RouterCommand
 
 
-ROUTE_SCHEMA_VERSION = 1
+ROUTE_SCHEMA_VERSION = 2
 #: Engine-native counters that really are alpha-beta node counts, and so share
 #: the `min_observation_nodes` floor.
 _ALPHA_BETA_NODE_SEMANTICS = ("stockfish.uci_nodes", "reckless.uci_nodes")
@@ -717,13 +717,47 @@ class ConservativeRouter:
             )
 
         if self._anchor_reservation is not None:
-            # The anchor is charged its full declared reservation, not a
-            # measured value: shadow finalization happens before the anchor
-            # completes, so the controller cannot observe the real figure here.
-            # Charging the reservation errs toward over-counting, which is the
-            # safe direction for an envelope claim.
-            self.ledger.settle(self._anchor_reservation)
+            anchor_cpu: float | None = None
+            anchor_source = "declared_fallback"
+            try:
+                anchor_resource = context.anchor_resource()
+            except AttributeError:  # pragma: no cover - older/fake contexts
+                anchor_resource = None
+            if isinstance(anchor_resource, dict) and anchor_resource.get("complete") is True:
+                value = anchor_resource.get("cpu_ms")
+                if isinstance(value, (int, float)) and not isinstance(value, bool):
+                    anchor_cpu = float(value)
+                    anchor_source = "measured"
+            self.ledger.settle(
+                self._anchor_reservation,
+                actual_cpu_ms=anchor_cpu,
+                cpu_source=anchor_source,
+            )
             self._anchor_reservation = None
+
+        try:
+            resource_required = bool(context.resource_measurement_required())
+        except AttributeError:  # pragma: no cover - older/fake contexts
+            resource_required = False
+        try:
+            resource_summary = context.seal_resource_report()
+        except AttributeError:  # pragma: no cover
+            resource_summary = None
+
+        resource_qualified = not resource_required
+        physical_cpu_within = not resource_required
+        cpu_measurement = "stage_wall_ms_x_configured_threads"
+        if isinstance(resource_summary, dict):
+            if resource_required:
+                resource_qualified = bool(resource_summary.get("qualified"))
+            physical_cpu = resource_summary.get("physical_cpu_ms")
+            if isinstance(physical_cpu, (int, float)) and not isinstance(physical_cpu, bool):
+                physical_cpu_within = float(physical_cpu) <= self.envelope.cpu_ms
+            elif resource_required:
+                physical_cpu_within = False
+            provider = resource_summary.get("provider")
+            if resource_summary.get("qualified") and isinstance(provider, str):
+                cpu_measurement = provider
 
         payload = {
             "schema_version": ROUTE_SCHEMA_VERSION,
@@ -733,6 +767,7 @@ class ConservativeRouter:
             "envelope": self.envelope.as_dict(),
             "calibration": self._calibration_provenance(),
             "budget": self.ledger.snapshot(),
+            "resource_measurement": resource_summary,
             "envelope_claim": {
                 # Reservation accounting staying inside B is necessary but not
                 # sufficient: if the outward request itself is not bounded by the
@@ -753,10 +788,10 @@ class ConservativeRouter:
                 "wall_within_envelope": (
                     self.ledger.elapsed_ms() <= self.envelope.wall_ms
                 ),
-                # CPU spend is derived from stage wall time scaled by each
-                # engine's configured thread count. That is an estimate, not a
-                # measurement of process CPU, and is labelled as such.
-                "cpu_measurement": "stage_wall_ms_x_configured_threads",
+                "cpu_measurement": cpu_measurement,
+                "physical_measurement_required": resource_required,
+                "physical_measurement_qualified": resource_qualified,
+                "physical_cpu_within_envelope": physical_cpu_within,
                 "claimed": (
                     self._anchor_bound[0]
                     and self._anchor_reserved
@@ -765,6 +800,8 @@ class ConservativeRouter:
                     and self.ledger.within_partition_caps()
                     and not self._specialist_unresolved
                     and self.ledger.elapsed_ms() <= self.envelope.wall_ms
+                    and resource_qualified
+                    and physical_cpu_within
                 ),
             },
             "decisions": audit.decisions,
@@ -938,21 +975,26 @@ class ConservativeRouter:
         *,
         actual_wall_ms: float | None = None,
         threads: int = 1,
+        actual_cpu_ms: float | None = None,
+        measurement_source: str = "estimated_fallback",
     ) -> None:
-        """Settle one dispatched specialist reservation.
-
-        CPU is estimated with the same wall-ms × configured-threads convention
-        used by ordinary active shadow stages. GPU remains the declared
-        reservation until process-level accelerator accounting exists.
-        """
+        """Settle one VERIFY/REFINE reservation without conflating estimate and fact."""
 
         reservation = self._specialist_reservations.pop(token, None)
         if reservation is None:
             return
-        actual_cpu = None
-        if actual_wall_ms is not None:
+        actual_cpu = actual_cpu_ms
+        source = measurement_source
+        if actual_cpu is None and actual_wall_ms is not None:
             actual_cpu = max(0.0, float(actual_wall_ms)) * max(1, int(threads))
-        self.ledger.settle(reservation, actual_cpu_ms=actual_cpu)
+            source = "estimated_fallback"
+        if actual_cpu is None:
+            source = "declared_fallback"
+        self.ledger.settle(
+            reservation,
+            actual_cpu_ms=actual_cpu,
+            cpu_source=source,
+        )
         if self.audit is not None:
             self.audit.record_specialist(
                 {
@@ -967,6 +1009,7 @@ class ConservativeRouter:
                     "actual_cpu_ms": (
                         reservation.cpu_ms if actual_cpu is None else actual_cpu
                     ),
+                    "cpu_source": source,
                     "granted": True,
                     "reason": "settled dispatched specialist work",
                 }
@@ -1123,24 +1166,41 @@ class ConservativeRouter:
         return commands
 
     def _settle_owner(self, context: Any, owner: str) -> None:
-        """Charge stage CPU, falling back to the declared estimate.
+        """Charge one EXPLORE stage from physical CPU when available.
 
-        Stage *wall* time is not stage *CPU* time. An engine configured with
-        `Threads: 4` running for 400 ms consumed roughly 1600 CPU-ms, and
-        charging 400 would let the ledger report compliance after the processes
-        had already exceeded `cpu_ms`. Nothing here measures process CPU, so the
-        wall duration is scaled by the engine's declared thread count; the claim
-        records that this is an estimate rather than a measurement.
+        Reservation size remains an admission-time declaration. A complete
+        procfs measurement becomes settlement spend; otherwise the pre-M14-B
+        wall-times-threads estimate remains a conservative development fallback
+        and is labelled as such in the ledger.
         """
-        measured = None
+        actual_cpu = None
+        source = "estimated_fallback"
         try:
-            measured = context.owner_last_stage_ms(owner)
-        except AttributeError:  # pragma: no cover - defensive against older contexts
-            measured = None
-        if measured is not None:
-            measured = float(measured) * self._owner_threads(context, owner)
+            resource = context.owner_last_stage_resource(owner)
+        except AttributeError:  # pragma: no cover - older contexts
+            resource = None
+        if isinstance(resource, dict) and resource.get("complete") is True:
+            value = resource.get("cpu_ms")
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                actual_cpu = float(value)
+                source = "measured"
+
+        if actual_cpu is None:
+            wall_ms = None
+            try:
+                wall_ms = context.owner_last_stage_ms(owner)
+            except AttributeError:  # pragma: no cover
+                wall_ms = None
+            if wall_ms is not None:
+                actual_cpu = float(wall_ms) * self._owner_threads(context, owner)
+                source = "estimated_fallback"
+
         for reservation in self._reservations.pop(owner, []):
-            self.ledger.settle(reservation, actual_cpu_ms=measured)
+            self.ledger.settle(
+                reservation,
+                actual_cpu_ms=actual_cpu,
+                cpu_source=(source if actual_cpu is not None else "declared_fallback"),
+            )
 
     def _record_final_native_work(self, context: Any) -> None:
         """Reconstruct each worker's last reported counter before finalizing."""
@@ -1398,27 +1458,12 @@ class ConservativeRouter:
     def _to_command(self, decision: RouteDecision, context: Any = None) -> RouterCommand | None:
         owner = decision.observation.owner
         if decision.action is RouteAction.STOP_WORKER and decision.granted:
-            # The worker already burned CPU producing the observations that
-            # authorized this stop. Releasing the whole reservation would record
-            # none of it, free capacity that was in fact consumed, and let
-            # route.json claim envelope compliance while omitting the work.
-            consumed = self._consumed_ms(context, owner)
-            if consumed is not None:
-                # Same scaling as `_settle_owner`. Adding it there only left
-                # this path charging a four-thread worker stopped after 400 ms
-                # as 400 CPU-ms rather than 1600, so an authorized stop could
-                # leave the envelope falsely compliant.
-                consumed = float(consumed) * self._owner_threads(context, owner)
-            reservations = self._reservations.pop(owner, [])
-            for index, reservation in enumerate(reservations):
-                if index == len(reservations) - 1 and consumed is not None:
-                    # Unclamped on purpose: a stage that outran its estimate
-                    # really did consume that CPU, and BudgetLedger.settle
-                    # supports charging above the reservation. Clamping would
-                    # free capacity that was spent and understate the run.
-                    self.ledger.settle(reservation, actual_cpu_ms=consumed)
-                else:
-                    self.ledger.release(reservation)
+            # Keep the reservation open until the backend actually terminates
+            # the stage. Settling here used the checkpoint timestamp and omitted
+            # CPU consumed between the stop request and the terminal bestmove.
+            # The completion/finalization path now takes the physical endpoint
+            # sample and settles the reservation from that measurement. Holding
+            # capacity until then is conservative and prevents phantom reuse.
             return RouterCommand(action="stop_worker", owner=owner, reason=decision.reason)
         if (
             decision.action in (RouteAction.EXTEND, RouteAction.ABSTAIN_BUY_COMPUTE)

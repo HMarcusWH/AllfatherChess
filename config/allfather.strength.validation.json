@@ -111,5 +111,12 @@
   "counterfactual": {
     "enabled": true,
     "policy": "unanimous_verify_v1"
+  },
+  "resource_measurement": {
+    "enabled": true,
+    "provider": "linux-procfs-v1",
+    "require_cpu_for_claim": true,
+    "require_gpu_for_claim": false,
+    "record_memory": true
   }
 }

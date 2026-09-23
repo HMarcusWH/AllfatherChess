@@ -67,6 +67,15 @@ class StrengthProfileStaticTests(unittest.TestCase):
                 "libopenblas-dev",
             },
         )
+        self.assertEqual(
+            self.profile["resource_measurement"],
+            {
+                "provider": "linux-procfs-v1",
+                "require_cpu": True,
+                "require_gpu": False,
+                "record_memory": True,
+            },
+        )
 
     def test_strength_runtime_matches_lock_and_profile(self):
         validate_runtime_config(self.config, self.lock, self.profile)
@@ -76,6 +85,16 @@ class StrengthProfileStaticTests(unittest.TestCase):
             self.config["shadow"]["lc0_score_type"],
         )
         self.assertEqual(lc0["options"]["Backend"], "blas")
+        self.assertEqual(
+            self.config["resource_measurement"],
+            {
+                "enabled": True,
+                "provider": "linux-procfs-v1",
+                "require_cpu_for_claim": True,
+                "require_gpu_for_claim": False,
+                "record_memory": True,
+            },
+        )
 
     def test_random_backend_is_rejected(self):
         profile = copy.deepcopy(self.profile)

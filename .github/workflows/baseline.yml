@@ -61,6 +61,7 @@ jobs:
             scripts/prefix-shard-contract.py \
             scripts/refinement-execution-contract.py \
             scripts/active-specialist-contract.py \
+            scripts/resource-accounting-contract.py \
             scripts/crossfeed-contract.py \
             scripts/counterfactual-decision-contract.py \
             scripts/counterfactual-decision-sweep.py \
@@ -85,13 +86,16 @@ jobs:
             scripts/shadow-evidence-sweep.py \
             tests/harness/*.py \
             tests/adapters/test_uci_process.py \
+            tests/adapters/test_linux_proc_resource.py \
             tests/controller/*.py \
             tests/fixtures/fake_uci_engine.py \
+            tests/fixtures/resource_worker.py \
             common/*.py \
             controller/*.py \
             adapters/*.py \
             adapters/telemetry/*.py \
             adapters/process/*.py \
+            adapters/resource/*.py \
             tests/telemetry/test_adapters.py
           for config in config/*.json; do python3 -m json.tool "$config" >/dev/null; done
           bash -n scripts/vendor-engines.sh
@@ -169,6 +173,9 @@ jobs:
       - name: Verify active VERIFY REFINE specialist envelope
         run: python3 scripts/active-specialist-contract.py
 
+      - name: Verify measured process resource accounting
+        run: python3 scripts/resource-accounting-contract.py
+
       - name: Verify real-engine typed cross-feed contract
         run: python3 scripts/crossfeed-contract.py
 
@@ -208,6 +215,7 @@ jobs:
             build/test-results/prefix-shards
             build/test-results/refine-execution
             build/test-results/active-specialist
+            build/test-results/resource-accounting
             build/test-results/crossfeed
             build/test-results/counterfactual
             build/test-results/value-of-compute

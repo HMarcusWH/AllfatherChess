@@ -61,6 +61,7 @@ from controller.decision import (
     freeze_decision_proposal,
 )
 from controller.replay import ReplayRun, StageRecord, TelemetryStreamWriter, sha256_file
+from controller.resource_measurement import ResourceMeasurementRun, StageResourceMeasurement
 from controller.prefix_shards import PrefixShardLedger, PrefixShardLedgerError
 from controller.refinement import (
     RefinementError,
@@ -120,6 +121,8 @@ class ShadowRouter(Protocol):
         *,
         actual_wall_ms: float | None = None,
         threads: int = 1,
+        actual_cpu_ms: float | None = None,
+        measurement_source: str = "estimated_fallback",
     ) -> None:
         ...
 
@@ -234,7 +237,7 @@ class RunContext:
         return owner if state is None else state.family
 
     def owner_last_stage_ms(self, owner: str) -> float | None:
-        """Measured duration of this worker's most recent finished stage."""
+        """Measured wall duration of this worker's most recent finished stage."""
         state = self._coordinator._owner_state(self.generation, owner)
         if state is None or state.stage is None:
             return None
@@ -242,6 +245,29 @@ class RunContext:
         if stage.completed_ms is None:
             return None
         return max(0.0, stage.completed_ms - stage.dispatched_ms)
+
+    def owner_last_stage_resource(self, owner: str) -> dict[str, object] | None:
+        """Physical process measurement for the most recent owner stage."""
+        state = self._coordinator._owner_state(self.generation, owner)
+        if state is None or state.stage is None:
+            return None
+        return self._coordinator._resource_measurement(
+            self.generation,
+            state.stage.search_id,
+            finish=True,
+        )
+
+    def anchor_resource(self) -> dict[str, object] | None:
+        """Physical process measurement for the outward anchor search."""
+        return self._coordinator._anchor_resource_measurement(self.generation)
+
+    def seal_resource_report(self) -> dict[str, object] | None:
+        """Persist resource.json and return its content-addressed summary."""
+        return self._coordinator._seal_resource_report(self.generation)
+
+    def resource_measurement_required(self) -> bool:
+        settings = self._coordinator.runtime.config.resource_measurement
+        return bool(settings is not None and settings.require_cpu_for_claim)
 
     def owner_events(self, owner: str) -> list[dict[str, Any]]:
         """Telemetry events written so far for this worker.
@@ -331,6 +357,7 @@ class _ActiveRun:
     owners: dict[str, _OwnerState] = field(default_factory=dict)
     anchor_stage: StageRecord | None = None
     anchor_stream: TelemetryStreamWriter | None = None
+    resources: ResourceMeasurementRun | None = None
     ledger: RootShardLedger | None = None
     verification: VerificationRun | None = None
     refinement: RefinementRun | None = None
@@ -345,6 +372,7 @@ class _ActiveRun:
     finished: threading.Event = field(default_factory=threading.Event)
     anchor_done: threading.Event = field(default_factory=threading.Event)
     anchor_completed: threading.Event = field(default_factory=threading.Event)
+    anchor_resource_done: threading.Event = field(default_factory=threading.Event)
     started_monotonic: float = 0.0
     #: True while the legal-root oracle request is outstanding. Owner states do
     #: not exist yet at that point, so without this the quiesce barrier sees no
@@ -645,6 +673,7 @@ class ShadowRunCoordinator:
         # against a 1000 ms envelope, and the same milliseconds went uncharged
         # as controller overhead. Preparation is bounded, not free.
         started = time.monotonic()
+        controller_cpu_started_ns = time.process_time_ns()
         # One deadline for every pre-anchor filesystem step, taken from the
         # same origin as the run clock.
         prepare_deadline = started + max(0.001, float(self.settings.prepare_budget_s))
@@ -750,12 +779,29 @@ class ShadowRunCoordinator:
             started_monotonic=started,
             _coordinator=self,
         )
+        resource_settings = self.runtime.config.resource_measurement
+        resources = (
+            None
+            if resource_settings is None
+            else ResourceMeasurementRun(
+                run_id=run_id,
+                settings=resource_settings,
+                controller_cpu_started_ns=controller_cpu_started_ns,
+            )
+        )
+        if resources is not None and resources.settings.enabled:
+            for instance in sorted(self.runtime.backends):
+                resources.register_process(
+                    instance=instance,
+                    pid=self.runtime.process_pid(instance),
+                )
         active = _ActiveRun(
             generation=generation,
             run=run,
             context=context,
             anchor_stage=anchor_stage,
             anchor_stream=anchor_stream,
+            resources=resources,
             started_monotonic=started,
         )
         # Controller overhead is recorded, never hidden. This is the only work
@@ -855,10 +901,27 @@ class ShadowRunCoordinator:
         # configuration choice, never an implicit one.
         if self.settings.on_anchor_complete == "cancel":
             # This runs on the ANCHOR's stdout reader thread, which is the
-            # thread that carries the outward `bestmove`. A shadow whose stdin
-            # blocks must not be able to stall it, so the `stop` writes are
-            # detached; `quiesce()` joins them before any state change.
+            # thread that carries the outward bestmove. A shadow whose stdin
+            # blocks must not be able to stall it, so the stop writes are
+            # detached; quiesce() joins them before any state change.
             self.cancel(generation, reason="anchor_complete", detach=True)
+
+    def note_anchor_emitted(self, generation: int) -> None:
+        """Take the terminal anchor sample only after bestmove left stdout.
+
+        Procfs reads are evidence work. Even tiny filesystem reads may not sit
+        in front of the authority write, so the frontend calls this after
+        emitting bestmove. The shadow worker, not the authority thread, waits
+        for this measurement before sealing the resource certificate.
+        """
+        with self._lock:
+            active = self._run
+            if active is None or active.generation != generation:
+                return
+            stage = active.anchor_stage
+        if stage is not None:
+            self._finish_resource_stage(active, stage.search_id)
+        active.anchor_resource_done.set()
 
     def _on_shadow_exit(self, instance: str, rc: int | None, token: int | None) -> None:
         with self._lock:
@@ -886,6 +949,7 @@ class ShadowRunCoordinator:
                     dispatched_ms=refinement_stage.dispatched_ms,
                     completed_ms=elapsed,
                     instance=refinement_stage.instance,
+                    resource_key=refinement_stage.search_id,
                 )
                 active.refinement.record_completion(
                     refinement_stage,
@@ -906,6 +970,7 @@ class ShadowRunCoordinator:
                     dispatched_ms=verification_stage.dispatched_ms,
                     completed_ms=elapsed,
                     instance=verification_stage.instance,
+                    resource_key=verification_stage.search_id,
                 )
                 active.verification.record_completion(
                     verification_stage,
@@ -943,6 +1008,150 @@ class ShadowRunCoordinator:
             if active is None or active.generation != generation:
                 return None
             return active.owners.get(owner)
+
+    # ------------------------------------------------------------------
+    # physical resource measurement
+    # ------------------------------------------------------------------
+
+    def _begin_resource_stage(
+        self,
+        active: _ActiveRun,
+        *,
+        key: str,
+        instance: str,
+        phase: str,
+    ) -> None:
+        resources = active.resources
+        if resources is None:
+            return
+        try:
+            resources.begin_stage(
+                key=key,
+                instance=instance,
+                phase=phase,
+                pid=self.runtime.process_pid(instance),
+            )
+        except Exception as exc:
+            # Measurement is evidence, never chess authority. A failed sample
+            # invalidates the measured-resource certificate but may not stop the
+            # already-authorized search.
+            active.run.note(
+                f"resource measurement could not begin for {key}: "
+                f"{type(exc).__name__}: {exc}"
+            )
+
+    def _finish_resource_stage(
+        self,
+        active: _ActiveRun,
+        key: str,
+    ) -> StageResourceMeasurement | None:
+        resources = active.resources
+        if resources is None:
+            return None
+        try:
+            return resources.finish_stage(key)
+        except Exception as exc:
+            active.run.note(
+                f"resource measurement could not finish for {key}: "
+                f"{type(exc).__name__}: {exc}"
+            )
+            return None
+
+    def _abandon_resource_stage(
+        self,
+        active: _ActiveRun,
+        key: str,
+        *,
+        reason: str,
+    ) -> None:
+        resources = active.resources
+        if resources is None:
+            return
+        try:
+            resources.abandon_stage(key, reason=reason)
+        except Exception as exc:
+            active.run.note(
+                f"resource measurement could not abandon {key}: "
+                f"{type(exc).__name__}: {exc}"
+            )
+
+    def _resource_measurement(
+        self,
+        generation: int,
+        key: str,
+        *,
+        finish: bool = False,
+    ) -> dict[str, object] | None:
+        with self._lock:
+            active = self._run
+            if active is None or active.generation != generation or active.resources is None:
+                return None
+            resources = active.resources
+        try:
+            measurement = (
+                resources.finish_or_measurement(key)
+                if finish
+                else resources.measurement(key)
+            )
+        except Exception as exc:
+            active.run.note(
+                f"resource lookup failed for {key}: {type(exc).__name__}: {exc}"
+            )
+            return None
+        return None if measurement is None else measurement.as_dict()
+
+    def _anchor_resource_measurement(
+        self,
+        generation: int,
+    ) -> dict[str, object] | None:
+        with self._lock:
+            active = self._run
+            if active is None or active.generation != generation or active.anchor_stage is None:
+                return None
+            key = active.anchor_stage.search_id
+        return self._resource_measurement(generation, key, finish=True)
+
+    def _seal_resource_report(self, generation: int) -> dict[str, object] | None:
+        with self._lock:
+            active = self._run
+            if active is None or active.generation != generation or active.resources is None:
+                return None
+            resources = active.resources
+            path = active.run.run_dir / "resource.json"
+        try:
+            return resources.seal(path)
+        except Exception as exc:
+            active.run.note(
+                f"resource report could not be sealed: {type(exc).__name__}: {exc}"
+            )
+            return {
+                "path": "resource.json",
+                "sha256": None,
+                "report_id": None,
+                "provider": resources.provider_id,
+                "qualified": False,
+                "physical_cpu_ms": None,
+                "coverage": {
+                    "cpu": {"required": True, "complete": False},
+                    "gpu": {"required": False, "complete": False},
+                },
+                "error": f"{type(exc).__name__}: {exc}",
+            }
+
+    def note_anchor_dispatch(self, generation: int) -> None:
+        """Take the anchor's physical start sample immediately before go."""
+        with self._lock:
+            active = self._run
+            if active is None or active.generation != generation or active.anchor_stage is None:
+                return
+            key = active.anchor_stage.search_id
+            instance = self.runtime.anchor_name
+        self._begin_resource_stage(
+            active,
+            key=key,
+            instance=instance,
+            phase="ANCHOR",
+        )
 
     # ------------------------------------------------------------------
     # cancellation and draining
@@ -1118,6 +1327,7 @@ class ShadowRunCoordinator:
                         dispatched_ms=stage.dispatched_ms,
                         completed_ms=failed_ms,
                         instance=stage.instance,
+                        resource_key=stage.search_id,
                     )
                     active.verification.record_completion(
                         stage,
@@ -1142,6 +1352,7 @@ class ShadowRunCoordinator:
                         dispatched_ms=stage.dispatched_ms,
                         completed_ms=failed_ms,
                         instance=stage.instance,
+                        resource_key=stage.search_id,
                     )
                     active.refinement.record_completion(
                         stage,
@@ -1267,6 +1478,7 @@ class ShadowRunCoordinator:
                             dispatched_ms=stage.dispatched_ms,
                             completed_ms=failed_ms,
                             instance=stage.instance,
+                            resource_key=stage.search_id,
                         )
                         active.verification.record_completion(
                             stage,
@@ -1295,6 +1507,7 @@ class ShadowRunCoordinator:
                             dispatched_ms=stage.dispatched_ms,
                             completed_ms=failed_ms,
                             instance=stage.instance,
+                            resource_key=stage.search_id,
                         )
                         active.refinement.record_completion(
                             stage,
@@ -1349,6 +1562,28 @@ class ShadowRunCoordinator:
                             "the authority stream is incomplete"
                         )
                         break
+                if (
+                    active.resources is not None
+                    and active.resources.settings.enabled
+                    and active.anchor_done.is_set()
+                    and not active.anchor_resource_done.wait(timeout=1.0)
+                ):
+                    active.run.note(
+                        "anchor resource terminal sample was not published within 1s; "
+                        "the measured-resource certificate will fail closed"
+                    )
+
+                # No engine work may occur after the physical process totals
+                # are sealed. Restore every temporarily positioned REFINE worker
+                # first so its cleanup CPU is included in the run-level process
+                # deltas that route.json will certify.
+                if (
+                    active.refinement is not None
+                    and not active.refinement.active_stages()
+                    and active.refinement_positioned
+                ):
+                    self._restore_all_refinement_positions(active)
+
                 # Now that the anchor has answered (or is never going to), the
                 # router's run can be closed against the whole elapsed time.
                 # Every qualification failure -- a terminal position, a dead
@@ -1364,12 +1599,16 @@ class ShadowRunCoordinator:
                         active.run.note(
                             f"router finalization error: {type(exc).__name__}: {exc}"
                         )
+
                 if (
-                    active.refinement is not None
-                    and not active.refinement.active_stages()
-                    and active.refinement_positioned
+                    active.resources is not None
+                    and active.resources.settings.enabled
+                    and self.router is None
                 ):
-                    self._restore_all_refinement_positions(active)
+                    # Active mode seals resource.json while constructing the
+                    # hash-bound route certificate. Shadow-only strength runs
+                    # have no route artifact, so finalization owns the seal.
+                    self._seal_resource_report(active.generation)
                 if active.ledger is not None:
                     active.run.post_ledger_snapshot = active.ledger.snapshot()
                 active.run.shadow_health = {
@@ -1480,7 +1719,16 @@ class ShadowRunCoordinator:
         dispatched_ms: float,
         completed_ms: float,
         instance: str,
+        resource_key: str | None = None,
     ) -> None:
+        measured_cpu: float | None = None
+        source = "estimated_fallback"
+        if resource_key is not None:
+            measured = self._finish_resource_stage(active, resource_key)
+            if measured is not None and measured.complete and measured.cpu_ms is not None:
+                measured_cpu = float(measured.cpu_ms)
+                source = "measured"
+
         token = active.specialist_tokens.pop(key, None)
         if token is None or self.router is None:
             return
@@ -1497,6 +1745,8 @@ class ShadowRunCoordinator:
                 token,
                 actual_wall_ms=max(0.0, completed_ms - dispatched_ms),
                 threads=threads,
+                actual_cpu_ms=measured_cpu,
+                measurement_source=source,
             )
         except Exception as exc:  # pragma: no cover - router isolation
             active.run.note(
@@ -1553,6 +1803,15 @@ class ShadowRunCoordinator:
             return "cancelled", active.cancel_reason
 
         # 1. Legal-root qualification on the dedicated shadow oracle.
+        qualification_resource_key = (
+            f"{run.run_id}:qualification:{self.settings.oracle}"
+        )
+        self._begin_resource_stage(
+            active,
+            key=qualification_resource_key,
+            instance=self.settings.oracle,
+            phase="QUALIFY",
+        )
         with self._lock:
             active.qualifying = True
         try:
@@ -1561,6 +1820,7 @@ class ShadowRunCoordinator:
             run.note(f"legal-root oracle unavailable: {exc}")
             return "oracle_failed", str(exc)
         finally:
+            self._finish_resource_stage(active, qualification_resource_key)
             with self._lock:
                 active.qualifying = False
         run.oracle_root_count = len(roots)
@@ -1947,6 +2207,12 @@ class ShadowRunCoordinator:
                 command=command,
                 dispatched_ms=(time.monotonic() - active.started_monotonic) * 1000.0,
             )
+            self._begin_resource_stage(
+                active,
+                key=search_id,
+                instance=instance,
+                phase="VERIFY",
+            )
             dispatched = self.runtime.start_shadow_search(
                 instance,
                 command,
@@ -1955,6 +2221,11 @@ class ShadowRunCoordinator:
                 on_complete=on_complete,
             )
         if not dispatched:
+            self._abandon_resource_stage(
+                active,
+                search_id,
+                reason="VERIFY backend dispatch was rejected",
+            )
             self._release_specialist(
                 active,
                 key=reservation_key,
@@ -2029,6 +2300,7 @@ class ShadowRunCoordinator:
             dispatched_ms=stage.dispatched_ms,
             completed_ms=elapsed,
             instance=stage.instance,
+            resource_key=stage.search_id,
         )
 
         if failure is not None:
@@ -2095,6 +2367,7 @@ class ShadowRunCoordinator:
                         dispatched_ms=stage.dispatched_ms,
                         completed_ms=failed_ms,
                         instance=stage.instance,
+                        resource_key=stage.search_id,
                     )
                     verification.record_completion(
                         stage,
@@ -2239,6 +2512,15 @@ class ShadowRunCoordinator:
                 oracle_dispatched_ms = (
                     time.monotonic() - active.started_monotonic
                 ) * 1000.0
+                oracle_resource_key = (
+                    f"{active.run.run_id}:refine-oracle:{target.target_id}"
+                )
+                self._begin_resource_stage(
+                    active,
+                    key=oracle_resource_key,
+                    instance=self.settings.oracle,
+                    phase="REFINE_ORACLE",
+                )
             try:
                 children = self.runtime.legal_moves_at_shadow_position(
                     instance=self.settings.oracle,
@@ -2262,6 +2544,7 @@ class ShadowRunCoordinator:
                     dispatched_ms=oracle_dispatched_ms,
                     completed_ms=oracle_completed_ms,
                     instance=self.settings.oracle,
+                    resource_key=oracle_resource_key,
                 )
                 with self._lock:
                     active.refinement_oracle_active = False
@@ -2603,6 +2886,12 @@ class ShadowRunCoordinator:
                 prefixes=prefixes,
                 dispatched_ms=(time.monotonic() - active.started_monotonic) * 1000.0,
             )
+            self._begin_resource_stage(
+                active,
+                key=search_id,
+                instance=instance,
+                phase="REFINE",
+            )
             dispatched = self.runtime.start_shadow_search(
                 instance,
                 dispatch.go_command,
@@ -2611,6 +2900,11 @@ class ShadowRunCoordinator:
                 on_complete=on_complete,
             )
         if not dispatched:
+            self._abandon_resource_stage(
+                active,
+                search_id,
+                reason="REFINE backend dispatch was rejected",
+            )
             self._release_specialist(
                 active,
                 key=reservation_key,
@@ -2695,6 +2989,7 @@ class ShadowRunCoordinator:
             dispatched_ms=stage.dispatched_ms,
             completed_ms=elapsed,
             instance=stage.instance,
+            resource_key=stage.search_id,
         )
 
         target_abort = refinement.target_abort_requested(target_id)
@@ -2791,6 +3086,7 @@ class ShadowRunCoordinator:
                         dispatched_ms=stage.dispatched_ms,
                         completed_ms=failed_ms,
                         instance=stage.instance,
+                        resource_key=stage.search_id,
                     )
                     refinement.record_completion(
                         stage,
@@ -2985,6 +3281,12 @@ class ShadowRunCoordinator:
             )
             state.stage = stage
             state.done.clear()
+            self._begin_resource_stage(
+                active,
+                key=search_id,
+                instance=state.instance,
+                phase="EXPLORE",
+            )
 
             dispatched = self.runtime.start_shadow_search(
                 state.instance,
@@ -2994,6 +3296,11 @@ class ShadowRunCoordinator:
                 on_complete=on_complete,
             )
         if not dispatched:
+            self._abandon_resource_stage(
+                active,
+                search_id,
+                reason="EXPLORE backend dispatch was rejected",
+            )
             state.failed = True
             run.record_completion(
                 stage,
@@ -3018,6 +3325,7 @@ class ShadowRunCoordinator:
             elapsed = (time.monotonic() - active.started_monotonic) * 1000.0
         if state is None or state.stage is None:
             return
+        self._finish_resource_stage(active, state.stage.search_id)
         tokens = line.split()
         bestmove = tokens[1] if line.startswith("bestmove ") and len(tokens) > 1 else None
         state.last_bestmove = bestmove

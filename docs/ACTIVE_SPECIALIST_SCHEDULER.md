@@ -50,8 +50,7 @@ The same specialist fractions partition CPU and GPU. Solver/anchor work cannot
 consume the specialist partitions; VERIFY cannot consume the REFINE partition;
 REFINE cannot consume the VERIFY partition.
 
-Actual stage spend is never clamped to a reservation. If work overruns its
-estimate, the full estimated consumption is charged. A run may therefore remain
+Actual stage spend is never clamped to a reservation. M14-B settles from physical process CPU when coverage exists; if measurement is unavailable, the conservative wall×threads/declaration fallback remains explicit. An overrun is charged in full regardless of source. A run may therefore remain
 inside the global envelope while failing a declared partition cap; such a run
 cannot claim specialist-envelope compliance.
 
@@ -79,9 +78,7 @@ The router records every specialist authorization with:
 - reservation token;
 - granted/denied result and reason.
 
-Undispatched reservations are released. Dispatched stages settle measured wall
-duration multiplied by configured engine threads. GPU spend remains the
-declared estimate until process-level accelerator accounting exists.
+Undispatched reservations are released. On the Linux qualification platform, dispatched stages settle from procfs process CPU; wall duration multiplied by configured engine threads remains a labelled fallback only. GPU device-time has no qualified provider in M14-B, so any profile that requires it fails closed rather than promoting a utilization estimate to measurement.
 
 ## VERIFY
 
@@ -129,14 +126,17 @@ occupancy is made.
 ## route.json
 
 The active audit adds `specialist_actions` and purpose-partition budget totals.
-The envelope claim now requires:
+M14-B also writes content-addressed `resource.json` and binds its SHA/report id
+into `route.json`. The strongest envelope claim now requires:
 
 - bounded outward request;
 - anchor reservation;
 - declared GPU accounting;
 - global CPU/GPU envelope compliance;
 - solver/VERIFY/REFINE partition compliance;
-- wall-time compliance.
+- wall-time compliance;
+- required physical measurement coverage;
+- measured physical CPU within the declared CPU envelope.
 
 A final certificate with any open reservation is invalid.
 

@@ -104,6 +104,11 @@ class UciFrontend:
             self._active_generation = None
             self._state = ShellState.READY if self.runtime.healthy else ShellState.UNHEALTHY
         self._write(line)
+        if self.shadow is not None:
+            try:
+                self.shadow.note_anchor_emitted(token)
+            except Exception as exc:  # pragma: no cover - measurement is non-authoritative
+                self._diagnostic(f"anchor terminal resource sample failed: {exc}")
 
     def _shadow_cancel(self, reason: str, generation: int | None = None) -> None:
         """Cancel shadow observation without ever waiting on it.
@@ -208,6 +213,12 @@ class UciFrontend:
                 prepared = self.shadow.prepare_run(generation=token, go_command=command)
             except Exception as exc:  # pragma: no cover - shadow setup is non-authoritative
                 self._diagnostic(f"shadow run preparation failed: {exc}")
+
+        if prepared and self.shadow is not None:
+            try:
+                self.shadow.note_anchor_dispatch(token)
+            except Exception as exc:  # pragma: no cover - measurement is non-authoritative
+                self._diagnostic(f"anchor resource measurement setup failed: {exc}")
 
         try:
             # The outward anchor always starts first. Shadow qualification and

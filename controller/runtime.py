@@ -21,6 +21,7 @@ from typing import Callable, Iterable
 from adapters.process import UciProcess, UciProcessError
 from adapters.telemetry import SUPPORTED_SCORE_TYPES
 from common.search_request import SearchRequestError, parse_position_command
+from controller.resource_measurement import ResourceMeasurementError, ResourceMeasurementSettings
 
 
 class RuntimeError(RuntimeError):
@@ -158,6 +159,7 @@ class RuntimeConfig:
     refinement: RefinementSettings | None = None
     crossfeed: CrossFeedSettings | None = None
     counterfactual: CounterfactualSettings | None = None
+    resource_measurement: ResourceMeasurementSettings | None = None
     budget: dict[str, object] | None = None
     routing: dict[str, object] | None = None
 
@@ -800,6 +802,17 @@ def load_runtime_config(path: Path) -> RuntimeConfig:
         crossfeed=crossfeed,
     )
 
+    raw_resource = data.get("resource_measurement")
+    if raw_resource is not None:
+        raw_resource = _require_object(raw_resource, "resource_measurement")
+    try:
+        resource_measurement = ResourceMeasurementSettings.from_config(
+            raw_resource,
+            mode=str(mode),
+        )
+    except ResourceMeasurementError as exc:
+        raise RuntimeError(str(exc)) from exc
+
     budget = data.get("budget")
     if budget is not None:
         budget = _require_object(budget, "budget")
@@ -845,6 +858,7 @@ def load_runtime_config(path: Path) -> RuntimeConfig:
         refinement=refinement,
         crossfeed=crossfeed,
         counterfactual=counterfactual,
+        resource_measurement=resource_measurement,
         budget=budget,
         routing=routing,
     )
@@ -971,6 +985,11 @@ class BackendManager:
             return self.backends[instance]
         except KeyError as exc:
             raise RuntimeError(f"engine instance is not running: {instance!r}") from exc
+
+    def process_pid(self, instance: str) -> int | None:
+        """Return the live child PID used by the physical resource meter."""
+        process = self.backends.get(instance)
+        return None if process is None else process.pid
 
     # ------------------------------------------------------------------
     # health

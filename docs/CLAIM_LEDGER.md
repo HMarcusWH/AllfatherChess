@@ -689,7 +689,49 @@ Nothing below is established by this milestone.
 - equal-resource comparability against Stockfish/Reckless;
 - GPU/accelerator qualification;
 - whether BLAS is an optimal LC0 backend;
-- physical CPU/GPU accounting and scheduling cost;
+- GPU/device-time accounting and fixed-platform scheduling cost; CPU/BLAS process accounting is addressed by M14-B;
 - promotion of hybrid DecisionAuthorization;
 - strength-campaign eligibility of the GitHub-hosted CPU reference profile.
 
+
+
+## M14-B measured process resource accounting
+
+### PROVED by code/contracts once the M14-B qualification gates pass
+
+- reservation authority and physical measurement are separate: a measurement
+  can invalidate a final claim but cannot authorize a denied dispatch;
+- the Linux reference provider derives backend CPU from procfs user+system
+  ticks and binds procfs start-time identity so PID reuse is rejected;
+- procfs parsing handles the parenthesized process-name field rather than
+  assuming whitespace-safe stat records;
+- active ANCHOR, QUALIFY, EXPLORE, VERIFY, REFINE and REFINE-oracle stages are
+  bracketed by physical process samples when those phases occur;
+- whole-run backend process deltas capture engine CPU outside named search-stage
+  boundaries, while controller CPU is independently sampled with
+  `time.process_time_ns()`;
+- endpoint RSS and process-lifetime VmHWM are recorded without mislabelling
+  VmHWM as a stage-local peak;
+- `BudgetLedger` retains declared/reserved cost separately from measured,
+  estimated-fallback and declared-fallback settlement totals;
+- a stopped worker keeps its reservation until the terminal process boundary,
+  so CPU spent responding to `stop` cannot disappear;
+- `resource.json` is atomically written, content addressed, and SHA-bound into
+  active `route.json`;
+- a profile requiring physical CPU cannot produce the strongest envelope claim
+  when measurement coverage is missing or measured physical CPU exceeds the
+  declared CPU envelope;
+- the LC0 real-inference reference profile requires the same procfs CPU evidence
+  and records session/search CPU and memory alongside source/network/backend/
+  toolchain provenance;
+- GPU measurement is explicitly unsupported in M14-B; a future profile that
+  requires GPU evidence fails closed until a qualified device-time provider
+  exists.
+
+### OPEN
+
+- GPU device-time and GPU-memory qualification;
+- a fixed competitive hardware platform and match scheduler;
+- whether VERIFY/REFINE gains repay their measured physical cost;
+- any equal-resource Elo or move-quality advantage;
+- active hybrid outward DecisionAuthorization.

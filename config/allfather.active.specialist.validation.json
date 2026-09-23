@@ -131,5 +131,12 @@
     "refine_stage_gpu_ms_estimate": 0,
     "refine_oracle_cpu_ms_estimate": 200,
     "refine_oracle_gpu_ms_estimate": 0
+  },
+  "resource_measurement": {
+    "enabled": true,
+    "provider": "linux-procfs-v1",
+    "require_cpu_for_claim": true,
+    "require_gpu_for_claim": false,
+    "record_memory": true
   }
 }

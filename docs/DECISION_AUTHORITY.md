@@ -399,17 +399,20 @@ parent note
 Stockfish anchor behavior unchanged
 ```
 
-Any final artifact-sealing failure results in:
+Any derived artifact-sealing failure results in:
 
 ```text
 raw replay / VERIFY / cross-feed remain authoritative
 +
-no valid counterfactual artifact
+the affected derived audit artifact is invalid
 +
-already-emitted Stockfish move unchanged
+the already-emitted move is never rewritten
 ```
 
-No error promotes Reckless, LC0, or a stale proposal to outward authority.
+In PR #22 that emitted move is necessarily Stockfish. Under M14-C it may be
+the previously authorized HYBRID move or the deterministic anchor fallback.
+Persistence failure never promotes Reckless, LC0, or a stale proposal and never
+creates a second outward decision.
 
 ## Research sweep
 

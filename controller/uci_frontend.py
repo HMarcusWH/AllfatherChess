@@ -209,6 +209,12 @@ class UciFrontend:
             except Exception as exc:  # pragma: no cover - shadow setup is non-authoritative
                 self._diagnostic(f"shadow run preparation failed: {exc}")
 
+        if prepared and self.shadow is not None:
+            try:
+                self.shadow.note_anchor_dispatch(token)
+            except Exception as exc:  # pragma: no cover - measurement is non-authoritative
+                self._diagnostic(f"anchor resource measurement setup failed: {exc}")
+
         try:
             # The outward anchor always starts first. Shadow qualification and
             # dispatch happen afterwards on a worker thread so no observational

@@ -61,6 +61,7 @@ from controller.decision import (
     freeze_decision_proposal,
 )
 from controller.replay import ReplayRun, StageRecord, TelemetryStreamWriter, sha256_file
+from controller.resource_measurement import ResourceMeasurementRun, StageResourceMeasurement
 from controller.prefix_shards import PrefixShardLedger, PrefixShardLedgerError
 from controller.refinement import (
     RefinementError,
@@ -234,7 +235,7 @@ class RunContext:
         return owner if state is None else state.family
 
     def owner_last_stage_ms(self, owner: str) -> float | None:
-        """Measured duration of this worker's most recent finished stage."""
+        """Measured wall duration of this worker's most recent finished stage."""
         state = self._coordinator._owner_state(self.generation, owner)
         if state is None or state.stage is None:
             return None
@@ -242,6 +243,25 @@ class RunContext:
         if stage.completed_ms is None:
             return None
         return max(0.0, stage.completed_ms - stage.dispatched_ms)
+
+    def owner_last_stage_resource(self, owner: str) -> dict[str, object] | None:
+        """Physical process measurement for the most recent owner stage."""
+        state = self._coordinator._owner_state(self.generation, owner)
+        if state is None or state.stage is None:
+            return None
+        return self._coordinator._resource_measurement(
+            self.generation,
+            state.stage.search_id,
+            finish=True,
+        )
+
+    def anchor_resource(self) -> dict[str, object] | None:
+        """Physical process measurement for the outward anchor search."""
+        return self._coordinator._anchor_resource_measurement(self.generation)
+
+    def seal_resource_report(self) -> dict[str, object] | None:
+        """Persist resource.json and return its content-addressed summary."""
+        return self._coordinator._seal_resource_report(self.generation)
 
     def owner_events(self, owner: str) -> list[dict[str, Any]]:
         """Telemetry events written so far for this worker.
@@ -331,6 +351,7 @@ class _ActiveRun:
     owners: dict[str, _OwnerState] = field(default_factory=dict)
     anchor_stage: StageRecord | None = None
     anchor_stream: TelemetryStreamWriter | None = None
+    resources: ResourceMeasurementRun | None = None
     ledger: RootShardLedger | None = None
     verification: VerificationRun | None = None
     refinement: RefinementRun | None = None

@@ -916,6 +916,13 @@ class ReviewRegressionRoundSixTests(unittest.TestCase):
             command = router._to_command(decision, context)
             self.assertIsNotNone(command)
             self.assertEqual(command.action, "stop_worker")
+            # M14-B holds the reservation until the terminal process sample so
+            # CPU spent while the engine responds to stop cannot disappear.
+            self.assertEqual(
+                router.ledger.snapshot()["lanes"]["shadow:stockfish"]["spent_cpu_ms"],
+                0.0,
+            )
+            router._settle_owner(context, "stockfish")
             lane = router.ledger.snapshot()["lanes"]["shadow:stockfish"]
             charged[threads] = lane["spent_cpu_ms"]
         self.assertEqual(charged[1], 400.0)

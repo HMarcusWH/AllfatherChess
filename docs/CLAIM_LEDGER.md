@@ -569,3 +569,65 @@ Nothing below is established by this milestone.
 - strength-qualified LC0 evidence and measured process/accelerator resources;
 - any Elo or equal-resource strength gain.
 
+## Prospective VERIFY value-of-compute calibration
+
+### PROVED by code/contracts
+
+- PR #23 treats VERIFY node budget as the intervention and compares only real
+  completed VERIFY searches; it does not synthesize a stopped-search bestmove
+  from an earlier checkpoint of a longer search;
+- the isolated value profile disables REFINE so the measured intervention is
+  additional VERIFY work rather than VERIFY plus disagreement-dependent
+  downstream refinement;
+- two budget arms may be paired only when their upstream SHA-256 fingerprint
+  agrees on position, external request, engine identities/options, EXPLORE
+  ownership and commands, EXPLORE nominees, common candidate roots,
+  participants, cross-feed policy and decision policy;
+- changed upstream nominees/candidate support therefore invalidate a causal
+  pair instead of being silently treated as an effect of VERIFY budget;
+- lower-arm calibration features reuse the repository's shared
+  past_only_features definition and contain no upper-arm or full-budget result;
+- source-native work remains per verifier with its semantics tag; no
+  Stockfish/Reckless/LC0 work counters are summed into a fabricated common
+  compute scalar;
+- each transition stores a separate feature digest and future-label digest, and
+  changing future evidence cannot change the lower-arm feature address;
+- observed labels distinguish decision change, proposal emergence,
+  disappearance, move change and terminal VERIFY-vector change;
+- no proposal at a checkpoint yields null rather than false for
+  candidate-survived-full-budget;
+- missing future arms are unobserved/right-censored and do not become negative
+  training examples;
+- train/calibration/holdout assignment is by position group rather than run id,
+  so different VERIFY budgets/repeats of one chess position cannot straddle the
+  split;
+- the new model kind bucketed_verify_decision_change_v1 is separate from and
+  load-incompatible with bucketed_reversal_risk_v3;
+- unknown or low-support decision-change buckets fail closed as out of domain
+  with conservative change probability 1.0;
+- the real-engine paired-run contract requires one causally eligible lower ->
+  upper transition while preserving Stockfish-anchor outward authority in both
+  arms; it does not require the decision actually to change.
+
+### MEASURED / CALIBRATED only after a collected dataset exists
+
+- empirical decision-change rates by declared VERIFY budget transition;
+- bucket support, Brier score, reliability and in-domain rate on position-group
+  train/calibration/holdout partitions;
+- proposal emergence/disappearance/move-change frequency;
+- terminal VERIFY-vector change frequency;
+- full-budget candidate survival and decision stabilization where the complete
+  ladder was actually observed.
+
+### OPEN
+
+- whether a changed counterfactual decision is better chess;
+- whether decision-change probability predicts expected Elo value;
+- whether additional VERIFY compute repays its physical CPU/GPU cost;
+- deep-reference agreement, game-outcome delta, REFINE intervention value and
+  cross-feed ablation value;
+- generalization beyond the frozen mechanism corpus and backend-light LC0
+  validation profile;
+- promotion of this model into live resource routing or DecisionAuthorization;
+- any equal-resource strength gain.
+

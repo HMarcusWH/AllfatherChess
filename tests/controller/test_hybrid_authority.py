@@ -119,6 +119,7 @@ class HybridAuthorityConfigTests(unittest.TestCase):
             document = json.loads(path.read_text(encoding="utf-8"))
             document["resource_measurement"]["enabled"] = False
             document["resource_measurement"]["require_cpu_for_claim"] = False
+            document["resource_measurement"]["record_memory"] = False
             path.write_text(json.dumps(document), encoding="utf-8")
             with self.assertRaises(ControllerRuntimeError) as ctx:
                 load_runtime_config(path)

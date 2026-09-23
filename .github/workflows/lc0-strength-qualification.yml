@@ -1,0 +1,84 @@
+name: LC0 real-inference qualification
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - qualification/**
+      - config/allfather.strength.validation.json
+      - controller/strength_profile.py
+      - controller/runtime.py
+      - adapters/process/**
+      - scripts/lc0-*.py
+      - scripts/build-lc0-strength.sh
+      - scripts/fetch-lc0-network.py
+      - tests/controller/test_strength_profile.py
+      - engines/lc0/**
+      - vendor.lock.json
+      - .github/workflows/lc0-strength-qualification.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lc0-strength-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  qualify-real-inference:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate source provenance and profile schemas
+        run: |
+          ./scripts/verify-vendor.sh
+          python3 scripts/lc0-strength-lock.py validate
+          python3 tests/controller/test_strength_profile.py
+          python3 -m json.tool qualification/lc0-strength.lock.json >/dev/null
+          python3 -m json.tool qualification/lc0-strength-profile.json >/dev/null
+          python3 -m json.tool config/allfather.strength.validation.json >/dev/null
+
+      - name: Install LC0 real-inference dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            meson ninja-build pkg-config libprotobuf-dev protobuf-compiler \
+            zlib1g-dev libopenblas-dev
+
+      - name: Toolchain and hardware probe
+        run: |
+          gcc --version | head -n1
+          g++ --version | head -n1
+          meson --version
+          ninja --version
+          python3 scripts/lc0-hardware-probe.py | tee lc0-hardware.json
+
+      - name: Cache pinned LC0 network
+        uses: actions/cache@v4
+        with:
+          path: build/artifacts/lc0
+          key: lc0-strength-network-${{ runner.os }}-${{ hashFiles('qualification/lc0-strength.lock.json') }}
+
+      - name: Fetch and hash pinned LC0 network
+        run: python3 scripts/fetch-lc0-network.py --allow-candidate-size
+
+      - name: Require frozen network byte size
+        run: python3 scripts/lc0-strength-lock.py validate-frozen
+
+      - name: Build LC0 BLAS real-inference backend
+        run: bash scripts/build-lc0-strength.sh
+
+      - name: Run LC0 real-inference qualification contract
+        run: python3 scripts/lc0-strength-profile-contract.py
+
+      - name: Upload LC0 qualification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lc0-real-inference-qualification
+          path: |
+            lc0-hardware.json
+            build/test-results/lc0-strength
+          if-no-files-found: warn

@@ -69,6 +69,9 @@ class LiveProcMeasurementTests(unittest.TestCase):
                 except (BrokenPipeError, OSError):
                     pass
             proc.wait(timeout=3)
+            for handle in (proc.stdin, proc.stdout, proc.stderr):
+                if handle is not None:
+                    handle.close()
 
     @unittest.skipUnless(sys.platform.startswith("linux"), "procfs contract is Linux-specific")
     def test_cpu_burn_and_sleep_are_not_wall_time_in_disguise(self):

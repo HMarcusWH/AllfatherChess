@@ -1513,6 +1513,12 @@ class ShadowRunCoordinator:
                             stage.target_id, "incomplete", message
                         )
                         active.refinement.set_disposition("incomplete", message)
+                if active.resources is not None and active.resources.settings.enabled:
+                    # Active routing may already have sealed this report while
+                    # constructing route.json. Shadow-only strength profiles
+                    # have no router, so finalization owns the seal there.
+                    self._seal_resource_report(active.generation)
+
                 if (
                     active.refinement is not None
                     and not active.refinement.active_stages()

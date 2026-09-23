@@ -42,7 +42,8 @@
         "TaskWorkers": 0,
         "MultiPV": 1,
         "UCI_Chess960": false,
-        "Threads": 1
+        "Threads": 1,
+        "ScoreType": "centipawn"
       }
     }
   }

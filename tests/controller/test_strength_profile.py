@@ -21,6 +21,7 @@ from controller.strength_profile import (
     validate_lock,
     validate_profile,
     validate_runtime_config,
+    validate_vendor_binding,
     verify_network_file,
 )
 from tests.controller.test_shadow_runtime import write_shadow_config
@@ -36,11 +37,19 @@ class StrengthProfileStaticTests(unittest.TestCase):
         self.lock = load_json(LOCK_PATH)
         self.profile = load_json(PROFILE_PATH)
         self.config = load_json(CONFIG_PATH)
+        self.vendor = load_json(ROOT / "vendor.lock.json")
 
     def test_shipped_lock_is_frozen(self):
         validate_lock(self.lock)
         validate_lock(self.lock, require_frozen=True)
         self.assertEqual(self.lock["network"]["expected_size_bytes"], 18648209)
+
+    def test_strength_lock_matches_vendor_lc0_source(self):
+        validate_vendor_binding(self.lock, self.vendor)
+        bad = copy.deepcopy(self.lock)
+        bad["engine"]["vendor_commit"] = "0" * 40
+        with self.assertRaises(StrengthProfileError):
+            validate_vendor_binding(bad, self.vendor)
 
     def test_profile_is_explicit_and_real_backend(self):
         validate_profile(self.profile)

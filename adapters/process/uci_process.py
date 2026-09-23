@@ -88,6 +88,14 @@ class UciProcess:
             return None if self._search is None else self._search.token
 
     @property
+    def pid(self) -> int | None:
+        """Operating-system process id for physical resource sampling."""
+        proc = self.proc
+        if proc is None or proc.poll() is not None:
+            return None
+        return proc.pid
+
+    @property
     def alive(self) -> bool:
         proc = self.proc
         return proc is not None and proc.poll() is None

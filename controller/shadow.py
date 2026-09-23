@@ -3191,6 +3191,12 @@ class ShadowRunCoordinator:
             )
             state.stage = stage
             state.done.clear()
+            self._begin_resource_stage(
+                active,
+                key=search_id,
+                instance=state.instance,
+                phase="EXPLORE",
+            )
 
             dispatched = self.runtime.start_shadow_search(
                 state.instance,
@@ -3200,6 +3206,11 @@ class ShadowRunCoordinator:
                 on_complete=on_complete,
             )
         if not dispatched:
+            self._abandon_resource_stage(
+                active,
+                search_id,
+                reason="EXPLORE backend dispatch was rejected",
+            )
             state.failed = True
             run.record_completion(
                 stage,
@@ -3224,6 +3235,7 @@ class ShadowRunCoordinator:
             elapsed = (time.monotonic() - active.started_monotonic) * 1000.0
         if state is None or state.stage is None:
             return
+        self._finish_resource_stage(active, state.stage.search_id)
         tokens = line.split()
         bestmove = tokens[1] if line.startswith("bestmove ") and len(tokens) > 1 else None
         state.last_bestmove = bestmove

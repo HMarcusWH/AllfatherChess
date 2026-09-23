@@ -177,13 +177,14 @@ def main() -> int:
             adapter=adapter,
         )
 
-        expected_backend_line = f"Creating backend [{options['Backend']}]"
         stderr = "\n".join(process.stderr_tail)
-        if expected_backend_line not in stderr:
+        observed_backends = re.findall(r"Creating backend \[([^\]]+)\]", stderr)
+        if options["Backend"] not in observed_backends:
             raise ContractError(
-                f"did not observe backend initialization {expected_backend_line!r}; "
-                f"stderr tail={process.stderr_tail!r}"
+                f"did not observe requested backend {options['Backend']!r}; "
+                f"observed={observed_backends!r}; stderr tail={process.stderr_tail!r}"
             )
+        observed_backend = options["Backend"]
     finally:
         process.close()
 
@@ -203,11 +204,12 @@ def main() -> int:
 
     report = QualificationReport(
         profile_id=profile["profile_id"],
-        commit_sha=os.environ.get("GITHUB_SHA", ""),
+        commit_sha=os.environ.get("ALLFATHER_SOURCE_SHA")
+        or os.environ.get("GITHUB_SHA", ""),
         binary=binary_identity,
         network=network_identity,
         requested_backend=options["Backend"],
-        observed_backend=options["Backend"],
+        observed_backend=observed_backend,
         runtime_options={
             name: options[name]
             for name in (

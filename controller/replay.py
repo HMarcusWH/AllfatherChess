@@ -50,6 +50,37 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def atomic_write_text(path: Path, payload: str) -> None:
+    """Durably replace a text artifact without exposing a partial final file."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(
+        f".{path.name}.{os.getpid()}.{threading.get_ident()}.tmp"
+    )
+    try:
+        with tmp.open("w", encoding="utf-8") as handle:
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp, path)
+        try:
+            directory_fd = os.open(path.parent, os.O_RDONLY)
+        except OSError:
+            directory_fd = None
+        if directory_fd is not None:
+            try:
+                os.fsync(directory_fd)
+            except OSError:
+                pass
+            finally:
+                os.close(directory_fd)
+    finally:
+        try:
+            tmp.unlink()
+        except FileNotFoundError:
+            pass
+
+
 @dataclass
 class StageRecord:
     """One dispatched search on one engine instance.
@@ -474,6 +505,8 @@ class ReplayRun:
     oracle_instance: str | None = None
     terminal_universe: bool = False
     finalized: bool = False
+    _finalizing: bool = False
+    _final_manifest: dict[str, Any] | None = field(default=None, repr=False)
     #: Controller work performed synchronously before the anchor was dispatched.
     prepare_ms: float = 0.0
     #: Controller work performed between run start and the first shadow dispatch.
@@ -554,85 +587,98 @@ class ReplayRun:
     def finalize(self, *, disposition: str, stop_reason: str | None = None) -> dict[str, Any]:
         with self._lock:
             if self.finalized:
-                return json.loads((self.run_dir / "manifest.json").read_text(encoding="utf-8"))
-            self.finalized = True
+                if self._final_manifest is None:
+                    raise ReplayError("replay marked finalized without an in-memory manifest")
+                return json.loads(json.dumps(self._final_manifest))
+            if self._finalizing:
+                raise ReplayError("replay finalization is already in progress")
+            self._finalizing = True
             self.run_disposition = disposition
             self.run_stop_reason = stop_reason
             streams = list(self._streams.values())
             stages = list(self._stages)
 
-        # A stage still marked running at finalization is unresolved evidence.
-        # It is never silently recorded as a completed observation.
-        for record in stages:
-            if record.disposition == "running":
-                record.disposition = "unresolved"
-                if record.stop_reason is None:
-                    record.stop_reason = stop_reason or "run finalized before completion"
+        try:
+            # A stage still marked running at finalization is unresolved evidence.
+            # It is never silently recorded as a completed observation.
+            for record in stages:
+                if record.disposition == "running":
+                    record.disposition = "unresolved"
+                    if record.stop_reason is None:
+                        record.stop_reason = stop_reason or "run finalized before completion"
 
-        for writer in streams:
-            writer.close()
+            for writer in streams:
+                writer.close()
 
-        stream_records = [writer.snapshot() for writer in streams]
-        stream_records.sort(key=lambda item: item["instance"])
+            stream_records = [writer.snapshot() for writer in streams]
+            stream_records.sort(key=lambda item: item["instance"])
 
-        manifest: dict[str, Any] = {
-            "schema_version": REPLAY_SCHEMA_VERSION,
-            "run_id": self.run_id,
-            "generation": self.generation,
-            "created_utc": self.created_utc,
-            "controller": {
-                "mode": self.mode,
-                "telemetry_execution_mode": self.telemetry_execution_mode,
-                "config_path": self.config_path,
-                "config_sha256": self.config_sha256,
-                "partition_method": self.partition_method,
-                "overhead": {
-                    "prepare_ms": round(self.prepare_ms, 3),
-                    "qualification_ms": (
-                        None if self.qualification_ms is None else round(self.qualification_ms, 3)
-                    ),
+            manifest: dict[str, Any] = {
+                "schema_version": REPLAY_SCHEMA_VERSION,
+                "run_id": self.run_id,
+                "generation": self.generation,
+                "created_utc": self.created_utc,
+                "controller": {
+                    "mode": self.mode,
+                    "telemetry_execution_mode": self.telemetry_execution_mode,
+                    "config_path": self.config_path,
+                    "config_sha256": self.config_sha256,
+                    "partition_method": self.partition_method,
+                    "overhead": {
+                        "prepare_ms": round(self.prepare_ms, 3),
+                        "qualification_ms": (
+                            None if self.qualification_ms is None else round(self.qualification_ms, 3)
+                        ),
+                    },
                 },
-            },
-            "position": {
-                "position_id": self.position.position_id,
-                "variant": self.position.variant,
-                "move_encoding": "uci" if self.position.variant == "standard" else "uci_chess960",
-                "base_fen": self.position.base_fen,
-                "moves": list(self.position.moves),
-                "command": self.position.command(),
-            },
-            "external_request": {
-                "command": self.external_go_command,
-                "request": parse_go_request(self.external_go_command),
-            },
-            "engines": self.engine_identities,
-            "legal_root_oracle": {
-                "instance": self.oracle_instance,
-                "root_count": self.oracle_root_count,
-                "dispatch_root_count": self.dispatch_root_count,
-                "external_root_restriction": self.external_root_restriction,
-                "terminal_universe": self.terminal_universe,
-            },
-            "ledger": {
-                "owners": list(self.ledger_owners),
-                "owner_roots": {owner: list(moves) for owner, moves in sorted(self.owner_roots.items())},
-                "pre_dispatch_snapshot": self.pre_ledger_snapshot,
-                "post_run_snapshot": self.post_ledger_snapshot,
-            },
-            "stages": [record.snapshot() for record in stages],
-            "streams": stream_records,
-            "shadow_health": self.shadow_health,
-            "disposition": {
-                "run": self.run_disposition,
-                "stop_reason": self.run_stop_reason,
-            },
-            "notes": list(self.notes),
-        }
+                "position": {
+                    "position_id": self.position.position_id,
+                    "variant": self.position.variant,
+                    "move_encoding": "uci" if self.position.variant == "standard" else "uci_chess960",
+                    "base_fen": self.position.base_fen,
+                    "moves": list(self.position.moves),
+                    "command": self.position.command(),
+                },
+                "external_request": {
+                    "command": self.external_go_command,
+                    "request": parse_go_request(self.external_go_command),
+                },
+                "engines": self.engine_identities,
+                "legal_root_oracle": {
+                    "instance": self.oracle_instance,
+                    "root_count": self.oracle_root_count,
+                    "dispatch_root_count": self.dispatch_root_count,
+                    "external_root_restriction": self.external_root_restriction,
+                    "terminal_universe": self.terminal_universe,
+                },
+                "ledger": {
+                    "owners": list(self.ledger_owners),
+                    "owner_roots": {owner: list(moves) for owner, moves in sorted(self.owner_roots.items())},
+                    "pre_dispatch_snapshot": self.pre_ledger_snapshot,
+                    "post_run_snapshot": self.post_ledger_snapshot,
+                },
+                "stages": [record.snapshot() for record in stages],
+                "streams": stream_records,
+                "shadow_health": self.shadow_health,
+                "disposition": {
+                    "run": self.run_disposition,
+                    "stop_reason": self.run_stop_reason,
+                },
+                "notes": list(self.notes),
+            }
 
-        self.run_dir.mkdir(parents=True, exist_ok=True)
-        payload = json.dumps(manifest, indent=2, sort_keys=True) + "\n"
-        (self.run_dir / "manifest.json").write_text(payload, encoding="utf-8")
-        return manifest
+            payload = json.dumps(manifest, indent=2, sort_keys=True) + "\n"
+            atomic_write_text(self.run_dir / "manifest.json", payload)
+        except Exception:
+            with self._lock:
+                self._finalizing = False
+            raise
+
+        with self._lock:
+            self._final_manifest = manifest
+            self.finalized = True
+            self._finalizing = False
+        return json.loads(json.dumps(manifest))
 
 
 def load_manifest(run_dir: Path) -> dict[str, Any]:
@@ -708,21 +754,146 @@ def discover_replay_bundles(replay_root: Path | str) -> ReplayDiscovery:
 
 
 def verify_bundle_integrity(run_dir: Path) -> list[str]:
-    """Return a list of integrity problems; empty means the bundle verifies."""
+    """Return hash/size/semantic integrity problems for a finalized replay."""
     run_dir = Path(run_dir)
     manifest = load_manifest(run_dir)
     problems: list[str] = []
+
+    stages = manifest.get("stages", [])
+    stage_by_search: dict[str, dict[str, Any]] = {}
+    for stage in stages:
+        if not isinstance(stage, dict):
+            problems.append("manifest stage entry is not an object")
+            continue
+        search_id = stage.get("search_id")
+        if not isinstance(search_id, str) or not search_id:
+            problems.append("manifest stage is missing a valid search_id")
+            continue
+        if search_id in stage_by_search:
+            problems.append(f"duplicate manifest stage search_id: {search_id}")
+        stage_by_search[search_id] = stage
+
+    declared_stream_searches: set[str] = set()
+    observed_searches: set[str] = set()
+
     for record in manifest.get("streams", []):
-        path = run_dir / record["path"]
+        if not isinstance(record, dict):
+            problems.append("manifest stream entry is not an object")
+            continue
+        rel = record.get("path")
+        if not isinstance(rel, str) or not rel or Path(rel).name != rel:
+            problems.append(f"invalid stream path in manifest: {rel!r}")
+            continue
+        path = run_dir / rel
         if not path.is_file():
-            problems.append(f"missing stream file: {record['path']}")
+            problems.append(f"missing stream file: {rel}")
             continue
         actual = sha256_file(path)
-        if actual != record["sha256"]:
+        if actual != record.get("sha256"):
             problems.append(
-                f"stream hash mismatch for {record['path']}: "
-                f"manifest={record['sha256']}, actual={actual}"
+                f"stream hash mismatch for {rel}: "
+                f"manifest={record.get('sha256')}, actual={actual}"
             )
-        if path.stat().st_size != record["bytes"]:
-            problems.append(f"stream size mismatch for {record['path']}")
+        if path.stat().st_size != record.get("bytes"):
+            problems.append(f"stream size mismatch for {rel}")
+
+        declared_ids = record.get("search_ids") or []
+        if not isinstance(declared_ids, list) or not all(
+            isinstance(item, str) and item for item in declared_ids
+        ):
+            problems.append(f"stream {rel} has malformed search_ids")
+            declared_ids = []
+        for search_id in declared_ids:
+            if search_id in declared_stream_searches:
+                problems.append(f"search_id declared by multiple streams: {search_id}")
+            declared_stream_searches.add(search_id)
+
+        started: dict[str, dict[str, Any]] = {}
+        completed: dict[str, dict[str, Any]] = {}
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+        except OSError as exc:
+            problems.append(f"cannot read stream {rel}: {exc}")
+            continue
+
+        for line_no, line in enumerate(lines, 1):
+            if not line.strip():
+                continue
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError as exc:
+                problems.append(f"{rel}:{line_no}: malformed JSON: {exc}")
+                continue
+            if not isinstance(event, dict):
+                problems.append(f"{rel}:{line_no}: event is not an object")
+                continue
+            search_id = event.get("search_id")
+            if not isinstance(search_id, str) or not search_id:
+                problems.append(f"{rel}:{line_no}: event missing search_id")
+                continue
+            observed_searches.add(search_id)
+            if event.get("engine_instance") != record.get("instance"):
+                problems.append(
+                    f"{rel}:{line_no}: engine_instance does not match stream manifest"
+                )
+            if event.get("engine") != record.get("engine"):
+                problems.append(f"{rel}:{line_no}: engine does not match stream manifest")
+            if event.get("position_id") != manifest.get("position", {}).get("position_id"):
+                problems.append(f"{rel}:{line_no}: position_id does not match replay manifest")
+            event_type = event.get("event_type")
+            if event_type == "search.started":
+                if search_id in started:
+                    problems.append(f"{rel}: duplicate search.started for {search_id}")
+                started[search_id] = event
+            elif event_type == "search.complete":
+                if search_id in completed:
+                    problems.append(f"{rel}: duplicate search.complete for {search_id}")
+                completed[search_id] = event
+
+        if set(started) != set(declared_ids):
+            problems.append(
+                f"stream {rel} search.started ids {sorted(started)} do not match "
+                f"manifest search_ids {sorted(declared_ids)}"
+            )
+
+        for search_id, event in started.items():
+            stage = stage_by_search.get(search_id)
+            if stage is None:
+                problems.append(f"stream {rel} contains undeclared search_id {search_id}")
+                continue
+            if stage.get("instance") != record.get("instance"):
+                problems.append(f"{search_id}: stage instance does not match stream")
+            if stage.get("engine") != record.get("engine"):
+                problems.append(f"{search_id}: stage engine does not match stream")
+            controller = event.get("controller") or {}
+            owner = controller.get("owner")
+            if stage.get("owner") != owner:
+                problems.append(f"{search_id}: stage owner does not match search.started")
+            request = event.get("request") or {}
+            event_roots = list(request.get("root_moves") or [])
+            expected_roots = list(stage.get("dispatched_roots") or [])
+            if stage.get("role") == "shadow" and event_roots != expected_roots:
+                problems.append(
+                    f"{search_id}: dispatched roots do not match search.started request"
+                )
+
+        for search_id, event in completed.items():
+            stage = stage_by_search.get(search_id)
+            if stage is None:
+                continue
+            if stage.get("bestmove") != event.get("bestmove"):
+                problems.append(f"{search_id}: stage bestmove does not match search.complete")
+
+    stage_ids = set(stage_by_search)
+    if declared_stream_searches != stage_ids:
+        missing = sorted(stage_ids - declared_stream_searches)
+        extra = sorted(declared_stream_searches - stage_ids)
+        if missing:
+            problems.append(f"manifest stages missing from streams: {missing}")
+        if extra:
+            problems.append(f"stream search_ids missing from stages: {extra}")
+    if observed_searches - stage_ids:
+        problems.append(
+            f"telemetry contains undeclared search_ids: {sorted(observed_searches - stage_ids)}"
+        )
     return problems

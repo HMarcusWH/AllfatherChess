@@ -118,18 +118,21 @@ class VerificationSettings:
 
 @dataclass(frozen=True)
 class RefinementSettings:
-    """Shadow-only live recursive REFINE instrumentation.
+    """Bounded recursive REFINE instrumentation.
 
-    REFINE is deliberately not active-mode work yet. It consumes finalized
-    VERIFY facts, exact Stockfish perft child sets and PrefixShardLedger v2 to
-    collect deeper observational evidence without decision authority.
+    Root nominations come from completed VERIFY.  Deeper nominations are
+    evidence-only and must pass a separate policy plus fresh resource
+    authorization before any oracle/search work starts.
     """
 
     enabled: bool
     nomination_method: str
+    recursive_nomination_method: str
     child_partition: str
     dispatch_limit: dict[str, object]
     max_targets: int
+    max_depth: int
+    max_expansions: int
 
 @dataclass(frozen=True)
 class CrossFeedSettings:
@@ -672,12 +675,58 @@ def _load_refinement_settings(
     ):
         raise RuntimeError("refinement.max_targets must be an integer in [1, 3]")
 
+    recursive_nomination = raw.get(
+        "recursive_nomination_method", "stage_terminal_bestmove_v1"
+    )
+    if recursive_nomination != "stage_terminal_bestmove_v1":
+        raise RuntimeError(
+            "refinement.recursive_nomination_method currently supports exactly "
+            "'stage_terminal_bestmove_v1'"
+        )
+
+    max_depth = raw.get("max_depth", 2)
+    if (
+        isinstance(max_depth, bool)
+        or not isinstance(max_depth, int)
+        or max_depth < 2
+        or max_depth > 8
+    ):
+        raise RuntimeError("refinement.max_depth must be an integer in [2, 8]")
+
+    max_expansions = raw.get("max_expansions", max_targets)
+    if (
+        isinstance(max_expansions, bool)
+        or not isinstance(max_expansions, int)
+        or max_expansions < 1
+        or max_expansions > 64
+    ):
+        raise RuntimeError("refinement.max_expansions must be an integer in [1, 64]")
+
+    unknown = sorted(
+        set(raw)
+        - {
+            "enabled",
+            "nomination_method",
+            "recursive_nomination_method",
+            "child_partition",
+            "dispatch_limit",
+            "max_targets",
+            "max_depth",
+            "max_expansions",
+        }
+    )
+    if unknown:
+        raise RuntimeError(f"refinement contains unsupported keys: {unknown}")
+
     return RefinementSettings(
         enabled=True,
         nomination_method=str(nomination),
+        recursive_nomination_method=str(recursive_nomination),
         child_partition=str(child_partition),
         dispatch_limit={"nodes": int(nodes)},
         max_targets=int(max_targets),
+        max_depth=int(max_depth),
+        max_expansions=int(max_expansions),
     )
 
 def _load_crossfeed_settings(
@@ -882,6 +931,15 @@ def load_runtime_config(path: Path) -> RuntimeConfig:
         counterfactual=counterfactual,
         resource_measurement=resource_measurement,
     )
+    if (
+        hybrid_authority is not None
+        and refinement is not None
+        and refinement.max_depth > 2
+    ):
+        raise RuntimeError(
+            "M14-D recursive REFINE is evidence-only: hybrid_authority profiles "
+            "must keep refinement.max_depth=2 until a later authority milestone"
+        )
 
     budget = data.get("budget")
     if budget is not None:

@@ -14,8 +14,10 @@ below a declared threshold, minimum observation spent, and budget available.
 Scope of authority
 ------------------
 This router allocates *shadow observation compute* inside a declared envelope.
-It cannot change the outward move: the unrestricted anchor remains the sole
-decision authority, exactly as in shadow mode. Stopping a shadow worker returns
+It never grants move authority. In ordinary active mode the unrestricted anchor
+remains the outward authority; in the explicit M14-C hybrid profile, a separate
+DecisionAuthorization gate may consume these resource facts before selecting a
+HYBRID move or deterministic anchor fallback. Stopping a shadow worker returns
 budget; it never elects a different bestmove.
 
 Fail-closed

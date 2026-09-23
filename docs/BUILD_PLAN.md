@@ -155,7 +155,7 @@ The final product is promoted only on statistically credible strength gains agai
 
 A repo-wide hardening repair is inserted immediately after PR #24. From this point onward the architecture uses milestone IDs rather than reserving future GitHub PR numbers; emergency repairs must not silently renumber the plan.
 
-- **M14-B — Measured process resource accounting**: preserve reservations while adding measured CPU/GPU/memory/controller cost where supported.
+- **M14-B — Measured process resource accounting**: preserve reservations while adding measured CPU/memory/controller cost, hash-bound `resource.json`, LC0 real-inference resource evidence, and fail-closed coverage; GPU device-time remains explicitly unsupported. **Current implementation milestone.**
 - **M14-C — Active hybrid decision authority v0**: bounded in-memory authorization at the anchor-completion boundary; deterministic Stockfish fallback.
 - **M14-D — Multi-level recursive REFINE**: bounded deeper prefix splitting under exact ownership and budget rules.
 - **M14-E — Engine-specific cross-feed adapters**: source-typed candidate transfer into subprocess-safe VERIFY/REFINE/adjudication operations.

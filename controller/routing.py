@@ -938,21 +938,26 @@ class ConservativeRouter:
         *,
         actual_wall_ms: float | None = None,
         threads: int = 1,
+        actual_cpu_ms: float | None = None,
+        measurement_source: str = "estimated_fallback",
     ) -> None:
-        """Settle one dispatched specialist reservation.
-
-        CPU is estimated with the same wall-ms × configured-threads convention
-        used by ordinary active shadow stages. GPU remains the declared
-        reservation until process-level accelerator accounting exists.
-        """
+        """Settle one VERIFY/REFINE reservation without conflating estimate and fact."""
 
         reservation = self._specialist_reservations.pop(token, None)
         if reservation is None:
             return
-        actual_cpu = None
-        if actual_wall_ms is not None:
+        actual_cpu = actual_cpu_ms
+        source = measurement_source
+        if actual_cpu is None and actual_wall_ms is not None:
             actual_cpu = max(0.0, float(actual_wall_ms)) * max(1, int(threads))
-        self.ledger.settle(reservation, actual_cpu_ms=actual_cpu)
+            source = "estimated_fallback"
+        if actual_cpu is None:
+            source = "declared_fallback"
+        self.ledger.settle(
+            reservation,
+            actual_cpu_ms=actual_cpu,
+            cpu_source=source,
+        )
         if self.audit is not None:
             self.audit.record_specialist(
                 {
@@ -967,6 +972,7 @@ class ConservativeRouter:
                     "actual_cpu_ms": (
                         reservation.cpu_ms if actual_cpu is None else actual_cpu
                     ),
+                    "cpu_source": source,
                     "granted": True,
                     "reason": "settled dispatched specialist work",
                 }

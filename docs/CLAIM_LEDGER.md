@@ -26,10 +26,14 @@ Enforced by `tests/controller/*`, `scripts/shadow-execution-contract.py`, and
 - `engine` (solver family) and `engine_instance` (process role) are preserved
   separately in every telemetry event.
 - Exactly one outward `bestmove` is emitted per successful external search.
-- No shadow bestmove reaches stdout, even when every shadow prefers a different
-  move from the anchor.
-- A shadow crash does not change the outward move and promotes nobody.
-- An anchor failure still fails closed with `bestmove 0000`.
+- No constituent shadow process can write to stdout directly. In the explicit
+  M14-C hybrid profile, only a frozen `DecisionProposal` that passes the
+  separate bounded `DecisionAuthorization` gate can replace the anchor root.
+- A shadow crash grants no authority; it invalidates or removes required
+  evidence and therefore drives the hybrid gate toward deterministic anchor
+  fallback.
+- An anchor failure still fails closed with `bestmove 0000`; hybrid authority
+  cannot manufacture an anchor completion.
 
 ### Ownership
 - The observation partition is exact, pairwise disjoint, and covers the
@@ -336,16 +340,68 @@ Nothing below is established by this milestone.
   is containment-checked, those nominees are distinct.
 - VERIFY reuses `stockfish-shadow`, `reckless-shadow`, and `lc0-shadow`
   after EXPLORE and gives all three the identical restricted root set. The
-  three VERIFY searches are independent observational searches; their results
-  do not vote on or delay outward authority.
+  three VERIFY searches remain independently executed evidence producers.
+  Their terminal facts may feed `unanimous_verify_v1`, but they never acquire
+  direct stdout or move authority.
 - Raw VERIFY telemetry remains telemetry v1 with `phase = VERIFY` and
   `decision_authority = false`.
 - The VERIFY child artifact hash-binds the finalized parent replay and its own
   streams. Candidate, PV-head and final-bestmove containment is checked against
   the declared common root set.
 - Active VERIFY requires a prior specialist reservation and settlement through the global BudgetLedger; REFINE uses the same rule for its child oracle and descendant stages.
-- No VERIFY result changes outward decision authority; the unrestricted
-  Stockfish anchor remains sole bestmove authority.
+- A raw VERIFY result is never itself move authority. In the M14-C profile,
+  complete fault-free terminal VERIFY evidence may produce a frozen proposal;
+  a separate PRE_ANCHOR authorization gate must then pass every legality,
+  identity, request-class, resource, settlement, measurement, and generation
+  condition before the proposal can replace the anchor.
+
+## M14-C bounded active decision authority
+
+### PROVED by code/contracts
+
+- `DecisionProposal` and `DecisionAuthorization` are separate immutable
+  types; a proposal cannot emit itself.
+- Live hybrid authority is disabled unless an explicit active-mode
+  `hybrid_authority` profile is loaded with measured CPU evidence enabled.
+- v0 accepts only exactly one positive `go movetime` limit. Nodes, depth,
+  clocks, ponder, infinite, mixed or unknown request forms deterministically
+  retain anchor authority.
+- The proposal must have been frozen PRE_ANCHOR from current run/generation/
+  position evidence with complete fault-free VERIFY semantics and a matching
+  evidence digest.
+- The proposed root must remain inside the qualified legal-root universe and
+  any external `searchmoves` restriction.
+- Authorization additionally requires a bounded/reserved anchor request,
+  in-envelope budget and wall state, valid partition caps, complete specialist
+  settlement with no open specialist reservation, accounted declared GPU
+  budget, available measured-resource infrastructure with no already-known
+  measurement failure, current backend generation, and no latched anchor-only
+  fallback.
+- The anchor completion callback starts no engine work and performs no resource
+  sample or artifact IO. The anchor terminal procfs endpoint is still taken only
+  after the selected `bestmove` has left stdout.
+- Any denial emits the original Stockfish anchor line byte-for-byte. A different
+  HYBRID root drops the anchor's ponder continuation rather than attaching a
+  continuation from another root.
+- Exactly one outward `bestmove` is emitted, and the selected authority plus
+  full authorization snapshot is persisted after output in
+  `decision/final.json`.
+- The sealed final-decision artifact hash-binds its authorization snapshot and
+  all available parent/VERIFY/cross-feed/counterfactual/route/resource sources.
+
+### POLICY
+
+- `unanimous_verify_v1` is the initial proposal policy.
+- `bounded_preanchor_v0` is the initial live authorization policy.
+- Stockfish is the deterministic fallback on every failed or unavailable gate.
+
+### OPEN
+
+- Whether an authorized hybrid move is better than the anchor move.
+- Whether three-way terminal VERIFY unanimity predicts correctness or Elo.
+- Whether the hybrid policy improves an equal-resource quality/compute frontier.
+- Any Elo, match, tournament, or superiority claim against Stockfish, Reckless,
+  LC0, or another engine.
 
 ## COMPARE / descriptive RELOCK derived layer
 

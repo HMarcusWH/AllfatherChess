@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from controller.final_decision import verify_final_decision_integrity
+from controller.runtime import RuntimeError as ControllerRuntimeError, load_runtime_config
 from tests.controller.test_shadow_runtime import (
     ANCHOR,
     run_shell,
@@ -99,6 +100,39 @@ def final_artifact(replay_root: Path) -> tuple[Path, dict]:
         raise AssertionError(f"expected one replay run, found {[p.name for p in runs]}")
     path = runs[0] / "decision" / "final.json"
     return runs[0], json.loads(path.read_text(encoding="utf-8"))
+
+
+class HybridAuthorityConfigTests(unittest.TestCase):
+    def test_live_authority_is_active_mode_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write_hybrid_config(Path(tmp))
+            document = json.loads(path.read_text(encoding="utf-8"))
+            document["mode"] = "shadow"
+            path.write_text(json.dumps(document), encoding="utf-8")
+            with self.assertRaises(ControllerRuntimeError) as ctx:
+                load_runtime_config(path)
+            self.assertIn("supported only in active mode", str(ctx.exception))
+
+    def test_live_authority_requires_physical_cpu_measurement(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write_hybrid_config(Path(tmp))
+            document = json.loads(path.read_text(encoding="utf-8"))
+            document["resource_measurement"]["enabled"] = False
+            document["resource_measurement"]["require_cpu_for_claim"] = False
+            path.write_text(json.dumps(document), encoding="utf-8")
+            with self.assertRaises(ControllerRuntimeError) as ctx:
+                load_runtime_config(path)
+            self.assertIn("requires resource_measurement.enabled", str(ctx.exception))
+
+    def test_live_authority_rejects_broader_request_class(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write_hybrid_config(Path(tmp))
+            document = json.loads(path.read_text(encoding="utf-8"))
+            document["hybrid_authority"]["request_class"] = "any_bounded_v1"
+            path.write_text(json.dumps(document), encoding="utf-8")
+            with self.assertRaises(ControllerRuntimeError) as ctx:
+                load_runtime_config(path)
+            self.assertIn("supports exactly 'movetime_v0'", str(ctx.exception))
 
 
 class HybridAuthorityIntegrationTests(unittest.TestCase):

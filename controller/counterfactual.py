@@ -249,6 +249,7 @@ def _artifact_core(
             "proposal_matches_anchor": decision.proposal_matches_anchor,
             "would_change_outward_move": decision.would_change_outward_move,
             "outward_authority": decision.outward_authority,
+            "authority_scope": "pr22_counterfactual_baseline_only",
         },
     }
 
@@ -499,7 +500,10 @@ def verify_counterfactual_integrity(run_dir: Path | str) -> list[str]:
             ):
                 problems.append("stored counterfactual change flag mismatch")
             if stored_counterfactual.get("outward_authority") != "stockfish-anchor":
-                problems.append("counterfactual artifact changed outward authority")
+                problems.append("counterfactual artifact changed comparison baseline")
+            authority_scope = stored_counterfactual.get("authority_scope")
+            if authority_scope not in (None, "pr22_counterfactual_baseline_only"):
+                problems.append("counterfactual artifact has unknown authority scope")
 
     core = {
         key: value

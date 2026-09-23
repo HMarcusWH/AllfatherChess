@@ -467,3 +467,16 @@ class UciProcess:
             self._stdout_thread.join(timeout=1.0)
         if self._stderr_thread is not None:
             self._stderr_thread.join(timeout=1.0)
+
+        # Popen does not close our parent-side pipe objects merely because the
+        # child exited. Leaving them to GC leaked file descriptors across
+        # repeated controller lifecycles and produced ResourceWarning noise in
+        # the hardening suite.
+        for handle in (proc.stdin, proc.stdout, proc.stderr):
+            if handle is None:
+                continue
+            try:
+                handle.close()
+            except OSError:
+                pass
+        self.proc = None

@@ -17,6 +17,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from adapters.process import UciProcess, UciProcessError
+from adapters.resource import LinuxProcProvider, ResourceProviderError
 from adapters.telemetry import Lc0TelemetryAdapter
 from controller.strength_profile import (
     QualificationReport,
@@ -263,9 +264,19 @@ def main() -> int:
         args=list(lc0.get("args") or []),
         timeout=30.0,
     )
+    resource_policy = profile["resource_measurement"]
+    provider = LinuxProcProvider()
+    resource_session_start = None
+    resource_qualification_start = None
+    resource_qualification_end = None
+    resource_session_end = None
     try:
         process.start()
         process.configure(options)
+        pid = process.pid
+        if pid is None:
+            raise ContractError("LC0 process PID unavailable for resource qualification")
+        resource_session_start = provider.snapshot(pid)
 
         warmup_move, _ = run_search(
             process,
@@ -280,19 +291,57 @@ def main() -> int:
             variant="standard",
             score_type=options["ScoreType"],
         )
+        resource_qualification_start = provider.snapshot(pid)
         qualification_move, events = run_search(
             process,
             token=2,
             nodes=256,
             adapter=adapter,
         )
+        resource_qualification_end = provider.snapshot(pid)
 
         observed_backend, backend_evidence = observe_backend(
             options["Backend"],
             process.stderr_tail,
         )
+        resource_session_end = provider.snapshot(pid)
     finally:
         process.close()
+
+    if (
+        resource_session_start is None
+        or resource_session_end is None
+        or resource_qualification_start is None
+        or resource_qualification_end is None
+    ):
+        raise ContractError("LC0 physical resource measurement was incomplete")
+    session_delta = provider.delta(resource_session_start, resource_session_end)
+    qualification_delta = provider.delta(
+        resource_qualification_start,
+        resource_qualification_end,
+    )
+    resource_measurement = {
+        "provider": provider.provider_id,
+        "required_cpu": bool(resource_policy["require_cpu"]),
+        "required_gpu": bool(resource_policy["require_gpu"]),
+        "complete": True,
+        "pid": session_delta.pid,
+        "session_cpu_ms": round(session_delta.cpu_ms, 3),
+        "session_wall_ms": round(session_delta.wall_ms, 3),
+        "qualification_cpu_ms": round(qualification_delta.cpu_ms, 3),
+        "qualification_wall_ms": round(qualification_delta.wall_ms, 3),
+        "start_rss_bytes": session_delta.start_rss_bytes,
+        "end_rss_bytes": session_delta.end_rss_bytes,
+        "vm_hwm_bytes": session_delta.vm_hwm_bytes,
+        "gpu_measurement": None,
+        "memory_semantics": (
+            "endpoint RSS plus process-lifetime VmHWM; VmHWM is not a search-local peak"
+        ),
+    }
+    if resource_measurement["session_cpu_ms"] < 0:
+        raise ContractError("LC0 measured CPU may not be negative")
+    if resource_policy["require_gpu"]:
+        raise ContractError("CPU/BLAS reference profile cannot satisfy required GPU measurement")
 
     expected_semantics = f"lc0.uci_score.{options['ScoreType']}"
     semantics = {
@@ -341,6 +390,7 @@ def main() -> int:
         warmup_bestmove=warmup_move,
         qualification_bestmove=qualification_move,
         telemetry_score_semantics=expected_semantics,
+        resource_measurement=resource_measurement,
     ).as_dict()
 
     RESULT_DIR.mkdir(parents=True, exist_ok=True)
@@ -364,6 +414,7 @@ if __name__ == "__main__":
         ContractError,
         StrengthProfileError,
         UciProcessError,
+        ResourceProviderError,
         OSError,
         ValueError,
         subprocess.CalledProcessError,

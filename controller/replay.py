@@ -50,6 +50,18 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _semantic_bestmove(value: Any) -> Any:
+    """Normalize UCI null-move spellings for manifest/telemetry comparison."""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        lowered = value.lower()
+        if lowered in {"0000", "(none)", "none", "a1a1"}:
+            return None
+        return lowered
+    return value
+
+
 def atomic_write_text(path: Path, payload: str) -> None:
     """Durably replace a text artifact without exposing a partial final file."""
     path = Path(path)
@@ -881,7 +893,9 @@ def verify_bundle_integrity(run_dir: Path) -> list[str]:
             stage = stage_by_search.get(search_id)
             if stage is None:
                 continue
-            if stage.get("bestmove") != event.get("bestmove"):
+            if _semantic_bestmove(stage.get("bestmove")) != _semantic_bestmove(
+                event.get("bestmove")
+            ):
                 problems.append(f"{search_id}: stage bestmove does not match search.complete")
 
     stage_ids = set(stage_by_search)

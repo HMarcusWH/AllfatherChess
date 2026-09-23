@@ -94,6 +94,11 @@ def validate_lock(data: dict[str, Any], *, require_frozen: bool = False) -> None
     parsed = urlparse(str(network.get("url") or ""))
     if parsed.scheme != "https" or not parsed.netloc:
         raise StrengthProfileError("network.url must be an absolute https URL")
+    lookup_digest = network.get("training_sha256")
+    if not isinstance(lookup_digest, str) or HEX64.fullmatch(lookup_digest) is None:
+        raise StrengthProfileError(
+            "network.training_sha256 must be lowercase 64-hex"
+        )
     digest = network.get("sha256")
     if not isinstance(digest, str) or HEX64.fullmatch(digest) is None:
         raise StrengthProfileError("network.sha256 must be lowercase 64-hex")

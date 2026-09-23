@@ -2160,15 +2160,27 @@ class ShadowRunCoordinator:
             return
 
         started = time.monotonic()
+        charged = False
         try:
             evidence, evaluation = prepare_counterfactual(
                 view=view,
                 verification=verification,
                 policy=settings.policy,
             )
-            # Do not hold the orchestration lock while hashing/evaluating. The
-            # anchor completion callback uses the same lock to publish the
-            # outward decision boundary and must never wait on policy work.
+            # Charge all proposal-building metareasoning BEFORE publication.
+            # Otherwise the anchor callback could observe a frozen proposal and
+            # authorize it against a budget snapshot that omitted the cost of
+            # creating the very proposal being authorized.
+            self._charge_controller_elapsed(
+                active,
+                label="counterfactual_decision_build",
+                elapsed_ms=(time.monotonic() - started) * 1000.0,
+            )
+            charged = True
+
+            # Do not hold the orchestration lock while hashing/evaluating or
+            # charging. The lock is used only for the causal PRE/POST stamp and
+            # publication of immutable evidence/proposal objects.
             with self._lock:
                 if self._run is not active:
                     return
@@ -2188,11 +2200,12 @@ class ShadowRunCoordinator:
             active.decision_proposal = None
             active.run.note(f"counterfactual proposal rejected: {exc}")
         finally:
-            self._charge_controller_elapsed(
-                active,
-                label="counterfactual_decision_build",
-                elapsed_ms=(time.monotonic() - started) * 1000.0,
-            )
+            if not charged:
+                self._charge_controller_elapsed(
+                    active,
+                    label="counterfactual_decision_build",
+                    elapsed_ms=(time.monotonic() - started) * 1000.0,
+                )
 
     def _execute_verification(self, active: _ActiveRun) -> None:
         settings = self.runtime.config.verification

@@ -1,6 +1,6 @@
 # AllfatherChess Extended Build Plan
 
-**Status:** Post-PR #22 implementation baseline; PR #23 VERIFY value-of-compute calibration in progress  
+**Status:** Post-PR #23 implementation baseline; PR #24 LC0 real-inference qualification in progress  
 **Date:** 2026-09-22  
 **Scope:** Expand the existing `docs/BUILD_PLAN.md` from the current M12 control/resource milestone through typed cross-feed evidence, counterfactual and active hybrid decision authority, backend/resource qualification, recursive refinement, native integration, governed policy evolution, and the final equal-resource strength campaign.
 
@@ -831,7 +831,7 @@ When specialist evidence finishes, controller.shadow freezes an in-memory Decisi
 
 ## PR #23 — Prospective chess-specific value-of-compute calibration
 
-**Status: current implementation.**
+**Status: merged.**
 
 ### Purpose
 
@@ -1037,9 +1037,11 @@ It does not yet support:
 
 ## PR #24 — Strength-qualified LC0 profile
 
+**Status: current implementation.**
+
 ### Purpose
 
-Remove the largest backend qualification blocker before LC0 evidence can support a strength claim or active hybrid move.
+Remove the largest backend qualification blocker by proving exact-network, non-random LC0 inference with explicit score semantics and replay-bound provenance. The portable CPU reference remains distinct from the later equal-resource strength platform.
 
 ### Modify / add
 

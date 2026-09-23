@@ -176,6 +176,8 @@ class ResourceMeasurementRun:
         self._active: dict[str, _ActiveStage] = {}
         self._active_instance: dict[str, str] = {}
         self._measurements: dict[str, StageResourceMeasurement] = {}
+        self._process_starts: dict[str, ProcessSnapshot] = {}
+        self._process_totals: dict[str, dict[str, object]] = {}
         self._controller_cpu_started_ns = (
             time.process_time_ns()
             if controller_cpu_started_ns is None
@@ -186,6 +188,77 @@ class ResourceMeasurementRun:
     @property
     def provider_id(self) -> str:
         return self.settings.provider
+
+    def register_process(self, *, instance: str, pid: int | None) -> None:
+        """Take one run-level baseline so IPC/idle gaps cannot disappear."""
+        if not self.settings.enabled:
+            return
+        with self._lock:
+            if instance in self._process_starts or instance in self._process_totals:
+                return
+            if self._provider is None or pid is None:
+                self._process_totals[instance] = {
+                    "instance": instance,
+                    "pid": pid,
+                    "complete": False,
+                    "cpu_ms": None,
+                    "wall_ms": None,
+                    "reason": self._provider_error or "backend pid unavailable at run baseline",
+                }
+                return
+            try:
+                self._process_starts[instance] = self._provider.snapshot(pid)
+            except Exception as exc:
+                self._process_totals[instance] = {
+                    "instance": instance,
+                    "pid": pid,
+                    "complete": False,
+                    "cpu_ms": None,
+                    "wall_ms": None,
+                    "reason": f"run baseline sample failed: {type(exc).__name__}: {exc}",
+                }
+
+    def _finalize_process_totals(self) -> None:
+        if not self.settings.enabled or self._provider is None:
+            return
+        for instance, start in list(self._process_starts.items()):
+            try:
+                end = self._provider.snapshot(start.pid)
+                delta = self._provider.delta(start, end)
+                self._process_totals[instance] = {
+                    "instance": instance,
+                    "pid": start.pid,
+                    "complete": True,
+                    "cpu_ms": round(delta.cpu_ms, 3),
+                    "wall_ms": round(delta.wall_ms, 3),
+                    "start_rss_bytes": (
+                        delta.start_rss_bytes if self.settings.record_memory else None
+                    ),
+                    "end_rss_bytes": (
+                        delta.end_rss_bytes if self.settings.record_memory else None
+                    ),
+                    "vm_hwm_bytes": (
+                        delta.vm_hwm_bytes if self.settings.record_memory else None
+                    ),
+                    "reason": None,
+                }
+            except Exception as exc:
+                self._process_totals[instance] = {
+                    "instance": instance,
+                    "pid": start.pid,
+                    "complete": False,
+                    "cpu_ms": None,
+                    "wall_ms": None,
+                    "start_rss_bytes": (
+                        start.rss_bytes if self.settings.record_memory else None
+                    ),
+                    "end_rss_bytes": None,
+                    "vm_hwm_bytes": (
+                        start.vm_hwm_bytes if self.settings.record_memory else None
+                    ),
+                    "reason": f"run terminal sample failed: {type(exc).__name__}: {exc}",
+                }
+            self._process_starts.pop(instance, None)
 
     def begin_stage(self, *, key: str, instance: str, phase: str, pid: int | None) -> None:
         if not self.settings.enabled:
@@ -349,12 +422,19 @@ class ResourceMeasurementRun:
 
     def _coverage(self) -> dict[str, object]:
         measurements = list(self._measurements.values())
+        process_totals = list(self._process_totals.values())
         cpu_complete = (
             self.settings.enabled
             and self._provider is not None
             and not self._active
+            and not self._process_starts
             and bool(measurements)
+            and bool(process_totals)
             and all(item.complete and item.cpu_ms is not None for item in measurements)
+            and all(
+                item.get("complete") is True and item.get("cpu_ms") is not None
+                for item in process_totals
+            )
         )
         gpu_required = self.settings.require_gpu_for_claim
         # No GPU provider exists in M14-B. A GPU-requiring profile must fail
@@ -386,10 +466,15 @@ class ResourceMeasurementRun:
             item.as_dict()
             for item in sorted(self._measurements.values(), key=lambda item: item.key)
         ]
-        measured_engine_cpu = sum(
+        stage_engine_cpu = sum(
             float(item.cpu_ms)
             for item in self._measurements.values()
             if item.complete and item.cpu_ms is not None
+        )
+        measured_engine_cpu = sum(
+            float(item["cpu_ms"])
+            for item in self._process_totals.values()
+            if item.get("complete") is True and isinstance(item.get("cpu_ms"), (int, float))
         )
         coverage = self._coverage()
         cpu_ok = bool(coverage["cpu"]["complete"]) if self.settings.require_cpu_for_claim else True
@@ -411,7 +496,12 @@ class ResourceMeasurementRun:
                 ),
             },
             "engine_cpu_ms": round(measured_engine_cpu, 3),
+            "stage_engine_cpu_ms": round(stage_engine_cpu, 3),
             "physical_cpu_ms": round(measured_engine_cpu + controller_cpu, 3),
+            "processes": {
+                name: dict(value)
+                for name, value in sorted(self._process_totals.items())
+            },
             "stages": measurements,
             "qualified": bool(self.settings.enabled and cpu_ok and gpu_ok),
         }
@@ -458,6 +548,7 @@ class ResourceMeasurementRun:
                     key,
                     reason="resource report sealed before a terminal stage sample was observed",
                 )
+            self._finalize_process_totals()
             payload = self._report_payload()
             digest = hashlib.sha256(self._canonical_bytes(payload)).hexdigest()
             payload["report_id"] = f"resource-{digest[:16]}"

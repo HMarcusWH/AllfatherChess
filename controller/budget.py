@@ -194,6 +194,9 @@ class LaneAccount:
     estimated_gpu_ms: float = 0.0
     declared_fallback_gpu_ms: float = 0.0
     settlements: int = 0
+    measured_settlements: int = 0
+    estimated_settlements: int = 0
+    declared_fallback_settlements: int = 0
     #: engine-native counters, keyed by semantics; never summed across keys.
     native_work: dict[str, float] = field(default_factory=dict)
     #: Per-stage maxima, keyed by (semantics, stage). A UCI `nodes` counter is
@@ -218,6 +221,9 @@ class LaneAccount:
             "estimated_gpu_ms": round(self.estimated_gpu_ms, 3),
             "declared_fallback_gpu_ms": round(self.declared_fallback_gpu_ms, 3),
             "settlements": self.settlements,
+            "measured_settlements": self.measured_settlements,
+            "estimated_settlements": self.estimated_settlements,
+            "declared_fallback_settlements": self.declared_fallback_settlements,
             "native_work": {key: round(value, 3) for key, value in sorted(self.native_work.items())},
             # The per-stage decomposition the totals above are summed from, so a
             # reader can check the arithmetic instead of trusting it.
@@ -470,10 +476,13 @@ class BudgetLedger:
             account.settlements += 1
             if cpu_source == "measured":
                 account.measured_cpu_ms += spent_cpu
+                account.measured_settlements += 1
             elif cpu_source == "estimated_fallback":
                 account.estimated_cpu_ms += spent_cpu
+                account.estimated_settlements += 1
             else:
                 account.declared_fallback_cpu_ms += spent_cpu
+                account.declared_fallback_settlements += 1
             if gpu_source == "measured":
                 account.measured_gpu_ms += spent_gpu
             elif gpu_source == "estimated_fallback":

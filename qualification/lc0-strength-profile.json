@@ -27,6 +27,12 @@
       "-Db_lto=false"
     ],
     "required_packages": [
+      "meson",
+      "ninja-build",
+      "pkg-config",
+      "libprotobuf-dev",
+      "protobuf-compiler",
+      "zlib1g-dev",
       "libopenblas-dev"
     ]
   },

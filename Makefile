@@ -1,4 +1,4 @@
-.PHONY: vendor verify-vendor build-baselines smoke-baselines golden-baselines record-golden-baselines telemetry-contract telemetry-adapters telemetry-adapter-integration controller-tests shard-ledger-tests prefix-shard-tests refinement-tests active-specialist-tests crossfeed-tests decision-tests counterfactual-tests value-of-compute-tests decision-calibration-tests shard-ledger-contract prefix-shard-contract refinement-execution-contract active-specialist-contract crossfeed-contract counterfactual-decision-contract value-of-compute-contract hybrid-shell-contract shadow-tests replay-tests residual-tests routing-tests verification-tests verification-analysis-tests shadow-execution-contract verification-execution-contract verification-analysis-contract active-routing-contract shadow-evidence-sweep verification-evidence-sweep refinement-evidence-sweep counterfactual-decision-sweep value-of-compute-sweep decision-calibration residual-calibration verification-analysis run-allfather run-allfather-shadow run-allfather-verify run-allfather-refine run-allfather-crossfeed run-allfather-counterfactual run-allfather-value run-allfather-active-specialist
+.PHONY: vendor verify-vendor build-baselines smoke-baselines golden-baselines record-golden-baselines telemetry-contract telemetry-adapters telemetry-adapter-integration controller-tests shard-ledger-tests prefix-shard-tests refinement-tests active-specialist-tests crossfeed-tests decision-tests counterfactual-tests value-of-compute-tests decision-calibration-tests strength-profile-tests shard-ledger-contract prefix-shard-contract refinement-execution-contract active-specialist-contract crossfeed-contract counterfactual-decision-contract value-of-compute-contract lc0-strength-contract hybrid-shell-contract shadow-tests replay-tests residual-tests routing-tests verification-tests verification-analysis-tests shadow-execution-contract verification-execution-contract verification-analysis-contract active-routing-contract shadow-evidence-sweep verification-evidence-sweep refinement-evidence-sweep counterfactual-decision-sweep value-of-compute-sweep decision-calibration residual-calibration verification-analysis fetch-lc0-strength build-lc0-strength run-allfather run-allfather-shadow run-allfather-verify run-allfather-refine run-allfather-crossfeed run-allfather-counterfactual run-allfather-value run-allfather-strength run-allfather-active-specialist
 
 vendor:
 	@echo "Refusing implicit destructive vendor refresh." >&2
@@ -48,6 +48,7 @@ controller-tests:
 	python3 tests/controller/test_counterfactual.py
 	python3 tests/controller/test_value_of_compute.py
 	python3 tests/controller/test_decision_calibration.py
+	python3 tests/controller/test_strength_profile.py
 
 shard-ledger-tests:
 	python3 tests/controller/test_shard_ledger.py
@@ -75,6 +76,9 @@ value-of-compute-tests:
 
 decision-calibration-tests:
 	python3 tests/controller/test_decision_calibration.py
+
+strength-profile-tests:
+	python3 tests/controller/test_strength_profile.py
 
 shadow-tests:
 	python3 tests/controller/test_shadow_runtime.py
@@ -114,6 +118,9 @@ counterfactual-decision-contract:
 
 value-of-compute-contract:
 	python3 scripts/value-of-compute-contract.py
+
+lc0-strength-contract:
+	python3 scripts/lc0-strength-profile-contract.py
 
 hybrid-shell-contract:
 	python3 scripts/hybrid-shell-contract.py
@@ -157,6 +164,12 @@ verification-analysis:
 residual-calibration:
 	python3 scripts/residual-calibration.py
 
+fetch-lc0-strength:
+	python3 scripts/fetch-lc0-network.py
+
+build-lc0-strength:
+	bash scripts/build-lc0-strength.sh
+
 run-allfather:
 	python3 -m controller --config config/allfather.validation.json
 
@@ -177,6 +190,9 @@ run-allfather-counterfactual:
 
 run-allfather-value:
 	python3 -m controller --config config/allfather.value.validation.json
+
+run-allfather-strength:
+	python3 -m controller --config config/allfather.strength.validation.json
 
 run-allfather-active-specialist:
 	python3 -m controller --config config/allfather.active.specialist.validation.json

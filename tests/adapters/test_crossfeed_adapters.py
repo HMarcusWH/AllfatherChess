@@ -3,7 +3,9 @@
 
 from __future__ import annotations
 
+import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -13,10 +15,12 @@ sys.path.insert(0, str(ROOT))
 
 from adapters.crossfeed import (
     CrossFeedAdapterError,
+    CrossFeedAdapterEvidenceError,
     Lc0CrossFeedAdapter,
     RecklessCrossFeedAdapter,
     StockfishCrossFeedAdapter,
     build_adapter_evidence,
+    build_adapter_evidence_from_run,
 )
 from common.search_request import parse_position_command
 from controller.crossfeed import (
@@ -27,6 +31,7 @@ from controller.crossfeed import (
     NativeEvaluation,
     NativeWork,
 )
+from tests.controller.test_shadow_runtime import ANCHOR, run_shell, write_shadow_config
 
 
 ROOTS = ("e2e4", "d2d4", "g1f3")
@@ -325,6 +330,71 @@ class CrossFeedAdapterTests(unittest.TestCase):
                 ROOTS,
                 limit={"nodes": 64},
             )
+
+
+class CrossFeedAdapterReplayTests(unittest.TestCase):
+    def test_sealed_projection_includes_recursive_refine_without_changing_crossfeed_view(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config = write_shadow_config(
+                root,
+                verification=True,
+                refinement=True,
+                crossfeed=True,
+                dispatch_nodes=64,
+                verification_nodes=32,
+                refinement_nodes=32,
+                instance_args={
+                    ANCHOR: ["--info-lines", "400", "--info-delay-ms", "10"],
+                    "stockfish-shadow": ["--leader-schedule", "e2e4"],
+                    "reckless-shadow": ["--leader-schedule", "d2d4"],
+                    "lc0-shadow": ["--leader-schedule", "g1f3"],
+                },
+            )
+            document = json.loads(config.read_text(encoding="utf-8"))
+            document["refinement"]["max_depth"] = 3
+            document["refinement"]["max_expansions"] = 1
+            config.write_text(json.dumps(document), encoding="utf-8")
+
+            run_shell(config, ["go nodes 64", "await:bestmove "], timeout=45.0)
+            run_dir = next(
+                path for path in (root / "replays").iterdir() if path.is_dir()
+            )
+
+            evidence = build_adapter_evidence_from_run(run_dir)
+            recursive = [
+                hint
+                for hint in evidence.hints
+                if hint.source_phase == "REFINE" and hint.source_depth == 2
+            ]
+            self.assertTrue(recursive)
+            self.assertTrue(
+                all(hint.candidate_universe_complete for hint in recursive)
+            )
+
+            crossfeed = json.loads(
+                (run_dir / "crossfeed" / "manifest.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertEqual(crossfeed["schema_version"], 1)
+            self.assertNotIn("adapter_evidence", crossfeed)
+            self.assertNotIn("recursive_expansions", crossfeed["view"])
+
+            refinement = json.loads(
+                (run_dir / "refinement" / "manifest.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            expansion = refinement["expansions"][0]
+            stream = expansion["streams"][0]["path"]
+            target = run_dir / "refinement" / stream
+            target.write_text(
+                target.read_text(encoding="utf-8") + "\n",
+                encoding="utf-8",
+            )
+            with self.assertRaises(CrossFeedAdapterEvidenceError):
+                build_adapter_evidence_from_run(run_dir)
 
 
 if __name__ == "__main__":

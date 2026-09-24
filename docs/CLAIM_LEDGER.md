@@ -584,8 +584,9 @@ Nothing below is established by this milestone.
 - cross-feed integrity replays the deterministic derivation from the sealed
   source JSONL and refuses a stored view that does not match that replay;
 - source-stream tampering invalidates the cross-feed contract;
-- enabling cross-feed does not add a search stage and does not change outward
-  decision authority: Stockfish anchor remains the sole emitted bestmove.
+- enabling cross-feed does not add a search stage and does not itself grant
+  outward decision authority. M14-C may separately authorize one frozen hybrid
+  proposal in its narrow active profile; Stockfish remains the exact fallback.
 
 ### OPEN
 
@@ -596,6 +597,49 @@ Nothing below is established by this milestone.
 - promotion of the PR #23 decision-change/value-of-compute model into live routing;
 - whether cross-feed conclusions generalize to the separate real-inference LC0 reference profile;
 - measured rather than estimated process/accelerator resource accounting;
+- any Elo or equal-resource strength gain.
+
+## Engine-specific cross-feed adapters
+
+### PROVED by code/contracts
+
+- M14-E leaves `controller.crossfeed.CrossFeedView` serialization unchanged,
+  preserving the evidence identity already consumed by M14-C;
+- `CrossFeedAdapterEvidence` is a separate projection that can additionally
+  include M14-D recursive REFINE expansion evidence;
+- sealed adapter replay projection requires the existing cross-feed source
+  integrity contract to pass before adapter evidence is constructed;
+- every projected hint preserves source family/owner/instance, phase, search
+  identity, scope id, exact prefix/depth, candidate universe, source-local
+  rank, native evaluation/work semantics and stage disposition;
+- source rank is explicitly context-bound by family, phase, search id, prefix
+  and candidate universe; no cross-engine or cross-depth rank arithmetic is
+  produced;
+- Stockfish, Reckless and LC0 adapters emit only pure typed proposals in this
+  milestone. They do not dispatch an engine, reserve resources, call the
+  router, mutate ownership ledgers or participate in DecisionAuthorization;
+- `VERIFY_SET` can only contain moves already present in the typed cross-feed
+  decision-root candidate set and compiles through the existing bounded
+  `searchmoves` request builder;
+- `REFINE_PREFIX` can only compile a full prefix already supported by typed
+  evidence and reuses the qualified prefix-dispatch geometry;
+- tactical alarms are categorical native `mate` observations only and retain
+  the source engine namespace; no cp/Q/WDL threshold conversion is introduced;
+- the real-engine adapter contract requires Stockfish, Reckless and LC0 to
+  accept generated three-root VERIFY, candidate-subset VERIFY and
+  evidence-supported REFINE-prefix commands while returning inside the
+  declared search region;
+- the telemetry-v1 phase vocabulary is unchanged. M14-E does not invent an
+  ADJUDICATE phase or route action.
+
+### OPEN
+
+- whether adapter-generated proposals are worth dispatching;
+- whether source-local rank hints predict useful additional work;
+- whether categorical mate alarms improve routing;
+- how M14-F regime classification should consume adapter evidence;
+- how M14-G should value, reserve and authorize adapter proposals;
+- whether later native hooks can outperform ordinary UCI restrictions;
 - any Elo or equal-resource strength gain.
 
 ## Counterfactual hybrid decision laboratory

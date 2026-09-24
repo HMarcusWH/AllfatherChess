@@ -27,6 +27,7 @@ on:
       - docs/REFINEMENT.md
       - docs/ACTIVE_SPECIALIST_SCHEDULER.md
       - docs/CROSS_FEED.md
+      - docs/CROSS_FEED_ADAPTERS.md
       - docs/DECISION_AUTHORITY.md
       - docs/VALUE_OF_COMPUTE.md
       - docs/STRENGTH_BACKENDS.md
@@ -57,6 +58,7 @@ on:
       - docs/REFINEMENT.md
       - docs/ACTIVE_SPECIALIST_SCHEDULER.md
       - docs/CROSS_FEED.md
+      - docs/CROSS_FEED_ADAPTERS.md
       - docs/DECISION_AUTHORITY.md
       - docs/VALUE_OF_COMPUTE.md
       - docs/STRENGTH_BACKENDS.md

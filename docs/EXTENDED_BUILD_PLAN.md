@@ -1325,24 +1325,47 @@ Recursive REFINE can zoom multiple levels without weakening ownership or resourc
 
 ## M14-E — Engine-specific cross-feed adapters
 
+### Implementation status
+
+Implemented in PR #31 as a pure translation layer. The authority-facing
+`controller.crossfeed.CrossFeedView` remains byte-for-semantics unchanged
+because M14-C hashes it into DecisionEvidence. M14-D recursive REFINE evidence
+is projected separately into adapter-only evidence.
+
 ### Purpose
 
-Let each engine consume typed candidate information in a way compatible with its own search paradigm while remaining inside explicit VERIFY/REFINE/ADJUDICATE semantics.
+Let each engine consume typed candidate information in a way compatible with
+its own search paradigm without yet wiring those translations into live routing,
+resource authorization or move authority.
 
 ### Add
 
+- adapters/crossfeed/evidence.py;
+- adapters/crossfeed/base.py;
 - adapters/crossfeed/stockfish.py;
 - adapters/crossfeed/reckless.py;
 - adapters/crossfeed/lc0.py;
-- corresponding tests and contract fixtures.
+- tests/adapters/test_crossfeed_adapters.py;
+- scripts/crossfeed-adapter-contract.py;
+- docs/CROSS_FEED_ADAPTERS.md.
 
 ### Initial subprocess-safe operations
 
-- common candidate-set search via searchmoves;
-- candidate-subset VERIFY;
-- PV-prefix REFINE;
-- tactical-alarm nomination;
-- source-rank-informed route priority.
+- common/candidate-subset VERIFY through `VERIFY_SET` + `searchmoves`;
+- evidence-supported PV-prefix REFINE through `REFINE_PREFIX`;
+- categorical native mate-alarm nomination;
+- source-rank priority hints that carry their exact comparison context.
+
+### Deliberately deferred
+
+- ADJUDICATE as a live telemetry/routing phase;
+- dispatch from adapter output;
+- resource reservation from adapter output;
+- adapter-driven DecisionAuthorization;
+- cross-engine rank arithmetic or numeric score conversion.
+
+The current telemetry-v1 phase vocabulary has no ADJUDICATE phase, so M14-E
+does not invent one just to satisfy future route vocabulary.
 
 ### Nonclaims
 
@@ -1350,9 +1373,11 @@ Do not yet claim:
 
 - LC0 policy directly rewrites native Stockfish move ordering;
 - Stockfish cp directly rewrites LC0 Q/value;
+- source ranks from different engines/depths are comparable;
+- adapter proposals improve move quality;
 - native search trees are unified.
 
-Those require later native hooks and separate validation.
+Those require later routing/native hooks and separate validation.
 
 ---
 

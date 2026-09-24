@@ -1383,21 +1383,31 @@ Those require later routing/native hooks and separate validation.
 
 ## M14-F — Search-regime classifier
 
+### Implementation status
+
+Implemented in PR #33 as an offline, decision-inert multi-label classifier plus
+a separate structural support/domain calibration. No live router/runtime path is
+modified.
+
 ### Purpose
 
-Classify the current search situation from source-typed evidence so the router can condition later route proposals without pretending one policy is optimal everywhere.
+Classify the current search situation from source-typed evidence so a later
+router can condition route proposals without pretending one policy is optimal
+everywhere.
 
 ### Add
 
 - controller/regimes.py;
 - controller/regime_calibration.py;
 - tests/controller/test_regimes.py;
+- tests/controller/test_regime_calibration.py;
 - scripts/regime-sweep.py;
+- scripts/regime-contract.py;
 - docs/SEARCH_REGIMES.md.
 
-### Candidate regime vocabulary
+### Frozen regime vocabulary
 
-Hypotheses to calibrate, not truth labels:
+Hypotheses, not truth labels:
 
 ~~~text
 STABLE_CONVERGENT
@@ -1411,7 +1421,44 @@ REFINEMENT_STALLED
 OUT_OF_DOMAIN
 ~~~
 
-A regime may nominate work. It does not authorize a move.
+Regimes are multi-label rather than mutually exclusive.
+
+### Supported v1 evidence rules
+
+- STABLE_CONVERGENT requires the already-qualified `RELOCK_OBSERVED`
+  terminal-suffix definition;
+- CROSS_ENGINE_DISAGREEMENT requires more than one completed VERIFY terminal
+  move and preserves the two-one/all-different structural pattern;
+- TACTICAL_RUPTURE requires a source-native typed mate observation and performs
+  no cp/Q/WDL conversion;
+- REFINEMENT_PRODUCTIVE requires an actually recorded clean recursive M14-D
+  expansion;
+- REFINEMENT_STALLED uses a deliberately narrow definition that excludes
+  depth-two profiles and explicit depth/cap/resource/decision-boundary stops.
+
+### Deliberately unsupported in v1
+
+- POLICY_DIFFUSE: MultiPV rank is not native policy entropy;
+- ENDGAME_EXACT: no qualified tablebase-exactness fact is present in current
+  controller evidence;
+- TIME_CRITICAL: request timing facts are retained, but no calibrated threshold
+  defines time-critical status yet.
+
+Unsupported hypotheses remain explicit instead of being filled from proxies.
+
+### Support calibration
+
+`regime_support_v1` is a support/domain model, not a supervised truth
+classifier. It buckets only coarse structural facts and requires both row
+support and independent position-group support. Unknown or insufficiently
+supported buckets fail closed as OUT_OF_DOMAIN. Repeated runs of one position
+remain in one train/calibration/holdout partition.
+
+### Authority firewall
+
+M14-F does not touch live routing, budget authority, shadow dispatch,
+DecisionAuthorization, engine code, telemetry schema, or outward UCI authority.
+A regime may later nominate work; it never authorizes a move.
 
 ---
 

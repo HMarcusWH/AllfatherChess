@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Real-engine subprocess contract for M14-E cross-feed adapters.
 
-This contract qualifies adapter-generated ordinary UCI restrictions against the
-three vendored engine families.  It does not wire adapters into the controller
-runtime and makes no move-quality or strength claim.
+The contract first seals ordinary cross-feed evidence through the existing
+controller path, reconstructs the separate adapter evidence projection from
+those artifacts, then proves all three vendored engines accept adapter-generated
+ordinary UCI restrictions. It does not wire adapters into live routing and
+makes no strength claim.
 """
 
 from __future__ import annotations
@@ -11,137 +13,33 @@ from __future__ import annotations
 import json
 import re
 import sys
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from adapters.crossfeed import (
-    AdapterSourceHint,
-    CrossFeedAdapterEvidence,
     Lc0CrossFeedAdapter,
     RecklessCrossFeedAdapter,
     StockfishCrossFeedAdapter,
+    build_adapter_evidence_from_run,
 )
 from common.search_request import parse_position_command
-from controller.crossfeed import NativeEvaluation, NativeWork
+from controller.crossfeed import verify_crossfeed_integrity
+from controller.replay import discover_replay_bundles, load_manifest
 from controller.runtime import load_runtime_config
 from tests.harness.uci_session import UciSession
 
 
 CONFIG_PATH = ROOT / "config" / "allfather.crossfeed.validation.json"
 RESULT_DIR = ROOT / "build" / "test-results" / "crossfeed-adapters"
-ROOTS = ("e2e4", "d2d4", "g1f3")
+ANCHOR_MOVETIME_MS = 5000
 _MOVE_RE = re.compile(r"^[a-h][1-8][a-h][1-8][qrbn]?$")
 
 
 class ContractError(RuntimeError):
     pass
-
-
-def _hint(owner: str, move: str, rank: int) -> AdapterSourceHint:
-    evaluation = (
-        NativeEvaluation(
-            kind="scalar",
-            semantics="lc0.uci_score.Q",
-            value=float(rank) / 10.0,
-            bound="none",
-            perspective="unknown",
-        )
-        if owner == "lc0"
-        else NativeEvaluation(
-            kind="cp",
-            semantics=f"{owner}.uci_cp",
-            value=rank * 10,
-            bound="none",
-            perspective="unknown",
-        )
-    )
-    return AdapterSourceHint(
-        decision_move=move,
-        observed_move=move,
-        source_owner=owner,
-        source_instance=f"{owner}-shadow",
-        source_family=owner,
-        source_phase="VERIFY",
-        source_scope_id=f"contract:verify:{owner}",
-        source_prefix=(),
-        source_depth=0,
-        candidate_universe=ROOTS,
-        candidate_universe_complete=True,
-        source_rank=rank,
-        pv_prefix=(move,),
-        evaluations=(evaluation,),
-        work=(
-            NativeWork(
-                value=100 + rank,
-                unit="count" if owner == "lc0" else "nodes",
-                semantics=f"{owner}.uci_nodes",
-            ),
-        ),
-        search_id=f"contract:verify:{owner}",
-        sequence=rank,
-        observed_ms=float(rank),
-        stage_disposition="completed",
-    )
-
-
-def _refine_hint() -> AdapterSourceHint:
-    return AdapterSourceHint(
-        decision_move="e2e4",
-        observed_move="e7e5",
-        source_owner="stockfish",
-        source_instance="stockfish-shadow",
-        source_family="stockfish",
-        source_phase="REFINE",
-        source_scope_id="contract:refine:e2e4",
-        source_prefix=("e2e4",),
-        source_depth=1,
-        candidate_universe=("e7e5",),
-        candidate_universe_complete=False,
-        source_rank=1,
-        pv_prefix=("e2e4", "e7e5"),
-        evaluations=(
-            NativeEvaluation(
-                kind="cp",
-                semantics="stockfish.uci_cp",
-                value=20,
-                bound="none",
-                perspective="unknown",
-            ),
-        ),
-        work=(
-            NativeWork(
-                value=120,
-                unit="nodes",
-                semantics="stockfish.uci_nodes",
-            ),
-        ),
-        search_id="contract:refine:stockfish",
-        sequence=1,
-        observed_ms=5.0,
-        stage_disposition="completed",
-    )
-
-
-def _evidence() -> CrossFeedAdapterEvidence:
-    hints = tuple(
-        _hint(owner, move, rank)
-        for owner in ("stockfish", "reckless", "lc0")
-        for rank, move in enumerate(ROOTS, start=1)
-    ) + (_refine_hint(),)
-    # This digest represents the upstream immutable CrossFeedView identity for
-    # the contract fixture. Adapter operation identity additionally binds the
-    # full adapter evidence digest.
-    return CrossFeedAdapterEvidence(
-        run_id="crossfeed-adapter-contract",
-        generation=1,
-        position_id="startpos",
-        candidate_roots=ROOTS,
-        source_view_digest="0" * 64,
-        hints=hints,
-        evidence_faults=(),
-    )
 
 
 def _bestmove(lines: list[str]) -> str:
@@ -153,6 +51,44 @@ def _bestmove(lines: list[str]) -> str:
     if len(values) != 1 or not _MOVE_RE.fullmatch(values[0]):
         raise ContractError(f"expected one canonical bestmove, got {values}")
     return values[0]
+
+
+def _seal_source_run(config) -> Path:
+    assert config.shadow is not None
+    replay_root = config.shadow.replay_root
+    replay_root.mkdir(parents=True, exist_ok=True)
+    before = discover_replay_bundles(replay_root)
+    known = {path.name for path in before.bundles} | {
+        item.path.name for item in before.skipped
+    }
+
+    with UciSession(
+        Path(sys.executable),
+        cwd=ROOT,
+        timeout=30.0,
+        args=["-m", "controller", "--config", str(CONFIG_PATH)],
+    ) as shell:
+        shell.configure({"UCI_Chess960": False})
+        shell.new_game()
+        shell.set_position({"startpos_moves": []})
+        shell.send(f"go movetime {ANCHOR_MOVETIME_MS}")
+        shell.read_until(
+            lambda line: line.startswith("bestmove "),
+            label="cross-feed adapter source bestmove",
+            timeout=90.0,
+        )
+
+        deadline = time.monotonic() + 20.0
+        while time.monotonic() < deadline:
+            discovery = discover_replay_bundles(replay_root)
+            candidates = [path for path in discovery.bundles if path.name not in known]
+            if candidates:
+                candidate = candidates[-1]
+                if (candidate / "crossfeed" / "manifest.json").is_file():
+                    return candidate
+            time.sleep(0.05)
+
+    raise ContractError("adapter source run did not seal cross-feed evidence")
 
 
 def _run_operation(spec, operation) -> str:
@@ -174,13 +110,43 @@ def _run_operation(spec, operation) -> str:
         return _bestmove(lines)
 
 
+def _choose_refine_prefix(evidence) -> tuple[str, ...]:
+    candidates = [
+        tuple(hint.pv_prefix[:2])
+        for hint in evidence.hints
+        if hint.stage_disposition == "completed"
+        and len(hint.pv_prefix) >= 2
+        and hint.pv_prefix[0] in evidence.candidate_roots
+    ]
+    if not candidates:
+        raise ContractError("sealed adapter evidence contains no two-move PV prefix")
+    return sorted(set(candidates))[0]
+
+
 def main() -> int:
     config = load_runtime_config(CONFIG_PATH)
     if config.shadow is None:
         raise ContractError("cross-feed validation config has no shadow instances")
 
-    evidence = _evidence()
+    run_dir = _seal_source_run(config)
+    source_problems = verify_crossfeed_integrity(run_dir)
+    if source_problems:
+        raise ContractError(f"source cross-feed integrity failed: {source_problems}")
+
+    evidence = build_adapter_evidence_from_run(run_dir)
+    if evidence.evidence_faults:
+        raise ContractError(
+            f"adapter source evidence is faulted: {list(evidence.evidence_faults)}"
+        )
+    if len(evidence.candidate_roots) < 2:
+        raise ContractError(
+            f"adapter source has too few candidate roots: {evidence.candidate_roots}"
+        )
+
     position = parse_position_command("position startpos")
+    roots = evidence.candidate_roots
+    subset = (roots[0], roots[-1])
+    prefix = _choose_refine_prefix(evidence)
     adapters = {
         "stockfish": StockfishCrossFeedAdapter(),
         "reckless": RecklessCrossFeedAdapter(),
@@ -195,7 +161,7 @@ def main() -> int:
         verify = adapter.compile_verify_set(
             evidence,
             position,
-            ROOTS,
+            roots,
             limit={"nodes": 64},
         )
         verify_move = _run_operation(spec, verify)
@@ -204,14 +170,14 @@ def main() -> int:
                 f"{family} VERIFY escaped adapter searchmoves: {verify_move}"
             )
 
-        subset = adapter.compile_verify_set(
+        subset_operation = adapter.compile_verify_set(
             evidence,
             position,
-            ("e2e4", "g1f3"),
+            subset,
             limit={"nodes": 64},
         )
-        subset_move = _run_operation(spec, subset)
-        if subset_move not in subset.searchmoves:
+        subset_move = _run_operation(spec, subset_operation)
+        if subset_move not in subset_operation.searchmoves:
             raise ContractError(
                 f"{family} subset VERIFY escaped adapter searchmoves: {subset_move}"
             )
@@ -219,11 +185,11 @@ def main() -> int:
         refine = adapter.compile_refine_prefix(
             evidence,
             position,
-            ("e2e4", "e7e5"),
+            prefix,
             limit={"nodes": 64},
         )
         refine_move = _run_operation(spec, refine)
-        if refine_move != "e7e5":
+        if refine_move != prefix[-1]:
             raise ContractError(
                 f"{family} REFINE_PREFIX escaped certified prefix: {refine_move}"
             )
@@ -231,7 +197,7 @@ def main() -> int:
         results[family] = {
             "verify_operation": verify.as_dict(),
             "verify_bestmove": verify_move,
-            "subset_operation": subset.as_dict(),
+            "subset_operation": subset_operation.as_dict(),
             "subset_bestmove": subset_move,
             "refine_operation": refine.as_dict(),
             "refine_bestmove": refine_move,
@@ -239,18 +205,25 @@ def main() -> int:
             "tactical_alarm_count": len(adapter.tactical_alarms(evidence)),
         }
 
+    parent = load_manifest(run_dir)
     RESULT_DIR.mkdir(parents=True, exist_ok=True)
     report = {
         "schema_version": 1,
         "config": str(CONFIG_PATH.relative_to(ROOT)),
+        "source_run_id": parent["run_id"],
+        "source_view_digest": evidence.source_view_digest,
         "adapter_evidence_digest": evidence.digest,
+        "candidate_roots": list(roots),
+        "refine_prefix": list(prefix),
         "families": results,
         "claim": (
-            "Subprocess-safety qualification only: each engine accepted deterministic "
-            "adapter-generated VERIFY_SET and REFINE_PREFIX restrictions and returned "
-            "inside the declared region. The adapters were not wired into controller "
-            "routing, resource authorization, DecisionAuthorization or outward move "
-            "selection. No Elo or strength claim."
+            "Subprocess-safety qualification only: a sealed typed cross-feed run "
+            "was reconstructed into adapter evidence, then each engine accepted "
+            "deterministic adapter-generated VERIFY_SET and REFINE_PREFIX "
+            "restrictions and returned inside the declared region. The adapters "
+            "were not wired into controller routing, resource authorization, "
+            "DecisionAuthorization or outward move selection. No Elo or strength "
+            "claim."
         ),
     }
     (RESULT_DIR / "report.json").write_text(
@@ -259,6 +232,7 @@ def main() -> int:
     )
     print(
         "cross-feed adapter contract passed: "
+        f"run={parent['run_id']}, prefix={' '.join(prefix)}, "
         + ", ".join(
             f"{family}={entry['verify_bestmove']}"
             for family, entry in results.items()

@@ -199,6 +199,7 @@ value-of-compute-sweep:
 	python3 scripts/value-of-compute-sweep.py
 
 regime-sweep:
+	@test -n "$(RUNS)" || (echo "Usage: make regime-sweep RUNS='<replay-dir> [...]'" >&2; exit 2)
 	python3 scripts/regime-sweep.py $(RUNS)
 
 decision-calibration:

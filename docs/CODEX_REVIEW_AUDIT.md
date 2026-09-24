@@ -204,6 +204,54 @@ The first Codex pass over this hardening PR found three additional issues in the
 **Repair:** the recursive common-payload validator now rejects non-finite floating-point values anywhere in common objects/arrays while preserving booleans as booleans. The exemption remains restricted to the actual event-level `native.data` payload. Regression fixtures prove that finite unknown common extensions remain legal, nested non-finite common extensions fail, and engine-native extension data remains opaque to the common contract.
 
 
+## Post-M14-D closure of imported LC0 fork review debt
+
+The derived LC0 tree was re-audited against Codex findings on
+`HMarcusWH/lc0#1` (adaptive prefetch) and `HMarcusWH/lc0#2` (defect
+telemetry) before enabling the optimization in any competitive profile.
+
+### Adaptive-prefetch root uncertainty included excluded root moves
+
+**Finding:** the original adaptive-prefetch implementation could count
+positive-policy root moves excluded by `searchmoves` or Syzygy when estimating
+root uncertainty.
+
+**Disposition:** already repaired before the LC0 snapshot was imported.
+`GetPrefetchBatchTarget()` applies `root_move_filter_` before policy/visit
+weight and candidate-count accumulation. The original PR's temporary workflow
+checkout finding was CI-only and is not part of Allfather's engine runtime.
+
+### Speculative-consumption provenance survived cache generation changes
+
+**Finding:** hash-only outstanding provenance could credit an old speculative
+evaluation after eviction/repopulation of the same position.
+
+**Repair:** the derived LC0 tree now tracks speculative submissions with
+per-position provenance generations. Completed speculative work is eligible for
+credit only in the generation in which it was submitted. A later observed
+primary or speculative cache miss advances that generation, retires completed
+eligible credit, and causes older in-flight tokens to retire when they complete.
+The accounting is deliberately conservative: a generation boundary withdraws
+attribution when exact cache-entry identity is no longer provable; it does not
+claim the retired NN work was objectively useless. The summary exposes
+`speculative_stale_retired`, and
+`speculative_submissions == speculative_consumed + speculative_unused`
+remains a tested invariant.
+
+### Iteration JSON formatting serialized workers under the telemetry mutex
+
+**Finding:** trace serialization happened while holding
+`defect_telemetry_mutex_`, perturbing multithreaded timed searches outside the
+reported phase timings.
+
+**Repair:** each worker now updates totals and reserves its deterministic trace
+slot under the mutex, formats JSON after releasing it, and reacquires the mutex
+only to publish into the reserved slot. The existing defect-only worker
+quiescence barrier guarantees all reserved slots are filled before the summary
+is emitted. The live two-thread integration checks unique monotonic iteration
+IDs, trace-count agreement, one pre-completion summary, and both primary and
+speculative accounting conservation.
+
 ## Promotion rule before the hybrid shell
 
 The historical-review hardening PR is complete only when:

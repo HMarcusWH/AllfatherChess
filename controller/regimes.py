@@ -20,6 +20,7 @@ from typing import Any, Iterable
 
 from adapters.crossfeed import (
     CrossFeedAdapterEvidence,
+    CrossFeedAdapterEvidenceError,
     build_adapter_evidence_from_run,
 )
 from common.residuals import past_only_features, pv_persistence
@@ -28,7 +29,7 @@ from controller.refinement import (
     load_refinement_manifest,
     verify_refinement_integrity,
 )
-from controller.replay import load_manifest, sha256_file
+from controller.replay import ReplayError, load_manifest, sha256_file
 from controller.verification_analysis import (
     OWNER_ORDER,
     VerificationAnalysisError,
@@ -589,11 +590,12 @@ def build_regime_observation_from_run(run_dir: Path | str) -> RegimeObservation:
         parent = load_manifest(run_dir)
         adapter_evidence = build_adapter_evidence_from_run(run_dir)
         verification = load_verification_bundle(run_dir)
-    except (OSError, VerificationAnalysisError, Exception) as exc:
-        # Cross-feed/refinement helpers expose their own typed runtime errors;
-        # normalize them at this offline boundary without weakening the reason.
-        if isinstance(exc, RegimeError):
-            raise
+    except (
+        OSError,
+        ReplayError,
+        CrossFeedAdapterEvidenceError,
+        VerificationAnalysisError,
+    ) as exc:
         raise RegimeError(f"cannot build regime source evidence: {exc}") from exc
 
     if not verification.analysis_eligible:

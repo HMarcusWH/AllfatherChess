@@ -192,7 +192,7 @@ def main() -> int:
     if domain.in_domain:
         raise ContractError("unseen structural bucket was admitted in-domain")
     ood = classify_regimes(unseen, domain=domain)
-    _assert_status(ood, SearchRegime.OUT_OF_DOMAIN, RegimeStatus.ACTIVE)
+    _assert_status(ood, SearchRegime.OUT_OF_DOMAIN, RegimeStatus.OUT_OF_DOMAIN)
 
     report = {
         "schema_version": 1,

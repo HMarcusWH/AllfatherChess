@@ -92,9 +92,23 @@ def main() -> int:
         observations,
         position_groups=groups,
     )
-    dataset["classifications_without_domain_model"] = classifications
-    dataset["skipped"] = skipped
     dataset_path = write_regime_dataset(dataset, args.output)
+    summary_path = dataset_path.with_name("sweep.json")
+    summary_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "dataset_id": dataset["dataset_id"],
+                "classifications_without_domain_model": classifications,
+                "skipped": skipped,
+            },
+            indent=2,
+            sort_keys=True,
+            allow_nan=False,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
     print(dataset_path)
 
     if args.fit:

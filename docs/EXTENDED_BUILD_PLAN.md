@@ -1170,7 +1170,7 @@ A run may be development-valid with partial measurement, but the strongest equal
 
 ### Implementation status
 
-Current implementation milestone in PR #29. The branch adds a separate
+Merged in PR #29. The implementation adds a separate
 `DecisionAuthorization` gate over an already-frozen PRE_ANCHOR proposal,
 restricts live transfer to qualified `go movetime` requests, preserves exact
 Stockfish fallback on every denial, keeps terminal procfs sampling post-output,
@@ -1269,6 +1269,14 @@ Any failure returns the buffered anchor move.
 
 ## M14-D — Multi-level recursive REFINE
 
+### Implementation status
+
+Implemented in PR #30. The implementation keeps all pre-M14-D shipped profiles
+at depth 2, adds an explicit evidence-only recursive profile, and rejects
+`hybrid_authority` combined with `refinement.max_depth > 2`. The existing
+BudgetLedger is reused unchanged; every deeper oracle/stage asks the router for
+fresh specialist authority.
+
 ### Purpose
 
 Generalize the current one-child-shell refinement into bounded recursive zoom while preserving PrefixShardLedger invariants.
@@ -1277,17 +1285,26 @@ Generalize the current one-child-shell refinement into bounded recursive zoom wh
 
 - controller/prefix_shards.py;
 - controller/refinement.py;
+- controller/shadow.py;
+- controller/runtime.py;
 - common/prefix_dispatch.py;
-- controller/budget.py;
-- controller/routing.py;
-- tests/controller/test_prefix_shards.py;
-- tests/controller/test_refinement.py.
+- tests/controller/test_refinement.py;
+- config/REFINE-bearing validation profiles;
+- Makefile / controller and baseline CI.
 
 ### Add
 
 - controller/refinement_policy.py;
 - tests/controller/test_refinement_policy.py;
-- scripts/recursive-refinement-contract.py.
+- scripts/recursive-refinement-contract.py;
+- config/allfather.recursive-refine.validation.json.
+
+### Deliberately unchanged
+
+- controller/budget.py accounting semantics;
+- controller/decision.py and DecisionAuthorization;
+- controller/uci_frontend.py outward UCI semantics;
+- engines/** and vendor.lock.json.
 
 ### Rules
 
@@ -1302,7 +1319,7 @@ Generalize the current one-child-shell refinement into bounded recursive zoom wh
 
 ### Acceptance gate
 
-Recursive REFINE can zoom multiple levels without weakening ownership or resource accounting. No claim that the chosen refinement policy improves Elo yet.
+Recursive REFINE can zoom multiple levels without weakening ownership or resource accounting. Deeper recursion is excluded from the M14-C authority profile. No claim that the chosen refinement policy improves Elo yet.
 
 ---
 

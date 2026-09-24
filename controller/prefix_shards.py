@@ -470,6 +470,48 @@ class PrefixShardLedger:
         with self._lock:
             return self._snapshot_shard(self._require_shard(shard_id))
 
+    def get_by_prefix(self, prefix: Sequence[str]) -> dict[str, object]:
+        """Return one shard by complete canonical prefix."""
+
+        if isinstance(prefix, (str, bytes)) or not isinstance(prefix, Sequence):
+            raise PrefixShardLedgerError("prefix must be a move sequence")
+        validated = tuple(
+            _validate_move(move, label=f"prefix[{index}]")
+            for index, move in enumerate(prefix)
+        )
+        if not validated:
+            raise PrefixShardLedgerError("prefix must be non-empty")
+        with self._lock:
+            shard = self._by_prefix.get(validated)
+            if shard is None:
+                raise PrefixShardLedgerError(f"unknown shard prefix: {validated}")
+            return self._snapshot_shard(shard)
+
+    def sealed_frontier_leaf(
+        self, prefix: Sequence[str]
+    ) -> dict[str, object] | None:
+        """Return an eligible recursive split leaf, else None.
+
+        Eligibility is structural only: the shard must exist, remain on the
+        current frontier, and be SEALED. Nomination/resource authority stay
+        outside the ledger.
+        """
+
+        try:
+            snapshot = self.get_by_prefix(prefix)
+        except PrefixShardLedgerError:
+            return None
+        if snapshot["state"] != PrefixShardState.SEALED.value:
+            return None
+        if snapshot["child_ids"]:
+            return None
+        with self._lock:
+            if str(snapshot["id"]) not in {
+                shard.id for shard in self._frontier_shards_locked()
+            }:
+                return None
+        return snapshot
+
     def parent(self, shard_id: str) -> dict[str, object] | None:
         with self._lock:
             shard = self._require_shard(shard_id)

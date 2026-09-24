@@ -112,7 +112,7 @@ Build chess-specific value-of-compute labels; qualify a real LC0 backend/network
 
 The first hybrid-authority path must remain fail-closed: missing/incomplete evidence, unsupported request classes, stale generations, invalid budget state, or unavailable frozen proposals all return the Stockfish anchor move.
 
-After active hybrid authority is established, extend recursive REFINE, add engine-specific cross-feed adapters, classify search regimes, and unify resource routing with decision authorization without collapsing those authorities.
+After bounded hybrid authority, extend recursive REFINE, add engine-specific cross-feed adapters, classify search regimes, and unify resource routing with decision authorization without collapsing those authorities. M14-D performs the recursive REFINE step while explicitly excluding deeper recursion from the M14-C authority profile.
 
 ### M14.5 — Measured transport / selective native integration
 
@@ -156,8 +156,8 @@ The final product is promoted only on statistically credible strength gains agai
 A repo-wide hardening repair is inserted immediately after PR #24. From this point onward the architecture uses milestone IDs rather than reserving future GitHub PR numbers; emergency repairs must not silently renumber the plan.
 
 - **M14-B — Measured process resource accounting**: preserve reservations while adding measured CPU/memory/controller cost, hash-bound `resource.json`, LC0 real-inference resource evidence, and fail-closed coverage; GPU device-time remains explicitly unsupported. **Merged in PR #28.**
-- **M14-C — Active hybrid decision authority v0**: bounded in-memory authorization at the anchor-completion boundary; deterministic Stockfish fallback. **Current implementation milestone (PR #29).**
-- **M14-D — Multi-level recursive REFINE**: bounded deeper prefix splitting under exact ownership and budget rules.
+- **M14-C — Active hybrid decision authority v0**: bounded in-memory authorization at the anchor-completion boundary; deterministic Stockfish fallback. **Merged in PR #29.**
+- **M14-D — Multi-level recursive REFINE**: deterministic breadth-first deeper prefix splitting under exact ownership, fresh specialist authorization, depth/expansion caps and an explicit hybrid-authority firewall. **Implemented in PR #30.**
 - **M14-E — Engine-specific cross-feed adapters**: source-typed candidate transfer into subprocess-safe VERIFY/REFINE/adjudication operations.
 - **M14-F — Search-regime classifier**: calibrated state classes that may nominate work but do not authorize moves.
 - **M14-G — Unified value-of-compute decision router**: combine regime, route-value, resource authorization and separate decision authorization.

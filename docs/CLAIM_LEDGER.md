@@ -459,14 +459,14 @@ Nothing below is established by this milestone.
 - The real-engine contract obtains exact child sets from Stockfish `go perft 1`
   across two recursive levels and has Stockfish, Reckless, and LC0 sequentially
   enforce the same certified depth-3 descendant restriction.
-- No live shadow, replay-v1, routing, budget, VERIFY, or outward-authority path
-  consumes PrefixShardLedger v2 in this milestone.
+- Live REFINE now consumes PrefixShardLedger v2 beyond one shell under M14-D.
+  Geometry remains structurally separate from nomination, resource authority,
+  and outward decision authority.
 
 ### OPEN
 
-- Which COMPARE/RELOCK evidence should nominate a recursive split.
-- How recursive REFINE stages should be represented in replay evidence and
-  budget accounting.
+- Whether a richer calibrated signal should replace the initial regional
+  `stage_terminal_bestmove_v1` nomination policy.
 - Whether recursive localization reduces useful compute waste.
 - Position-level overlap after transpositions; prefix-free ownership does not
   imply globally disjoint board-state expansion.
@@ -496,14 +496,23 @@ Nothing below is established by this milestone.
 - no new REFINE stage may commit after the outward anchor completion boundary;
 - REFINE evidence is a separate hash-bound sibling artifact and does not mutate
   Replay schema v1 or raw VERIFY;
-- active mode still rejects REFINE configuration and the unrestricted Stockfish
-  anchor remains sole outward authority.
+- M14-D adds bounded breadth-first repeated REFINE from SEALED frontier leaves;
+  every deeper split requires explicit clean regional nomination evidence;
+- every deeper oracle and descendant stage receives fresh specialist resource
+  authorization rather than inheriting permission from its parent;
+- `max_depth` and `max_expansions` hard-bound recursive work, while terminal
+  universes, resource denial, cancellation, failure, and the outward decision
+  boundary stop further expansion;
+- REFINE schema v2 records full recursive expansion provenance while the loader
+  remains compatible with schema-v1 artifacts;
+- M14-D rejects `hybrid_authority` combined with `refinement.max_depth > 2`,
+  so deeper recursive evidence cannot silently alter the M14-C authority path.
 
 ### OPEN
 
 - Whether VERIFY disagreement predicts chess error.
-- Whether one-level REFINE resolves meaningful disagreement.
-- Whether repeated recursive refinement is useful.
+- Whether root-shell or repeated recursive REFINE resolves meaningful disagreement.
+- Whether the initial recursive nomination policy is decision-relevant.
 - Whether REFINE repays its CPU/GPU/wall cost under a competitive envelope.
 - Whether REFINE evidence should ever authorize candidate cross-feed to the
   final Stockfish decision path.
@@ -519,9 +528,9 @@ Nothing below is established by this milestone.
 - solver work cannot consume specialist reserves, and VERIFY/REFINE cannot
   borrow each other's reserve in scheduler v1;
 - active VERIFY requires a successful VERIFY reservation before dispatch;
-- active REFINE requires a successful REFINE-oracle reservation before perft-1
-  child enumeration and a separate REFINE reservation before each descendant
-  engine stage;
+- every active REFINE root/deeper expansion requires a successful REFINE-oracle
+  reservation before perft-1 child enumeration and a separate REFINE reservation
+  before each descendant engine stage;
 - denied or undispatched specialist work is not launched and its reservation is
   released;
 - dispatched specialist work settles CPU as stage wall time × configured
@@ -533,8 +542,8 @@ Nothing below is established by this milestone.
 - the envelope claim requires the global CPU/GPU ceiling, specialist partition
   caps, wall limit, bounded anchor request, anchor reservation and declared GPU
   accounting to hold together;
-- the active specialist contract preserves Stockfish-anchor sole outward
-  authority and leaves no open reservation or orphan process.
+- the active specialist and recursive-refinement contracts leave no open
+  reservation or orphan process. Resource authority itself never emits a move.
 
 ### OPEN
 

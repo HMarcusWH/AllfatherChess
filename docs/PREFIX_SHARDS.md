@@ -18,7 +18,8 @@ PrefixShardLedger v2
     recursive prefix ownership
     split / transfer / seal substrate
     qualified offline + real-engine contract
-    one-level shadow REFINE consumer in PR #17
+    one-shell REFINE consumer in PR #17
+    bounded multi-level live REFINE consumer in M14-D / PR #30
 ```
 
 This isolates recursive geometry from the already-hardened four-process
@@ -247,14 +248,16 @@ PR #16 does not:
 - change `controller/shards.py`;
 - replace RootShardLedger v1 for initial EXPLORE;
 - add a learned or score-driven split policy;
-- recurse beyond one live child shell;
+- choose which recursive leaf deserves another expansion;
 - mutate Replay v1;
 - add active VERIFY;
 - add a global transposition/position-ownership table;
 - change outward bestmove authority;
 - make an Elo or equal-resource strength claim.
 
-PR #17 now supplies the first shadow-only integration: completed raw VERIFY
-final disagreement nominates root targets and executes one exact child shell.
-See `docs/REFINEMENT.md`. Active budget authorization and repeated recursion
-remain later milestones.
+PR #17 supplied the first one-shell integration. PR #18 added active resource
+authorization. M14-D / PR #30 now reuses the same ledger for bounded repeated
+live splits. The ledger itself still carries no routing meaning: recursive
+nomination lives in `controller/refinement_policy.py`, resource authority lives
+in the router/budget layer, and outward decision authority remains separate.
+See `docs/REFINEMENT.md`.

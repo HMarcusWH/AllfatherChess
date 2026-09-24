@@ -1,4 +1,4 @@
-.PHONY: vendor verify-vendor build-baselines smoke-baselines golden-baselines record-golden-baselines telemetry-contract telemetry-adapters telemetry-adapter-integration controller-tests resource-measurement-tests resource-accounting-contract shard-ledger-tests prefix-shard-tests refinement-tests active-specialist-tests crossfeed-tests decision-tests hybrid-authority-tests counterfactual-tests value-of-compute-tests decision-calibration-tests strength-profile-tests shard-ledger-contract prefix-shard-contract refinement-execution-contract active-specialist-contract crossfeed-contract counterfactual-decision-contract active-hybrid-decision-contract value-of-compute-contract lc0-strength-contract hybrid-shell-contract shadow-tests replay-tests residual-tests routing-tests verification-tests verification-analysis-tests shadow-execution-contract verification-execution-contract verification-analysis-contract active-routing-contract shadow-evidence-sweep verification-evidence-sweep refinement-evidence-sweep counterfactual-decision-sweep value-of-compute-sweep decision-calibration residual-calibration verification-analysis fetch-lc0-strength build-lc0-strength run-allfather run-allfather-shadow run-allfather-verify run-allfather-refine run-allfather-crossfeed run-allfather-counterfactual run-allfather-hybrid run-allfather-value run-allfather-strength run-allfather-active-specialist
+.PHONY: vendor verify-vendor build-baselines smoke-baselines golden-baselines record-golden-baselines telemetry-contract telemetry-adapters telemetry-adapter-integration controller-tests resource-measurement-tests resource-accounting-contract shard-ledger-tests prefix-shard-tests refinement-tests refinement-policy-tests active-specialist-tests crossfeed-tests decision-tests hybrid-authority-tests counterfactual-tests value-of-compute-tests decision-calibration-tests strength-profile-tests shard-ledger-contract prefix-shard-contract refinement-execution-contract recursive-refinement-contract active-specialist-contract crossfeed-contract counterfactual-decision-contract active-hybrid-decision-contract value-of-compute-contract lc0-strength-contract hybrid-shell-contract shadow-tests replay-tests residual-tests routing-tests verification-tests verification-analysis-tests shadow-execution-contract verification-execution-contract verification-analysis-contract active-routing-contract shadow-evidence-sweep verification-evidence-sweep refinement-evidence-sweep counterfactual-decision-sweep value-of-compute-sweep decision-calibration residual-calibration verification-analysis fetch-lc0-strength build-lc0-strength run-allfather run-allfather-shadow run-allfather-verify run-allfather-refine run-allfather-recursive-refine run-allfather-crossfeed run-allfather-counterfactual run-allfather-hybrid run-allfather-value run-allfather-strength run-allfather-active-specialist
 
 vendor:
 	@echo "Refusing implicit destructive vendor refresh." >&2
@@ -44,6 +44,7 @@ controller-tests:
 	python3 tests/controller/test_verification.py
 	python3 tests/controller/test_verification_analysis.py
 	python3 tests/controller/test_refinement.py
+	python3 tests/controller/test_refinement_policy.py
 	python3 tests/controller/test_active_specialist_budget.py
 	python3 tests/controller/test_crossfeed.py
 	python3 tests/controller/test_decision.py
@@ -61,6 +62,9 @@ prefix-shard-tests:
 
 refinement-tests:
 	python3 tests/controller/test_refinement.py
+
+refinement-policy-tests:
+	python3 tests/controller/test_refinement_policy.py
 
 active-specialist-tests:
 	python3 tests/controller/test_active_specialist_budget.py
@@ -119,6 +123,9 @@ prefix-shard-contract:
 
 refinement-execution-contract:
 	python3 scripts/refinement-execution-contract.py
+
+recursive-refinement-contract:
+	python3 scripts/recursive-refinement-contract.py
 
 active-specialist-contract:
 	python3 scripts/active-specialist-contract.py
@@ -197,6 +204,9 @@ run-allfather-verify:
 
 run-allfather-refine:
 	python3 -m controller --config config/allfather.refine.validation.json
+
+run-allfather-recursive-refine:
+	python3 -m controller --config config/allfather.recursive-refine.validation.json
 
 run-allfather-crossfeed:
 	python3 -m controller --config config/allfather.crossfeed.validation.json

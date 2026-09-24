@@ -65,6 +65,8 @@ jobs:
             scripts/resource-accounting-contract.py \
             scripts/crossfeed-contract.py \
             scripts/crossfeed-adapter-contract.py \
+            scripts/regime-contract.py \
+            scripts/regime-sweep.py \
             scripts/counterfactual-decision-contract.py \
             scripts/counterfactual-decision-sweep.py \
             scripts/value-of-compute-contract.py \
@@ -190,6 +192,9 @@ jobs:
       - name: Verify real-engine cross-feed adapter contract
         run: python3 scripts/crossfeed-adapter-contract.py
 
+      - name: Verify search-regime classifier contract
+        run: python3 scripts/regime-contract.py
+
       - name: Verify real-engine counterfactual decision contract
         run: python3 scripts/counterfactual-decision-contract.py
 
@@ -236,6 +241,7 @@ jobs:
             build/test-results/resource-accounting
             build/test-results/crossfeed
             build/test-results/crossfeed-adapters
+            build/test-results/regimes
             build/test-results/counterfactual
             build/test-results/value-of-compute
             build/test-results/lc0-defect-telemetry

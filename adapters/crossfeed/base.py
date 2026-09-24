@@ -271,7 +271,7 @@ class BaseCrossFeedAdapter:
             hint
             for hint in evidence.hints
             if hint.stage_disposition == "completed"
-            and hint.supported_full_prefix == moves
+            and hint.supports_prefix(moves)
         )
         if not supporting:
             raise CrossFeedAdapterError(

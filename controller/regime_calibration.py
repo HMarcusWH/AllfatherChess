@@ -138,6 +138,18 @@ class RegimeDatasetRow:
         }
 
 
+def _dataset_address_payload(dataset: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "schema_version": dataset.get("schema_version"),
+        "extractor_version": dataset.get("extractor_version"),
+        "rows": dataset.get("rows") or [],
+    }
+
+
+def _expected_dataset_id(dataset: dict[str, Any]) -> str:
+    return f"regime-dataset-{_canonical_digest(_dataset_address_payload(dataset))[:16]}"
+
+
 def build_regime_dataset(
     observations: Sequence[RegimeObservation],
     *,
@@ -162,7 +174,7 @@ def build_regime_dataset(
         "extractor_version": REGIME_EXTRACTOR_VERSION,
         "rows": [row.as_dict() for row in sorted(rows, key=lambda item: item.observation.run_id)],
     }
-    payload["dataset_id"] = f"regime-dataset-{_canonical_digest(payload)[:16]}"
+    payload["dataset_id"] = _expected_dataset_id(payload)
     return payload
 
 
@@ -170,6 +182,11 @@ def write_regime_dataset(dataset: dict[str, Any], root: Path | str) -> Path:
     dataset_id = str(dataset.get("dataset_id") or "")
     if not dataset_id:
         raise RegimeCalibrationError("dataset has no dataset_id")
+    expected_id = _expected_dataset_id(dataset)
+    if dataset_id != expected_id:
+        raise RegimeCalibrationError(
+            f"dataset_id {dataset_id!r} does not match contents {expected_id!r}"
+        )
     target = Path(root) / dataset_id
     target.mkdir(parents=True, exist_ok=True)
     path = target / "dataset.json"
@@ -185,6 +202,8 @@ def rows_from_dataset(dataset: dict[str, Any]) -> list[RegimeDatasetRow]:
         raise RegimeCalibrationError("unsupported regime dataset schema")
     if dataset.get("extractor_version") != REGIME_EXTRACTOR_VERSION:
         raise RegimeCalibrationError("unsupported regime dataset extractor")
+    if dataset.get("dataset_id") != _expected_dataset_id(dataset):
+        raise RegimeCalibrationError("regime dataset_id does not match contents")
     rows: list[RegimeDatasetRow] = []
     for raw in dataset.get("rows") or ():
         if not isinstance(raw, dict):
@@ -221,6 +240,34 @@ class RegimeSupportModel:
     model_kind: str = MODEL_KIND
     extractor_version: str = REGIME_EXTRACTOR_VERSION
     feature_schema: tuple[str, ...] = FEATURE_SCHEMA
+
+    def __post_init__(self) -> None:
+        for name, value in (
+            ("min_support", self.min_support),
+            ("min_position_groups", self.min_position_groups),
+        ):
+            if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+                raise RegimeCalibrationError(f"{name} must be a positive integer")
+        if len(self.source_sha256) != 64:
+            raise RegimeCalibrationError("source_sha256 must be a SHA-256 digest")
+        for bucket, record in self.buckets.items():
+            if not isinstance(bucket, str) or not bucket:
+                raise RegimeCalibrationError("regime support bucket key must be non-empty")
+            if not isinstance(record, dict):
+                raise RegimeCalibrationError(f"bucket {bucket!r} must be an object")
+            support = record.get("support")
+            group_support = record.get("position_group_support")
+            if (
+                isinstance(support, bool)
+                or not isinstance(support, int)
+                or support < 0
+                or isinstance(group_support, bool)
+                or not isinstance(group_support, int)
+                or group_support < 0
+            ):
+                raise RegimeCalibrationError(
+                    f"bucket {bucket!r} has invalid support counters"
+                )
 
     def evaluate(self, observation: RegimeObservation) -> RegimeDomainAssessment:
         bucket = regime_bucket_key(observation)

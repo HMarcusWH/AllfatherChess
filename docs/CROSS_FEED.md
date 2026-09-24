@@ -5,16 +5,19 @@
 This milestone introduces a decision-inert cross-feed evidence layer over the
 existing EXPLORE -> VERIFY -> optional REFINE path.
 
-It does **not** add another engine search phase and it does **not** change the
-outward bestmove. Stockfish anchor remains the sole chess decision authority.
+It does **not** add another engine search phase. The cross-feed evidence layer
+itself has no move authority. M14-C may separately authorize one already-frozen
+hybrid proposal in its narrow active `movetime_v0` profile; otherwise
+Stockfish remains the exact fallback authority.
 
 ## Why this layer exists
 
 PR #14 already created the expensive common-support operation: each EXPLORE
 owner nominates one root, and all three shadow engines independently re-search
-the same three-root set under phase VERIFY. PR #17 added one-level REFINE when
-completed VERIFY remains non-unanimous. PR #18 placed VERIFY / REFINE under one
-resource scheduler.
+the same three-root set under phase VERIFY. PR #17 added the first REFINE child shell when completed VERIFY remained
+non-unanimous. PR #18 placed VERIFY / REFINE under one resource scheduler, and
+M14-D generalized REFINE into bounded recursive expansion while keeping the
+M14-C authority profile pinned to depth two.
 
 The missing capability was a typed way to expose that evidence to later
 decision code without:
@@ -35,7 +38,7 @@ pairwise-disjoint EXPLORE
         v
 existing common-support VERIFY
         |
-        +--> optional existing one-level REFINE
+        +--> optional bounded REFINE
         |
         v
 CrossFeedView                 in-memory, immutable, decision-inert
@@ -92,9 +95,11 @@ One retained source observation:
 
 For VERIFY, the decision-root move and observed move are the same root.
 
-For REFINE, the decision-root move remains the nominated root while
+For root-shell REFINE, the decision-root move remains the nominated root while
 `observed_move` is the descendant move and the PV prefix is rooted by the
-decision candidate.
+decision candidate. M14-D recursive expansion records remain separately bound
+inside the REFINE-v2 artifact; M14-E exposes them through an adapter-only
+projection rather than mutating `CrossFeedView`.
 
 ### CrossFeedCandidate
 
@@ -195,6 +200,48 @@ It binds:
 `verify_crossfeed_integrity()` re-checks both the cross-feed digest and the
 existing parent / VERIFY / REFINE integrity contracts.
 
+## M14-E adapter projection
+
+M14-E deliberately does not change `CrossFeedView`, its schema, or its
+serialization. M14-C already hashes `view.as_dict()` into
+`DecisionEvidence`, so adding recursive adapter fields there would silently
+change authority-facing evidence identity.
+
+Instead, `adapters/crossfeed/evidence.py` builds a separate
+`CrossFeedAdapterEvidence` object from the immutable view plus optional
+REFINE-v2 recursive expansion evidence. The adapter projection records complete
+source context:
+
+- engine family / owner / instance;
+- VERIFY or REFINE phase;
+- exact source search and scope id;
+- complete source prefix and depth;
+- candidate universe and whether that universe is complete;
+- source-local MultiPV rank;
+- native evaluation/work semantics;
+- source stage disposition.
+
+This lets the engine-specific adapters qualify two subprocess-safe proposal
+types without creating a new live phase:
+
+```text
+VERIFY_SET
+REFINE_PREFIX
+```
+
+Source rank is explicitly context-local. A rank may be compared only with
+another rank from the same family, phase, search id, prefix and candidate
+universe. No cross-engine or cross-depth rank arithmetic is allowed.
+
+The initial tactical alarm is similarly narrow: a native evaluation with
+`kind=mate` may create a categorical alarm for that same engine family. No
+centipawn/Q/WDL threshold conversion is introduced.
+
+The adapter layer is pure. It does not dispatch engines, reserve resources,
+mutate either ownership ledger, create a new telemetry phase, call the router,
+or participate in `DecisionAuthorization`. Those integrations belong to later
+routing milestones.
+
 ## Controller cost
 
 Cross-feed launches no solver work.
@@ -266,5 +313,7 @@ It does **not** establish:
 - that the current candidate compression is optimal;
 - that Allfather beats Stockfish, Reckless, or LC0.
 
-The next milestone may use this evidence to freeze **counterfactual** hybrid
-decisions while the real outward move still remains the Stockfish anchor.
+M14-E additionally establishes that the existing typed evidence can be
+translated deterministically into engine-safe VERIFY-set and REFINE-prefix UCI
+proposals without changing the live controller. Later regime/routing milestones
+may decide whether any such proposal is worth authorizing and dispatching.

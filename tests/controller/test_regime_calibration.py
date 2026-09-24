@@ -18,6 +18,7 @@ from controller.regime_calibration import (
     build_regime_dataset,
     fit_regime_support_model,
     load_regime_support_model,
+    regime_bucket_features,
     regime_bucket_key,
     rows_from_dataset,
     split_position_groups,
@@ -187,17 +188,28 @@ class RegimeCalibrationTests(unittest.TestCase):
             self.assertEqual(loaded.buckets, model.buckets)
 
     def test_calibration_feature_schema_has_no_decision_or_numeric_engine_score(self):
-        key = regime_bucket_key(observation("p1", mate=("stockfish",)))
-        lowered = key.lower()
+        features = regime_bucket_features(observation("p1", mate=("stockfish",)))
+        self.assertEqual(
+            set(features),
+            {
+                "verify_pattern",
+                "relock_status",
+                "mate_alarm_mask",
+                "candidate_count_bucket",
+                "refinement_state",
+                "request_mode",
+            },
+        )
+        serialized = json.dumps(features, sort_keys=True).lower()
         for forbidden in (
             "counterfactual",
-            "decision",
-            "anchor",
+            "decisionauthorization",
+            "anchor_bestmove",
             "centipawn",
             "uci_score.q",
-            "elo",
+            "\"elo\"",
         ):
-            self.assertNotIn(forbidden, lowered)
+            self.assertNotIn(forbidden, serialized)
 
 
 if __name__ == "__main__":

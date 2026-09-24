@@ -156,9 +156,19 @@ class AdapterSourceHint:
 
     @property
     def supported_full_prefix(self) -> tuple[str, ...]:
+        """Smallest full prefix directly represented by this observation."""
         if self.source_phase == "VERIFY":
             return (self.observed_move,)
         return self.source_prefix + (self.observed_move,)
+
+    def supports_prefix(self, prefix: tuple[str, ...]) -> bool:
+        """Whether this source PV directly evidences the requested full prefix."""
+
+        return (
+            len(prefix) >= 2
+            and len(prefix) <= len(self.pv_prefix)
+            and tuple(self.pv_prefix[: len(prefix)]) == tuple(prefix)
+        )
 
     def as_dict(self) -> dict[str, Any]:
         return {

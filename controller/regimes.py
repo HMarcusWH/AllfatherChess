@@ -100,9 +100,17 @@ class VerifierRegimeFeatures:
     def __post_init__(self) -> None:
         if self.owner not in OWNER_ORDER:
             raise RegimeError(f"unknown verifier owner: {self.owner!r}")
-        if isinstance(self.observation_count, bool) or self.observation_count < 0:
+        if (
+            isinstance(self.observation_count, bool)
+            or not isinstance(self.observation_count, int)
+            or self.observation_count < 0
+        ):
             raise RegimeError("observation_count must be a non-negative integer")
-        if isinstance(self.leader_flips, bool) or self.leader_flips < 0:
+        if (
+            isinstance(self.leader_flips, bool)
+            or not isinstance(self.leader_flips, int)
+            or self.leader_flips < 0
+        ):
             raise RegimeError("leader_flips must be a non-negative integer")
         _finite_fraction(self.stable_run_fraction, "stable_run_fraction")
         if self.pv_persistence is not None:
@@ -152,6 +160,29 @@ class RefinementRegimeFeatures:
     terminal_expansions: int
     max_observed_depth: int
     boundary_reasons: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.present, bool):
+            raise RegimeError("refinement present flag must be boolean")
+        for name in (
+            "target_count",
+            "completed_nonterminal_targets",
+            "expansion_count",
+            "completed_expansions",
+            "terminal_expansions",
+            "max_observed_depth",
+        ):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise RegimeError(f"{name} must be a non-negative integer")
+        for name in ("max_depth", "max_expansions"):
+            value = getattr(self, name)
+            if value is not None and (
+                isinstance(value, bool) or not isinstance(value, int) or value < 1
+            ):
+                raise RegimeError(f"{name} must be a positive integer when present")
+        if any(not isinstance(reason, str) or not reason for reason in self.boundary_reasons):
+            raise RegimeError("boundary reasons must be non-empty strings")
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -208,6 +239,24 @@ class TimingRegimeFeatures:
     request_mode: str
     limits: tuple[tuple[str, int | bool], ...]
 
+    def __post_init__(self) -> None:
+        allowed = {"movetime", "clock", "nodes", "other", "unbounded_or_unknown"}
+        if self.request_mode not in allowed:
+            raise RegimeError(f"unknown request mode: {self.request_mode!r}")
+        seen: set[str] = set()
+        for name, value in self.limits:
+            if not isinstance(name, str) or not name:
+                raise RegimeError("timing limit name must be non-empty")
+            if name in seen:
+                raise RegimeError(f"duplicate timing limit: {name}")
+            seen.add(name)
+            if isinstance(value, bool):
+                continue
+            if not isinstance(value, int) or value < 0:
+                raise RegimeError(
+                    f"timing limit {name!r} must be a non-negative integer/bool"
+                )
+
     def as_dict(self) -> dict[str, Any]:
         return {
             "request_mode": self.request_mode,
@@ -258,14 +307,44 @@ class RegimeObservation:
             raise RegimeError("generation must be an integer")
         if len(self.adapter_evidence_digest) != 64:
             raise RegimeError("adapter_evidence_digest must be SHA-256")
+        if not self.candidate_roots:
+            raise RegimeError("candidate roots must be non-empty")
         if len({move for move in self.candidate_roots}) != len(self.candidate_roots):
             raise RegimeError("candidate roots must be duplicate-free")
+        source_names: set[str] = set()
+        for name, digest in self.source_hashes:
+            if not name or name in source_names or len(digest) != 64:
+                raise RegimeError("source hashes must have unique names and SHA-256 digests")
+            source_names.add(name)
         owners = tuple(owner for owner, _ in self.verify_terminal_by_owner)
         if owners != OWNER_ORDER:
             raise RegimeError("VERIFY terminal vector must use frozen owner order")
         verifier_owners = tuple(item.owner for item in self.verifiers)
         if verifier_owners != OWNER_ORDER:
             raise RegimeError("verifier features must use frozen owner order")
+        terminal_by_owner = dict(self.verify_terminal_by_owner)
+        if any(
+            move is not None and move not in self.candidate_roots
+            for move in terminal_by_owner.values()
+        ):
+            raise RegimeError("VERIFY terminal move escaped candidate roots")
+        if any(
+            item.terminal_move != terminal_by_owner[item.owner]
+            for item in self.verifiers
+        ):
+            raise RegimeError("verifier terminal feature disagrees with terminal vector")
+        expected_pattern = _terminal_pattern(self.verify_terminal_by_owner)
+        if self.verify_pattern != expected_pattern:
+            raise RegimeError(
+                f"VERIFY pattern {self.verify_pattern!r} does not match terminal vector "
+                f"{expected_pattern!r}"
+            )
+        if self.relock_status == "RELOCK_OBSERVED" and self.verify_pattern != "unanimous":
+            raise RegimeError("RELOCK_OBSERVED requires unanimous VERIFY terminals")
+        if len(set(self.native_mate_alarm_families)) != len(self.native_mate_alarm_families):
+            raise RegimeError("native mate alarm families must be duplicate-free")
+        if any(owner not in OWNER_ORDER for owner in self.native_mate_alarm_families):
+            raise RegimeError("native mate alarm family is unknown")
         if self.relock_fraction is not None:
             _finite_fraction(self.relock_fraction, "relock_fraction")
 
@@ -352,6 +431,16 @@ class RegimeDomainAssessment:
     in_domain: bool
     reason: str | None
 
+    def __post_init__(self) -> None:
+        if not self.bucket:
+            raise RegimeError("domain bucket must be non-empty")
+        for name in ("support", "position_group_support"):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise RegimeError(f"{name} must be a non-negative integer")
+        if not isinstance(self.in_domain, bool):
+            raise RegimeError("in_domain must be boolean")
+
     def as_dict(self) -> dict[str, Any]:
         return {
             "bucket": self.bucket,
@@ -383,6 +472,10 @@ class RegimeClassification:
     observation: RegimeObservation
     assessments: tuple[RegimeAssessment, ...]
     domain: RegimeDomainAssessment | None = None
+
+    def __post_init__(self) -> None:
+        if tuple(item.regime for item in self.assessments) != REGIME_ORDER:
+            raise RegimeError("regime assessments must contain the frozen vocabulary exactly once")
 
     @property
     def digest(self) -> str:

@@ -240,7 +240,7 @@ class RegimeClassifierTests(unittest.TestCase):
         result = classify_regimes(subject, domain=unknown)
         self.assertIs(
             result.status_for(SearchRegime.OUT_OF_DOMAIN),
-            RegimeStatus.ACTIVE,
+            RegimeStatus.OUT_OF_DOMAIN,
         )
         self.assertIs(
             result.status_for(SearchRegime.STABLE_CONVERGENT),

@@ -642,6 +642,56 @@ Nothing below is established by this milestone.
 - whether later native hooks can outperform ordinary UCI restrictions;
 - any Elo or equal-resource strength gain.
 
+## Search-regime classifier
+
+### PROVED by code/contracts
+
+- M14-F is offline/decision-inert: it reads sealed typed evidence and does not
+  route work, reserve resources, dispatch engines, mutate ledgers, participate
+  in DecisionAuthorization, or emit an outward move;
+- one content-addressed `RegimeObservation` binds parent/VERIFY/cross-feed and
+  optional REFINE source hashes plus the M14-E adapter-evidence digest;
+- the observation schema excludes counterfactual decision output, anchor
+  bestmove, game outcome, later higher-budget evidence, and any fabricated
+  cross-engine numeric score;
+- STABLE_CONVERGENT is active only under the already-qualified
+  `RELOCK_OBSERVED` terminal-suffix definition;
+- CROSS_ENGINE_DISAGREEMENT is a structural fact over completed VERIFY terminal
+  bestmoves and preserves two-one versus all-different patterns;
+- TACTICAL_RUPTURE is nominated only by source-native typed mate observations;
+  cp/Q/WDL values are not converted into a universal tactical threshold;
+- REFINEMENT_PRODUCTIVE requires an actually recorded recursive M14-D expansion
+  that reached completed/terminal state;
+- REFINEMENT_STALLED has a deliberately narrow v1 definition: depth-two
+  profiles are unsupported, and explicit depth/expansion caps, resource
+  denials, cancellation or decision boundaries are not mislabeled as a stall;
+- POLICY_DIFFUSE, ENDGAME_EXACT and TIME_CRITICAL remain explicitly unsupported
+  because current evidence lacks respectively a qualified native policy
+  distribution, tablebase-exactness fact, and calibrated time-critical
+  threshold;
+- regime classifications are multi-label. Tactical rupture and cross-engine
+  disagreement may both be active without one suppressing the other;
+- `regime_support_v1` is a structural support/domain model, not a truth
+  classifier. It requires both row support and independent position-group
+  support and fails unseen/insufficient buckets closed as OUT_OF_DOMAIN;
+- train/calibration/holdout assignment is by position group, never run id;
+- the deterministic M14-F contract proves structural classification,
+  unsupported-hypothesis preservation, and fail-closed out-of-domain behavior;
+  the controller regression additionally reconstructs one observation from a
+  sealed cross-feed run.
+
+### OPEN
+
+- whether any regime predicts chess correctness or move quality;
+- whether native mate alarms improve route value;
+- whether recursive REFINE productivity predicts future decision change;
+- how to qualify native policy-distribution evidence for POLICY_DIFFUSE;
+- how to bind exact tablebase provenance for ENDGAME_EXACT;
+- what calibrated clock/request boundary, if any, should define TIME_CRITICAL;
+- how M14-G should combine regime state with adapter proposals, value-of-compute,
+  physical resource cost and separate DecisionAuthorization;
+- any Elo or equal-resource strength gain.
+
 ## Counterfactual hybrid decision laboratory
 
 ### PROVED by code/contracts

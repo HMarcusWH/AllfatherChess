@@ -159,7 +159,7 @@ A repo-wide hardening repair is inserted immediately after PR #24. From this poi
 - **M14-C — Active hybrid decision authority v0**: bounded in-memory authorization at the anchor-completion boundary; deterministic Stockfish fallback. **Merged in PR #29.**
 - **M14-D — Multi-level recursive REFINE**: deterministic breadth-first deeper prefix splitting under exact ownership, fresh specialist authorization, depth/expansion caps and an explicit hybrid-authority firewall. **Implemented in PR #30.**
 - **M14-E — Engine-specific cross-feed adapters**: source-typed candidate transfer into subprocess-safe VERIFY_SET / REFINE_PREFIX proposals, native mate alarms, and context-local rank hints without live routing or move authority. **Implemented in PR #31.**
-- **M14-F — Search-regime classifier**: calibrated state classes that may nominate work but do not authorize moves.
+- **M14-F — Search-regime classifier**: multi-label structural hypotheses over sealed VERIFY/RELOCK/cross-feed/REFINE evidence plus separate fail-closed support calibration; unsupported policy-diffuse/endgame/time-critical hypotheses remain explicit and no regime authorizes work or moves. **Implemented in PR #33.**
 - **M14-G — Unified value-of-compute decision router**: combine regime, route-value, resource authorization and separate decision authorization.
 - **M14-H — Structured IPC experiment**: compare typed local transport against current UCI boundaries.
 - **M14-I — Selective native integration**: embed only measured-value hooks with process-adapter parity.

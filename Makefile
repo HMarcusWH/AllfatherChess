@@ -1,4 +1,4 @@
-.PHONY: vendor verify-vendor build-baselines smoke-baselines golden-baselines record-golden-baselines telemetry-contract telemetry-adapters telemetry-adapter-integration crossfeed-adapter-tests crossfeed-adapter-contract controller-tests resource-measurement-tests resource-accounting-contract shard-ledger-tests prefix-shard-tests refinement-tests refinement-policy-tests active-specialist-tests crossfeed-tests decision-tests hybrid-authority-tests counterfactual-tests value-of-compute-tests decision-calibration-tests strength-profile-tests shard-ledger-contract prefix-shard-contract refinement-execution-contract recursive-refinement-contract active-specialist-contract crossfeed-contract counterfactual-decision-contract active-hybrid-decision-contract value-of-compute-contract lc0-strength-contract lc0-defect-telemetry-contract hybrid-shell-contract shadow-tests replay-tests residual-tests routing-tests verification-tests verification-analysis-tests shadow-execution-contract verification-execution-contract verification-analysis-contract active-routing-contract shadow-evidence-sweep verification-evidence-sweep refinement-evidence-sweep counterfactual-decision-sweep value-of-compute-sweep decision-calibration residual-calibration verification-analysis fetch-lc0-strength build-lc0-strength run-allfather run-allfather-shadow run-allfather-verify run-allfather-refine run-allfather-recursive-refine run-allfather-crossfeed run-allfather-counterfactual run-allfather-hybrid run-allfather-value run-allfather-strength run-allfather-active-specialist
+.PHONY: vendor verify-vendor build-baselines smoke-baselines golden-baselines record-golden-baselines telemetry-contract telemetry-adapters telemetry-adapter-integration crossfeed-adapter-tests crossfeed-adapter-contract regime-tests regime-calibration-tests regime-contract controller-tests resource-measurement-tests resource-accounting-contract shard-ledger-tests prefix-shard-tests refinement-tests refinement-policy-tests active-specialist-tests crossfeed-tests decision-tests hybrid-authority-tests counterfactual-tests value-of-compute-tests decision-calibration-tests strength-profile-tests shard-ledger-contract prefix-shard-contract refinement-execution-contract recursive-refinement-contract active-specialist-contract crossfeed-contract counterfactual-decision-contract active-hybrid-decision-contract value-of-compute-contract lc0-strength-contract lc0-defect-telemetry-contract hybrid-shell-contract shadow-tests replay-tests residual-tests routing-tests verification-tests verification-analysis-tests shadow-execution-contract verification-execution-contract verification-analysis-contract active-routing-contract shadow-evidence-sweep verification-evidence-sweep refinement-evidence-sweep counterfactual-decision-sweep value-of-compute-sweep regime-sweep decision-calibration residual-calibration verification-analysis fetch-lc0-strength build-lc0-strength run-allfather run-allfather-shadow run-allfather-verify run-allfather-refine run-allfather-recursive-refine run-allfather-crossfeed run-allfather-counterfactual run-allfather-hybrid run-allfather-value run-allfather-strength run-allfather-active-specialist
 
 vendor:
 	@echo "Refusing implicit destructive vendor refresh." >&2
@@ -35,6 +35,15 @@ crossfeed-adapter-tests:
 crossfeed-adapter-contract:
 	python3 scripts/crossfeed-adapter-contract.py
 
+regime-tests:
+	python3 tests/controller/test_regimes.py
+
+regime-calibration-tests:
+	python3 tests/controller/test_regime_calibration.py
+
+regime-contract:
+	python3 scripts/regime-contract.py
+
 controller-tests:
 	python3 tests/adapters/test_uci_process.py
 	python3 tests/adapters/test_linux_proc_resource.py
@@ -54,6 +63,8 @@ controller-tests:
 	python3 tests/controller/test_refinement_policy.py
 	python3 tests/controller/test_active_specialist_budget.py
 	python3 tests/controller/test_crossfeed.py
+	python3 tests/controller/test_regimes.py
+	python3 tests/controller/test_regime_calibration.py
 	python3 tests/controller/test_decision.py
 	python3 tests/controller/test_hybrid_authority.py
 	python3 tests/controller/test_counterfactual.py
@@ -186,6 +197,10 @@ counterfactual-decision-sweep:
 
 value-of-compute-sweep:
 	python3 scripts/value-of-compute-sweep.py
+
+regime-sweep:
+	@test -n "$(RUNS)" || (echo "Usage: make regime-sweep RUNS='<replay-dir> [...]'" >&2; exit 2)
+	python3 scripts/regime-sweep.py $(RUNS)
 
 decision-calibration:
 	@test -n "$(DATASET)" || (echo "Usage: make decision-calibration DATASET=<dataset.json>" >&2; exit 2)

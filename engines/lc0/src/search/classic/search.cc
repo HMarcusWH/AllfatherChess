@@ -1109,55 +1109,88 @@ void Search::RecordDefectPrimaryRequest(uint64_t position_hash,
                                         bool cache_hit) {
   if (!params_.GetDefectTelemetry()) return;
   Mutex::Lock lock(defect_telemetry_mutex_);
-  ++defect_telemetry_totals_.primary_requests;
+  auto& totals = defect_telemetry_totals_;
+  ++totals.primary_requests;
   if (!cache_hit) {
-    ++defect_telemetry_totals_.primary_submissions;
+    ++totals.primary_submissions;
+    totals.speculative_stale_retired +=
+        defect_speculative_provenance_.RetireEligibleAndAdvanceGeneration(
+            position_hash);
     return;
   }
 
-  ++defect_telemetry_totals_.primary_cache_hits;
-  auto it = defect_speculative_outstanding_.find(position_hash);
-  if (it != defect_speculative_outstanding_.end() && it->second > 0) {
-    ++defect_telemetry_totals_.speculative_consumed;
-    if (--it->second == 0) defect_speculative_outstanding_.erase(it);
+  ++totals.primary_cache_hits;
+  if (defect_speculative_provenance_.ConsumeOne(position_hash)) {
+    ++totals.speculative_consumed;
   }
 }
 
-void Search::RecordDefectSpeculativeProbe(bool cache_hit) {
+void Search::RecordDefectSpeculativeProbe(uint64_t position_hash,
+                                          bool cache_hit) {
   if (!params_.GetDefectTelemetry()) return;
   Mutex::Lock lock(defect_telemetry_mutex_);
-  ++defect_telemetry_totals_.speculative_probes;
-  if (cache_hit) ++defect_telemetry_totals_.speculative_cache_hits;
+  auto& totals = defect_telemetry_totals_;
+  ++totals.speculative_probes;
+  if (cache_hit) {
+    ++totals.speculative_cache_hits;
+  } else {
+    totals.speculative_stale_retired +=
+        defect_speculative_provenance_.RetireEligibleAndAdvanceGeneration(
+            position_hash);
+  }
 }
 
-void Search::RegisterDefectSpeculativeSubmissions(
+std::vector<DefectSpeculativeProvenance::Token>
+Search::RegisterDefectSpeculativeSubmissions(
     const std::vector<uint64_t>& position_hashes) {
-  if (!params_.GetDefectTelemetry() || position_hashes.empty()) return;
+  std::vector<DefectSpeculativeProvenance::Token> tokens;
+  if (!params_.GetDefectTelemetry() || position_hashes.empty()) return tokens;
+  tokens.reserve(position_hashes.size());
   Mutex::Lock lock(defect_telemetry_mutex_);
   defect_telemetry_totals_.speculative_submissions += position_hashes.size();
   for (const uint64_t hash : position_hashes) {
-    ++defect_speculative_outstanding_[hash];
+    tokens.push_back(defect_speculative_provenance_.Register(hash));
+  }
+  return tokens;
+}
+
+void Search::CompleteDefectSpeculativeSubmissions(
+    const std::vector<DefectSpeculativeProvenance::Token>& tokens) {
+  if (!params_.GetDefectTelemetry() || tokens.empty()) return;
+  Mutex::Lock lock(defect_telemetry_mutex_);
+  for (const auto& token : tokens) {
+    if (!defect_speculative_provenance_.Complete(token)) {
+      ++defect_telemetry_totals_.speculative_stale_retired;
+    }
   }
 }
 
 void Search::RecordDefectTelemetryIteration(
     const DefectTelemetryIteration& telemetry) {
   if (!params_.GetDefectTelemetry()) return;
-  Mutex::Lock lock(defect_telemetry_mutex_);
-  auto& totals = defect_telemetry_totals_;
-  const uint64_t iteration = ++totals.iterations;
-  totals.batch_before_prefetch_sum += telemetry.batch_before_prefetch;
-  totals.batch_after_prefetch_sum += telemetry.batch_after_prefetch;
-  totals.prefetch_target_sum += telemetry.prefetch_target;
-  totals.gather_us += telemetry.gather_us;
-  totals.prefetch_us += telemetry.prefetch_us;
-  totals.nn_us += telemetry.nn_us;
-  totals.backup_us += telemetry.backup_us;
 
-  const int trace_limit = params_.GetDefectTelemetryIterations();
-  if (trace_limit <= 0 ||
-      defect_telemetry_iterations_.size() >= static_cast<size_t>(trace_limit)) {
-    return;
+  uint64_t iteration = 0;
+  std::optional<size_t> trace_slot;
+  {
+    Mutex::Lock lock(defect_telemetry_mutex_);
+    auto& totals = defect_telemetry_totals_;
+    iteration = ++totals.iterations;
+    totals.batch_before_prefetch_sum += telemetry.batch_before_prefetch;
+    totals.batch_after_prefetch_sum += telemetry.batch_after_prefetch;
+    totals.prefetch_target_sum += telemetry.prefetch_target;
+    totals.gather_us += telemetry.gather_us;
+    totals.prefetch_us += telemetry.prefetch_us;
+    totals.nn_us += telemetry.nn_us;
+    totals.backup_us += telemetry.backup_us;
+
+    const int trace_limit = params_.GetDefectTelemetryIterations();
+    if (trace_limit <= 0 ||
+        defect_telemetry_iterations_.size() >=
+            static_cast<size_t>(trace_limit)) {
+      return;
+    }
+    trace_slot = defect_telemetry_iterations_.size();
+    defect_telemetry_iterations_.emplace_back();
   }
 
   std::ostringstream out;
@@ -1186,7 +1219,11 @@ void Search::RecordDefectTelemetryIteration(
       << ",\"prefetch_us\":" << telemetry.prefetch_us
       << ",\"nn_us\":" << telemetry.nn_us
       << ",\"backup_us\":" << telemetry.backup_us << "}";
-  defect_telemetry_iterations_.push_back(out.str());
+
+  {
+    Mutex::Lock lock(defect_telemetry_mutex_);
+    defect_telemetry_iterations_[*trace_slot] = out.str();
+  }
 }
 
 void Search::EmitDefectTelemetry() {
@@ -1200,10 +1237,8 @@ void Search::EmitDefectTelemetry() {
   {
     Mutex::Lock lock(defect_telemetry_mutex_);
     totals = defect_telemetry_totals_;
-    for (const auto& [hash, count] : defect_speculative_outstanding_) {
-      (void)hash;
-      speculative_unused += count;
-    }
+    speculative_unused = totals.speculative_stale_retired +
+                         defect_speculative_provenance_.OutstandingCount();
     iterations = defect_telemetry_iterations_;
   }
 
@@ -1228,6 +1263,8 @@ void Search::EmitDefectTelemetry() {
       << ",\"speculative_submissions\":"
       << totals.speculative_submissions
       << ",\"speculative_consumed\":" << totals.speculative_consumed
+      << ",\"speculative_stale_retired\":"
+      << totals.speculative_stale_retired
       << ",\"speculative_unused\":" << speculative_unused
       << ",\"avg_batch_before\":"
       << totals.batch_before_prefetch_sum / denom
@@ -2417,7 +2454,8 @@ int SearchWorker::PrefetchIntoCache(Node* node, int budget, bool is_odd_depth) {
     const bool cache_hit =
         search_->backend_->GetCachedEvaluation(probe_position).has_value();
     if (params_.GetDefectTelemetry()) {
-      search_->RecordDefectSpeculativeProbe(cache_hit);
+      search_->RecordDefectSpeculativeProbe(
+          probe_position.pos.back().Hash(), cache_hit);
     }
     if (cache_hit) {
       // Make it return 0 to make it not use the slot, so that the function
@@ -2512,15 +2550,19 @@ int SearchWorker::PrefetchIntoCache(Node* node, int budget, bool is_odd_depth) {
 // 4. Run NN computation.
 // ~~~~~~~~~~~~~~~~~~~~~~
 void SearchWorker::RunNNComputation() {
+  std::vector<DefectSpeculativeProvenance::Token> defect_tokens;
   if (params_.GetDefectTelemetry() &&
       !defect_pending_speculative_hashes_.empty()) {
     // Register before ComputeBlocking() so another worker cannot observe a
     // freshly cached speculative result before provenance is recorded.
-    search_->RegisterDefectSpeculativeSubmissions(
+    defect_tokens = search_->RegisterDefectSpeculativeSubmissions(
         defect_pending_speculative_hashes_);
     defect_pending_speculative_hashes_.clear();
   }
   if (computation_->UsedBatchSize() > 0) computation_->ComputeBlocking();
+  if (!defect_tokens.empty()) {
+    search_->CompleteDefectSpeculativeSubmissions(defect_tokens);
+  }
 }
 
 // 5. Retrieve NN computations (and terminal values) into nodes.

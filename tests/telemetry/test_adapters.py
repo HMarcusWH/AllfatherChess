@@ -208,13 +208,14 @@ class TelemetryAdapterTests(unittest.TestCase):
         )[0]
         summary = adapter.consume(
             'info string DEFECT_TELEMETRY_SUMMARY {"v":1,"iterations":1,'
-            '"speculative_unused":7}',
+            '"speculative_unused":7,"speculative_stale_retired":3}',
             observed_ms=2,
         )[0]
         self.assertEqual(iteration["native"]["schema"], "lc0.defect.iter.v1")
         self.assertEqual(iteration["native"]["data"]["leader_move_raw"], 1234)
         self.assertEqual(summary["native"]["schema"], "lc0.defect.summary.v1")
         self.assertEqual(summary["native"]["data"]["speculative_unused"], 7)
+        self.assertEqual(summary["native"]["data"]["speculative_stale_retired"], 3)
 
     def test_boolean_lc0_defect_version_is_rejected(self):
         adapter = lc0_adapter()

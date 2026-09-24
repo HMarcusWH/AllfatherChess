@@ -34,11 +34,11 @@
 #include <optional>
 #include <shared_mutex>
 #include <thread>
-#include <unordered_map>
 
 #include "chess/callbacks.h"
 #include "chess/uciloop.h"
 #include "neural/backend.h"
+#include "search/classic/defect_telemetry.h"
 #include "search/classic/node.h"
 #include "search/classic/params.h"
 #include "search/classic/stoppers/timemgr.h"
@@ -166,9 +166,12 @@ class Search {
   PositionHistory GetPositionHistoryAtNode(const Node* node) const;
 
   void RecordDefectPrimaryRequest(uint64_t position_hash, bool cache_hit);
-  void RecordDefectSpeculativeProbe(bool cache_hit);
-  void RegisterDefectSpeculativeSubmissions(
+  void RecordDefectSpeculativeProbe(uint64_t position_hash, bool cache_hit);
+  std::vector<DefectSpeculativeProvenance::Token>
+  RegisterDefectSpeculativeSubmissions(
       const std::vector<uint64_t>& position_hashes);
+  void CompleteDefectSpeculativeSubmissions(
+      const std::vector<DefectSpeculativeProvenance::Token>& tokens);
   void RecordDefectTelemetryIteration(const DefectTelemetryIteration& telemetry);
   void EmitDefectTelemetry();
 
@@ -181,6 +184,7 @@ class Search {
     uint64_t speculative_cache_hits = 0;
     uint64_t speculative_submissions = 0;
     uint64_t speculative_consumed = 0;
+    uint64_t speculative_stale_retired = 0;
     uint64_t batch_before_prefetch_sum = 0;
     uint64_t batch_after_prefetch_sum = 0;
     uint64_t prefetch_target_sum = 0;
@@ -194,7 +198,7 @@ class Search {
   mutable Mutex defect_telemetry_mutex_;
   DefectTelemetryTotals defect_telemetry_totals_
       GUARDED_BY(defect_telemetry_mutex_);
-  std::unordered_map<uint64_t, uint64_t> defect_speculative_outstanding_
+  DefectSpeculativeProvenance defect_speculative_provenance_
       GUARDED_BY(defect_telemetry_mutex_);
   std::vector<std::string> defect_telemetry_iterations_
       GUARDED_BY(defect_telemetry_mutex_);

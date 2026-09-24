@@ -1,4 +1,4 @@
-.PHONY: vendor verify-vendor build-baselines smoke-baselines golden-baselines record-golden-baselines telemetry-contract telemetry-adapters telemetry-adapter-integration controller-tests resource-measurement-tests resource-accounting-contract shard-ledger-tests prefix-shard-tests refinement-tests refinement-policy-tests active-specialist-tests crossfeed-tests decision-tests hybrid-authority-tests counterfactual-tests value-of-compute-tests decision-calibration-tests strength-profile-tests shard-ledger-contract prefix-shard-contract refinement-execution-contract recursive-refinement-contract active-specialist-contract crossfeed-contract counterfactual-decision-contract active-hybrid-decision-contract value-of-compute-contract lc0-strength-contract hybrid-shell-contract shadow-tests replay-tests residual-tests routing-tests verification-tests verification-analysis-tests shadow-execution-contract verification-execution-contract verification-analysis-contract active-routing-contract shadow-evidence-sweep verification-evidence-sweep refinement-evidence-sweep counterfactual-decision-sweep value-of-compute-sweep decision-calibration residual-calibration verification-analysis fetch-lc0-strength build-lc0-strength run-allfather run-allfather-shadow run-allfather-verify run-allfather-refine run-allfather-recursive-refine run-allfather-crossfeed run-allfather-counterfactual run-allfather-hybrid run-allfather-value run-allfather-strength run-allfather-active-specialist
+.PHONY: vendor verify-vendor build-baselines smoke-baselines golden-baselines record-golden-baselines telemetry-contract telemetry-adapters telemetry-adapter-integration crossfeed-adapter-tests crossfeed-adapter-contract controller-tests resource-measurement-tests resource-accounting-contract shard-ledger-tests prefix-shard-tests refinement-tests refinement-policy-tests active-specialist-tests crossfeed-tests decision-tests hybrid-authority-tests counterfactual-tests value-of-compute-tests decision-calibration-tests strength-profile-tests shard-ledger-contract prefix-shard-contract refinement-execution-contract recursive-refinement-contract active-specialist-contract crossfeed-contract counterfactual-decision-contract active-hybrid-decision-contract value-of-compute-contract lc0-strength-contract hybrid-shell-contract shadow-tests replay-tests residual-tests routing-tests verification-tests verification-analysis-tests shadow-execution-contract verification-execution-contract verification-analysis-contract active-routing-contract shadow-evidence-sweep verification-evidence-sweep refinement-evidence-sweep counterfactual-decision-sweep value-of-compute-sweep decision-calibration residual-calibration verification-analysis fetch-lc0-strength build-lc0-strength run-allfather run-allfather-shadow run-allfather-verify run-allfather-refine run-allfather-recursive-refine run-allfather-crossfeed run-allfather-counterfactual run-allfather-hybrid run-allfather-value run-allfather-strength run-allfather-active-specialist
 
 vendor:
 	@echo "Refusing implicit destructive vendor refresh." >&2
@@ -29,9 +29,16 @@ telemetry-adapters:
 telemetry-adapter-integration:
 	python3 scripts/telemetry-adapter-integration.py
 
+crossfeed-adapter-tests:
+	python3 tests/adapters/test_crossfeed_adapters.py
+
+crossfeed-adapter-contract:
+	python3 scripts/crossfeed-adapter-contract.py
+
 controller-tests:
 	python3 tests/adapters/test_uci_process.py
 	python3 tests/adapters/test_linux_proc_resource.py
+	python3 tests/adapters/test_crossfeed_adapters.py
 	python3 tests/controller/test_resource_measurement.py
 	python3 tests/controller/test_runtime.py
 	python3 tests/controller/test_uci_frontend.py

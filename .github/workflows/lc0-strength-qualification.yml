@@ -117,6 +117,9 @@ jobs:
       - name: Require frozen network byte size
         run: python3 scripts/lc0-strength-lock.py validate-frozen
 
+      - name: Verify LC0 defect telemetry provenance contract
+        run: python3 scripts/lc0-defect-telemetry-contract.py
+
       - name: Build LC0 BLAS real-inference backend
         run: bash scripts/build-lc0-strength.sh
 
@@ -130,5 +133,6 @@ jobs:
           name: lc0-real-inference-qualification
           path: |
             lc0-hardware.json
+            build/test-results/lc0-defect-telemetry
             build/test-results/lc0-strength
           if-no-files-found: warn

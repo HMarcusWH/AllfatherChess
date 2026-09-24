@@ -66,6 +66,72 @@ def write_jsonl(path: Path, events: list[dict[str, Any]]) -> None:
     )
 
 
+def _nonnegative_int(value: Any, field: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise IntegrationError(f"lc0 defect summary {field} must be a non-negative integer")
+    return value
+
+
+def assert_defect_telemetry(events: list[dict[str, Any]]) -> None:
+    summaries = [
+        (index, event["native"]["data"])
+        for index, event in enumerate(events)
+        if event["event_type"] == "native.event"
+        and event.get("native", {}).get("schema") == "lc0.defect.summary.v1"
+    ]
+    if len(summaries) != 1:
+        raise IntegrationError(
+            f"lc0 defect run must emit exactly one summary, got {len(summaries)}"
+        )
+    summary_index, summary = summaries[0]
+    if summary_index >= len(events) - 1 or events[-1]["event_type"] != "search.complete":
+        raise IntegrationError("lc0 defect summary must precede search completion")
+
+    primary_requests = _nonnegative_int(summary.get("primary_requests"), "primary_requests")
+    primary_cache_hits = _nonnegative_int(
+        summary.get("primary_cache_hits"), "primary_cache_hits"
+    )
+    primary_submissions = _nonnegative_int(
+        summary.get("primary_submissions"), "primary_submissions"
+    )
+    if primary_requests != primary_cache_hits + primary_submissions:
+        raise IntegrationError("lc0 primary request accounting does not conserve")
+
+    speculative_submissions = _nonnegative_int(
+        summary.get("speculative_submissions"), "speculative_submissions"
+    )
+    speculative_consumed = _nonnegative_int(
+        summary.get("speculative_consumed"), "speculative_consumed"
+    )
+    speculative_unused = _nonnegative_int(
+        summary.get("speculative_unused"), "speculative_unused"
+    )
+    stale_retired = _nonnegative_int(
+        summary.get("speculative_stale_retired"), "speculative_stale_retired"
+    )
+    if speculative_submissions != speculative_consumed + speculative_unused:
+        raise IntegrationError("lc0 speculative submission accounting does not conserve")
+    if stale_retired > speculative_unused:
+        raise IntegrationError("lc0 stale-retired count exceeds speculative unused count")
+
+    iterations = [
+        event["native"]["data"]
+        for event in events
+        if event["event_type"] == "native.event"
+        and event.get("native", {}).get("schema") == "lc0.defect.iter.v1"
+    ]
+    iteration_ids = [_nonnegative_int(item.get("iteration"), "iteration") for item in iterations]
+    if len(iteration_ids) != len(set(iteration_ids)):
+        raise IntegrationError("lc0 defect iteration ids are not unique")
+    if iteration_ids != sorted(iteration_ids):
+        raise IntegrationError("lc0 defect iteration ids are not monotonically ordered")
+    trace_records = _nonnegative_int(summary.get("trace_records"), "trace_records")
+    if trace_records != len(iterations):
+        raise IntegrationError(
+            f"lc0 defect trace_records={trace_records} but emitted {len(iterations)} iterations"
+        )
+
+
 def assert_stream(events: list[dict[str, Any]], engine: str, *, require_defect_summary: bool = False) -> None:
     types = [event["event_type"] for event in events]
     if not types or types[0] != "search.started":
@@ -77,13 +143,7 @@ def assert_stream(events: list[dict[str, Any]], engine: str, *, require_defect_s
     if any(event["engine"] != engine for event in events):
         raise IntegrationError(f"{engine}: engine identity changed in stream")
     if require_defect_summary:
-        schemas = {
-            event.get("native", {}).get("schema")
-            for event in events
-            if event["event_type"] == "native.event"
-        }
-        if "lc0.defect.summary.v1" not in schemas:
-            raise IntegrationError("lc0 defect run emitted no DEFECT_TELEMETRY_SUMMARY")
+        assert_defect_telemetry(events)
 
 
 def run_engine(
@@ -119,7 +179,7 @@ def run_engine(
         if defect:
             args = ["--show-hidden"]
             options["DefectTelemetry"] = True
-            options["DefectTelemetryIterations"] = 2
+            options["DefectTelemetryIterations"] = 8
             options["Threads"] = 2
             search_id = "integration-lc0-defect"
             filename = "lc0-defect.jsonl"

@@ -73,6 +73,7 @@ jobs:
             scripts/fetch-lc0-network.py \
             scripts/lc0-hardware-probe.py \
             scripts/lc0-strength-profile-contract.py \
+            scripts/lc0-defect-telemetry-contract.py \
             scripts/refinement-evidence-sweep.py \
             scripts/validate-telemetry-contract.py \
             scripts/telemetry-adapter-integration.py \
@@ -189,6 +190,9 @@ jobs:
       - name: Verify real-engine VERIFY value-of-compute contract
         run: python3 scripts/value-of-compute-contract.py
 
+      - name: Verify LC0 defect telemetry provenance contract
+        run: python3 scripts/lc0-defect-telemetry-contract.py
+
       - name: Verify live telemetry adapters
         run: python3 scripts/telemetry-adapter-integration.py
 
@@ -227,6 +231,7 @@ jobs:
             build/test-results/crossfeed
             build/test-results/counterfactual
             build/test-results/value-of-compute
+            build/test-results/lc0-defect-telemetry
             build/test-results/telemetry-adapters
             build/test-results/hybrid-shell
             build/test-results/active-hybrid-decision

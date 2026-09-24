@@ -64,6 +64,11 @@ Enforced by `tests/controller/*`, `scripts/shadow-execution-contract.py`, and
 - An incomplete stream is marked `contract_validatable: false` rather than given
   a fabricated completion.
 - A missing stream is reported, never imputed.
+- LC0 defect telemetry uses generation-bound speculative provenance: an observed
+  cache miss retires attribution from older completed generations and invalidates
+  older in-flight tokens, while the emitted summary conserves speculative
+  submissions as consumed plus unused. This proves instrumentation accounting,
+  not AdaptivePrefetch efficiency or playing strength.
 
 ### Scale firewall
 - Combining two differently-tagged engine values raises `ScaleMixingError`;

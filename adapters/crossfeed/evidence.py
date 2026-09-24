@@ -25,6 +25,7 @@ from controller.crossfeed import (
     NativeEvaluation,
     NativeWork,
     build_crossfeed_view_from_run,
+    verify_crossfeed_integrity,
 )
 from controller.refinement import RefinementRun, load_refinement_manifest
 
@@ -491,6 +492,11 @@ def build_adapter_evidence_from_run(
     """Rebuild adapter evidence from sealed CrossFeed + REFINE-v2 artifacts."""
 
     run_dir = Path(run_dir)
+    source_problems = verify_crossfeed_integrity(run_dir)
+    if source_problems:
+        raise CrossFeedAdapterEvidenceError(
+            "adapter evidence source integrity failed: " + "; ".join(source_problems)
+        )
     view = build_crossfeed_view_from_run(run_dir)
     hints = _project_view(view)
     faults = list(view.evidence_faults)

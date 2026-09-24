@@ -94,7 +94,7 @@ class VerifierRegimeFeatures:
     observation_count: int
     leader_flips: int
     stable_run_fraction: float
-    pv_persistence: float
+    pv_persistence: float | None
 
     def __post_init__(self) -> None:
         if self.owner not in OWNER_ORDER:
@@ -104,7 +104,8 @@ class VerifierRegimeFeatures:
         if isinstance(self.leader_flips, bool) or self.leader_flips < 0:
             raise RegimeError("leader_flips must be a non-negative integer")
         _finite_fraction(self.stable_run_fraction, "stable_run_fraction")
-        _finite_fraction(self.pv_persistence, "pv_persistence")
+        if self.pv_persistence is not None:
+            _finite_fraction(self.pv_persistence, "pv_persistence")
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -128,7 +129,12 @@ class VerifierRegimeFeatures:
             observation_count=int(payload["observation_count"]),
             leader_flips=int(payload["leader_flips"]),
             stable_run_fraction=float(payload["stable_run_fraction"]),
-            pv_persistence=float(payload["pv_persistence"]),
+            pv_persistence=(
+                float(payload["pv_persistence"])
+                if isinstance(payload.get("pv_persistence"), (int, float))
+                and not isinstance(payload.get("pv_persistence"), bool)
+                else None
+            ),
         )
 
 
@@ -820,7 +826,7 @@ def classify_regimes(
     else:
         assessments[SearchRegime.OUT_OF_DOMAIN] = _assessment(
             SearchRegime.OUT_OF_DOMAIN,
-            RegimeStatus.ACTIVE,
+            RegimeStatus.OUT_OF_DOMAIN,
             domain.reason or "regime-support calibration rejected this bucket",
             bucket=domain.bucket,
             support=domain.support,

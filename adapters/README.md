@@ -30,3 +30,45 @@ snapshot()
 stop()
 verify(candidate, budget)
 ```
+
+
+## M14-E cross-feed adapters
+
+M14-E adds a separate pure translation layer under `adapters/crossfeed/`.
+These modules do not own engine processes and do not participate in routing,
+budget authorization, or outward move selection.
+
+The adapter evidence projection deliberately leaves
+`controller.crossfeed.CrossFeedView` unchanged because that object is already
+hash-bound into M14-C decision evidence. The projection may additionally expose
+M14-D recursive REFINE expansion evidence to adapter consumers without changing
+the authority-facing cross-feed digest.
+
+The initial subprocess-safe operation vocabulary is intentionally narrow:
+
+```text
+VERIFY_SET
+REFINE_PREFIX
+```
+
+Both compile to already-qualified ordinary UCI restrictions. `VERIFY_SET`
+uses a candidate subset through `searchmoves`; `REFINE_PREFIX` reuses the
+existing prefix compiler to advance to the parent position and restrict the
+final move.
+
+Engine-specific classes preserve their own native semantic namespaces:
+
+```text
+stockfish.*
+reckless.*
+lc0.*
+```
+
+Source ranks remain ordinal only inside one exact engine/search/prefix/candidate
+universe. They are never averaged across engines or depths. Tactical alarms in
+this milestone are categorical native `mate` observations only; no cp/Q
+threshold conversion is introduced.
+
+The real-engine adapter contract proves that all three vendored families accept
+the generated UCI restrictions and remain inside the declared move region. It
+does not wire the adapters into the live controller.

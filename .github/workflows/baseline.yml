@@ -64,6 +64,7 @@ jobs:
             scripts/active-specialist-contract.py \
             scripts/resource-accounting-contract.py \
             scripts/crossfeed-contract.py \
+            scripts/crossfeed-adapter-contract.py \
             scripts/counterfactual-decision-contract.py \
             scripts/counterfactual-decision-sweep.py \
             scripts/value-of-compute-contract.py \
@@ -97,6 +98,8 @@ jobs:
             adapters/telemetry/*.py \
             adapters/process/*.py \
             adapters/resource/*.py \
+            adapters/crossfeed/*.py \
+            tests/adapters/*.py \
             tests/telemetry/test_adapters.py
           for config in config/*.json; do python3 -m json.tool "$config" >/dev/null; done
           bash -n scripts/vendor-engines.sh
@@ -183,6 +186,9 @@ jobs:
       - name: Verify real-engine typed cross-feed contract
         run: python3 scripts/crossfeed-contract.py
 
+      - name: Verify real-engine cross-feed adapter contract
+        run: python3 scripts/crossfeed-adapter-contract.py
+
       - name: Verify real-engine counterfactual decision contract
         run: python3 scripts/counterfactual-decision-contract.py
 
@@ -225,6 +231,7 @@ jobs:
             build/test-results/active-specialist
             build/test-results/resource-accounting
             build/test-results/crossfeed
+            build/test-results/crossfeed-adapters
             build/test-results/counterfactual
             build/test-results/value-of-compute
             build/test-results/telemetry-adapters

@@ -2112,9 +2112,10 @@ class ShadowRunCoordinator:
         # EXPLORE owner to any shard.
         self._execute_verification(active)
 
-        # 8. One-level recursive shadow REFINE. This consumes only completed
-        # raw VERIFY facts and the PrefixShardLedger v2 substrate. It remains
-        # research instrumentation and may not influence the outward anchor.
+        # 8. Bounded recursive REFINE. This consumes only completed raw VERIFY
+        # facts and the PrefixShardLedger v2 substrate. It remains evidence-only
+        # here; M14-E adapter proposals are pure translations and are not wired
+        # into this live dispatch path.
         self._execute_refinement(active)
 
         # 9. Compose the evidence we already paid for into one typed, immutable

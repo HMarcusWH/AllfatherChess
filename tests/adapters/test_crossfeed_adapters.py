@@ -246,6 +246,22 @@ class CrossFeedAdapterTests(unittest.TestCase):
                 limit={"nodes": 64},
             )
 
+    def test_verify_pv_can_nominate_an_evidence_backed_refine_prefix(self):
+        operation = RecklessCrossFeedAdapter().compile_refine_prefix(
+            self.evidence,
+            self.position,
+            ("e2e4", "e7e5"),
+            limit={"nodes": 24},
+        )
+        self.assertEqual(
+            operation.position_command,
+            "position startpos moves e2e4",
+        )
+        self.assertEqual(
+            operation.go_command,
+            "go nodes 24 searchmoves e7e5",
+        )
+
     def test_recursive_refine_prefix_preserves_exact_descendant_geometry(self):
         for adapter in self.adapters:
             operation = adapter.compile_refine_prefix(

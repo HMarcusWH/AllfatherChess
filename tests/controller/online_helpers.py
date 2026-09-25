@@ -23,7 +23,7 @@ def wait_for(predicate, timeout=5):
 
 
 def online_config(directory, *, args=None, settings=None):
-    return write_shadow_config(Path(directory), mode='active', instance_args=args, extra={
+    path = write_shadow_config(Path(directory), mode='active', instance_args=args, extra={
         'online_time': {'enabled': True, 'max_move_ms': 600, 'network_reserve_ms': 10,
                         'prepare_budget_ms': 50, 'quiesce_budget_ms': 200, **(settings or {})},
         'budget': {'wall_ms': 2000, 'cpu_ms': 8000, 'gpu_ms': 0,
@@ -35,6 +35,12 @@ def online_config(directory, *, args=None, settings=None):
                                  'require_cpu_for_claim': True, 'require_gpu_for_claim': False,
                                  'record_memory': True},
     })
+    document = json.loads(path.read_text(encoding='utf-8'))
+    for instance in document['instances'].values():
+        if instance.get('family') == 'lc0':
+            instance.setdefault('options', {})['Backend'] = 'random'
+    path.write_text(json.dumps(document), encoding='utf-8')
+    return path
 
 
 @contextmanager

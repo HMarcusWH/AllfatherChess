@@ -5,7 +5,11 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+import sys
 from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
 
 from controller.decision import DecisionDisposition, DecisionEvaluation
 from controller.staged_value_of_compute import (

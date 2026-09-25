@@ -115,6 +115,42 @@ class TimeTests(unittest.TestCase):
             bad=copy.deepcopy(manifest);bad[path[0]][path[1]]=value
             self.assertTrue(verify_time_manifest(bad))
 
+    def test_online_timing_evidence_cannot_survive_without_time_plan(self):
+        p = self.plan('go wtime 60000 btime 60000 winc 1000 binc 1000')
+        pos = parse_position_command('position startpos')
+        manifest = {'generation':1, 'time_plan':p.as_dict(),
+            'position':{'base_fen':pos.base_fen,'moves':[], 'variant':'standard','position_id':pos.position_id},
+            'external_request':{'command':p.external_go_command},
+            'stages':[{'role':'anchor','command':p.anchor_go_command,'bestmove':'e2e4'}],
+            'clock_outcome':{'emitted_ms':500.,'emitted_line':'bestmove e2e4','failure':None,'output_within_deadline':True}}
+        missing_plan=copy.deepcopy(manifest);missing_plan.pop('time_plan')
+        problems=verify_time_manifest(missing_plan)
+        self.assertTrue(any('time_plan is missing' in problem for problem in problems))
+        stripped=copy.deepcopy(missing_plan);stripped.pop('clock_outcome')
+        problems=verify_time_manifest(stripped)
+        self.assertTrue(any('time_plan is missing' in problem for problem in problems))
+        legacy={'external_request':{'command':'go nodes 100'},
+                'stages':[{'role':'anchor','command':'go nodes 100'}]}
+        self.assertEqual(verify_time_manifest(legacy),[])
+
+    def test_malformed_online_manifest_returns_integrity_errors(self):
+        p = self.plan('go movetime 500')
+        pos = parse_position_command('position startpos')
+        manifest = {'generation':1, 'time_plan':p.as_dict(),
+            'position':{'base_fen':pos.base_fen,'moves':[], 'variant':'standard','position_id':pos.position_id},
+            'external_request':{'command':p.external_go_command},
+            'stages':[{'role':'anchor','command':p.anchor_go_command,'bestmove':'e2e4'}],
+            'clock_outcome':{'emitted_ms':400.,'emitted_line':'bestmove e2e4','failure':None,'output_within_deadline':True}}
+        malformed_stages=copy.deepcopy(manifest);malformed_stages['stages']=[1]
+        self.assertTrue(verify_time_manifest(malformed_stages))
+        malformed_fen=copy.deepcopy(manifest)
+        malformed_fen['position']['base_fen']='not a six field fen'
+        bad_pos=parse_position_command('position fen not a six field fen')
+        malformed_fen['position']['position_id']=bad_pos.position_id
+        self.assertTrue(verify_time_manifest(malformed_fen))
+        malformed_external=copy.deepcopy(manifest);malformed_external['external_request']=[]
+        self.assertTrue(verify_time_manifest(malformed_external))
+
     def test_config_rejects_authority_gpu_and_bad_budgets(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = online_config(tmp)
@@ -128,6 +164,20 @@ class TimeTests(unittest.TestCase):
                 'verification':{'enabled':True},'hybrid_authority':{'enabled':True}})
             path.write_text(json.dumps(bad))
             with self.assertRaises(RuntimeError):load_runtime_config(path)
+
+            for backend in ('cuda', 'cudnn', 'opencl', 'onnx-cuda'):
+                bad=copy.deepcopy(original)
+                lc0=next(value for value in bad['instances'].values() if value['family']=='lc0')
+                lc0['options']['Backend']=backend
+                path.write_text(json.dumps(bad))
+                with self.subTest(backend=backend), self.assertRaises(RuntimeError):
+                    load_runtime_config(path)
+
+            safe=copy.deepcopy(original)
+            lc0=next(value for value in safe['instances'].values() if value['family']=='lc0')
+            lc0['options']['Backend']='blas'
+            path.write_text(json.dumps(safe))
+            self.assertIsNotNone(load_runtime_config(path).online_time)
 
 
 if __name__=='__main__':unittest.main()

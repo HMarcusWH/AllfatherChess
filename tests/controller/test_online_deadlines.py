@@ -31,6 +31,9 @@ class DeadlineTests(unittest.TestCase):
             self.assertEqual(bestmoves(out),['bestmove e2e4'])
             wait_for(lambda: list(tmp.glob('replays/*/route.json')))
             run=next(tmp.glob('replays/*'))
+            # route.json is published before the transactional parent manifest.
+            # Wait for both artifacts; a fast runner can expose that real gap.
+            wait_for(lambda: (run/'manifest.json').is_file())
             manifest=json.loads((run/'manifest.json').read_text())
             self.assertEqual(verify_bundle_integrity(run),[])
             self.assertEqual(manifest['external_request']['command'],'go movetime 500')

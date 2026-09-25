@@ -5,7 +5,7 @@
 > Historical sections below are retained as design lineage and must not be read as current blockers
 > when the status overlay says the milestone has already merged.
 
-**Status:** Historical architecture roadmap with post-#35 deployment overlay
+**Status:** Historical architecture roadmap with post-#36 / ONLINE-1 deployment overlay
 **Date:** 2026-09-25
 **Scope:** Expand the existing `docs/BUILD_PLAN.md` from the current M12 control/resource milestone through typed cross-feed evidence, counterfactual and active hybrid decision authority, backend/resource qualification, recursive refinement, native integration, governed policy evolution, and the final equal-resource strength campaign.
 

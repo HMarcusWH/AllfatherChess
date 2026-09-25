@@ -438,6 +438,12 @@ def choose_staged_route(
 class UnifiedValueRouter(ConservativeRouter):
     """ConservativeRouter plus one serve-compatible staged VERIFY route."""
 
+    # Only the G2 policy promotes a completed staged extension into the frozen
+    # counterfactual terminal plane. A research-only G1 staged configuration
+    # must remain decision-inert even if a caller also enables counterfactual
+    # evidence composition.
+    use_staged_terminal_for_decision = True
+
     def __init__(
         self,
         *,

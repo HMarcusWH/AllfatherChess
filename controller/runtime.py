@@ -1103,9 +1103,12 @@ def load_runtime_config(path: Path) -> RuntimeConfig:
             if spec.family != "lc0":
                 continue
             backend = spec.options.get("Backend")
-            if backend is None:
-                continue
-            if not isinstance(backend, str) or backend.lower() not in cpu_only_lc0_backends:
+            if not isinstance(backend, str) or not backend:
+                raise RuntimeError(
+                    "ONLINE-1 CPU-only envelope requires every LC0 instance to set "
+                    f"an explicit CPU Backend; {spec.name} omitted Backend"
+                )
+            if backend.lower() not in cpu_only_lc0_backends:
                 raise RuntimeError(
                     "ONLINE-1 CPU-only envelope rejects accelerator/unknown LC0 Backend "
                     f"{backend!r} for {spec.name}; allowed configured backends are "

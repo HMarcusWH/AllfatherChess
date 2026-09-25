@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "source_commit": "9a1414b8d7897e856364b15423fe3efb5a7cc7f7",
+  "source_milestone": "PR #35 / M14-G2",
+  "plan": "docs/ONLINE_RELEASE_PLAN.md",
+  "work_package": "ONLINE-1",
+  "scope": "opt-in timing/provenance/lifecycle; no hybrid authority expansion",
+  "remaining_gates": [
+    "ONLINE-2",
+    "M14-G3",
+    "M14-G4 compatibility",
+    "LOCAL-1",
+    "ONLINE-3",
+    "ONLINE-4",
+    "ONLINE-RC"
+  ],
+  "administration": {
+    "main_protection": "not changed by this PR",
+    "controller_license": "owner decision outstanding"
+  },
+  "claim_boundary": "No playing-strength or online-deployment claim."
+}

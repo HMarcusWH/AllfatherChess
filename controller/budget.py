@@ -116,6 +116,21 @@ class ResourceEnvelope:
             ),
         )
 
+    def bounded_for_move(self, *, wall_ms: int, cpu_parallelism: int) -> "ResourceEnvelope":
+        """Shrink this profile cap for one move while preserving reserve ratios."""
+        if isinstance(wall_ms, bool) or not isinstance(wall_ms, int) or wall_ms <= 0:
+            raise BudgetError("per-move wall_ms must be a positive integer")
+        if isinstance(cpu_parallelism, bool) or not isinstance(cpu_parallelism, int) or cpu_parallelism <= 0:
+            raise BudgetError("per-move CPU parallelism must be a positive integer")
+        if self.wall_ms <= 0 or self.cpu_ms <= 0 or self.gpu_ms != 0:
+            raise BudgetError("per-move v1 requires a positive CPU-only envelope")
+        wall = min(float(wall_ms), self.wall_ms)
+        cpu = min(self.cpu_ms, wall * cpu_parallelism)
+        return ResourceEnvelope(wall_ms=wall, cpu_ms=cpu, gpu_ms=0,
+            verification_reserve_fraction=self.verification_reserve_fraction,
+            refinement_reserve_fraction=self.refinement_reserve_fraction,
+            controller_overhead_reserve_ms=cpu * self.controller_overhead_reserve_ms / self.cpu_ms)
+
     @property
     def verification_reserve_ms(self) -> float:
         return self.cpu_ms * self.verification_reserve_fraction

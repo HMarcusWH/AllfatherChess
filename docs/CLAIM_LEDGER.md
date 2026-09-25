@@ -1,5 +1,22 @@
 # Claim ledger
 
+## ONLINE-1 clock/deadline qualification
+
+- **POLICY:** `clock_envelope_v1` allocates a bounded per-move CPU/wall envelope
+  from caller clocks or a single movetime. Parameters are declared choices, not
+  optimal chess time management.
+- **IMPLEMENTED / TEST-GATED:** original/internal request identity, clock-origin
+  accounting, token-scoped stop/kill, closed dispatch windows, bounded replay
+  setup, deferred anchor observation, and explicit timeout failure. See
+  `ONLINE_TIME.md`, `test_online_time.py`, `test_online_deadlines.py` and the
+  real-engine `online-clock-contract.py` report on the exact tested commit.
+- **NOT CLAIMED:** real-time OS/output guarantees, recovery after anchor death,
+  a legal move when the anchor fails, real-network competitive qualification,
+  GPU accounting, clock-based hybrid authority, an online deployment, or Elo.
+- Branch protection and the top-level controller license remain release gates.
+  The frozen deployment audit is linked from `ONLINE_RELEASE_PLAN.md`.
+
+
 Every substantive statement this milestone makes, labelled. The labels are not
 decoration: `MEASURED` never becomes `PROVED`, `CALIBRATED` never becomes chess
 truth, and `POLICY` never becomes a strength gain.

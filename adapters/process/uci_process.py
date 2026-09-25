@@ -8,6 +8,7 @@ import os
 import re
 import subprocess
 import threading
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
@@ -246,7 +247,8 @@ class UciProcess:
             except Exception as exc:  # pragma: no cover - owner callback isolation
                 self._callback_errors.append(f"exit callback {type(exc).__name__}: {exc}")
 
-    def send(self, command: str, *, timeout: float | None = None) -> None:
+    def send(self, command: str, *, timeout: float | None = None,
+             permit: Callable[[], bool] | None = None) -> None:
         """Write one UCI command without allowing a wedged stdin pipe to hang forever.
 
         OS pipe writes can block when a backend stops draining stdin. Response
@@ -279,6 +281,8 @@ class UciProcess:
                         raise UciProcessError(
                             f"{self.name}: engine exited before command: {command}"
                         )
+                    if permit is not None and not permit():
+                        raise UciProcessError(f"{self.name}: command window closed before write")
                     self._transcript.append(f">> {command}")
                     proc.stdin.write(command + "\n")
                     proc.stdin.flush()
@@ -333,6 +337,8 @@ class UciProcess:
         timeout: float | None = None,
         collect: bool = False,
     ) -> list[str]:
+        bound = self.timeout if timeout is None else timeout
+        deadline = time.monotonic() + bound
         waiter = _Waiter(predicate=predicate, label=label, collect=collect)
         with self._state_lock:
             self._waiters.append(waiter)
@@ -344,7 +350,7 @@ class UciProcess:
                     self._waiters.remove(waiter)
             raise
 
-        if not waiter.event.wait(self.timeout if timeout is None else timeout):
+        if not waiter.event.wait(max(0, deadline - time.monotonic())):
             with self._state_lock:
                 if waiter in self._waiters:
                     self._waiters.remove(waiter)
@@ -377,19 +383,22 @@ class UciProcess:
         a search cannot begin concurrently. ready() intentionally remains
         independent because PR #9 permits isready during active search.
         """
-        with self._command_gate:
+        bound = self.timeout if timeout is None else timeout
+        deadline = time.monotonic() + bound
+        if not self._command_gate.acquire(timeout=bound):
+            raise UciProcessError(f"{self.name}: idle request command gate timed out")
+        try:
             with self._state_lock:
                 if self._search is not None:
                     raise UciProcessError(
                         f"{self.name}: idle request {label!r} is forbidden during active search"
                     )
             return self._request(
-                command,
-                terminal_predicate,
-                label=label,
-                timeout=timeout,
-                collect=True,
+                command, terminal_predicate, label=label,
+                timeout=max(0.001, deadline - time.monotonic()), collect=True,
             )
+        finally:
+            self._command_gate.release()
 
     def set_option(self, name: str, value: object) -> None:
         if name not in self.options:
@@ -427,11 +436,20 @@ class UciProcess:
         token: int,
         on_info: Callable[[int, str], None],
         on_complete: Callable[[int, str], None],
+        timeout: float | None = None,
+        permit: Callable[[], bool] | None = None,
     ) -> None:
         if command != "go" and not command.startswith("go "):
             raise UciProcessError(f"{self.name}: invalid go command: {command!r}")
-        with self._command_gate:
+        bound = self.timeout if timeout is None else timeout
+        if not math.isfinite(bound) or bound <= 0:
+            raise UciProcessError(f"{self.name}: invalid search dispatch timeout")
+        if not self._command_gate.acquire(timeout=bound):
+            raise UciProcessError(f"{self.name}: search command gate timed out")
+        try:
             with self._state_lock:
+                if permit is not None and not permit():
+                    raise UciProcessError(f"{self.name}: search window closed")
                 if self._search is not None:
                     raise UciProcessError(f"{self.name}: search already active")
                 self._search = _SearchSubscription(
@@ -440,12 +458,50 @@ class UciProcess:
                     on_complete=on_complete,
                 )
             try:
-                self.send(command)
+                self.send(command, timeout=bound, permit=permit)
             except Exception:
                 with self._state_lock:
                     if self._search is not None and self._search.token == token:
                         self._search = None
                 raise
+        finally:
+            self._command_gate.release()
+
+    def stop_search(self, token: int, *, timeout: float) -> bool:
+        """A delayed stop may affect only its original subscription.
+
+        The gate spans the token check and actual stdin write. A new search
+        cannot slip between them, even when stdout has already completed the
+        old subscription. No state lock is held during potentially blocked IO.
+        """
+        if not math.isfinite(timeout) or timeout <= 0:
+            return False
+        if not self._command_gate.acquire(timeout=timeout):
+            return False
+        try:
+            if self.active_token != token:
+                return False
+            self.send("stop", timeout=timeout)
+            return True
+        finally:
+            self._command_gate.release()
+
+    def kill_search(self, token: int) -> bool:
+        """Atomically terminate only the named physical search subscription."""
+        with self._state_lock:
+            if self._search is None or self._search.token != token:
+                return False
+            self.kill_now()
+            return True
+
+    def kill_now(self) -> None:
+        """Terminate this physical process without waiting on pipes/readers."""
+        proc = self.proc
+        if proc is not None and proc.poll() is None:
+            try:
+                proc.kill()
+            except OSError:
+                pass
 
     def stop(self) -> None:
         if self.active_search:

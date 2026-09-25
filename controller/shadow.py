@@ -50,6 +50,7 @@ from controller.crossfeed import (
     build_crossfeed_view,
     seal_crossfeed_artifact,
 )
+from controller.online_time import ClockSearch
 from controller.counterfactual import (
     CounterfactualError,
     prepare_counterfactual_from_sources,
@@ -210,6 +211,7 @@ class RunContext:
     owner_roots: dict[str, tuple[str, ...]]
     started_monotonic: float
     _coordinator: "ShadowRunCoordinator"
+    clock: ClockSearch | None = None
 
     def elapsed_ms(self) -> float:
         return (time.monotonic() - self.started_monotonic) * 1000.0
@@ -387,7 +389,7 @@ class _ActiveRun:
     refinement_positioned: set[str] = field(default_factory=set)
     refinement_oracle_active: bool = False
     specialist_tokens: dict[str, str] = field(default_factory=dict)
-    cancelled: bool = False
+    _cancelled: bool = False
     cancel_reason: str | None = None
     worker: threading.Thread | None = None
     finished: threading.Event = field(default_factory=threading.Event)
@@ -404,6 +406,16 @@ class _ActiveRun:
     #: run that dispatched no shadow work still spent the anchor's compute.
     router_started: bool = False
     router_finished: bool = False
+
+    @property
+    def cancelled(self) -> bool:
+        # Every existing dispatch-commit guard consumes this predicate, so the
+        # online work fence is effective even when its stop writer is delayed.
+        return self._cancelled or (self.context.clock is not None and not self.context.clock.work_open())
+
+    @cancelled.setter
+    def cancelled(self, value: bool) -> None:
+        self._cancelled = value
 
 
 class ShadowRunCoordinator:
@@ -655,7 +667,7 @@ class ShadowRunCoordinator:
         with self._lock:
             return self._history[-1] if self._history else None
 
-    def prepare_run(self, *, generation: int, go_command: str) -> bool:
+    def prepare_run(self, *, generation: int, go_command: str, clock: ClockSearch | None = None) -> bool:
         """Create the run bundle and anchor stream *before* the anchor starts.
 
         This performs no engine IO, but it does perform **filesystem** IO -- a
@@ -666,6 +678,11 @@ class ShadowRunCoordinator:
         runs off the calling thread under `shadow.prepare_budget_s`: past that
         bound the search proceeds with no bundle rather than waiting.
         """
+        if clock is not None:
+            if clock.plan.generation != generation or clock.plan.external_go_command != go_command:
+                raise ControllerRuntimeError("clock plan does not match external request/generation")
+            if not clock.work_open():
+                return False
         with self._lock:
             if self._closed:
                 return False
@@ -680,7 +697,11 @@ class ShadowRunCoordinator:
             # process the new generation is already using. Joining must happen
             # outside self._lock, because the worker needs that same lock to
             # finish.
-            if not self.quiesce(reason="superseded"):
+            bound = None if clock is None else max(0.0, min(
+                self.runtime.config.online_time.quiesce_budget_ms / 1000,
+                clock.plan.received_monotonic + clock.plan.prepare_budget_ms / 1000 - time.monotonic(),
+            ))
+            if not self.quiesce(reason="superseded", timeout=bound):
                 self._diagnostic(
                     "previous shadow generation did not drain; skipping shadow "
                     "observation for this search"
@@ -693,11 +714,13 @@ class ShadowRunCoordinator:
         # ahead of a 900 ms anchor search still reported `wall_within_envelope`
         # against a 1000 ms envelope, and the same milliseconds went uncharged
         # as controller overhead. Preparation is bounded, not free.
-        started = time.monotonic()
-        controller_cpu_started_ns = time.process_time_ns()
+        started = time.monotonic() if clock is None else clock.plan.received_monotonic
+        controller_cpu_started_ns = time.process_time_ns() if clock is None else clock.plan.controller_cpu_started_ns
         # One deadline for every pre-anchor filesystem step, taken from the
         # same origin as the run clock.
-        prepare_deadline = started + max(0.001, float(self.settings.prepare_budget_s))
+        prepare_deadline = started + (max(0.001, float(self.settings.prepare_budget_s))
+                                      if clock is None else clock.plan.prepare_budget_ms / 1000)
+        anchor_command = go_command if clock is None else clock.plan.anchor_go_command
         position_command = self.runtime.position_command
         variant = self._variant()
         try:
@@ -710,6 +733,8 @@ class ShadowRunCoordinator:
             self._diagnostic(f"shadow run not started: {exc}")
             return False
 
+        if clock is not None and position.position_id != clock.plan.position_id:
+            raise ControllerRuntimeError("position changed during clock preparation")
         now = _dt.datetime.now(_dt.timezone.utc)
         run_id = f"{now.strftime('%Y%m%dT%H%M%S%fZ')}-g{generation:06d}-{uuid.uuid4().hex[:8]}"
         run_dir = self.settings.replay_root / run_id
@@ -732,6 +757,8 @@ class ShadowRunCoordinator:
             created_utc=now.isoformat().replace("+00:00", "Z"),
         )
         run.oracle_instance = self.settings.oracle
+        if clock is not None:
+            run.time_plan = clock.plan.as_dict()
 
         anchor_name = self.runtime.anchor_name
         anchor_spec = self.runtime.spec(anchor_name)
@@ -766,7 +793,7 @@ class ShadowRunCoordinator:
         anchor_stream.begin_stage(
             search_id=anchor_search_id,
             position=position.telemetry_position(),
-            request=parse_go_request(go_command),
+            request=parse_go_request(anchor_command),
             controller={
                 # The anchor path is the unmodified baseline search. The run's
                 # controller mode is recorded in the replay manifest instead.
@@ -782,7 +809,7 @@ class ShadowRunCoordinator:
             role=anchor_spec.role,
             owner=None,
             search_id=anchor_search_id,
-            command=go_command,
+            command=anchor_command,
             dispatched_roots=(),
             dispatched_ms=0.0,
             stage_index=0,
@@ -799,6 +826,7 @@ class ShadowRunCoordinator:
             owner_roots={},
             started_monotonic=started,
             _coordinator=self,
+            clock=clock,
         )
         resource_settings = self.runtime.config.resource_measurement
         resources = (
@@ -811,11 +839,23 @@ class ShadowRunCoordinator:
             )
         )
         if resources is not None and resources.settings.enabled:
-            for instance in sorted(self.runtime.backends):
-                resources.register_process(
-                    instance=instance,
-                    pid=self.runtime.process_pid(instance),
+            candidate_resources = resources
+            def register_resources():
+                for instance in sorted(self.runtime.backends):
+                    candidate_resources.register_process(instance=instance, pid=self.runtime.process_pid(instance))
+                if clock is not None:
+                    candidate_resources.begin_stage(key=anchor_search_id, instance=anchor_name,
+                                                    phase="ANCHOR", pid=self.runtime.process_pid(anchor_name))
+                return candidate_resources
+            if clock is None:
+                register_resources()
+            else:
+                measured, resources = self._within_prepare_budget(
+                    f"{run_id}-resource-start", deadline=prepare_deadline, work=register_resources,
                 )
+                if not measured:
+                    resources = None
+                    run.note("clock resource setup missed preparation budget; physical claim unavailable")
         active = _ActiveRun(
             generation=generation,
             run=run,
@@ -1318,7 +1358,10 @@ class ShadowRunCoordinator:
             resources = active.resources
             path = active.run.run_dir / "resource.json"
         try:
-            return resources.seal(path)
+            clock = active.context.clock
+            return resources.seal(path, **({} if clock is None else {
+                "validity_check": lambda: not clock.measurement_superseded.is_set(),
+            }))
         except Exception as exc:
             active.run.note(
                 f"resource report could not be sealed: {type(exc).__name__}: {exc}"
@@ -1345,12 +1388,8 @@ class ShadowRunCoordinator:
                 return
             key = active.anchor_stage.search_id
             instance = self.runtime.anchor_name
-        self._begin_resource_stage(
-            active,
-            key=key,
-            instance=instance,
-            phase="ANCHOR",
-        )
+        if active.context.clock is None:
+            self._begin_resource_stage(active, key=key, instance=instance, phase="ANCHOR")
 
     # ------------------------------------------------------------------
     # cancellation and draining
@@ -1378,12 +1417,14 @@ class ShadowRunCoordinator:
             instances = self._cancel_locked(active, reason=reason)
         if not instances:
             return
+        stop_kwargs = {} if active.context.clock is None else {"generation": active.generation}
         if not detach:
-            self._stop_instances(instances)
+            self._stop_instances(instances, **stop_kwargs)
             return
         worker = threading.Thread(
             target=self._stop_instances,
             args=(instances,),
+            kwargs=stop_kwargs,
             name=f"allfather-shadow-stop-g{active.generation:06d}",
             daemon=True,
         )
@@ -1402,7 +1443,7 @@ class ShadowRunCoordinator:
         anchor's own completion. Observation may never hold up authority.
         Callers release the lock and pass this list to `_stop_instances`.
         """
-        if not active.cancelled:
+        if not active._cancelled:
             active.cancelled = True
             active.cancel_reason = reason
         instances = [
@@ -1420,8 +1461,18 @@ class ShadowRunCoordinator:
             instances.extend(stage.instance for stage in active.refinement.active_stages())
         return list(dict.fromkeys(instances))
 
-    def _stop_instances(self, instances: list[str]) -> None:
-        """Send `stop` to each instance. Never called with `self._lock` held."""
+    def _stop_instances(self, instances: list[str], *, generation: int | None = None) -> None:
+        """Send `stop` off authority; online writes are generation scoped."""
+        if self.runtime.config.online_time is not None:
+            active = self._run
+            if generation is None:
+                generation = None if active is None else active.generation
+            if generation is None:
+                return
+            for instance in instances:
+                self.runtime.stop_instance_for(instance, generation,
+                    timeout=self.runtime.config.online_time.quiesce_budget_ms / 1000)
+            return
         for instance in instances:
             try:
                 self.runtime.stop_instance(instance)
@@ -1451,6 +1502,8 @@ class ShadowRunCoordinator:
         synchronization and dispatch through the existing observational-health
         path: a stuck worker degrades to evidence, exactly like a crashed one.
         """
+        if self.runtime.config.online_time is not None:
+            return self._quiesce_clock(timeout=timeout, reason=reason)
         if timeout is None:
             timeout = self.settings.drain_timeout_s
         # ONE deadline for the whole barrier. Passing `timeout` to each wait in
@@ -1631,6 +1684,61 @@ class ShadowRunCoordinator:
                 )
                 active.run.note(message)
         return drained
+
+    def _quiesce_clock(self, *, timeout: float | None, reason: str) -> bool:
+        """Bounded online barrier: late observational processes are quarantined.
+
+        No pipe write, resource sample, replay flush or worker finalization is
+        performed on this caller. An old worker retains its own run until it
+        finishes; prepare_run refuses to replace it while that happens.
+        """
+        if timeout is None:
+            timeout = self.runtime.config.online_time.quiesce_budget_ms / 1000
+        deadline = time.monotonic() + max(0, timeout)
+        if not self._lock.acquire(timeout=max(0, deadline - time.monotonic())):
+            self._quarantine_clock_workers("clock generation lock deadline")
+            return False
+        try:
+            active = self._run
+            prior_stops = tuple(self._stop_threads)
+            if active is not None:
+                active.cancelled = True
+                active.cancel_reason = active.cancel_reason or reason
+        finally:
+            self._lock.release()
+        # cancel() can wait for the coordinator lock; keep even that wait off
+        # the outward command loop. Kill on timeout instead of reusing a worker
+        # with a delayed stop queued against its physical process.
+        stopper = threading.Thread(target=lambda: (
+            self.cancel(active.generation, reason=reason, detach=False) if active is not None else None),
+                                   name="allfather-clock-quiesce", daemon=True)
+        stopper.start()
+        stopper.join(max(0, deadline - time.monotonic()))
+        drained = (active is None or active.finished.wait(max(0, deadline - time.monotonic())))
+        for thread in prior_stops:
+            thread.join(max(0, deadline - time.monotonic()))
+        if stopper.is_alive() or not drained or any(t.is_alive() for t in prior_stops):
+            self._quarantine_clock_workers("clock generation did not drain before synchronization")
+            return False
+        return True
+
+    def _quarantine_clock_workers(self, reason: str) -> None:
+        for instance in self.runtime.shadow_instances:
+            self.runtime.record_shadow_failure(instance, reason)
+            process = self.runtime.backends.get(instance)
+            if process is not None:
+                process.kill_now()
+
+    def note_clock_observation_end(self, generation: int, line: str, lost: int) -> None:
+        with self._lock:
+            active = self._run
+            if active is None or active.generation != generation:
+                return
+            if lost and active.anchor_stream is not None:
+                active.anchor_stream.note_loss(f"online anchor observation lost {lost} event(s)")
+                active.run.note(f"online anchor observation lost {lost} event(s)")
+        self.note_anchor_complete(generation, line)
+        self.note_anchor_emitted(generation)
 
     def close(self) -> None:
         with self._lock:
@@ -1873,6 +1981,8 @@ class ShadowRunCoordinator:
                 }
                 if active.cancelled and stop_reason is None:
                     stop_reason = active.cancel_reason
+                if active.context.clock is not None:
+                    active.run.clock_outcome = active.context.clock.outcome()
                 active.run.finalize(disposition=disposition, stop_reason=stop_reason)
                 parent_manifest_sha = sha256_file(active.run.run_dir / "manifest.json")
                 if active.verification is not None:
@@ -2078,7 +2188,11 @@ class ShadowRunCoordinator:
         settings = self.settings
 
         if active.cancelled:
-            return "cancelled", active.cancel_reason
+            return "cancelled", active.cancel_reason or "clock window closed"
+        if active.context.clock is not None:
+            # Reserve the anchor against the per-move plan before any optional
+            # oracle/search work. The legacy qualification timing is unchanged.
+            self._router_start(active)
 
         # 1. Legal-root qualification on the dedicated shadow oracle.
         qualification_resource_key = (
@@ -2093,7 +2207,13 @@ class ShadowRunCoordinator:
         with self._lock:
             active.qualifying = True
         try:
-            roots = self.runtime.legal_root_moves()
+            if active.context.clock is None:
+                roots = self.runtime.legal_root_moves()
+            else:
+                remaining = active.context.clock.plan.soft_deadline - time.monotonic()
+                if remaining <= 0:
+                    return "cancelled", "clock window closed before legal-root oracle"
+                roots = self.runtime.legal_root_moves(timeout=min(self.settings.oracle_timeout_s, remaining))
         except ControllerRuntimeError as exc:
             run.note(f"legal-root oracle unavailable: {exc}")
             return "oracle_failed", str(exc)

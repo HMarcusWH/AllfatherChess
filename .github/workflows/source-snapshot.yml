@@ -2,11 +2,6 @@ name: Source snapshot
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - feat/online-clock-deadlines
-    paths:
-      - .github/workflows/source-snapshot.yml
 
 permissions:
   contents: read

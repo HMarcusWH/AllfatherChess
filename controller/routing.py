@@ -531,6 +531,7 @@ class ConservativeRouter:
         refine_enabled: bool = False,
     ) -> None:
         self.envelope = envelope
+        self._configured_envelope = envelope
         self.policy = policy
         self.calibration = calibration
         self.calibration_source = calibration_source
@@ -620,6 +621,13 @@ class ConservativeRouter:
         # qualification runs before the router is involved, so a self-started
         # clock would hand a slow oracle a second full envelope.
         started = getattr(context, "started_monotonic", None)
+        clock = getattr(context, "clock", None)
+        self.envelope = self._configured_envelope if clock is None else clock.plan.envelope
+        if clock is not None and (clock.plan.generation != context.generation
+                or clock.plan.position_id != context.position.position_id
+                or clock.plan.external_go_command != context.external_go_command
+                or started != clock.plan.received_monotonic):
+            raise RoutingError("clock plan does not bind the current run")
         self.ledger = BudgetLedger(self.envelope, clock=self._clock, started=started)
         self.audit = RouteAudit(run_id=context.run_id, policy=self.policy.policy_name)
         self._reservations = {}
@@ -650,7 +658,10 @@ class ConservativeRouter:
                 "no calibration is loaded: this run may not authorize any suppression, "
                 "so every stop proposal will be denied"
             )
-        self._anchor_bound = self._classify_anchor_request(context.external_go_command)
+        self._anchor_bound = self._classify_anchor_request(
+            context.external_go_command if clock is None else clock.plan.anchor_go_command)
+        if clock is not None:
+            self._anchor_bound = (self._anchor_bound[0], "clock_envelope_v1: " + self._anchor_bound[1])
         if not self._anchor_bound[0]:
             self.audit.note(
                 f"outward request is not bounded by the declared envelope: {self._anchor_bound[1]}; "
@@ -663,6 +674,9 @@ class ConservativeRouter:
         # this path was not.
         anchor_cost = self.policy.anchor_cpu_ms_estimate
         anchor_threads = 1
+        if clock is not None:
+            anchor_threads = self._anchor_threads(context)
+            anchor_cost = clock.plan.hard_budget_ms * anchor_threads
         if not anchor_cost:
             anchor_threads = self._anchor_threads(context)
             anchor_cost = self.envelope.wall_ms * anchor_threads
@@ -693,7 +707,7 @@ class ConservativeRouter:
             if self._fallback:
                 audit.note(f"initial dispatch for {owner} refused: anchor-only fallback is active")
                 return False
-            if self.ledger.wall_exhausted():
+            if self.ledger.wall_exhausted() or (getattr(context, "clock", None) is not None and not context.clock.work_open()):
                 # The extension path has always checked this; the initial one
                 # did not. Preparation and legal-root qualification can consume
                 # the wall envelope while the anchor is still searching, and
@@ -796,6 +810,8 @@ class ConservativeRouter:
             if resource_summary.get("qualified") and isinstance(provider, str):
                 cpu_measurement = provider
 
+        clock = getattr(context, "clock", None)
+        clock_complete = clock is None or bool(clock.outcome()["output_within_deadline"])
         payload = {
             "schema_version": ROUTE_SCHEMA_VERSION,
             "run_id": audit.run_id,
@@ -830,7 +846,8 @@ class ConservativeRouter:
                 "physical_measurement_qualified": resource_qualified,
                 "physical_cpu_within_envelope": physical_cpu_within,
                 "claimed": (
-                    self._anchor_bound[0]
+                    clock_complete
+                    and self._anchor_bound[0]
                     and self._anchor_reserved
                     and self._gpu_accounted()
                     and self.ledger.within_envelope()
@@ -854,6 +871,10 @@ class ConservativeRouter:
                 "separately from this routing record."
             ),
         }
+        if clock is not None:
+            payload["time_plan"] = clock.plan.as_dict()
+            payload["clock_outcome"] = clock.outcome()
+            payload["envelope_claim"]["clock_output_complete"] = clock_complete
         try:
             atomic_write_text(
                 Path(context.run_dir) / "route.json",
@@ -963,8 +984,8 @@ class ConservativeRouter:
                 reason = "phase is not enabled in this active profile"
             elif self._fallback:
                 reason = "anchor-only fallback is active"
-            elif self.ledger.wall_exhausted():
-                reason = "wall envelope is exhausted"
+            elif self.ledger.wall_exhausted() or (getattr(context, "clock", None) is not None and not context.clock.work_open()):
+                reason = "wall or clock work envelope is exhausted"
                 self._fallback = True
             else:
                 lane_parts = [VERIFY_LANE if purpose == "verify" else REFINE_LANE]

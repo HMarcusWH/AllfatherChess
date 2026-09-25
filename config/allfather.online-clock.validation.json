@@ -1,0 +1,131 @@
+{
+  "schema_version": 2,
+  "mode": "active",
+  "anchor": "stockfish-anchor",
+  "root": "..",
+  "shadow": {
+    "owners": [
+      "stockfish",
+      "reckless",
+      "lc0"
+    ],
+    "instance_by_owner": {
+      "stockfish": "stockfish-shadow",
+      "reckless": "reckless-shadow",
+      "lc0": "lc0-shadow"
+    },
+    "oracle": "stockfish-shadow",
+    "partition": "root_index_modulo",
+    "dispatch_limit": {
+      "nodes": 256
+    },
+    "lc0_score_type": "centipawn",
+    "replay_root": "build/replays-online-clock",
+    "oracle_timeout_s": 10,
+    "drain_timeout_s": 5,
+    "on_anchor_complete": "drain"
+  },
+  "budget": {
+    "wall_ms": 4000,
+    "cpu_ms": 12000,
+    "gpu_ms": 0,
+    "verification_reserve_fraction": 0.15,
+    "controller_overhead_reserve_ms": 250
+  },
+  "routing": {
+    "policy": "conservative_v1",
+    "calibration": null,
+    "min_observation_nodes": 4000,
+    "checkpoint_interval_ms": 120,
+    "max_stages_per_owner": 1,
+    "extend_nodes": 8000,
+    "stop_max_reversal_risk": 0.05,
+    "stop_min_support": 25,
+    "stop_min_stability_fraction": 0.6,
+    "stage_cpu_ms_estimate": 150,
+    "anchor_cpu_ms_estimate": 0
+  },
+  "instances": {
+    "stockfish-anchor": {
+      "family": "stockfish",
+      "role": "anchor",
+      "binary": "engines/stockfish/src/stockfish",
+      "cwd": ".",
+      "args": [],
+      "options": {
+        "Threads": 1,
+        "Hash": 16,
+        "MultiPV": 1,
+        "UCI_Chess960": false
+      }
+    },
+    "stockfish-shadow": {
+      "family": "stockfish",
+      "role": "shadow",
+      "binary": "engines/stockfish/src/stockfish",
+      "cwd": ".",
+      "args": [],
+      "options": {
+        "Threads": 1,
+        "Hash": 16,
+        "MultiPV": 3,
+        "UCI_Chess960": false
+      }
+    },
+    "reckless-shadow": {
+      "family": "reckless",
+      "role": "shadow",
+      "binary": "engines/reckless/target/release/reckless",
+      "cwd": ".",
+      "args": [],
+      "options": {
+        "Threads": 1,
+        "Hash": 16,
+        "MultiPV": 3,
+        "Minimal": false,
+        "UCI_Chess960": false
+      }
+    },
+    "lc0-shadow": {
+      "family": "lc0",
+      "role": "shadow",
+      "binary": "engines/lc0/build/release/lc0",
+      "fallback_glob": "engines/lc0/build/**/lc0",
+      "cwd": ".",
+      "args": [],
+      "options": {
+        "WeightsFile": "",
+        "Backend": "random",
+        "BackendOptions": "seed=20260920",
+        "NNCacheSize": 0,
+        "MinibatchSize": 1,
+        "MaxConcurrentSearchers": 1,
+        "TaskWorkers": 0,
+        "MultiPV": 3,
+        "UCI_Chess960": false,
+        "Threads": 1,
+        "ScoreType": "centipawn"
+      }
+    }
+  },
+  "resource_measurement": {
+    "enabled": true,
+    "provider": "linux-procfs-v1",
+    "require_cpu_for_claim": true,
+    "require_gpu_for_claim": false,
+    "record_memory": true
+  },
+  "online_time": {
+    "enabled": true,
+    "policy": "clock_envelope_v1",
+    "moves_horizon": 30,
+    "increment_fraction": 0.75,
+    "max_move_ms": 2000,
+    "network_reserve_ms": 100,
+    "stop_grace_ms": 300,
+    "output_margin_ms": 50,
+    "prepare_budget_ms": 100,
+    "quiesce_budget_ms": 250,
+    "cpu_parallelism": 4
+  }
+}

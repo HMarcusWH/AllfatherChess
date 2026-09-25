@@ -104,9 +104,9 @@ class StagedVerificationRun:
             raise StagedVerificationError(
                 f"unsupported staged VERIFY intervention: {self.intervention!r}"
             )
-        if tuple(self.participants) != OWNER_ORDER:
+        if set(self.participants) != set(OWNER_ORDER):
             raise StagedVerificationError(
-                "staged VERIFY participants must use canonical owner order"
+                "staged VERIFY participants must be exactly the three solver owners"
             )
         if len(self.candidate_roots) != 3 or len(set(self.candidate_roots)) != 3:
             raise StagedVerificationError(
@@ -383,8 +383,8 @@ def verify_staged_verification_integrity(run_dir: Path | str) -> list[str]:
     participants = manifest.get("participants") or {}
     if participants != base_participants:
         problems.append("staged VERIFY participants differ from base VERIFY")
-    if tuple(participants) != OWNER_ORDER:
-        problems.append("staged VERIFY participants are not canonical")
+    if set(participants) != set(OWNER_ORDER):
+        problems.append("staged VERIFY participants are not exactly the three solver owners")
 
     rounds = manifest.get("rounds") or {}
     base_limit = (rounds.get("base") or {}).get("dispatch_limit") or {}

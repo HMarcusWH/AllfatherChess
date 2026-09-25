@@ -16,8 +16,12 @@ remains the backend/root-oracle responsibility, not the syntactic clock parser.
 Duplicates, unknown/malformed tokens, infinite/ponder, mixed work/time limits,
 missing clocks, and insufficient time for declared margins are rejected explicitly.
 
-ONLINE-1 refuses hybrid_authority, GPU envelopes and recursive REFINE. Converting
-`clock_v1` into a bounded anchor command never makes it `movetime_v0` authority.
+ONLINE-1 refuses hybrid_authority, GPU envelopes and recursive REFINE. Any configured
+LC0 `Backend` must be explicitly CPU-only (`random`, `trivial`, `blas`, `eigen`,
+`onnx-cpu`, or `tensorflow-cc-cpu`); accelerator/unknown selections are rejected because
+procfs cannot account their device work. The shipped ONLINE-1 validation profile pins
+`random`; ONLINE-2 will tighten complete device/profile identity. Converting `clock_v1`
+into a bounded anchor command never makes it `movetime_v0` authority.
 The anchor remains the exact outward source. The released validation profile
 still uses random-backend LC0: it qualifies timing, not playing strength.
 

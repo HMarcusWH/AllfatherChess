@@ -605,6 +605,20 @@ class UnifiedValueRouter(ConservativeRouter):
             f"same-process:n{verification.plan.dispatch_limit.get('nodes')}"
             f"->n{extension.dispatch_limit.get('nodes')}"
         )
+        if self._fallback or self.ledger.wall_exhausted():
+            decision = choose_staged_route(
+                transition=transition,
+                features=None,
+                estimate=None,
+                classification=None,
+                staged_model=self.staged_model,
+                regime_model=self.regime_support_model,
+                skip_max_change_probability=self.skip_max_change_probability,
+                fallback_latched=bool(self._fallback),
+                wall_exhausted=self.ledger.wall_exhausted(),
+            )
+            audit.record_value_decision(decision.as_dict())
+            return decision.buy_extension
         try:
             with self.ledger.controller_overhead("unified_value_route"):
                 state = self._build_live_base_state(
@@ -621,14 +635,7 @@ class UnifiedValueRouter(ConservativeRouter):
                     fallback_latched=bool(self._fallback),
                     wall_exhausted=self.ledger.wall_exhausted(),
                 )
-        except (
-            UnifiedValueRoutingError,
-            CrossFeedError,
-            CrossFeedAdapterEvidenceError,
-            StagedDecisionCalibrationError,
-            RegimeCalibrationError,
-            ValueError,
-        ) as exc:
+        except Exception as exc:  # fail closed and record the route failure
             decision = UnifiedValueDecision(
                 action="BUY_STAGED_VERIFY",
                 buy_extension=True,

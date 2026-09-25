@@ -1,0 +1,31 @@
+name: ONLINE-1 development transport
+on:
+  push:
+    branches: [feat/online-clock-deadlines]
+    paths: [.github/workflows/online1-transport.yml]
+permissions:
+  contents: read
+jobs:
+  transport:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Export immutable payload blobs for checksum reconciliation
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p /tmp/online1-transport
+          python3 - <<'PY'
+          import base64, json, os, urllib.request
+          from pathlib import Path
+          for i, sha in {0: 'd0e3f240c97088b313d6c4c2d5c3bdca54c07d53', 3: '9a26ca57c856e3927144ccc468a44d3606c1c15a', 4: 'b6f8d3ce87a26a2e162e84e405717fb1066152f3'}.items():
+              req = urllib.request.Request('https://api.github.com/repos/HMarcusWH/AllfatherChess/git/blobs/' + sha, headers={'Authorization': 'Bearer ' + os.environ['GH_TOKEN'], 'Accept': 'application/vnd.github+json'})
+              with urllib.request.urlopen(req, timeout=30) as r:
+                  value = json.load(r)
+              Path('/tmp/online1-transport/part-' + str(i) + '.bin').write_bytes(base64.b64decode(value['content']))
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: online1-transport
+          path: /tmp/online1-transport/
+          retention-days: 1

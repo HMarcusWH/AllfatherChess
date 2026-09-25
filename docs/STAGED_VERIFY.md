@@ -241,5 +241,7 @@ M14-G1 is complete when the repo can prove:
 - unsupported calibration buckets fail closed;
 - no staged evidence can acquire move authority.
 
-Only after that substrate is qualified may M14-G2 wire the serve-compatible
-estimate into a unified live value-of-compute router.
+M14-G2 now consumes this qualified substrate through `unified_value_v1`.
+The staged model may license skipping only when its exact serving bucket has
+held-out support and the M14-F regime-support bucket is in-domain; otherwise the
+router buys the extension fail-closed, subject to the existing resource gate.

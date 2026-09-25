@@ -103,17 +103,32 @@ class ShadowSettings:
 
 
 @dataclass(frozen=True)
+class StagedVerificationExtensionSettings:
+    """Serve-compatible research intervention for M14-G1.
+
+    The extension is a fresh second `go` on the same managed process after a
+    clean base VERIFY round. It is evidence collection only and carries neither
+    routing nor outward-move authority.
+    """
+
+    enabled: bool
+    intervention: str
+    dispatch_limit: dict[str, object]
+
+
+@dataclass(frozen=True)
 class VerificationSettings:
     """Explicit common-support VERIFY instrumentation.
 
-    v1 is deliberately shadow-only and deterministic. It reuses the three
-    configured shadow instances after EXPLORE; it is not a routing policy and
-    does not grant decision authority.
+    v1 remains the single-round compatibility substrate. M14-G1 may attach one
+    staged extension round while preserving the same candidate universe and
+    process identities. Neither form grants decision authority.
     """
 
     enabled: bool
     nomination_method: str
     dispatch_limit: dict[str, object]
+    staged_extension: StagedVerificationExtensionSettings | None = None
 
 
 @dataclass(frozen=True)
@@ -599,10 +614,71 @@ def _load_verification_settings(
     if isinstance(nodes, bool) or not isinstance(nodes, int) or nodes < 1:
         raise RuntimeError("verification.dispatch_limit.nodes must be a positive integer")
 
+    staged_extension: StagedVerificationExtensionSettings | None = None
+    staged_raw_value = raw.get("staged_extension")
+    if staged_raw_value is not None:
+        staged_raw = _require_object(
+            staged_raw_value,
+            "verification.staged_extension",
+        )
+        staged_enabled = staged_raw.get("enabled")
+        if not isinstance(staged_enabled, bool):
+            raise RuntimeError(
+                "verification.staged_extension.enabled must be a boolean"
+            )
+        unknown = sorted(
+            set(staged_raw) - {"enabled", "intervention", "dispatch_limit"}
+        )
+        if unknown:
+            raise RuntimeError(
+                "verification.staged_extension contains unsupported keys: "
+                f"{unknown}"
+            )
+        if staged_enabled:
+            intervention = staged_raw.get(
+                "intervention",
+                "same_process_staged_verify_v1",
+            )
+            if intervention != "same_process_staged_verify_v1":
+                raise RuntimeError(
+                    "verification.staged_extension.intervention currently "
+                    "supports exactly 'same_process_staged_verify_v1'"
+                )
+            staged_dispatch = _require_object(
+                staged_raw.get("dispatch_limit"),
+                "verification.staged_extension.dispatch_limit",
+            )
+            if sorted(staged_dispatch) != ["nodes"]:
+                raise RuntimeError(
+                    "verification.staged_extension.dispatch_limit currently "
+                    "supports exactly the 'nodes' key"
+                )
+            staged_nodes = staged_dispatch["nodes"]
+            if (
+                isinstance(staged_nodes, bool)
+                or not isinstance(staged_nodes, int)
+                or staged_nodes < 1
+            ):
+                raise RuntimeError(
+                    "verification.staged_extension.dispatch_limit.nodes must "
+                    "be a positive integer"
+                )
+            if int(staged_nodes) <= int(nodes):
+                raise RuntimeError(
+                    "verification.staged_extension nodes must exceed the base "
+                    "VERIFY node limit"
+                )
+            staged_extension = StagedVerificationExtensionSettings(
+                enabled=True,
+                intervention=str(intervention),
+                dispatch_limit={"nodes": int(staged_nodes)},
+            )
+
     return VerificationSettings(
         enabled=True,
         nomination_method=str(nomination),
         dispatch_limit={"nodes": int(nodes)},
+        staged_extension=staged_extension,
     )
 
 
@@ -931,6 +1007,15 @@ def load_runtime_config(path: Path) -> RuntimeConfig:
         counterfactual=counterfactual,
         resource_measurement=resource_measurement,
     )
+    if (
+        hybrid_authority is not None
+        and verification is not None
+        and verification.staged_extension is not None
+    ):
+        raise RuntimeError(
+            "M14-G1 staged VERIFY is research-only and cannot be combined "
+            "with hybrid_authority"
+        )
     if (
         hybrid_authority is not None
         and refinement is not None

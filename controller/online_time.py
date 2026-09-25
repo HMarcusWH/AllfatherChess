@@ -247,31 +247,100 @@ class ClockSearch:
         self._thread.start()
 
 
+def _online_timing_marker_without_plan(manifest: dict[str, Any]) -> bool:
+    """Detect timing provenance that cannot be validly interpreted without TimePlan.
+
+    Legacy replay bundles have neither `time_plan` nor `clock_outcome` and
+    normally dispatch the external request unchanged to the anchor. ONLINE-1
+    translates a clock/movetime request into a shorter bounded anchor request.
+    Either surviving fact is enough to require the missing plan fail closed.
+    """
+    if "clock_outcome" in manifest:
+        return True
+    external = manifest.get("external_request")
+    stages = manifest.get("stages")
+    if not isinstance(external, dict) or not isinstance(stages, list):
+        return False
+    command = external.get("command")
+    if not isinstance(command, str):
+        return False
+    try:
+        parsed = parse_go_request(command)
+    except SearchRequestError:
+        return False
+    names = {
+        item.get("name")
+        for item in parsed.get("limits", [])
+        if isinstance(item, dict)
+    }
+    if not ({"wtime", "btime"} <= names or "movetime" in names):
+        return False
+    for stage in stages:
+        if not isinstance(stage, dict) or stage.get("role") != "anchor":
+            continue
+        anchor_command = stage.get("command")
+        if isinstance(anchor_command, str) and anchor_command != command:
+            return True
+    return False
+
+
 def verify_time_manifest(manifest: dict[str, Any]) -> list[str]:
     """Reconstruct rather than trust an online manifest's timing declaration."""
     raw = manifest.get("time_plan")
     if raw is None:
+        if _online_timing_marker_without_plan(manifest):
+            return ["online time integrity: online timing evidence is present but time_plan is missing"]
         return []
     try:
         if not isinstance(raw, dict):
             raise OnlineTimeError("time_plan must be an object")
-        position = manifest["position"]
-        request = PositionRequest(base_fen=position["base_fen"], moves=tuple(position["moves"]),
-                                  variant=position["variant"])
-        if request.position_id != position["position_id"]:
+
+        position = manifest.get("position")
+        if not isinstance(position, dict):
+            raise OnlineTimeError("position must be an object")
+        base_fen = position.get("base_fen")
+        moves = position.get("moves")
+        variant = position.get("variant")
+        position_id = position.get("position_id")
+        if not isinstance(base_fen, str) or not base_fen:
+            raise OnlineTimeError("clock position base_fen must be a nonempty string")
+        if not isinstance(moves, list) or not all(isinstance(move, str) for move in moves):
+            raise OnlineTimeError("clock position moves must be an array of strings")
+        if not isinstance(variant, str):
+            raise OnlineTimeError("clock position variant must be a string")
+        if not isinstance(position_id, str) or not position_id:
+            raise OnlineTimeError("clock position position_id must be a nonempty string")
+        request = PositionRequest(base_fen=base_fen, moves=tuple(moves), variant=variant)
+        if request.position_id != position_id:
             raise OnlineTimeError("clock position identity mismatch")
+
+        external = manifest.get("external_request")
+        if not isinstance(external, dict) or not isinstance(external.get("command"), str):
+            raise OnlineTimeError("external_request.command must be a string")
+        settings = raw.get("settings")
+        declared_envelope = raw.get("declared_envelope")
+        if not isinstance(settings, dict):
+            raise OnlineTimeError("time_plan.settings must be an object")
+        if not isinstance(declared_envelope, dict):
+            raise OnlineTimeError("time_plan.declared_envelope must be an object")
+
         expected = make_time_plan(
-            command=manifest["external_request"]["command"], position=request,
-            generation=manifest["generation"], settings=OnlineTimeSettings(**raw["settings"]),
-            envelope=ResourceEnvelope(**raw["declared_envelope"]),
-            received_monotonic=raw["received_monotonic"],
-            controller_cpu_started_ns=raw["controller_cpu_started_ns"],
+            command=external["command"], position=request,
+            generation=manifest.get("generation"), settings=OnlineTimeSettings(**settings),
+            envelope=ResourceEnvelope(**declared_envelope),
+            received_monotonic=raw.get("received_monotonic"),
+            controller_cpu_started_ns=raw.get("controller_cpu_started_ns"),
         )
         if expected.as_dict() != raw:
             raise OnlineTimeError("time_plan identity or reconstructed policy mismatch")
-        anchors = [stage for stage in manifest["stages"] if stage.get("role") == "anchor"]
-        if len(anchors) != 1 or anchors[0]["command"] != expected.anchor_go_command:
+
+        stages = manifest.get("stages")
+        if not isinstance(stages, list) or not all(isinstance(stage, dict) for stage in stages):
+            raise OnlineTimeError("stages must be an array of objects")
+        anchors = [stage for stage in stages if stage.get("role") == "anchor"]
+        if len(anchors) != 1 or anchors[0].get("command") != expected.anchor_go_command:
             raise OnlineTimeError("clock anchor dispatch does not match the bounded request")
+
         outcome = manifest.get("clock_outcome")
         if not isinstance(outcome, dict) or not isinstance(outcome.get("output_within_deadline"), bool):
             raise OnlineTimeError("clock outcome missing or malformed")
@@ -279,14 +348,20 @@ def verify_time_manifest(manifest: dict[str, Any]) -> list[str]:
         if elapsed is not None and (isinstance(elapsed, bool) or not isinstance(elapsed, (int, float))
                 or not math.isfinite(elapsed) or elapsed < 0):
             raise OnlineTimeError("clock emitted_ms must be nonnegative and finite or null")
-        actual = (outcome.get("failure") is None and isinstance(outcome.get("emitted_line"), str)
+        emitted_line = outcome.get("emitted_line")
+        failure = outcome.get("failure")
+        if emitted_line is not None and not isinstance(emitted_line, str):
+            raise OnlineTimeError("clock emitted_line must be a string or null")
+        if failure is not None and not isinstance(failure, str):
+            raise OnlineTimeError("clock failure must be a string or null")
+        actual = (failure is None and isinstance(emitted_line, str)
                   and elapsed is not None and elapsed <= expected.hard_budget_ms)
         if actual != outcome["output_within_deadline"]:
             raise OnlineTimeError("clock outcome contradicts its deadline")
         if actual:
-            words = outcome["emitted_line"].split()
+            words = emitted_line.split()
             if len(words) < 2 or words[0] != "bestmove" or words[1] != anchors[0].get("bestmove"):
                 raise OnlineTimeError("clock output does not match the recorded anchor bestmove")
         return []
-    except (KeyError, TypeError, ValueError, OverflowError, BudgetError) as exc:
+    except (KeyError, TypeError, ValueError, OverflowError, AttributeError, BudgetError, SearchRequestError) as exc:
         return [f"online time integrity: {exc}"]

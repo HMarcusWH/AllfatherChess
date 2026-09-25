@@ -1,5 +1,12 @@
 # Prospective VERIFY value-of-compute calibration
 
+> **M14-G1 distinction:** this document describes the PR #23 whole-run paired
+> intervention family. M14-G1 adds a separate serve-compatible family in
+> [STAGED_VERIFY.md](STAGED_VERIFY.md): one completed base VERIFY round followed
+> by a fresh larger-budget `go` on the same managed processes and candidate
+> universe. The two intervention families intentionally have different
+> extractor/model identities and must not be substituted for one another.
+
 ## Status
 
 PR #23 adds a new calibration family that asks a decision-relevant but still

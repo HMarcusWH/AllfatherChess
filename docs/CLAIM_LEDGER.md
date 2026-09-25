@@ -899,3 +899,42 @@ Nothing below is established by this milestone.
 - whether VERIFY/REFINE gains repay their measured physical cost;
 - any equal-resource Elo or move-quality advantage;
 - active hybrid outward DecisionAuthorization.
+
+## M14-G1 staged VERIFY / serve-compatible value-of-compute
+
+### PROVED
+
+- Existing VERIFY v1 remains the base evidence artifact; the extension is stored
+  separately under `staged_verification/`.
+- A staged extension is legal only after all three base VERIFY stages completed
+  cleanly and before the anchor decision boundary closes.
+- Base and extension candidate universes and owner→process identities must be
+  identical.
+- Each extension stage receives a fresh VERIFY specialist reservation and a
+  separately tagged physical resource measurement.
+- `hybrid_authority` and staged VERIFY cannot be enabled in the same runtime
+  profile.
+- The shared `unanimous_verify_v1` decision implementation is reused for both
+  live counterfactual evaluation and staged label construction.
+- The staged feature digest contains only base-round evidence; extension
+  terminals and decision-change labels are future-only.
+- Position-group support, not repeated runs of one position, is required for
+  in-domain staged calibration.
+
+### CALIBRATED
+
+`bucketed_staged_verify_decision_change_v1` may estimate, inside supported
+buckets, the probability that the declared
+`same_process_staged_verify_v1` extension changes the shared frozen decision
+policy result.
+
+### OPEN / explicitly not claimed
+
+- a decision change is not a better decision;
+- the staged model does not estimate correctness, Elo, strength, regret
+  reduction, or strategic utility;
+- M14-G1 does not yet use the staged model to authorize live routes;
+- no staged artifact grants outward move authority;
+- no claim is made that a 64→128 same-process intervention is equivalent to a
+  separately executed 128-node VERIFY arm.
+

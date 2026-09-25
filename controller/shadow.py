@@ -88,6 +88,11 @@ from controller.verification import (
     VerificationStage,
     build_verification_plan,
 )
+from controller.staged_verification import (
+    StagedVerificationError,
+    StagedVerificationRun,
+    StagedVerificationStage,
+)
 from controller.shards import RootShardLedger, ShardLedgerError
 
 
@@ -372,6 +377,7 @@ class _ActiveRun:
     resources: ResourceMeasurementRun | None = None
     ledger: RootShardLedger | None = None
     verification: VerificationRun | None = None
+    staged_verification: StagedVerificationRun | None = None
     refinement: RefinementRun | None = None
     crossfeed_view: CrossFeedView | None = None
     decision_evidence: DecisionEvidence | None = None
@@ -873,6 +879,10 @@ class ShadowRunCoordinator:
             stream = None
             if active.refinement is not None:
                 stream = active.refinement.observation_stream(instance)
+            if stream is None and active.staged_verification is not None:
+                staged_stage = active.staged_verification.stage_for_instance(instance)
+                if staged_stage is not None and not staged_stage.done.is_set():
+                    stream = active.staged_verification.observation_stream(instance)
             if stream is None and active.verification is not None:
                 verification_stage = active.verification.stage_for_instance(instance)
                 if verification_stage is not None and not verification_stage.done.is_set():
@@ -1093,6 +1103,11 @@ class ShadowRunCoordinator:
                 if active.refinement is None
                 else active.refinement.stage_for_instance(instance)
             )
+            staged_verification_stage = (
+                None
+                if active.staged_verification is None
+                else active.staged_verification.stage_for_instance(instance)
+            )
             verification_stage = (
                 None
                 if active.verification is None
@@ -1120,6 +1135,30 @@ class ShadowRunCoordinator:
                     refinement_stage.target_id, "incomplete", message
                 )
                 active.refinement.set_disposition("incomplete", message)
+            return
+        if (
+            staged_verification_stage is not None
+            and not staged_verification_stage.done.is_set()
+        ):
+            if active.staged_verification is not None:
+                message = (
+                    f"{instance} exited unexpectedly during VERIFY_EXTENSION; rc={rc}"
+                )
+                self._settle_specialist(
+                    active,
+                    key=f"verify_extension:{staged_verification_stage.owner}",
+                    dispatched_ms=staged_verification_stage.dispatched_ms,
+                    completed_ms=elapsed,
+                    instance=staged_verification_stage.instance,
+                    resource_key=staged_verification_stage.search_id,
+                )
+                active.staged_verification.record_completion(
+                    staged_verification_stage,
+                    completed_ms=elapsed,
+                    disposition="failed",
+                    failure=message,
+                )
+                active.staged_verification.set_disposition("incomplete", message)
             return
         if verification_stage is not None and not verification_stage.done.is_set():
             if active.verification is not None:
@@ -1372,6 +1411,10 @@ class ShadowRunCoordinator:
         ]
         if active.verification is not None:
             instances.extend(stage.instance for stage in active.verification.active_stages())
+        if active.staged_verification is not None:
+            instances.extend(
+                stage.instance for stage in active.staged_verification.active_stages()
+            )
         if active.refinement is not None:
             instances.extend(stage.instance for stage in active.refinement.active_stages())
         return list(dict.fromkeys(instances))
@@ -1495,6 +1538,31 @@ class ShadowRunCoordinator:
                         failure=message,
                     )
                     active.verification.set_disposition("incomplete", message)
+            if active.staged_verification is not None:
+                for stage in active.staged_verification.active_stages():
+                    message = (
+                        f"staged VERIFY instance {stage.instance} did not drain within "
+                        f"{timeout}s and is excluded from further synchronization"
+                    )
+                    self.runtime.record_shadow_failure(
+                        stage.instance, message, generation=active.generation
+                    )
+                    failed_ms = (time.monotonic() - active.started_monotonic) * 1000.0
+                    self._settle_specialist(
+                        active,
+                        key=f"verify_extension:{stage.owner}",
+                        dispatched_ms=stage.dispatched_ms,
+                        completed_ms=failed_ms,
+                        instance=stage.instance,
+                        resource_key=stage.search_id,
+                    )
+                    active.staged_verification.record_completion(
+                        stage,
+                        completed_ms=failed_ms,
+                        disposition="failed",
+                        failure=message,
+                    )
+                    active.staged_verification.set_disposition("incomplete", message)
             if active.refinement is not None:
                 for stage in active.refinement.active_stages():
                     message = (
@@ -1647,6 +1715,35 @@ class ShadowRunCoordinator:
                         )
                         active.verification.set_disposition("incomplete", message)
 
+                if active.staged_verification is not None:
+                    for stage in active.staged_verification.active_stages():
+                        stage.done.wait(timeout=max(0.0, deadline - time.monotonic()))
+                        if stage.done.is_set():
+                            continue
+                        message = (
+                            f"staged VERIFY instance {stage.instance} did not drain after "
+                            "a worker orchestration error and is excluded from further synchronization"
+                        )
+                        self.runtime.record_shadow_failure(
+                            stage.instance, message, generation=active.generation
+                        )
+                        failed_ms = (time.monotonic() - active.started_monotonic) * 1000.0
+                        self._settle_specialist(
+                            active,
+                            key=f"verify_extension:{stage.owner}",
+                            dispatched_ms=stage.dispatched_ms,
+                            completed_ms=failed_ms,
+                            instance=stage.instance,
+                            resource_key=stage.search_id,
+                        )
+                        active.staged_verification.record_completion(
+                            stage,
+                            completed_ms=failed_ms,
+                            disposition="failed",
+                            failure=message,
+                        )
+                        active.staged_verification.set_disposition("incomplete", message)
+
                 if active.refinement is not None:
                     for stage in active.refinement.active_stages():
                         stage.done.wait(timeout=max(0.0, deadline - time.monotonic()))
@@ -1780,6 +1877,16 @@ class ShadowRunCoordinator:
                 if active.verification is not None:
                     active.verification.finalize(
                         source_manifest_sha256=parent_manifest_sha
+                    )
+                if active.staged_verification is not None:
+                    verification_path = active.run.run_dir / "verification" / "manifest.json"
+                    if not verification_path.is_file():
+                        raise ControllerRuntimeError(
+                            "staged VERIFY finalization requires finalized base VERIFY"
+                        )
+                    active.staged_verification.finalize(
+                        source_manifest_sha256=parent_manifest_sha,
+                        verification_manifest_sha256=sha256_file(verification_path),
                     )
                 if active.refinement is not None:
                     verification_path = active.run.run_dir / "verification" / "manifest.json"
@@ -2112,18 +2219,23 @@ class ShadowRunCoordinator:
         # EXPLORE owner to any shard.
         self._execute_verification(active)
 
-        # 8. Bounded recursive REFINE. This consumes only completed raw VERIFY
+        # 8. M14-G1 research-only staged VERIFY extension. This is a fresh
+        # second go on the same managed solver processes and candidate universe.
+        # It is never consumed by cross-feed or move authority in this PR.
+        self._execute_staged_verification_extension(active)
+
+        # 9. Bounded recursive REFINE. This consumes only completed raw VERIFY
         # facts and the PrefixShardLedger v2 substrate. It remains evidence-only
         # here; M14-E adapter proposals are pure translations and are not wired
         # into this live dispatch path.
         self._execute_refinement(active)
 
-        # 9. Compose the evidence we already paid for into one typed, immutable
+        # 10. Compose the evidence we already paid for into one typed, immutable
         # cross-feed view. This performs no engine dispatch and carries no chess
         # decision authority. In active mode its controller cost is charged.
         self._build_crossfeed(active)
 
-        # 10. Freeze the counterfactual hybrid proposal from typed evidence.
+        # 11. Freeze the counterfactual hybrid proposal from typed evidence.
         # Policy evaluation runs on this worker, never on the anchor stdout
         # thread. The shared lock is held only for the causal PRE/POST_ANCHOR
         # stamp and publication of the immutable proposal.
@@ -2562,6 +2674,387 @@ class ShadowRunCoordinator:
                     )
                 verification.set_disposition(
                     "incomplete", "verification stage deadline exceeded"
+                )
+                return
+            self._wait_slice(pending, interval)
+
+    def _execute_staged_verification_extension(self, active: _ActiveRun) -> None:
+        settings = self.runtime.config.verification
+        verification = active.verification
+        if (
+            settings is None
+            or settings.staged_extension is None
+            or verification is None
+            or active.cancelled
+            or self._closed
+        ):
+            return
+        extension = settings.staged_extension
+        if active.anchor_completed.is_set():
+            active.run.note(
+                "staged VERIFY extension not dispatched: anchor boundary already closed"
+            )
+            return
+        base_stages = verification.stages()
+        if (
+            verification.disposition != "completed"
+            or len(base_stages) != len(verification.plan.owners)
+            or any(stage.disposition != "completed" for stage in base_stages)
+        ):
+            active.run.note(
+                "staged VERIFY extension not dispatched: base VERIFY is not cleanly complete"
+            )
+            return
+
+        staged = StagedVerificationRun(
+            run_dir=active.run.run_dir,
+            source_run_id=active.run.run_id,
+            generation=active.generation,
+            position_id=active.context.position.position_id,
+            verification_id=verification.plan.verification_id,
+            candidate_roots=verification.plan.candidate_roots,
+            nominees_by_owner=dict(verification.plan.nominees_by_owner),
+            participants=dict(verification.plan.participants),
+            base_dispatch_limit=dict(verification.plan.dispatch_limit),
+            extension_dispatch_limit=dict(extension.dispatch_limit),
+            intervention=extension.intervention,
+        )
+        active.staged_verification = staged
+
+        for owner in verification.plan.owners:
+            if active.anchor_completed.is_set() or active.cancelled:
+                staged.set_disposition(
+                    "not_dispatched_decision_boundary",
+                    "anchor completed or run cancelled before extension stream setup",
+                )
+                return
+            instance = verification.plan.participants[owner]
+            spec = self.runtime.spec(instance)
+            stream_path = staged.artifact_dir / f"{instance}.jsonl"
+            opened, stream = self._within_prepare_budget(
+                f"{active.run.run_id}-verify-extension-{instance}-stream",
+                discard=lambda late: self._release_late_stream(None, late),
+                work=lambda spec=spec, instance=instance, stream_path=stream_path: TelemetryStreamWriter(
+                    instance=instance,
+                    family=spec.family,
+                    role=spec.role,
+                    path=stream_path,
+                    adapter_factory=self._adapter_factory(
+                        family=spec.family,
+                        instance=instance,
+                        position_id=active.context.position.position_id,
+                        variant=active.context.position.variant,
+                    ),
+                    track_events=True,
+                ),
+            )
+            if not opened or stream is None:
+                staged.set_disposition(
+                    "incomplete",
+                    f"staged VERIFY stream setup failed for {instance}",
+                )
+                return
+            staged.register_stream(stream)
+
+        dispatched = 0
+        for owner in verification.plan.owners:
+            if self._dispatch_staged_verification_stage(active, owner):
+                dispatched += 1
+            else:
+                break
+
+        if dispatched != len(verification.plan.owners):
+            staged.set_disposition(
+                "incomplete",
+                "not all staged VERIFY participants crossed the dispatch boundary",
+            )
+        self._await_staged_verification(active)
+
+        stages = staged.stages()
+        if len(stages) == len(verification.plan.owners) and all(
+            stage.disposition == "completed" for stage in stages
+        ):
+            staged.set_disposition("completed")
+        elif staged.disposition == "running":
+            staged.set_disposition(
+                "incomplete",
+                "staged VERIFY extension stages did not all complete",
+            )
+
+    def _dispatch_staged_verification_stage(
+        self,
+        active: _ActiveRun,
+        owner: str,
+    ) -> bool:
+        staged = active.staged_verification
+        settings = self.runtime.config.verification
+        if (
+            staged is None
+            or settings is None
+            or settings.staged_extension is None
+        ):
+            return False
+        instance = staged.participants[owner]
+        spec = self.runtime.spec(instance)
+        stream = staged.stream(instance)
+        if stream is None:
+            return False
+        try:
+            command = build_go_command(
+                limit=dict(settings.staged_extension.dispatch_limit),
+                searchmoves=staged.candidate_roots,
+            )
+        except SearchRequestError:
+            return False
+        search_id = f"{active.run.run_id}:verify-extension:{instance}:0"
+        generation = active.generation
+
+        def on_info(token: int, line: str) -> None:
+            return None
+
+        def on_complete(token: int, line: str) -> None:
+            self._on_staged_verification_complete(
+                generation,
+                owner,
+                token,
+                line,
+            )
+
+        reservation_key = f"verify_extension:{owner}"
+        with self._lock:
+            if (
+                active.cancelled
+                or self._closed
+                or active.anchor_completed.is_set()
+                or not self.runtime.shadow_available(instance)
+            ):
+                return False
+            if not self._authorize_specialist(
+                active,
+                key=reservation_key,
+                phase="verify",
+                owner=owner,
+                target_id="staged_extension",
+            ):
+                return False
+            staged.activate_stream(instance)
+            stream.begin_stage(
+                search_id=search_id,
+                position=active.context.position.telemetry_position(),
+                request=parse_go_request(command),
+                controller={
+                    "execution_mode": self.runtime.config.telemetry_execution_mode,
+                    "phase": "VERIFY_EXTENSION",
+                    "instance_role": "shadow",
+                    "owner": owner,
+                    "decision_authority": False,
+                    "intervention": settings.staged_extension.intervention,
+                },
+                observed_ms=(time.monotonic() - active.started_monotonic) * 1000.0,
+            )
+            stage = staged.record_dispatch(
+                owner=owner,
+                instance=instance,
+                family=spec.family,
+                search_id=search_id,
+                command=command,
+                dispatched_ms=(time.monotonic() - active.started_monotonic) * 1000.0,
+            )
+            self._begin_resource_stage(
+                active,
+                key=search_id,
+                instance=instance,
+                phase="VERIFY_EXTENSION",
+            )
+            dispatched = self.runtime.start_shadow_search(
+                instance,
+                command,
+                token=generation,
+                on_info=on_info,
+                on_complete=on_complete,
+            )
+        if not dispatched:
+            self._abandon_resource_stage(
+                active,
+                search_id,
+                reason="staged VERIFY backend dispatch was rejected",
+            )
+            self._release_specialist(
+                active,
+                key=reservation_key,
+                reason=(
+                    "staged VERIFY reservation released because backend dispatch failed"
+                ),
+            )
+            staged.record_completion(
+                stage,
+                completed_ms=(time.monotonic() - active.started_monotonic) * 1000.0,
+                disposition="failed",
+                failure="staged VERIFY dispatch rejected; instance unavailable",
+            )
+            staged.set_disposition(
+                "incomplete",
+                f"staged VERIFY dispatch rejected for {instance}",
+            )
+            return False
+        return True
+
+    def _on_staged_verification_complete(
+        self,
+        generation: int,
+        owner: str,
+        token: int,
+        line: str,
+    ) -> None:
+        with self._lock:
+            active = self._run
+            if active is None or active.generation != generation or token != generation:
+                return
+            staged = active.staged_verification
+            stage = None if staged is None else staged.stage_for_owner(owner)
+            elapsed = (time.monotonic() - active.started_monotonic) * 1000.0
+        if staged is None or stage is None:
+            return
+
+        tokens = line.split()
+        bestmove = (
+            tokens[1]
+            if line.startswith("bestmove ") and len(tokens) > 1
+            else None
+        )
+        failure: str | None = None
+        candidate_set = set(staged.candidate_roots)
+        if bestmove is not None and bestmove not in candidate_set:
+            failure = (
+                f"staged VERIFY instance {stage.instance} answered {bestmove} "
+                f"outside {list(staged.candidate_roots)}"
+            )
+
+        stream = staged.stream(stage.instance)
+        if failure is None and stream is not None:
+            if not stream.drain_barrier(0.25):
+                failure = (
+                    f"staged VERIFY telemetry for {stage.instance} did not drain "
+                    "before completion audit"
+                )
+            elif stream.evidence_lossy:
+                failure = (
+                    f"staged VERIFY telemetry for {stage.instance} lost evidence"
+                )
+            elif stream.tracked_events_truncated:
+                failure = (
+                    f"staged VERIFY live evidence for {stage.instance} was truncated"
+                )
+            else:
+                for event in stream.tracked_events():
+                    if event.get("event_type") != "candidate.update":
+                        continue
+                    candidate = event.get("candidate") or {}
+                    move = candidate.get("move")
+                    pv = candidate.get("pv") or []
+                    if move not in candidate_set or (
+                        pv and pv[0] not in candidate_set
+                    ):
+                        failure = (
+                            f"staged VERIFY telemetry for {stage.instance} escaped "
+                            "the declared common candidate set"
+                        )
+                        break
+
+        self._settle_specialist(
+            active,
+            key=f"verify_extension:{owner}",
+            dispatched_ms=stage.dispatched_ms,
+            completed_ms=elapsed,
+            instance=stage.instance,
+            resource_key=stage.search_id,
+        )
+
+        if failure is not None:
+            self.runtime.record_shadow_failure(
+                stage.instance,
+                failure,
+                generation=active.generation,
+            )
+            staged.record_completion(
+                stage,
+                completed_ms=elapsed,
+                disposition="failed",
+                bestmove=bestmove,
+                stop_reason="staged_verification_root_escape_or_loss",
+                failure=failure,
+            )
+            staged.set_disposition("incomplete", failure)
+            return
+
+        disposition = "stopped" if active.cancelled else "completed"
+        staged.record_completion(
+            stage,
+            completed_ms=elapsed,
+            disposition=disposition,
+            bestmove=bestmove,
+            stop_reason=active.cancel_reason if active.cancelled else None,
+        )
+
+    def _await_staged_verification(self, active: _ActiveRun) -> None:
+        staged = active.staged_verification
+        if staged is None:
+            return
+        interval = 0.02
+        stage_budget_ms = float(self.settings.stage_timeout_s) * 1000.0
+
+        while True:
+            pending = list(staged.active_stages())
+            if not pending:
+                return
+            elapsed_ms = (time.monotonic() - active.started_monotonic) * 1000.0
+            overrun = [
+                stage
+                for stage in pending
+                if elapsed_ms - stage.dispatched_ms > stage_budget_ms
+            ]
+            if overrun:
+                instances = list(
+                    dict.fromkeys(stage.instance for stage in pending)
+                )
+                self._stop_instances(instances)
+                deadline = time.monotonic() + self.settings.drain_timeout_s
+                for stage in pending:
+                    stage.done.wait(
+                        timeout=max(0.0, deadline - time.monotonic())
+                    )
+                for stage in pending:
+                    if stage.done.is_set():
+                        continue
+                    message = (
+                        f"staged VERIFY instance {stage.instance} exceeded the "
+                        "stage budget and did not drain after stop"
+                    )
+                    self.runtime.record_shadow_failure(
+                        stage.instance,
+                        message,
+                        generation=active.generation,
+                    )
+                    failed_ms = (
+                        time.monotonic() - active.started_monotonic
+                    ) * 1000.0
+                    self._settle_specialist(
+                        active,
+                        key=f"verify_extension:{stage.owner}",
+                        dispatched_ms=stage.dispatched_ms,
+                        completed_ms=failed_ms,
+                        instance=stage.instance,
+                        resource_key=stage.search_id,
+                    )
+                    staged.record_completion(
+                        stage,
+                        completed_ms=failed_ms,
+                        disposition="failed",
+                        failure=message,
+                    )
+                staged.set_disposition(
+                    "incomplete",
+                    "staged VERIFY extension stage deadline exceeded",
                 )
                 return
             self._wait_slice(pending, interval)

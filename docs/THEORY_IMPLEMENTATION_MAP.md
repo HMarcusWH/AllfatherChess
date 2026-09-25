@@ -102,3 +102,21 @@ nominated them; denial means no computation, not an improvised chess decision.
 This is an implementation of resource-aware computational routing, not a
 theorem that specialist work is valuable. The value-of-compute question remains
 empirical.
+
+## M14-G1 causal intervention transfer
+M14-G1 operationalizes the project's residual/conditional-compute doctrine at a
+narrower causal boundary than PR #23.
+
+| Research idea | M14-G1 implementation | Boundary |
+| --- | --- | --- |
+| Spend expensive compute only after unresolved evidence survives a cheap stage | base VERIFY must complete before an extension can be dispatched | no claim that the chosen extension is optimal |
+| Nomination is distinct from authorization | base evidence may make an extension experimentally eligible; the existing BudgetLedger still grants resource authority | the staged model is not yet wired into live routing |
+| Re-lock / fail-closed discipline | anchor completion blocks undispatched extension work; malformed/incomplete evidence produces no training row | no correctness certificate |
+| Typed intervention semantics | `same_process_staged_verify_v1` has its own artifact/extractor/model family | PR #23 whole-run 64-vs-128 evidence is not reused as if intervention-equivalent |
+| Past-only evidence | base feature digest excludes extension terminals and labels | future labels never become serve-time inputs |
+| Independent support | calibration counts position groups separately from repeated runs | repeated copies cannot manufacture domain support |
+
+No Weil/CCM theorem, ICW threshold, or cross-domain numeric constant is imported
+as a chess bound. The transfer is architectural: typed evidence, bounded
+conditional compute, explicit authority, and auditable causal interventions.
+

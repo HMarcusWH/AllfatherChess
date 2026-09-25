@@ -71,3 +71,18 @@ obtain a `verify` reservation before dispatch. A denied reservation leaves the
 VERIFY artifact incomplete rather than silently running uncharged work.
 Settlement and audit details live in `route.json`; raw VERIFY evidence remains
 policy-free. See `docs/ACTIVE_SPECIALIST_SCHEDULER.md`.
+
+## M14-G1 staged VERIFY extension
+M14-G1 does not change VERIFY v1 or the descriptive RELOCK definition. Instead
+it adds a separate child experiment after a clean base VERIFY completion.
+
+The extension must reuse the exact same candidate universe and owner→process
+mapping, and it is sealed under `staged_verification/` rather than inserted into
+the base VERIFY manifest. This keeps all existing VERIFY/RELOCK consumers pinned
+to the original base round unless they explicitly opt into the staged
+intervention artifact.
+
+The staged extension is not a second RELOCK certificate. It is prospective
+evidence for whether another declared block of common-support computation changes
+the shared frozen decision policy.
+

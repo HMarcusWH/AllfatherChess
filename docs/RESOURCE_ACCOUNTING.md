@@ -184,3 +184,22 @@ In particular it does not:
 - prove Allfather is stronger than Stockfish, Reckless or LC0.
 
 Those remain later milestones.
+
+## M14-G1 staged VERIFY resource semantics
+M14-G1 adds a second, separately measured VERIFY round only in the explicit
+`same_process_staged_verify_v1` research profile.
+
+- base VERIFY and extension VERIFY receive separate specialist reservations;
+- extension reservations use the existing VERIFY reserve, but a distinct
+  `target_id=staged_extension` lane;
+- physical measurements are separately tagged `VERIFY` and
+  `VERIFY_EXTENSION`;
+- the same backend process may execute both rounds, so process-total CPU includes
+  both while stage measurements preserve the intervention boundary;
+- a reservation for an extension that never dispatches is released rather than
+  settled as spent work;
+- anchor completion prevents any undispatched extension stage from beginning.
+
+These accounting facts establish what was authorized/measured. They do not
+establish that the extension was useful.
+

@@ -553,17 +553,29 @@ def build_decision_evidence(
     )
 
 
-def evaluate_decision_policy(
-    evidence: DecisionEvidence,
+def evaluate_unanimous_verify_policy(
     *,
+    candidate_roots: tuple[str, ...],
+    candidate_owner_by_move: dict[str, str],
+    terminal_by_owner: dict[str, str | None],
+    verification_complete: bool,
+    evidence_faults: tuple[str, ...],
+    evidence_digest: str,
     policy: str = COUNTERFACTUAL_POLICY,
 ) -> DecisionEvaluation:
-    """Apply the intentionally narrow counterfactual policy v1."""
+    """Evaluate the single unanimous-VERIFY policy over typed terminal facts.
+
+    This is the one policy implementation shared by the live counterfactual
+    path and the M14-G1 staged value-of-compute extractor. Callers may choose
+    different evidence containers, but they may not redefine policy semantics.
+    """
 
     if policy != COUNTERFACTUAL_POLICY:
         raise DecisionError(f"unsupported decision policy: {policy!r}")
+    if not isinstance(evidence_digest, str) or len(evidence_digest) != 64:
+        raise DecisionError("unanimous VERIFY policy requires evidence SHA-256")
 
-    if evidence.evidence_faults:
+    if evidence_faults:
         disposition = DecisionDisposition(
             "NO_PROPOSAL_EVIDENCE_FAULT",
             "typed evidence carries explicit loss, truncation, or terminal faults",
@@ -573,11 +585,10 @@ def evaluate_decision_policy(
             disposition,
             None,
             None,
-            evidence.digest,
+            evidence_digest,
         )
 
-    terminal = evidence.verification_terminal
-    if not evidence.crossfeed_verification_complete or not terminal.complete:
+    if not verification_complete:
         disposition = DecisionDisposition(
             "NO_PROPOSAL_VERIFY_INCOMPLETE",
             "VERIFY evidence is not complete in both cross-feed and terminal views",
@@ -587,11 +598,14 @@ def evaluate_decision_policy(
             disposition,
             None,
             None,
-            evidence.digest,
+            evidence_digest,
         )
 
-    finals = terminal.finals()
-    moves = tuple(finals[owner] for owner in OWNER_ORDER)
+    if tuple(terminal_by_owner) != OWNER_ORDER:
+        raise DecisionError(
+            "terminal VERIFY policy input must use canonical stockfish/reckless/lc0 order"
+        )
+    moves = tuple(terminal_by_owner[owner] for owner in OWNER_ORDER)
     if any(move is None for move in moves):
         disposition = DecisionDisposition(
             "NO_PROPOSAL_TERMINAL_INCOMPLETE",
@@ -602,10 +616,10 @@ def evaluate_decision_policy(
             disposition,
             None,
             None,
-            evidence.digest,
+            evidence_digest,
         )
 
-    candidate_set = set(terminal.candidate_roots)
+    candidate_set = set(candidate_roots)
     if any(move not in candidate_set for move in moves):
         disposition = DecisionDisposition(
             "INVALID_EVIDENCE",
@@ -616,7 +630,7 @@ def evaluate_decision_policy(
             disposition,
             None,
             None,
-            evidence.digest,
+            evidence_digest,
         )
 
     distinct = set(moves)
@@ -630,15 +644,15 @@ def evaluate_decision_policy(
             disposition,
             None,
             None,
-            evidence.digest,
+            evidence_digest,
         )
 
     move = str(moves[0])
-    source_owner = next(
-        candidate.original_owner
-        for candidate in evidence.candidates
-        if candidate.move == move
-    )
+    source_owner = candidate_owner_by_move.get(move)
+    if source_owner not in OWNER_ORDER:
+        raise DecisionError(
+            "unanimous VERIFY move has no canonical original-owner attribution"
+        )
     disposition = DecisionDisposition(
         "PROPOSED",
         "all three completed verifiers independently ended on one common-support candidate",
@@ -648,9 +662,36 @@ def evaluate_decision_policy(
         disposition,
         move,
         source_owner,
-        evidence.digest,
+        evidence_digest,
     )
 
+
+def evaluate_decision_policy(
+    evidence: DecisionEvidence,
+    *,
+    policy: str = COUNTERFACTUAL_POLICY,
+) -> DecisionEvaluation:
+    """Apply the intentionally narrow counterfactual policy v1."""
+
+    terminal = evidence.verification_terminal
+    finals = terminal.finals()
+    return evaluate_unanimous_verify_policy(
+        candidate_roots=terminal.candidate_roots,
+        candidate_owner_by_move={
+            candidate.move: candidate.original_owner
+            for candidate in evidence.candidates
+        },
+        terminal_by_owner={
+            owner: finals[owner]
+            for owner in OWNER_ORDER
+        },
+        verification_complete=(
+            evidence.crossfeed_verification_complete and terminal.complete
+        ),
+        evidence_faults=evidence.evidence_faults,
+        evidence_digest=evidence.digest,
+        policy=policy,
+    )
 
 def freeze_decision_proposal(
     evaluation: DecisionEvaluation,

@@ -1538,6 +1538,31 @@ class ShadowRunCoordinator:
                         failure=message,
                     )
                     active.verification.set_disposition("incomplete", message)
+            if active.staged_verification is not None:
+                for stage in active.staged_verification.active_stages():
+                    message = (
+                        f"staged VERIFY instance {stage.instance} did not drain within "
+                        f"{timeout}s and is excluded from further synchronization"
+                    )
+                    self.runtime.record_shadow_failure(
+                        stage.instance, message, generation=active.generation
+                    )
+                    failed_ms = (time.monotonic() - active.started_monotonic) * 1000.0
+                    self._settle_specialist(
+                        active,
+                        key=f"verify_extension:{stage.owner}",
+                        dispatched_ms=stage.dispatched_ms,
+                        completed_ms=failed_ms,
+                        instance=stage.instance,
+                        resource_key=stage.search_id,
+                    )
+                    active.staged_verification.record_completion(
+                        stage,
+                        completed_ms=failed_ms,
+                        disposition="failed",
+                        failure=message,
+                    )
+                    active.staged_verification.set_disposition("incomplete", message)
             if active.refinement is not None:
                 for stage in active.refinement.active_stages():
                     message = (
@@ -1689,6 +1714,35 @@ class ShadowRunCoordinator:
                             failure=message,
                         )
                         active.verification.set_disposition("incomplete", message)
+
+                if active.staged_verification is not None:
+                    for stage in active.staged_verification.active_stages():
+                        stage.done.wait(timeout=max(0.0, deadline - time.monotonic()))
+                        if stage.done.is_set():
+                            continue
+                        message = (
+                            f"staged VERIFY instance {stage.instance} did not drain after "
+                            "a worker orchestration error and is excluded from further synchronization"
+                        )
+                        self.runtime.record_shadow_failure(
+                            stage.instance, message, generation=active.generation
+                        )
+                        failed_ms = (time.monotonic() - active.started_monotonic) * 1000.0
+                        self._settle_specialist(
+                            active,
+                            key=f"verify_extension:{stage.owner}",
+                            dispatched_ms=stage.dispatched_ms,
+                            completed_ms=failed_ms,
+                            instance=stage.instance,
+                            resource_key=stage.search_id,
+                        )
+                        active.staged_verification.record_completion(
+                            stage,
+                            completed_ms=failed_ms,
+                            disposition="failed",
+                            failure=message,
+                        )
+                        active.staged_verification.set_disposition("incomplete", message)
 
                 if active.refinement is not None:
                     for stage in active.refinement.active_stages():

@@ -48,6 +48,12 @@ from controller.verification import (
     load_verification_manifest,
     verify_verification_integrity,
 )
+from controller.staged_verification import (
+    StagedVerificationError,
+    StagedVerificationRun,
+    load_staged_verification_manifest,
+    verify_staged_verification_integrity,
+)
 
 
 COUNTERFACTUAL_ARTIFACT_VERSION = 1
@@ -148,15 +154,120 @@ def terminal_evidence_from_manifest(
     )
 
 
+def terminal_evidence_from_staged_run(
+    staged: StagedVerificationRun,
+) -> VerificationTerminalEvidence:
+    """Use completed staged VERIFY terminals without changing candidate identity."""
+
+    final_by_owner: list[tuple[str, str | None]] = []
+    stage_dispositions: list[tuple[str, str]] = []
+    faults: list[str] = []
+    for owner in OWNER_ORDER:
+        stage = staged.stage_for_owner(owner)
+        if stage is None:
+            final_by_owner.append((owner, None))
+            stage_dispositions.append((owner, "missing"))
+            faults.append(f"staged VERIFY terminal stage missing for {owner}")
+            continue
+        if stage.family != owner:
+            faults.append(f"staged VERIFY terminal family mismatch for {owner}")
+        final_by_owner.append((owner, stage.bestmove))
+        stage_dispositions.append((owner, stage.disposition))
+    complete = (
+        staged.disposition == "completed"
+        and not faults
+        and all(disposition == "completed" for _, disposition in stage_dispositions)
+    )
+    return VerificationTerminalEvidence(
+        verification_id=staged.verification_id,
+        candidate_roots=tuple(staged.candidate_roots),
+        final_by_owner=tuple(final_by_owner),
+        stage_disposition_by_owner=tuple(stage_dispositions),
+        run_disposition=staged.disposition,
+        complete=complete,
+        faults=tuple(sorted(set(faults))),
+    )
+
+
+def terminal_evidence_from_staged_manifest(
+    manifest: dict[str, Any],
+) -> VerificationTerminalEvidence:
+    nomination = manifest.get("nomination") or {}
+    candidates = tuple(nomination.get("candidate_roots") or ())
+    stages = {
+        str(record.get("owner")): record
+        for record in manifest.get("stages") or ()
+        if isinstance(record, dict) and isinstance(record.get("owner"), str)
+    }
+    final_by_owner: list[tuple[str, str | None]] = []
+    stage_dispositions: list[tuple[str, str]] = []
+    faults: list[str] = []
+    for owner in OWNER_ORDER:
+        record = stages.get(owner)
+        if record is None:
+            final_by_owner.append((owner, None))
+            stage_dispositions.append((owner, "missing"))
+            faults.append(f"staged VERIFY terminal stage missing for {owner}")
+            continue
+        if record.get("family") != owner:
+            faults.append(f"staged VERIFY terminal family mismatch for {owner}")
+        move = record.get("bestmove")
+        final_by_owner.append((owner, move if isinstance(move, str) else None))
+        disposition = record.get("disposition")
+        stage_dispositions.append(
+            (owner, disposition if isinstance(disposition, str) else "invalid")
+        )
+    run_disposition = (manifest.get("disposition") or {}).get("run")
+    run_disposition = run_disposition if isinstance(run_disposition, str) else "invalid"
+    complete = (
+        run_disposition == "completed"
+        and not faults
+        and all(disposition == "completed" for _, disposition in stage_dispositions)
+    )
+    source = manifest.get("source") or {}
+    return VerificationTerminalEvidence(
+        verification_id=str(source.get("verification_id") or ""),
+        candidate_roots=candidates,
+        final_by_owner=tuple(final_by_owner),
+        stage_disposition_by_owner=tuple(stage_dispositions),
+        run_disposition=run_disposition,
+        complete=complete,
+        faults=tuple(sorted(set(faults))),
+    )
+
+
+def prepare_counterfactual_from_sources(
+    *,
+    view: CrossFeedView,
+    verification: VerificationRun,
+    staged_verification: StagedVerificationRun | None = None,
+    policy: str = COUNTERFACTUAL_POLICY,
+) -> tuple[DecisionEvidence, DecisionEvaluation, str]:
+    """Choose the latest clean VERIFY terminal plane while preserving source identity."""
+
+    if staged_verification is not None and staged_verification.disposition == "completed":
+        terminal = terminal_evidence_from_staged_run(staged_verification)
+        terminal_source = "staged_verification"
+    else:
+        terminal = terminal_evidence_from_verification_run(verification)
+        terminal_source = "verification"
+    evidence = build_decision_evidence(view, terminal)
+    evaluation = evaluate_decision_policy(evidence, policy=policy)
+    return evidence, evaluation, terminal_source
+
+
 def prepare_counterfactual(
     *,
     view: CrossFeedView,
     verification: VerificationRun,
     policy: str = COUNTERFACTUAL_POLICY,
 ) -> tuple[DecisionEvidence, DecisionEvaluation]:
-    terminal = terminal_evidence_from_verification_run(verification)
-    evidence = build_decision_evidence(view, terminal)
-    evaluation = evaluate_decision_policy(evidence, policy=policy)
+    evidence, evaluation, _ = prepare_counterfactual_from_sources(
+        view=view,
+        verification=verification,
+        staged_verification=None,
+        policy=policy,
+    )
     return evidence, evaluation
 
 
@@ -164,13 +275,22 @@ def replay_counterfactual_inputs(
     run_dir: Path | str,
     *,
     policy: str = COUNTERFACTUAL_POLICY,
+    terminal_source: str = "verification",
 ) -> tuple[CrossFeedView, VerificationTerminalEvidence, DecisionEvidence, DecisionEvaluation]:
     """Reconstruct policy inputs solely from sealed source evidence."""
 
     run_dir = Path(run_dir)
     view = build_crossfeed_view_from_run(run_dir)
-    verification = load_verification_manifest(run_dir)
-    terminal = terminal_evidence_from_manifest(verification)
+    if terminal_source == "verification":
+        terminal = terminal_evidence_from_manifest(load_verification_manifest(run_dir))
+    elif terminal_source == "staged_verification":
+        terminal = terminal_evidence_from_staged_manifest(
+            load_staged_verification_manifest(run_dir)
+        )
+    else:
+        raise CounterfactualError(
+            f"unknown decision terminal source: {terminal_source!r}"
+        )
     evidence = build_decision_evidence(view, terminal)
     evaluation = evaluate_decision_policy(evidence, policy=policy)
     return view, terminal, evidence, evaluation
@@ -227,6 +347,8 @@ def _artifact_core(
     crossfeed_manifest: dict[str, Any],
     crossfeed_sha: str,
     anchor_completed_ms: float,
+    terminal_source: str = "verification",
+    staged_verification_sha: str | None = None,
 ) -> dict[str, Any]:
     return {
         "schema_version": COUNTERFACTUAL_ARTIFACT_VERSION,
@@ -239,6 +361,8 @@ def _artifact_core(
             "crossfeed_id": crossfeed_manifest.get("crossfeed_id"),
             "crossfeed_manifest_sha256": crossfeed_sha,
             "crossfeed_content_sha256": crossfeed_manifest.get("content_sha256"),
+            "decision_terminal_source": terminal_source,
+            "staged_verification_manifest_sha256": staged_verification_sha,
         },
         "proposal": proposal.as_dict(),
         "anchor": {
@@ -257,6 +381,8 @@ def _artifact_core(
 def seal_counterfactual_artifact(
     proposal: DecisionProposal,
     run_dir: Path | str,
+    *,
+    terminal_source: str = "verification",
 ) -> dict[str, Any]:
     """Seal a proposal after all source artifacts and the anchor are final."""
 
@@ -284,9 +410,27 @@ def seal_counterfactual_artifact(
     parent = load_manifest(run_dir)
     verification = load_verification_manifest(run_dir)
     crossfeed = load_crossfeed_manifest(run_dir)
+    staged_sha: str | None = None
+    if terminal_source == "staged_verification":
+        staged_path = run_dir / "staged_verification" / "manifest.json"
+        if not staged_path.is_file():
+            raise CounterfactualError(
+                "staged terminal decision requires staged_verification/manifest.json"
+            )
+        staged_problems = verify_staged_verification_integrity(run_dir)
+        if staged_problems:
+            raise CounterfactualError(
+                f"staged VERIFY integrity failed: {staged_problems}"
+            )
+        staged_sha = sha256_file(staged_path)
+    elif terminal_source != "verification":
+        raise CounterfactualError(
+            f"unknown decision terminal source: {terminal_source!r}"
+        )
     _, _, evidence, evaluation = replay_counterfactual_inputs(
         run_dir,
         policy=proposal.policy,
+        terminal_source=terminal_source,
     )
     if _proposal_semantics(proposal) != _evaluation_semantics(evaluation):
         raise CounterfactualError(
@@ -324,6 +468,8 @@ def seal_counterfactual_artifact(
         crossfeed_manifest=crossfeed,
         crossfeed_sha=sha256_file(crossfeed_path),
         anchor_completed_ms=anchor_completed_ms,
+        terminal_source=terminal_source,
+        staged_verification_sha=staged_sha,
     )
     digest = canonical_digest(core)
     manifest = {
@@ -427,6 +573,20 @@ def verify_counterfactual_integrity(run_dir: Path | str) -> list[str]:
     if source.get("crossfeed_content_sha256") != crossfeed.get("content_sha256"):
         problems.append("counterfactual cross-feed content hash mismatch")
 
+    terminal_source = source.get("decision_terminal_source", "verification")
+    if terminal_source not in ("verification", "staged_verification"):
+        problems.append("counterfactual decision terminal source is invalid")
+        terminal_source = "verification"
+    if terminal_source == "staged_verification":
+        staged_path = run_dir / "staged_verification" / "manifest.json"
+        if not staged_path.is_file():
+            problems.append("counterfactual staged VERIFY source is missing")
+        else:
+            if source.get("staged_verification_manifest_sha256") != sha256_file(staged_path):
+                problems.append("counterfactual staged VERIFY manifest hash mismatch")
+            for problem in verify_staged_verification_integrity(run_dir):
+                problems.append(f"staged VERIFY: {problem}")
+
     for problem in verify_bundle_integrity(run_dir):
         problems.append(f"parent: {problem}")
     for problem in verify_verification_integrity(run_dir):
@@ -439,6 +599,7 @@ def verify_counterfactual_integrity(run_dir: Path | str) -> list[str]:
         _, _, evidence, evaluation = replay_counterfactual_inputs(
             run_dir,
             policy=proposal.policy,
+            terminal_source=terminal_source,
         )
     except (
         CounterfactualError,
@@ -447,6 +608,7 @@ def verify_counterfactual_integrity(run_dir: Path | str) -> list[str]:
         VerificationError,
         RefinementError,
         ReplayError,
+        StagedVerificationError,
     ) as exc:
         problems.append(f"counterfactual deterministic replay failed: {exc}")
         proposal = None

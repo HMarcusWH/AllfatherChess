@@ -694,6 +694,15 @@ def build_unified_value_router(
         raise UnifiedValueRoutingError(
             "unified_value_v1 requires verification.staged_extension"
         )
+    if config.crossfeed is None or config.counterfactual is None:
+        raise UnifiedValueRoutingError(
+            "unified_value_v1 requires crossfeed and counterfactual evidence layers"
+        )
+    if config.refinement is not None:
+        raise UnifiedValueRoutingError(
+            "unified_value_v1 routes before REFINE; v1 requires refinement disabled "
+            "so live regime features match the current sealed M14-F support model"
+        )
 
     staged_path = _resolve_optional_model_path(
         config, "staged_decision_calibration"

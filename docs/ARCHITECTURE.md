@@ -20,6 +20,25 @@ The controller does **not** flatten the three native search states into one univ
 
 The product target is not "three engines worth of compute against one engine." In the eventual active regime, all solver work, verification work, and controller overhead must fit inside one declared total resource envelope `B`. The controller succeeds only if allocating that envelope heterogeneously produces stronger chess than giving the comparable envelope to Stockfish, Reckless, or LC0 alone. Shadow mode is deliberately allowed to overspend while collecting calibration evidence, and therefore carries no equal-compute strength claim.
 
+## Current composition boundary
+
+The live repository is post-PR #36 / ONLINE-1. Several advanced mechanisms are
+individually qualified but intentionally not composable in one production profile yet.
+See [CURRENT_STATUS.md](CURRENT_STATUS.md) for the exact release matrix.
+
+The key present firewalls are:
+
+- M14-C can grant hybrid outward authority only for its qualified `movetime_v0` class;
+- M14-G1/G2 staged VERIFY/value routing does not grant outward move authority and staged
+  VERIFY is rejected when M14-C authority is enabled;
+- ONLINE-1 clock-derived `TimePlan` execution is CPU-only, anchor-authoritative, and
+  rejected with M14-C authority or recursive REFINE;
+- the real-network LC0 BLAS profile is a separate inference qualification, not yet the
+  ONLINE-1 deployment profile.
+
+The next architecture composition milestone is M14-G3, after ONLINE-2 establishes the
+real-network online host/profile identity.
+
 ## Generations
 
 ### Generation 1 — process-isolated monorepo
@@ -68,9 +87,16 @@ Each layer is independently testable and no layer may reach upward. Residuals ne
 | --- | --- | --- | --- | --- |
 | `anchor` | 3, legacy profile | unused live | none | Stockfish anchor |
 | `shadow` | 4 | 3 shadow owners | none | `stockfish-anchor` |
-| `active` | 4 | 3 shadow owners | conservative policy inside a declared envelope | `stockfish-anchor` |
+| `active` default | 4 | 3 shadow owners | conservative observation/resource routing | `stockfish-anchor` |
+| `active` M14-C hybrid profile | 4 | 3 shadow owners | VERIFY/REFINE + separate DecisionAuthorization | HYBRID only when `movetime_v0` gates pass; otherwise anchor fallback |
+| `active` M14-G2 staged profile | 4 | 3 shadow owners | base VERIFY -> BUY/SKIP -> optional staged VERIFY | `stockfish-anchor` |
+| `active` ONLINE-1 clock profile | 4 | 3 shadow owners | clock-derived bounded observation/resource routing | `stockfish-anchor` |
 
-Active routing allocates **shadow observation compute**. It cannot change, delay, or veto the outward move. See `docs/BUDGET_ROUTING.md`.
+Default active routing and G2/ONLINE-1 remain observation/resource authority only. The
+narrow M14-C profile is the sole current path that can replace the anchor move, and its
+request/evidence contract is deliberately incompatible with staged VERIFY and ONLINE-1
+until M14-G3. See `docs/BUDGET_ROUTING.md`, `docs/DECISION_AUTHORITY.md`,
+`docs/UNIFIED_VALUE_ROUTER.md`, and `docs/ONLINE_TIME.md`.
 
 ### Generation 1.5 — measured control
 

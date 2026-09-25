@@ -1,22 +1,45 @@
 {
   "schema_version": 1,
-  "source_commit": "9a1414b8d7897e856364b15423fe3efb5a7cc7f7",
-  "source_milestone": "PR #35 / M14-G2",
+  "source_commit": "64aa8fd13c390b9b37b8825d8f39e73d9bdbdbf8",
+  "source_milestone": "PR #36 / ONLINE-1",
+  "status_date": "2026-09-26",
   "plan": "docs/ONLINE_RELEASE_PLAN.md",
-  "work_package": "ONLINE-1",
-  "scope": "opt-in timing/provenance/lifecycle; no hybrid authority expansion",
-  "remaining_gates": [
-    "ONLINE-2",
-    "M14-G3",
-    "M14-G4 compatibility",
-    "LOCAL-1",
-    "ONLINE-3",
-    "ONLINE-4",
-    "ONLINE-RC"
+  "current_status": "docs/CURRENT_STATUS.md",
+  "work_package": "post-ONLINE-1 release synchronization",
+  "scope": "ONLINE-1 timing/provenance/lifecycle merged; no hybrid authority expansion",
+  "completed_gates": [
+    "M14-G2 unified value-of-compute router",
+    "ONLINE-1 clock-derived per-move envelopes and deadline-safe UCI execution"
   ],
+  "remaining_gates": [
+    "ONLINE-2 real-network hardware-bound online profile",
+    "M14-G3 clock-aware staged hybrid authority composition",
+    "LOCAL-1 full-game lifecycle qualification",
+    "ONLINE-3 packaging and pinned lichess-bot bridge",
+    "ONLINE-4 network/restart/rollback qualification",
+    "aggregate release qualification",
+    "ONLINE-RC restricted public canary"
+  ],
+  "parallel_promotion_gates": [
+    "M14-G4 production SKIP calibration before learned SKIP promotion",
+    "M15-B/C equal-resource strength campaign before superiority claims"
+  ],
+  "current_ci": {
+    "Merge gate": 36193538618,
+    "Controller shell validation": 36193538737,
+    "Telemetry contract validation": 36193538611,
+    "LC0 real-inference qualification": 36193538614,
+    "Baseline engine validation": 36193538665
+  },
+  "observed_contract_state": {
+    "online_clock": "3 legal anchor results with full measured envelopes; zero-clock rejection control",
+    "unified_value_router": "BUY_STAGED_VERIFY; outward anchor",
+    "active_hybrid_decision": "ANCHOR_FALLBACK on current real-engine contract",
+    "active_routing": "0 authorized stops on current real-engine validation"
+  },
   "administration": {
-    "main_protection": "not changed by this PR",
+    "main_protection": "unprotected; no repository ruleset; issues #26 and #27 track the governance gate",
     "controller_license": "owner decision outstanding"
   },
-  "claim_boundary": "No playing-strength or online-deployment claim."
+  "claim_boundary": "No playing-strength, equal-envelope superiority, or online-deployment claim."
 }

@@ -1,5 +1,10 @@
 # AllfatherChess Extended Build Plan
 
+> **Current-state overlay:** synchronized after PR #36 / ONLINE-1 at `64aa8fd13c390b9b37b8825d8f39e73d9bdbdbf8`.
+> [CURRENT_STATUS.md](CURRENT_STATUS.md) is the authoritative short-form build/release state.
+> Historical sections below are retained as design lineage and must not be read as current blockers
+> when the status overlay says the milestone has already merged.
+
 **Status:** Historical architecture roadmap with post-#35 deployment overlay
 **Date:** 2026-09-25
 **Scope:** Expand the existing `docs/BUILD_PLAN.md` from the current M12 control/resource milestone through typed cross-feed evidence, counterfactual and active hybrid decision authority, backend/resource qualification, recursive refinement, native integration, governed policy evolution, and the final equal-resource strength campaign.
@@ -53,7 +58,9 @@ The final product must therefore satisfy all of these simultaneously:
 
 ## 2. Historical repository baseline after PR #24
 
-The runtime now includes the PR #21–24 cross-feed, counterfactual decision, prospective value-of-compute, and real-LC0 qualification layers in addition to the PR #18 control substrate.
+**Historical snapshot only.** This section preserves the post-#24 reasoning that drove later milestones. The live repository is now post-#36 and includes M14-B/C/D/E/F/G1/G2 plus ONLINE-1; see `CURRENT_STATUS.md` for present authority/profile composition.
+
+At the historical PR #24 point, the runtime included the PR #21–24 cross-feed, counterfactual decision, prospective value-of-compute, and real-LC0 qualification layers in addition to the PR #18 control substrate.
 
 ### 2.1 Implemented control layers
 
@@ -2121,19 +2128,47 @@ These shortcuts would destroy the causal information the current architecture ha
 
 ---
 
-# 19. Recommended immediate next implementation
+# 19. Current deployment critical path
 
-The immediate task is the **post-PR #24 repository-hardening pass**. It closes
-the audit findings around exact-source qualification, post-merge LC0
-qualification, bounded UCI stdin writes, authority-only external readiness,
-transactional replay finalization, manifest↔telemetry integrity, finite budget
-inputs, atomic route evidence, robust Reckless `searchmoves` parsing, and pinned
-GitHub Actions.
+PR #36 / ONLINE-1 is merged and green. The immediate implementation is now
+**ONLINE-2 — a real-network hardware-bound online CPU reference profile**. It must
+compose the already-qualified LC0 BLAS/network identity with ONLINE-1 timing and
+measured aggregate resource constraints without claiming strength.
 
-After that repair is green and merged, the next architecture milestone is
-**M14-B — Measured process resource accounting**. Hybrid move authority remains
-blocked until measured resource accounting is good enough to state honestly
-what the full controller and its specialists consumed.
+After ONLINE-2, the first-canary path is:
+
+```text
+ONLINE-2
+real-network online CPU profile
+        ↓
+M14-G3
+new clock-aware staged terminal evidence + DecisionAuthorization version
+(require real HYBRID positive path and exact fallback paths)
+        ↓
+LOCAL-1 / M15-B
+full-game Fastchess lifecycle/legality/resource campaign
+        ↓
+ONLINE-3
+immutable package + pinned lichess-bot bridge
+        ↓
+ONLINE-4
+network/restart/rollback/observability qualification
+        ↓
+release qualification
+one aggregate gate over exact source/binaries/networks/config/bridge/tests
+        ↓
+ONLINE-RC
+restricted one-game-at-a-time unrated canary, then the planned 50-game batch
+```
+
+M14-G4 production SKIP calibration may run in parallel. It blocks promotion of a
+learned compute-skipping shortcut, but it does not have to block an explicitly
+conservative canary that BUYs when unsupported and falls back when the resource or
+authority gate cannot complete. M14-H/I and M15-A remain later optimization tracks.
+
+Current administrative release gates are also explicit: `main` is unprotected with no
+ruleset, issues #26/#27 track that governance gap, and the top-level Allfather controller
+licensing decision remains outstanding.
 
 ---
 
@@ -2158,35 +2193,20 @@ AllfatherChess is ready for a genuine equal-resource strength claim only when al
 - crashes, time losses and invalid runs are counted honestly;
 - claim language matches the actual evidence.
 
-The shortest form of the remaining programme is:
+The current separation between first-canary deployment and the stronger equal-resource research claim is:
 
 ```text
-PR #19–20
-extended build-plan documentation (merged)
+MERGED THROUGH PR #36
+M14-B/C/D/E/F/G1/G2 + ONLINE-1
         ↓
-PR #21–24
-typed cross-feed + counterfactual decisions + prospective value-of-compute + real LC0 reference qualification (merged)
+FIRST-CANARY RELEASE TRACK
+ONLINE-2 -> M14-G3 -> LOCAL-1 -> ONLINE-3/4 -> release qualification -> ONLINE-RC
         ↓
-post-PR #24 hardening
-provenance + liveness + replay integrity + CI/supply-chain repair
+OPTIMIZATION / STRENGTH TRACK
+M14-G4 production SKIP + M14-H/I + M15-A
         ↓
-M14-B
-measured process/resource accounting
-        ↓
-M14-C–G
-bounded hybrid authority + recursive refinement + engine-specific cross-feed + regime/value routing
-        ↓
-M14-H–I
-measured transport / selective native optimization
-        ↓
-M15-A
-offline governed policy evolution
-        ↓
-M15-B
-confirmatory equal-resource strength campaign
-        ↓
-M15-C
-release qualification
+M15-B/C
+predeclared equal-resource campaign and claim-bounded external release
 ```
 
 The architecture should earn every arrow.

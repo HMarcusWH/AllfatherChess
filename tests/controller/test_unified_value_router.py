@@ -6,6 +6,7 @@ from __future__ import annotations
 import sys
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
@@ -143,7 +144,7 @@ class UnifiedValueRouteTests(unittest.TestCase):
         estimate=None,
         staged=None,
         regime=None,
-        regime_model=object(),
+        regime_model=SimpleNamespace(model_id="regime-support-test"),
         threshold=0.10,
         fallback=False,
         wall=False,

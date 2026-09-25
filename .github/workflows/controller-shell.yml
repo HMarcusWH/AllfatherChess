@@ -32,6 +32,7 @@ on:
       - docs/DECISION_AUTHORITY.md
       - docs/VALUE_OF_COMPUTE.md
       - docs/STAGED_VERIFY.md
+      - docs/UNIFIED_VALUE_ROUTER.md
       - docs/STRENGTH_BACKENDS.md
       - docs/RESOURCE_ACCOUNTING.md
       - qualification/**
@@ -65,6 +66,7 @@ on:
       - docs/DECISION_AUTHORITY.md
       - docs/VALUE_OF_COMPUTE.md
       - docs/STAGED_VERIFY.md
+      - docs/UNIFIED_VALUE_ROUTER.md
       - docs/STRENGTH_BACKENDS.md
       - docs/RESOURCE_ACCOUNTING.md
       - qualification/**
@@ -91,7 +93,7 @@ jobs:
       - name: Compile controller shell
         run: |
           python3 -m py_compile allfather-chess controller/*.py common/*.py adapters/*.py adapters/process/*.py adapters/resource/*.py adapters/telemetry/*.py adapters/crossfeed/*.py tests/fixtures/*.py tests/harness/*.py tests/adapters/*.py tests/controller/*.py
-          python3 -m py_compile scripts/resource-accounting-contract.py scripts/crossfeed-adapter-contract.py scripts/regime-contract.py scripts/regime-sweep.py scripts/shard-ledger-contract.py scripts/prefix-shard-contract.py scripts/refinement-execution-contract.py scripts/recursive-refinement-contract.py scripts/active-specialist-contract.py scripts/crossfeed-contract.py scripts/counterfactual-decision-contract.py scripts/counterfactual-decision-sweep.py scripts/active-hybrid-decision-contract.py scripts/value-of-compute-contract.py scripts/value-of-compute-sweep.py scripts/decision-calibration.py scripts/staged-verify-contract.py scripts/staged-value-of-compute-sweep.py scripts/staged-decision-calibration.py scripts/lc0-strength-lock.py scripts/fetch-lc0-network.py scripts/lc0-hardware-probe.py scripts/lc0-strength-profile-contract.py scripts/lc0-defect-telemetry-contract.py scripts/refinement-evidence-sweep.py scripts/shadow-execution-contract.py scripts/verification-execution-contract.py scripts/verification-analysis-contract.py scripts/verification-analysis.py scripts/verification-evidence-sweep.py scripts/active-routing-contract.py scripts/residual-calibration.py scripts/shadow-evidence-sweep.py
+          python3 -m py_compile scripts/resource-accounting-contract.py scripts/crossfeed-adapter-contract.py scripts/regime-contract.py scripts/regime-sweep.py scripts/shard-ledger-contract.py scripts/prefix-shard-contract.py scripts/refinement-execution-contract.py scripts/recursive-refinement-contract.py scripts/active-specialist-contract.py scripts/crossfeed-contract.py scripts/counterfactual-decision-contract.py scripts/counterfactual-decision-sweep.py scripts/active-hybrid-decision-contract.py scripts/value-of-compute-contract.py scripts/value-of-compute-sweep.py scripts/decision-calibration.py scripts/staged-verify-contract.py scripts/staged-value-of-compute-sweep.py scripts/staged-decision-calibration.py scripts/unified-value-router-contract.py scripts/lc0-strength-lock.py scripts/fetch-lc0-network.py scripts/lc0-hardware-probe.py scripts/lc0-strength-profile-contract.py scripts/lc0-defect-telemetry-contract.py scripts/refinement-evidence-sweep.py scripts/shadow-execution-contract.py scripts/verification-execution-contract.py scripts/verification-analysis-contract.py scripts/verification-analysis.py scripts/verification-evidence-sweep.py scripts/active-routing-contract.py scripts/residual-calibration.py scripts/shadow-evidence-sweep.py
           for config in config/*.json; do python3 -m json.tool "$config" >/dev/null; done
           ./allfather-chess --help >/dev/null
 
@@ -177,6 +179,9 @@ jobs:
           make staged-verification-tests
           make staged-value-of-compute-tests
           make staged-decision-calibration-tests
+
+      - name: Validate M14-G2 unified value-of-compute router
+        run: make unified-value-router-tests
 
       - name: Validate LC0 strength-facing profile contracts
         run: make strength-profile-tests

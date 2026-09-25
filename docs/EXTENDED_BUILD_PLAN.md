@@ -1466,9 +1466,9 @@ A regime may later nominate work; it never authorizes a move.
 
 ### Implementation status
 
-Implemented by this milestone as a research-only causal substrate. Existing
-VERIFY v1 remains unchanged; the new extension is a separately sealed artifact
-and is forbidden from hybrid move authority.
+Merged in PR #34 as a research-only causal substrate. Existing VERIFY v1
+remains unchanged; the extension is separately sealed, separately measured,
+and forbidden from hybrid move authority.
 
 ### Why M14-G was split
 
@@ -1526,6 +1526,23 @@ new result is better, correct, stronger, or Elo-positive.
 
 ## M14-G2 — Unified value-of-compute decision router
 
+### Implementation status
+
+Implemented in this PR for the first serve-compatible route intervention. The
+new `unified_value_v1` policy evaluates the clean base VERIFY state before the
+G1 extension and chooses `BUY_STAGED_VERIFY` or `SKIP_STAGED_VERIFY`.
+Skipping is licensed only by an in-domain staged decision-change bucket with
+held-out observations plus an in-domain M14-F regime-support bucket. Missing,
+unsupported, out-of-domain, or unvalidated evidence fails closed to buying more
+compute. The existing `authorize_specialist` path remains the independent
+resource gate for every actual extension dispatch.
+
+When the extension completes, its terminal bestmoves become the terminal source
+for the frozen counterfactual `unanimous_verify_v1` decision and are
+hash-bound into the counterfactual artifact. This updates evidence, not outward
+move authority. The G2 validation profile deliberately leaves
+`hybrid_authority` disabled.
+
 ### Purpose
 
 Bring current routing, serve-compatible decision calibration, regime state, and
@@ -1565,6 +1582,11 @@ DECIDE_HYBRID
 ~~~
 
 The decision action still requires DecisionAuthorization; RouteAction alone never becomes bestmove authority.
+
+The first implemented G2 slice deliberately routes only the already-qualified
+same-process staged VERIFY intervention. Wider route vocabulary such as
+REFINE/ADJUDICATE/anchor-extension remains future work rather than being
+silently inferred from one staged calibration.
 
 ---
 

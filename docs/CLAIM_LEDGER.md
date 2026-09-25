@@ -938,3 +938,47 @@ policy result.
 - no claim is made that a 64→128 same-process intervention is equivalent to a
   separately executed 128-node VERIFY arm.
 
+
+
+## M14-G2 unified value-of-compute router
+
+### PROVED / contract-level
+
+- `unified_value_v1` makes a separate route decision after clean base VERIFY and
+  before any staged extension dispatch.
+- The route record explicitly carries routing authority only. It has neither
+  resource authority nor outward-move authority.
+- Every staged extension that is actually dispatched still requires the existing
+  per-stage `authorize_specialist` reservation and separate settlement.
+- The compute-skipping branch requires the exact staged serving bucket to be
+  in-domain, observed on held-out data, below the configured decision-change
+  threshold, and paired with an in-domain M14-F regime-support bucket.
+- Missing, malformed, unsupported, out-of-domain, or unvalidated route evidence
+  fails closed toward buying more compute while the resource window remains
+  open.
+- A clean completed staged extension can become the terminal evidence source for
+  the frozen counterfactual `unanimous_verify_v1` decision. The artifact records
+  and hash-binds that source for deterministic replay.
+- The G2 validation profile keeps outward authority at the Stockfish anchor and
+  does not enable `hybrid_authority`.
+
+### CALIBRATED
+
+- The staged route consumes `bucketed_staged_verify_decision_change_v1` only on
+  its declared same-process intervention. It does not reuse the PR #23 whole-run
+  budget model.
+- M14-F `regime_support_v1` supplies structural in-domain support; it is not a
+  move-correctness classifier.
+
+### POLICY
+
+- `routing.staged_skip_max_change_probability` is a declared compute-skipping
+  threshold. Its current value is policy, not an empirically established optimum.
+
+### OPEN
+
+- Decision change is not decision improvement. No G2 result establishes move
+  correctness, Elo gain, optimal specialist spending, or equal-resource
+  superiority.
+- Promotion of fitted staged/regime models onto the eventual competitive
+  strength platform remains downstream work.

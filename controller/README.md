@@ -17,8 +17,15 @@ verification_analysis.py offline COMPARE / descriptive RELOCK analysis
 replay_analysis.py   trajectory reconstruction and counterfactual stopping labels
 residuals.py         derived residual geometry with explicit shared support
 calibration.py       fitted, out-of-sample-validated reversal-risk models
+regimes.py           M14-F structural multi-label search-regime observations
+regime_calibration.py fail-closed structural support/domain model
+staged_verification.py same-process VERIFY extension evidence
+staged_value_of_compute.py past-only staged decision-change dataset extractor
+staged_decision_calibration.py staged VERIFY decision-change model
+unified_value_router.py M14-G2 live value-of-compute route gate
+decision.py          frozen hybrid proposal + separate DecisionAuthorization
 budget.py            one declared resource envelope, reserved before it is spent
-routing.py           observe -> propose -> authorize -> dispatch
+routing.py           observe -> propose -> authorize -> dispatch + route audit
 ```
 
 Nothing reaches upward: residuals never enter raw telemetry, routing decisions
@@ -51,6 +58,7 @@ that matters operationally.
 | `shadow` | `config/allfather.shadow.validation.json` | four instances; three restricted workers observe pairwise-disjoint regions; no routing. |
 | `active` | `config/allfather.active.validation.json` | shadow plus a conservative routing policy that allocates observation compute inside a declared envelope. |
 | `active` hybrid | `config/allfather.hybrid.validation.json` | the same governed active substrate plus bounded M14-C DecisionAuthorization for qualified `go movetime` requests; Stockfish remains deterministic fallback. |
+| `active` unified value | `config/allfather.unified-value.validation.json` | M14-G2 evaluates the clean base VERIFY state and may buy or skip the G1 same-process extension; actual dispatch still requires resource authorization and outward authority remains Stockfish in this profile. |
 
 The runtime config loader accepts `schema_version: 1` (the legacy family-keyed
 anchor profile) and `schema_version: 2` (role-keyed `instances`). Legacy configs,
@@ -83,7 +91,7 @@ search carries an explicit generation token and every callback checks it.
 
 `docs/UCI_SHELL.md`, `docs/SHARD_LEDGER.md`, `docs/PREFIX_SHARDS.md`, `docs/SHADOW_EXECUTION.md`,
 `docs/REPLAY_FORMAT.md`, `docs/RESIDUAL_CALIBRATION.md`,
-`docs/BUDGET_ROUTING.md`, `docs/ACTIVE_SPECIALIST_SCHEDULER.md`, `docs/COMPARE_RELOCK.md`, `docs/REFINEMENT.md`, `docs/CLAIM_LEDGER.md`,
+`docs/BUDGET_ROUTING.md`, `docs/ACTIVE_SPECIALIST_SCHEDULER.md`, `docs/COMPARE_RELOCK.md`, `docs/REFINEMENT.md`, `docs/SEARCH_REGIMES.md`, `docs/STAGED_VERIFY.md`, `docs/UNIFIED_VALUE_ROUTER.md`, `docs/CLAIM_LEDGER.md`,
 `docs/THEORY_IMPLEMENTATION_MAP.md`, `docs/ADVERSARIAL_AUDIT.md`.
 
 ## What the controller still does not do
@@ -92,9 +100,10 @@ No majority voting, no cross-engine score conversion, no RELOCK-as-correctness
 authorization, no native tree unification, and no strength claim. Cross-feed
 and `unanimous_verify_v1` can now influence the outward move only through the
 explicit M14-C hybrid profile and its separate fail-closed authorization gate.
-All other profiles preserve Stockfish authority. PrefixShardLedger v2 remains
-bounded specialist-search infrastructure; recursive multi-level REFINE and
-strength qualification are later milestones. A descriptive terminal-suffix
+All other profiles preserve Stockfish authority. PrefixShardLedger v2 and
+bounded multi-level REFINE are qualified specialist-search infrastructure;
+regime/value routing does not convert them into chess authority. Equal-resource
+strength qualification remains a later milestone. A descriptive terminal-suffix
 RELOCK remains evidence, not a chess-correctness certificate.
 
 
@@ -155,3 +164,22 @@ in-memory checks only; no engine search, filesystem IO, calibration load, or
 procfs sampling may occur ahead of stdout emission. A denial emits the original
 Stockfish line exactly. The actual selected authority is persisted afterwards
 in `decision/final.json`.
+
+
+## M14-G2 unified value-of-compute routing
+
+`unified_value_v1` runs after the clean base VERIFY barrier and before the
+G1 staged extension. It reconstructs the exact staged serving features, derives
+the M14-F structural regime from the same live base evidence, and asks whether a
+compute-skipping shortcut has actually been licensed.
+
+`SKIP_STAGED_VERIFY` requires the exact staged bucket to be in-domain,
+observed on held-out data, below the declared decision-change threshold, and
+paired with an in-domain regime-support bucket. Otherwise the route is
+`BUY_STAGED_VERIFY`.
+
+That route is still only a recommendation. Every extension stage separately
+passes `authorize_specialist` before reservation/dispatch. A clean completed
+extension may update the frozen counterfactual terminal evidence in the G2
+policy, but the route object itself can neither reserve compute nor emit a
+bestmove.

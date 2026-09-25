@@ -52,7 +52,7 @@ from controller.crossfeed import (
 )
 from controller.counterfactual import (
     CounterfactualError,
-    prepare_counterfactual,
+    prepare_counterfactual_from_sources,
     seal_counterfactual_artifact,
 )
 from controller.decision import (
@@ -382,6 +382,7 @@ class _ActiveRun:
     crossfeed_view: CrossFeedView | None = None
     decision_evidence: DecisionEvidence | None = None
     decision_proposal: DecisionProposal | None = None
+    decision_terminal_source: str = "verification"
     final_decision: FinalDecision | None = None
     refinement_positioned: set[str] = field(default_factory=set)
     refinement_oracle_active: bool = False
@@ -1914,6 +1915,7 @@ class ShadowRunCoordinator:
                         seal_counterfactual_artifact(
                             active.decision_proposal,
                             active.run.run_dir,
+                            terminal_source=active.decision_terminal_source,
                         )
                     except CounterfactualError as exc:
                         self._diagnostic(
@@ -2292,9 +2294,22 @@ class ShadowRunCoordinator:
         started = time.monotonic()
         charged = False
         try:
-            evidence, evaluation = prepare_counterfactual(
+            staged_terminal = (
+                active.staged_verification
+                if self.router is not None
+                and bool(
+                    getattr(
+                        self.router,
+                        "use_staged_terminal_for_decision",
+                        False,
+                    )
+                )
+                else None
+            )
+            evidence, evaluation, terminal_source = prepare_counterfactual_from_sources(
                 view=view,
                 verification=verification,
+                staged_verification=staged_terminal,
                 policy=settings.policy,
             )
             # Charge all proposal-building metareasoning BEFORE publication.
@@ -2320,6 +2335,7 @@ class ShadowRunCoordinator:
                 )
                 frozen_before_anchor = not active.anchor_completed.is_set()
                 active.decision_evidence = evidence
+                active.decision_terminal_source = terminal_source
                 active.decision_proposal = freeze_decision_proposal(
                     evaluation,
                     frozen_observed_ms=frozen_ms,
@@ -2705,6 +2721,30 @@ class ShadowRunCoordinator:
                 "staged VERIFY extension not dispatched: base VERIFY is not cleanly complete"
             )
             return
+
+        # M14-G2: route value may decide that buying the configured extension is
+        # unnecessary. This is only a route recommendation. Every actual stage
+        # still passes the existing authorize_specialist resource gate below.
+        route_hook = (
+            None
+            if self.router is None
+            else getattr(self.router, "decide_staged_extension", None)
+        )
+        if route_hook is not None:
+            try:
+                buy_extension = bool(route_hook(active.context, verification, extension))
+            except Exception as exc:  # pragma: no cover - router isolation
+                active.run.note(
+                    "unified staged route failed; buying more compute fail-closed: "
+                    f"{type(exc).__name__}: {exc}"
+                )
+                buy_extension = True
+            if not buy_extension:
+                active.run.note(
+                    "staged VERIFY extension skipped by unified value-of-compute route; "
+                    "no resource or move authority follows from that route decision"
+                )
+                return
 
         staged = StagedVerificationRun(
             run_dir=active.run.run_dir,

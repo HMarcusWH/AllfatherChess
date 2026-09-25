@@ -1092,6 +1092,25 @@ def load_runtime_config(path: Path) -> RuntimeConfig:
             raise RuntimeError("ONLINE-1 clock profile does not qualify recursive REFINE")
         if not resource_measurement.enabled or not resource_measurement.require_cpu_for_claim:
             raise RuntimeError("ONLINE-1 requires physical CPU measurement for claims")
+        # ONLINE-1 claims a CPU-only envelope. When an LC0 backend is configured,
+        # fail closed unless its vendored implementation is unambiguously CPU-only.
+        # Legacy/fake fixtures may omit Backend; the shipped ONLINE-1 profile pins it
+        # explicitly, and ONLINE-2 will tighten device/profile identity further.
+        cpu_only_lc0_backends = {
+            "random", "trivial", "blas", "eigen", "onnx-cpu", "tensorflow-cc-cpu"
+        }
+        for spec in specs.values():
+            if spec.family != "lc0":
+                continue
+            backend = spec.options.get("Backend")
+            if backend is None:
+                continue
+            if not isinstance(backend, str) or backend.lower() not in cpu_only_lc0_backends:
+                raise RuntimeError(
+                    "ONLINE-1 CPU-only envelope rejects accelerator/unknown LC0 Backend "
+                    f"{backend!r} for {spec.name}; allowed configured backends are "
+                    f"{sorted(cpu_only_lc0_backends)}"
+                )
 
     return RuntimeConfig(
         path=path,

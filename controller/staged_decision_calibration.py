@@ -309,30 +309,54 @@ def _evaluate_rows(
             "brier_score": None,
             "observed_change_rate": None,
             "mean_probability": None,
+            "reliability": [],
         }
     predictions: list[float] = []
     labels: list[float] = []
     in_domain = 0
+    by_bucket: dict[str, dict[str, Any]] = {}
     for row in rows:
-        record = buckets.get(row.bucket())
-        if (
+        key = row.bucket()
+        record = buckets.get(key)
+        row_in_domain = bool(
             record is not None
             and int(record["support"]) >= min_support
             and int(record["position_group_support"]) >= min_position_groups
-        ):
+        )
+        if row_in_domain:
             p = _probability(record["change_probability"], "bucket probability")
             in_domain += 1
         else:
             p = prior
+        label = 1.0 if row.label else 0.0
         predictions.append(p)
-        labels.append(1.0 if row.label else 0.0)
+        labels.append(label)
+        bucket = by_bucket.setdefault(
+            key,
+            {"count": 0, "positive": 0, "probability_sum": 0.0, "in_domain_rows": 0},
+        )
+        bucket["count"] += 1
+        bucket["positive"] += int(row.label)
+        bucket["probability_sum"] += p
+        bucket["in_domain_rows"] += int(row_in_domain)
     brier = sum((p - y) ** 2 for p, y in zip(predictions, labels)) / len(labels)
+    reliability = [
+        {
+            "bucket": key,
+            "count": int(record["count"]),
+            "in_domain_rows": int(record["in_domain_rows"]),
+            "observed_change_rate": record["positive"] / record["count"],
+            "mean_probability": record["probability_sum"] / record["count"],
+        }
+        for key, record in sorted(by_bucket.items())
+    ]
     return {
         "test_rows": len(rows),
         "in_domain_rows": in_domain,
         "brier_score": brier,
         "observed_change_rate": sum(labels) / len(labels),
         "mean_probability": sum(predictions) / len(predictions),
+        "reliability": reliability,
     }
 
 

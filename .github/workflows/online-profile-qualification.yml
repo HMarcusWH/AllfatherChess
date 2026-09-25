@@ -1,0 +1,138 @@
+name: ONLINE-2 real-network online profile qualification
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - qualification/online-cpu-reference.json
+      - qualification/lc0-strength-*.json
+      - config/allfather.online.cpu-reference.json
+      - controller/online_profile.py
+      - controller/online_time.py
+      - controller/runtime.py
+      - controller/resource_measurement.py
+      - controller/replay.py
+      - adapters/process/**
+      - adapters/resource/**
+      - adapters/telemetry/**
+      - common/**
+      - scripts/build-online-cpu-reference.sh
+      - scripts/qualify-online-profile.py
+      - scripts/online-hardware-probe.py
+      - scripts/build-lc0-strength.sh
+      - scripts/fetch-*.py
+      - scripts/fetch-*.sh
+      - scripts/lc0-*.py
+      - tests/controller/test_online_profile.py
+      - tests/controller/test_online_time.py
+      - tests/controller/test_online_deadlines.py
+      - tests/adapters/test_uci_process.py
+      - tests/harness/**
+      - engines/**
+      - vendor.lock.json
+      - Makefile
+      - .github/workflows/online-profile-qualification.yml
+  pull_request:
+    paths:
+      - qualification/online-cpu-reference.json
+      - qualification/lc0-strength-*.json
+      - config/allfather.online.cpu-reference.json
+      - controller/online_profile.py
+      - controller/online_time.py
+      - controller/runtime.py
+      - controller/resource_measurement.py
+      - controller/replay.py
+      - adapters/process/**
+      - adapters/resource/**
+      - adapters/telemetry/**
+      - common/**
+      - scripts/build-online-cpu-reference.sh
+      - scripts/qualify-online-profile.py
+      - scripts/online-hardware-probe.py
+      - scripts/build-lc0-strength.sh
+      - scripts/fetch-*.py
+      - scripts/fetch-*.sh
+      - scripts/lc0-*.py
+      - tests/controller/test_online_profile.py
+      - tests/controller/test_online_time.py
+      - tests/controller/test_online_deadlines.py
+      - tests/adapters/test_uci_process.py
+      - tests/harness/**
+      - engines/**
+      - vendor.lock.json
+      - Makefile
+      - .github/workflows/online-profile-qualification.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: online-profile-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  qualify-online-cpu-reference:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    env:
+      ALLFATHER_SOURCE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ env.ALLFATHER_SOURCE_SHA }}
+
+      - name: Verify checkout identity
+        run: test "$(git rev-parse HEAD)" = "$ALLFATHER_SOURCE_SHA"
+
+      - name: Bind runner environment
+        run: echo "ALLFATHER_RUNNER_ENVIRONMENT=${{ runner.environment }}" >> "$GITHUB_ENV"
+
+      - name: Validate static ONLINE-2 contracts
+        run: |
+          ./scripts/verify-vendor.sh
+          python3 scripts/lc0-strength-lock.py validate-frozen
+          python3 tests/controller/test_online_profile.py
+          python3 tests/adapters/test_uci_process.py
+          python3 -m json.tool qualification/online-cpu-reference.json >/dev/null
+          python3 -m json.tool config/allfather.online.cpu-reference.json >/dev/null
+          python3 -m py_compile controller/online_profile.py scripts/qualify-online-profile.py scripts/online-hardware-probe.py
+          bash -n scripts/build-online-cpu-reference.sh
+
+      - name: Install real-inference build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y             meson ninja-build pkg-config libprotobuf-dev protobuf-compiler             zlib1g-dev libopenblas-dev
+
+      - name: Cache frozen engine networks
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            build/artifacts/stockfish
+            build/artifacts/reckless
+            build/artifacts/lc0
+          key: online2-networks-${{ runner.os }}-${{ hashFiles('vendor.lock.json', 'qualification/lc0-strength.lock.json') }}
+
+      - name: Build isolated portable online CPU bundle
+        env:
+          JOBS: "2"
+        run: bash scripts/build-online-cpu-reference.sh
+
+      - name: Independently qualify copied LC0 binary provenance
+        run: python3 scripts/lc0-strength-profile-contract.py
+
+      - name: Qualify complete ONLINE-2 profile
+        run: python3 scripts/qualify-online-profile.py --mode reference
+
+      - name: Upload ONLINE-2 qualification evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: online2-real-network-cpu-reference
+          path: |
+            build/online-cpu-reference/build-manifest.json
+            build/test-results/lc0-strength
+            build/test-results/online-profile
+            build/replays-online-cpu-reference
+          if-no-files-found: warn

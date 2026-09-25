@@ -19,6 +19,19 @@
 - **NOT CLAIMED:** deployed-bot status, production learned SKIP value, Elo, move-quality
   superiority, or equal-envelope superiority.
 
+## ONLINE-2 real-network online CPU reference
+
+- **IMPLEMENTED / QUALIFICATION-GATED:** an isolated portable CPU-target bundle,
+  real LC0 BLAS/network runtime, explicit BLAS thread environment, ONLINE-1 TimePlan,
+  and whole-controller physical CPU accounting are composed without widening outward
+  authority. See `ONLINE_PROFILE.md` and the dedicated ONLINE-2 workflow.
+- **PROVED BY CONTRACT WHEN GREEN ON THE EXACT COMMIT:** the bundle manifest and
+  runtime identities match; the same LC0 binary hash receives independent real-BLAS
+  qualification; positive clock cases remain legal/within deadline with complete
+  measured envelopes; WDL_mu telemetry survives the online path.
+- **NOT CLAIMED:** hybrid move authority, learned SKIP value, Elo, optimal time
+  management, final deployment-host qualification, or equal-envelope superiority.
+
 ## ONLINE-1 clock/deadline qualification
 
 - **POLICY:** `clock_envelope_v1` allocates a bounded per-move CPU/wall envelope

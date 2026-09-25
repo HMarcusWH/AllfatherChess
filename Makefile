@@ -1,4 +1,4 @@
-.PHONY: online-time-tests online-clock-contract run-allfather-online-clock unified-value-router-tests unified-value-router-contract run-allfather-unified-value staged-verification-tests staged-value-of-compute-tests staged-decision-calibration-tests staged-verify-contract staged-value-of-compute-sweep staged-decision-calibration run-allfather-staged-verify vendor verify-vendor build-baselines smoke-baselines golden-baselines record-golden-baselines telemetry-contract telemetry-adapters telemetry-adapter-integration crossfeed-adapter-tests crossfeed-adapter-contract regime-tests regime-calibration-tests regime-contract controller-tests resource-measurement-tests resource-accounting-contract shard-ledger-tests prefix-shard-tests refinement-tests refinement-policy-tests active-specialist-tests crossfeed-tests decision-tests hybrid-authority-tests counterfactual-tests value-of-compute-tests decision-calibration-tests strength-profile-tests shard-ledger-contract prefix-shard-contract refinement-execution-contract recursive-refinement-contract active-specialist-contract crossfeed-contract counterfactual-decision-contract active-hybrid-decision-contract value-of-compute-contract lc0-strength-contract lc0-defect-telemetry-contract hybrid-shell-contract shadow-tests replay-tests residual-tests routing-tests verification-tests verification-analysis-tests shadow-execution-contract verification-execution-contract verification-analysis-contract active-routing-contract shadow-evidence-sweep verification-evidence-sweep refinement-evidence-sweep counterfactual-decision-sweep value-of-compute-sweep regime-sweep decision-calibration residual-calibration verification-analysis fetch-lc0-strength build-lc0-strength run-allfather run-allfather-shadow run-allfather-verify run-allfather-refine run-allfather-recursive-refine run-allfather-crossfeed run-allfather-counterfactual run-allfather-hybrid run-allfather-value run-allfather-strength run-allfather-active-specialist
+.PHONY: online-profile-tests build-online-cpu-reference online-profile-contract run-allfather-online-cpu-reference online-time-tests online-clock-contract run-allfather-online-clock unified-value-router-tests unified-value-router-contract run-allfather-unified-value staged-verification-tests staged-value-of-compute-tests staged-decision-calibration-tests staged-verify-contract staged-value-of-compute-sweep staged-decision-calibration run-allfather-staged-verify vendor verify-vendor build-baselines smoke-baselines golden-baselines record-golden-baselines telemetry-contract telemetry-adapters telemetry-adapter-integration crossfeed-adapter-tests crossfeed-adapter-contract regime-tests regime-calibration-tests regime-contract controller-tests resource-measurement-tests resource-accounting-contract shard-ledger-tests prefix-shard-tests refinement-tests refinement-policy-tests active-specialist-tests crossfeed-tests decision-tests hybrid-authority-tests counterfactual-tests value-of-compute-tests decision-calibration-tests strength-profile-tests shard-ledger-contract prefix-shard-contract refinement-execution-contract recursive-refinement-contract active-specialist-contract crossfeed-contract counterfactual-decision-contract active-hybrid-decision-contract value-of-compute-contract lc0-strength-contract lc0-defect-telemetry-contract hybrid-shell-contract shadow-tests replay-tests residual-tests routing-tests verification-tests verification-analysis-tests shadow-execution-contract verification-execution-contract verification-analysis-contract active-routing-contract shadow-evidence-sweep verification-evidence-sweep refinement-evidence-sweep counterfactual-decision-sweep value-of-compute-sweep regime-sweep decision-calibration residual-calibration verification-analysis fetch-lc0-strength build-lc0-strength run-allfather run-allfather-shadow run-allfather-verify run-allfather-refine run-allfather-recursive-refine run-allfather-crossfeed run-allfather-counterfactual run-allfather-hybrid run-allfather-value run-allfather-strength run-allfather-active-specialist
 
 vendor:
 	@echo "Refusing implicit destructive vendor refresh." >&2
@@ -77,6 +77,17 @@ controller-tests:
 	python3 tests/controller/test_staged_decision_calibration.py
 	python3 tests/controller/test_unified_value_router.py
 	python3 tests/controller/test_strength_profile.py
+	python3 tests/controller/test_online_profile.py
+
+online-profile-tests:
+	python3 tests/controller/test_online_profile.py
+	python3 tests/adapters/test_uci_process.py
+
+build-online-cpu-reference:
+	bash scripts/build-online-cpu-reference.sh
+
+online-profile-contract:
+	python3 scripts/qualify-online-profile.py --mode reference
 
 shard-ledger-tests:
 	python3 tests/controller/test_shard_ledger.py
@@ -298,3 +309,6 @@ online-clock-contract:
 
 run-allfather-online-clock:
 	python3 -m controller --config config/allfather.online-clock.validation.json
+
+run-allfather-online-cpu-reference:
+	python3 -m controller --config config/allfather.online.cpu-reference.json

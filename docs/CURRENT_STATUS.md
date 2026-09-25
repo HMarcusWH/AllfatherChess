@@ -95,17 +95,15 @@ new composition with explicit evidence semantics.
 
 ### 1. ONLINE-2 — real-network hardware-bound online profile
 
-Create and qualify one deployment-facing CPU profile that combines actual inference,
-the exact pinned network/backend/options, ONLINE-1 timing, aggregate thread/memory
-limits, host identity, and measured process/controller resource evidence.
+**Implemented in the current candidate change; qualification is commit-specific.**
 
-Planned additions:
+The candidate adds an isolated portable CPU-target artifact bundle, the
+`allfather.online.cpu-reference.json` runtime, an explicit host/build policy, bounded
+BLAS child-process environment, and a dedicated end-to-end qualification workflow.
+It deliberately remains Stockfish-anchor authoritative.
 
-- `config/allfather.online.cpu-reference.json`
-- `qualification/online-cpu-reference.json`
-- `scripts/qualify-online-profile.py`
-
-A passing ONLINE-2 profile proves reproducible operational inference, not strength.
+A passing ONLINE-2 workflow proves reproducible operational inference on the recorded
+host, not strength. M14-G3 remains the next behavioral authority milestone.
 
 ### 2. M14-G3 — compose staged VERIFY with clock-aware hybrid authority
 

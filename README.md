@@ -66,12 +66,18 @@ Documentation: `docs/CURRENT_STATUS.md`, `docs/ONLINE_RELEASE_PLAN.md`, `docs/ON
 
 The canonical remaining release sequence is [ONLINE_RELEASE_PLAN.md](docs/ONLINE_RELEASE_PLAN.md).
 The post-#36 / ONLINE-1 runtime baseline is synchronized in `qualification/release-baseline.json` at `64aa8fd13c390b9b37b8825d8f39e73d9bdbdbf8`.
-The opt-in ONLINE-1 clock/deadline layer is specified in [ONLINE_TIME.md](docs/ONLINE_TIME.md):
+The opt-in ONLINE-1 clock/deadline layer is specified in [ONLINE_TIME.md](docs/ONLINE_TIME.md).
+The ONLINE-2 real-network CPU reference composition is specified in [ONLINE_PROFILE.md](docs/ONLINE_PROFILE.md):
 
 ```bash
 make online-time-tests
 make online-clock-contract        # after building the three baseline engines
 make run-allfather-online-clock   # timing validation only; NOT a production bot
+
+make online-profile-tests
+make build-online-cpu-reference   # isolated portable CPU-target bundle
+make online-profile-contract      # requires independent LC0 qualification report
+make run-allfather-online-cpu-reference
 ```
 
 The new profile uses caller-supplied clocks to derive a per-move CPU/wall envelope,

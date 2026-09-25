@@ -17,7 +17,7 @@ jobs:
           mkdir -p /tmp/allfather-source
           git rev-parse HEAD > /tmp/allfather-source/SOURCE_SHA
           git archive --format=tar HEAD -o /tmp/allfather-source/source.tar
-          sha256sum /tmp/allfather-source/source.tar > /tmp/allfather-source/SHA256SUMS
+          (cd /tmp/allfather-source && sha256sum source.tar > SHA256SUMS)
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: allfather-source-snapshot

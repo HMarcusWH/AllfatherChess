@@ -68,6 +68,7 @@ class BackendSpec:
     binary: Path
     cwd: Path
     args: tuple[str, ...]
+    environment: dict[str, str]
     options: dict[str, object]
 
 
@@ -217,6 +218,7 @@ def _require_object(value: object, label: str) -> dict[str, object]:
 #: Instance names become telemetry filenames, so they are restricted to a safe
 #: identifier alphabet rather than merely checked for non-emptiness.
 _SAFE_INSTANCE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
+_ENVIRONMENT_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,127}")
 
 
 def _require_positive_number(value: object, label: str) -> float:
@@ -291,6 +293,7 @@ def _engine_identity(spec: "BackendSpec") -> dict[str, object]:
         "binary": str(spec.binary),
         "binary_sha256": _hash_file(spec.binary),
         "args": list(spec.args),
+        "environment": dict(spec.environment),
         "options": dict(spec.options),
     }
     if spec.family == "lc0":
@@ -319,6 +322,22 @@ def _build_spec(
     args_value = raw.get("args", [])
     if not isinstance(args_value, list) or not all(isinstance(item, str) for item in args_value):
         raise RuntimeError(f"backend {name}: args must be an array of strings")
+    environment_raw = _require_object(
+        raw.get("environment", {}),
+        f"backend {name}.environment",
+    )
+    environment: dict[str, str] = {}
+    for key, value in environment_raw.items():
+        if not isinstance(key, str) or _ENVIRONMENT_NAME.fullmatch(key) is None:
+            raise RuntimeError(
+                f"backend {name}: environment variable names must match "
+                f"{_ENVIRONMENT_NAME.pattern}, got {key!r}"
+            )
+        if not isinstance(value, str) or "\x00" in value:
+            raise RuntimeError(
+                f"backend {name}: environment[{key!r}] must be a NUL-free string"
+            )
+        environment[key] = value
     options = _require_object(raw.get("options", {}), f"backend {name}.options")
     if options.get("UCI_Chess960") is True:
         # The controller's shared variant state starts as standard chess and is
@@ -337,6 +356,7 @@ def _build_spec(
         binary=_resolve_binary(root, raw, name),
         cwd=(root / cwd_value).resolve(),
         args=tuple(args_value),
+        environment=environment,
         options=dict(options),
     )
 
@@ -1399,6 +1419,7 @@ class BackendManager:
                         binary=spec.binary,
                         cwd=spec.cwd,
                         args=list(spec.args),
+                        environment=dict(spec.environment),
                         on_exit=self._handle_exit,
                     )
                     self.backends[name] = process

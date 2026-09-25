@@ -53,6 +53,7 @@ class UciProcess:
         binary: Path,
         cwd: Path,
         args: list[str] | None = None,
+        environment: dict[str, str] | None = None,
         timeout: float = 10.0,
         on_exit: Callable[[str, int | None, int | None], None] | None = None,
     ) -> None:
@@ -60,6 +61,10 @@ class UciProcess:
         self.binary = binary
         self.cwd = cwd
         self.args = list(args or [])
+        self.environment = dict(environment or {})
+        if not all(isinstance(key, str) and isinstance(value, str)
+                   for key, value in self.environment.items()):
+            raise UciProcessError(f"{self.name}: process environment must be string-to-string")
         self.timeout = timeout
         self._on_exit = on_exit
 
@@ -128,6 +133,8 @@ class UciProcess:
         if not os.access(self.binary, os.X_OK):
             raise UciProcessError(f"{self.name}: engine binary not executable: {self.binary}")
 
+        child_environment = os.environ.copy()
+        child_environment.update(self.environment)
         self.proc = subprocess.Popen(
             [str(self.binary), *self.args],
             cwd=str(self.cwd),
@@ -136,6 +143,7 @@ class UciProcess:
             stderr=subprocess.PIPE,
             text=True,
             bufsize=1,
+            env=child_environment,
         )
         assert self.proc.stdout is not None
         assert self.proc.stderr is not None

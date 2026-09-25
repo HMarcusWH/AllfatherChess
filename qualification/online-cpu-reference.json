@@ -1,0 +1,82 @@
+{
+  "schema_version": 1,
+  "profile_id": "online-cpu-reference-v1",
+  "qualification_tier": "online-cpu-reference",
+  "strength_campaign_eligible": false,
+  "bundle_root": "build/online-cpu-reference",
+  "runtime_config": "config/allfather.online.cpu-reference.json",
+  "platform": {
+    "os": "linux",
+    "architecture": "x86_64",
+    "reference_os": "ubuntu-24.04",
+    "cpu_model": "record-and-bind",
+    "memory": "record-and-bind"
+  },
+  "builds": {
+    "stockfish": {
+      "artifact": "bin/stockfish",
+      "network_artifact": "networks/nn-134a887f4c8f.nnue",
+      "arch": "x86-64"
+    },
+    "reckless": {
+      "artifact": "bin/reckless",
+      "network_artifact": "networks/v60-7f587dfb.nnue",
+      "target": "x86_64-unknown-linux-gnu",
+      "target_cpu": "x86-64",
+      "rustflags_source": "CARGO_ENCODED_RUSTFLAGS"
+    },
+    "lc0": {
+      "artifact": "bin/lc0",
+      "network_artifact": "networks/791556.pb.gz",
+      "backend": "blas",
+      "strength_profile_id": "lc0-strength-v1"
+    }
+  },
+  "process_environment": {
+    "lc0-shadow": {
+      "OPENBLAS_NUM_THREADS": "1",
+      "GOTO_NUM_THREADS": "1",
+      "OMP_NUM_THREADS": "1"
+    }
+  },
+  "budget": {
+    "wall_ms": 4000,
+    "cpu_ms": 12000,
+    "gpu_ms": 0,
+    "verification_reserve_fraction": 0.15,
+    "controller_overhead_reserve_ms": 250
+  },
+  "routing_policy": {
+    "policy": "conservative_v1",
+    "calibration": null,
+    "min_observation_nodes": 4000,
+    "checkpoint_interval_ms": 120,
+    "max_stages_per_owner": 1,
+    "extend_nodes": 8000,
+    "stop_max_reversal_risk": 0.05,
+    "stop_min_support": 25,
+    "stop_min_stability_fraction": 0.6,
+    "stage_cpu_ms_estimate": 500,
+    "anchor_cpu_ms_estimate": 0
+  },
+  "resource_measurement": {
+    "enabled": true,
+    "provider": "linux-procfs-v1",
+    "require_cpu_for_claim": true,
+    "require_gpu_for_claim": false,
+    "record_memory": true
+  },
+  "clock_policy": {
+    "enabled": true,
+    "policy": "clock_envelope_v1",
+    "moves_horizon": 30,
+    "increment_fraction": 0.75,
+    "max_move_ms": 2000,
+    "network_reserve_ms": 100,
+    "stop_grace_ms": 300,
+    "output_margin_ms": 50,
+    "prepare_budget_ms": 100,
+    "quiesce_budget_ms": 250,
+    "cpu_parallelism": 4
+  }
+}

@@ -1462,11 +1462,74 @@ A regime may later nominate work; it never authorizes a move.
 
 ---
 
-## M14-G — Unified value-of-compute decision router
+## M14-G1 — Serve-compatible staged VERIFY / value-of-compute substrate
+
+### Implementation status
+
+Implemented by this milestone as a research-only causal substrate. Existing
+VERIFY v1 remains unchanged; the new extension is a separately sealed artifact
+and is forbidden from hybrid move authority.
+
+### Why M14-G was split
+
+PR #23 compares separately executed complete VERIFY arms at different budgets.
+That answers a useful historical question, but it is not the exact intervention
+a live router can choose after observing one already-completed base round.
+
+M14-G1 therefore defines and measures the serve-compatible action:
+
+~~~text
+base VERIFY @ N nodes
+-> clean three-engine completion barrier
+-> fresh second go on the same three managed processes
+-> identical candidate universe
+-> larger declared extension budget M > N
+~~~
+
+Same-process cache / TT inheritance is part of this declared intervention. The
+new model family must not silently reuse the PR #23 whole-run calibration.
+
+### Add
+
+- controller/staged_verification.py;
+- controller/staged_value_of_compute.py;
+- controller/staged_decision_calibration.py;
+- config/allfather.staged-verify.validation.json;
+- tests/controller/test_staged_verification.py;
+- tests/controller/test_staged_value_of_compute.py;
+- tests/controller/test_staged_decision_calibration.py;
+- scripts/staged-verify-contract.py;
+- scripts/staged-value-of-compute-sweep.py;
+- scripts/staged-decision-calibration.py;
+- docs/STAGED_VERIFY.md.
+
+### Causal / authority gates
+
+- base VERIFY must be cleanly complete before any extension dispatch;
+- base and extension use the exact same owner-ordered candidate set;
+- the same managed solver instance remains attached to each owner;
+- the extension receives fresh resource authorization and separate physical
+  measurement;
+- anchor completion blocks undispatched extension work;
+- future extension evidence cannot enter base feature digests;
+- repeated copies of one position do not count as independent support;
+- unseen / under-supported staged calibration buckets fail closed;
+- staged VERIFY is rejected when `hybrid_authority` is enabled.
+
+### M14-G1 label
+
+The model estimates only whether the declared extension changes the shared
+frozen `unanimous_verify_v1` decision result. A change is not evidence that the
+new result is better, correct, stronger, or Elo-positive.
+
+---
+
+## M14-G2 — Unified value-of-compute decision router
 
 ### Purpose
 
-Bring current routing, new decision calibration, regime state, and hybrid authorization into one typed loop without collapsing their authorities.
+Bring current routing, serve-compatible decision calibration, regime state, and
+hybrid authorization into one typed loop without collapsing their authorities.
 
 ### Target loop
 

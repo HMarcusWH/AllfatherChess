@@ -132,6 +132,9 @@ class TimeTests(unittest.TestCase):
         legacy={'external_request':{'command':'go nodes 100'},
                 'stages':[{'role':'anchor','command':'go nodes 100'}]}
         self.assertEqual(verify_time_manifest(legacy),[])
+        legacy_staged={'external_request':{'command':'go movetime 800'},
+                       'stages':[{'role':'anchor','command':'go nodes 20000'}]}
+        self.assertEqual(verify_time_manifest(legacy_staged),[])
 
     def test_malformed_online_manifest_returns_integrity_errors(self):
         p = self.plan('go movetime 500')

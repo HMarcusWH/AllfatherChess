@@ -1,0 +1,30 @@
+name: Source snapshot
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feat/online-clock-deadlines
+    paths:
+      - .github/workflows/source-snapshot.yml
+
+permissions:
+  contents: read
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Archive exact tracked source without modifying it
+        run: |
+          mkdir -p /tmp/allfather-source
+          git rev-parse HEAD > /tmp/allfather-source/SOURCE_SHA
+          git archive --format=tar HEAD -o /tmp/allfather-source/source.tar
+          sha256sum /tmp/allfather-source/source.tar > /tmp/allfather-source/SHA256SUMS
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: allfather-source-snapshot
+          path: /tmp/allfather-source/
+          retention-days: 7

@@ -2294,10 +2294,22 @@ class ShadowRunCoordinator:
         started = time.monotonic()
         charged = False
         try:
+            staged_terminal = (
+                active.staged_verification
+                if self.router is not None
+                and bool(
+                    getattr(
+                        self.router,
+                        "use_staged_terminal_for_decision",
+                        False,
+                    )
+                )
+                else None
+            )
             evidence, evaluation, terminal_source = prepare_counterfactual_from_sources(
                 view=view,
                 verification=verification,
-                staged_verification=active.staged_verification,
+                staged_verification=staged_terminal,
                 policy=settings.policy,
             )
             # Charge all proposal-building metareasoning BEFORE publication.

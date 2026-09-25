@@ -513,7 +513,11 @@ def fit_staged_decision_change_model(
         row for row in rows
         if split.get(row.position_group) == "train"
     ]
-    test = [
+    calibration = [
+        row for row in rows
+        if split.get(row.position_group) == "calibration"
+    ]
+    holdout = [
         row for row in rows
         if split.get(row.position_group) == "holdout"
     ]
@@ -522,13 +526,44 @@ def fit_staged_decision_change_model(
             "position split produced no training rows"
         )
     buckets = _fit_buckets(train, smoothing_alpha=float(smoothing_alpha))
-    evaluation = _evaluate_rows(
-        test,
-        buckets,
-        prior=prior,
-        min_support=min_support,
-        min_position_groups=min_position_groups,
-    )
+    evaluation = {
+        "row_count": len(rows),
+        "train_rows": len(train),
+        "calibration_rows": len(calibration),
+        "holdout_rows": len(holdout),
+        "position_groups": {
+            "train": sorted(
+                group for group, part in split.items() if part == "train"
+            ),
+            "calibration": sorted(
+                group for group, part in split.items() if part == "calibration"
+            ),
+            "holdout": sorted(
+                group for group, part in split.items() if part == "holdout"
+            ),
+        },
+        "train": _evaluate_rows(
+            train,
+            buckets,
+            prior=prior,
+            min_support=min_support,
+            min_position_groups=min_position_groups,
+        ),
+        "calibration": _evaluate_rows(
+            calibration,
+            buckets,
+            prior=prior,
+            min_support=min_support,
+            min_position_groups=min_position_groups,
+        ),
+        "holdout": _evaluate_rows(
+            holdout,
+            buckets,
+            prior=prior,
+            min_support=min_support,
+            min_position_groups=min_position_groups,
+        ),
+    }
 
     dataset_id = str(dataset.get("dataset_id") or "")
     model_id = _model_address(

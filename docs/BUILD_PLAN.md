@@ -1,5 +1,19 @@
 # Build Plan
 
+## Current deployment work order (post-PR #35)
+
+The canonical remaining execution plan is [ONLINE_RELEASE_PLAN.md](ONLINE_RELEASE_PLAN.md).
+Implement ONLINE-1 clock/deadline contracts first, then ONLINE-2 real-inference
+profile, M14-G3 staged decision-authority composition, M14-G4 model compatibility,
+LOCAL-1 full-game qualification, ONLINE-3/4 bridge/recovery and ONLINE-RC canary.
+Structured IPC/native integration and policy evolution remain later experiments,
+not blockers for the first explicitly experimental online release.
+
+[ONLINE_TIME.md](ONLINE_TIME.md) records this branch's opt-in timing implementation,
+validation commands and remaining limits. Existing profiles and M14-C authority
+restrictions are preserved; clock-to-movetime translation is not authority promotion.
+The milestone history below remains the lineage rather than a new status claim.
+
 ## Goal
 
 Build a single UCI chess engine that can exceed the strength/compute frontier of its three constituent engines by routing heterogeneous search more intelligently.
@@ -161,7 +175,7 @@ A repo-wide hardening repair is inserted immediately after PR #24. From this poi
 - **M14-E — Engine-specific cross-feed adapters**: source-typed candidate transfer into subprocess-safe VERIFY_SET / REFINE_PREFIX proposals, native mate alarms, and context-local rank hints without live routing or move authority. **Implemented in PR #31.**
 - **M14-F — Search-regime classifier**: multi-label structural hypotheses over sealed VERIFY/RELOCK/cross-feed/REFINE evidence plus separate fail-closed support calibration; unsupported policy-diffuse/endgame/time-critical hypotheses remain explicit and no regime authorizes work or moves. **Implemented in PR #33.**
 - **M14-G1 — Serve-compatible staged VERIFY / value-of-compute substrate**: preserve VERIFY v1, add one explicit same-process base→extension intervention over the identical candidate universe, collect past-only base features plus future decision-change labels, and fit a separate fail-closed staged calibration without route or move authority. **Merged in PR #34.**
-- **M14-G2 — Unified value-of-compute decision router**: combine live regime state and the serve-compatible staged decision-change estimate to decide whether to buy the staged VERIFY extension; the existing specialist resource gate still reserves/denies actual work, and DecisionAuthorization remains separate move authority. Missing/OOD/unvalidated route evidence fails closed to buying more compute. **Implemented in this PR.**
+- **M14-G2 — Unified value-of-compute decision router**: combine live regime state and the serve-compatible staged decision-change estimate to decide whether to buy the staged VERIFY extension; the existing specialist resource gate still reserves/denies actual work, and DecisionAuthorization remains separate move authority. Missing/OOD/unvalidated route evidence fails closed to buying more compute. **Merged in PR #35.**
 - **M14-H — Structured IPC experiment**: compare typed local transport against current UCI boundaries.
 - **M14-I — Selective native integration**: embed only measured-value hooks with process-adapter parity.
 - **M15-A — Offline governed policy evolution laboratory**: immutable candidate generations, holdout evaluation, rollback and promotion discipline.

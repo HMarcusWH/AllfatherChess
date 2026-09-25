@@ -57,6 +57,25 @@ Documentation: `docs/BUILD_PLAN.md`, `docs/ARCHITECTURE.md`, `docs/UCI_SHELL.md`
 **No strength claim is made.** No Elo experiment has been run. Stockfish remains the exact fallback authority, and only the narrow M14-C active `movetime_v0` profile can emit an already-frozen authorized hybrid proposal. Routing/resource authority is separate from move authority, recursive REFINE is excluded from M14-C beyond depth 2, and shadow mode deliberately overspends compute to collect evidence. `docs/CLAIM_LEDGER.md` labels every claim as PROVED, MEASURED, DERIVED, CALIBRATED, POLICY, or OPEN. The fast LC0 random/backend-light profile remains deterministic regression infrastructure only. PR #24 added a separate pinned real-network BLAS qualification profile and recorded-host reference run. M14-B now binds Linux process-CPU/memory evidence into that reference and into active-run `resource.json` certificates. The reference remains explicitly `strength_campaign_eligible = false` until a fixed competitive platform and the later strength campaign are qualified.
 
 
+## Route to online deployment
+
+The canonical remaining release sequence is [ONLINE_RELEASE_PLAN.md](docs/ONLINE_RELEASE_PLAN.md).
+The post-#35 runtime baseline is frozen in `qualification/release-baseline.json`.
+The opt-in ONLINE-1 clock/deadline layer is specified in [ONLINE_TIME.md](docs/ONLINE_TIME.md):
+
+```bash
+make online-time-tests
+make online-clock-contract        # after building the three baseline engines
+make run-allfather-online-clock   # timing validation only; NOT a production bot
+```
+
+The new profile uses caller-supplied clocks to derive a per-move CPU/wall envelope,
+retains the original and actual anchor requests, and applies independent soft/hard
+deadlines. It never grants hybrid move authority. Legacy profiles are unchanged.
+A stuck anchor produces an explicit failed request (`bestmove 0000`), not an invented
+legal move. Real inference, staged hybrid authority, full-game qualification and
+online deployment remain separate work packages. No strength claim is introduced.
+
 ## Run the Generation-1 validation shell
 
 After building the three constituent engines:

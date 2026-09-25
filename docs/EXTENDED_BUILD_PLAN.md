@@ -1,10 +1,22 @@
 # AllfatherChess Extended Build Plan
 
-**Status:** Post-PR #24 implementation baseline; repo-wide hardening in progress  
-**Date:** 2026-09-23  
+**Status:** Historical architecture roadmap with post-#35 deployment overlay
+**Date:** 2026-09-25
 **Scope:** Expand the existing `docs/BUILD_PLAN.md` from the current M12 control/resource milestone through typed cross-feed evidence, counterfactual and active hybrid decision authority, backend/resource qualification, recursive refinement, native integration, governed policy evolution, and the final equal-resource strength campaign.
 
 This document is intentionally more detailed than `docs/BUILD_PLAN.md`. It does not replace the existing build plan, telemetry contracts, shard ledgers, replay contracts, or claim ledger. PR #19 and PR #20 were documentation-only. PR #21 added the typed cross-feed evidence plane, PR #22 added deterministic counterfactual hybrid proposals, PR #23 added prospective VERIFY value-of-compute calibration, and PR #24 added the pinned real-network LC0 reference qualification. All are merged. A repo-wide hardening pass now repairs provenance, liveness, replay-integrity, and CI-governance defects before measured-resource work begins.
+
+## Current execution authority
+
+[ONLINE_RELEASE_PLAN.md](ONLINE_RELEASE_PLAN.md) supersedes this document's
+remaining implementation ordering for the path to the first online canary.
+[ONLINE_TIME.md](ONLINE_TIME.md) specifies ONLINE-1. The older post-#24 baseline
+section below is historical: measured process CPU (PR #28), bounded `movetime_v0`
+authority (PR #29), recursive evidence and G1/G2 routing (#30–35) now exist.
+They are not automatically one qualified deployment profile. Staged VERIFY and
+M14-C authority remain incompatible until a separately qualified M14-G3 change.
+Preserve the older contracts as provenance; do not use their dated baseline as
+current status or infer that an online release establishes strength superiority.
 
 ---
 
@@ -39,7 +51,7 @@ The final product must therefore satisfy all of these simultaneously:
 
 ---
 
-## 2. Current repository baseline after PR #24
+## 2. Historical repository baseline after PR #24
 
 The runtime now includes the PR #21–24 cross-feed, counterfactual decision, prospective value-of-compute, and real-LC0 qualification layers in addition to the PR #18 control substrate.
 

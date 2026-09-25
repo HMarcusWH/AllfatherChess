@@ -450,6 +450,12 @@ class TelemetryStreamWriter:
             pass
         self._handle.close()
 
+    def note_loss(self, reason: str) -> None:
+        with self._lock:
+            self._dropped += 1
+            if len(self._errors) < 32:
+                self._errors.append(reason)
+
     def snapshot(self) -> dict[str, Any]:
         if not self._closed:
             raise ReplayError("telemetry stream snapshot requires a closed stream")
@@ -523,6 +529,8 @@ class ReplayRun:
     prepare_ms: float = 0.0
     #: Controller work performed between run start and the first shadow dispatch.
     qualification_ms: float | None = None
+    time_plan: dict[str, Any] | None = None
+    clock_outcome: dict[str, Any] | None = None
 
     # -- streams -------------------------------------------------------------
 
@@ -679,7 +687,11 @@ class ReplayRun:
                 "notes": list(self.notes),
             }
 
+            if self.time_plan is not None:
+                manifest["time_plan"] = self.time_plan
+                manifest["clock_outcome"] = self.clock_outcome
             payload = json.dumps(manifest, indent=2, sort_keys=True) + "\n"
+
             atomic_write_text(self.run_dir / "manifest.json", payload)
         except Exception:
             with self._lock:
@@ -769,7 +781,8 @@ def verify_bundle_integrity(run_dir: Path) -> list[str]:
     """Return hash/size/semantic integrity problems for a finalized replay."""
     run_dir = Path(run_dir)
     manifest = load_manifest(run_dir)
-    problems: list[str] = []
+    from controller.online_time import verify_time_manifest
+    problems: list[str] = verify_time_manifest(manifest)
 
     stages = manifest.get("stages", [])
     stage_by_search: dict[str, dict[str, Any]] = {}
@@ -882,6 +895,9 @@ def verify_bundle_integrity(run_dir: Path) -> list[str]:
             if stage.get("owner") != owner:
                 problems.append(f"{search_id}: stage owner does not match search.started")
             request = event.get("request") or {}
+            if manifest.get("time_plan") is not None and stage.get("role") == "anchor":
+                if request != parse_go_request(stage.get("command", "")):
+                    problems.append(f"{search_id}: clock anchor telemetry request mismatch")
             event_roots = list(request.get("root_moves") or [])
             expected_roots = list(stage.get("dispatched_roots") or [])
             if stage.get("role") == "shadow" and event_roots != expected_roots:

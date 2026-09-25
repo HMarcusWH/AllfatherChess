@@ -22,6 +22,8 @@ from adapters.process import UciProcess, UciProcessError
 from adapters.telemetry import SUPPORTED_SCORE_TYPES
 from common.search_request import SearchRequestError, parse_position_command
 from controller.resource_measurement import ResourceMeasurementError, ResourceMeasurementSettings
+from controller.online_time import ClockSearch, OnlineTimeSettings, OnlineTimeError
+from adapters.process.deferred_observer import DeferredObserver
 
 
 class RuntimeError(RuntimeError):
@@ -190,6 +192,7 @@ class RuntimeConfig:
     resource_measurement: ResourceMeasurementSettings | None = None
     budget: dict[str, object] | None = None
     routing: dict[str, object] | None = None
+    online_time: OnlineTimeSettings | None = None
 
     @property
     def instances(self) -> dict[str, BackendSpec]:
@@ -958,6 +961,8 @@ def load_runtime_config(path: Path) -> RuntimeConfig:
     root = (path.parent / root_value).resolve()
 
     if version == 1:
+        if "online_time" in data:
+            raise RuntimeError("online_time requires schema_version 2; legacy profiles are unchanged")
         anchor, specs = _load_legacy_backends(data, root)
         return RuntimeConfig(path=path, root=root, mode="anchor", anchor=anchor, backends=specs)
 
@@ -1060,6 +1065,56 @@ def load_runtime_config(path: Path) -> RuntimeConfig:
                 "active refinement requires budget.refinement_reserve_fraction > 0"
             )
 
+    try:
+        online_time = OnlineTimeSettings.from_config(data.get("online_time"))
+    except OnlineTimeError as exc:
+        raise RuntimeError(str(exc)) from exc
+    if online_time is not None:
+        if mode != "active":
+            raise RuntimeError("ONLINE-1 requires active resource routing")
+        if hybrid_authority is not None:
+            raise RuntimeError("ONLINE-1 cannot grant hybrid_authority; clock-to-movetime is not movetime_v0")
+        if budget is None or budget.get("gpu_ms", 0) != 0:
+            raise RuntimeError("ONLINE-1 supports CPU-only envelopes")
+        for key in ("wall_ms", "cpu_ms", "gpu_ms", "verification_reserve_fraction",
+                    "refinement_reserve_fraction", "controller_overhead_reserve_ms"):
+            value = budget.get(key, 0)
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+                raise RuntimeError(f"ONLINE-1 budget.{key} must be finite numeric, not boolean")
+        from controller.budget import ResourceEnvelope, BudgetError
+        try:
+            declared = ResourceEnvelope.from_config(budget)
+            if declared.wall_ms <= 0 or declared.cpu_ms <= 0:
+                raise RuntimeError("ONLINE-1 requires positive wall/CPU caps")
+        except BudgetError as exc:
+            raise RuntimeError(str(exc)) from exc
+        if refinement is not None:
+            raise RuntimeError("ONLINE-1 clock profile does not qualify recursive REFINE")
+        if not resource_measurement.enabled or not resource_measurement.require_cpu_for_claim:
+            raise RuntimeError("ONLINE-1 requires physical CPU measurement for claims")
+        # ONLINE-1 claims a CPU-only envelope. When an LC0 backend is configured,
+        # fail closed unless its vendored implementation is unambiguously CPU-only.
+        # Legacy/fake fixtures may omit Backend; the shipped ONLINE-1 profile pins it
+        # explicitly, and ONLINE-2 will tighten device/profile identity further.
+        cpu_only_lc0_backends = {
+            "random", "trivial", "blas", "eigen", "onnx-cpu", "tensorflow-cc-cpu"
+        }
+        for spec in specs.values():
+            if spec.family != "lc0":
+                continue
+            backend = spec.options.get("Backend")
+            if not isinstance(backend, str) or not backend:
+                raise RuntimeError(
+                    "ONLINE-1 CPU-only envelope requires every LC0 instance to set "
+                    f"an explicit CPU Backend; {spec.name} omitted Backend"
+                )
+            if backend.lower() not in cpu_only_lc0_backends:
+                raise RuntimeError(
+                    "ONLINE-1 CPU-only envelope rejects accelerator/unknown LC0 Backend "
+                    f"{backend!r} for {spec.name}; allowed configured backends are "
+                    f"{sorted(cpu_only_lc0_backends)}"
+                )
+
     return RuntimeConfig(
         path=path,
         root=root,
@@ -1075,6 +1130,7 @@ def load_runtime_config(path: Path) -> RuntimeConfig:
         resource_measurement=resource_measurement,
         budget=budget,
         routing=routing,
+        online_time=online_time,
     )
 
 
@@ -1121,6 +1177,8 @@ class BackendManager:
         #: replay evidence, never the outward search, so it is recorded here
         #: rather than raised.
         self._observer_failures: list[str] = []
+        self._deferred_observers: list[DeferredObserver] = []
+        self._online_clock: ClockSearch | None = None
 
         # Provenance is captured here, before `start()` launches anything. It
         # used to be computed when the shadow coordinator was constructed --
@@ -1365,6 +1423,9 @@ class BackendManager:
                         except Exception:  # pragma: no cover - best effort
                             pass
             self.ready_all()
+            if self.config.online_time is not None:
+                for process in self.backends.values():
+                    process.timeout = min(process.timeout, self.config.online_time.quiesce_budget_ms / 1000)
         except Exception as exc:
             self.close()
             if isinstance(exc, RuntimeError):
@@ -1603,6 +1664,8 @@ class BackendManager:
             message = f"legal-root oracle process failure: {exc}"
             if shadow_oracle:
                 self.record_shadow_failure(name, message)
+                if self.config.online_time is not None:
+                    process.kill_now()  # An idle perft transaction has no search token.
             else:
                 self._notify_failure(message, None)
             raise RuntimeError(str(exc)) from exc
@@ -1660,7 +1723,7 @@ class BackendManager:
         on_info: Callable[[int, str], None],
         on_complete: Callable[[int, str], None],
     ) -> tuple[Callable[[int, str], None], Callable[[int, str], None]]:
-        def _observe(token: int, line: str) -> None:
+        def _observe(token: int, line: str, observed: float | None = None) -> None:
             """Run the telemetry observer without letting it reach authority.
 
             An observer exception must never preempt the authoritative callback.
@@ -1674,7 +1737,7 @@ class BackendManager:
             if observer is None:
                 return
             try:
-                observer(instance, token, line, time.monotonic())
+                observer(instance, token, line, time.monotonic() if observed is None else observed)
             except Exception as exc:  # observation is never authoritative
                 message = f"telemetry observer failed: {type(exc).__name__}: {exc}"
                 try:
@@ -1707,19 +1770,82 @@ class BackendManager:
         token: int,
         on_info: Callable[[int, str], None],
         on_complete: Callable[[int, str], None],
+        clock: ClockSearch | None = None,
+        observe_online: bool = False,
+        on_observation_end: Callable[[int, str, int], None] | None = None,
     ) -> None:
         self._require_healthy()
-        info_cb, complete_cb = self._observed_callbacks(self.config.anchor, on_info, on_complete)
+        if clock is not None:
+            with self._lock:
+                previous = self._online_clock
+                if previous is not None:
+                    previous.measurement_superseded.set()
+                self._online_clock = clock
+            # A short-lived tail guard remains active even after the outward
+            # answer, but token-scoped kills cannot touch the next generation.
+            def expire_shadows():
+                clock.finished.wait(max(0, clock.plan.hard_deadline - time.monotonic()))
+                time.sleep(max(0, clock.plan.hard_deadline - time.monotonic()))
+                for instance in self.shadow_instances:
+                    process = self.backends.get(instance)
+                    if process is not None and process.kill_search(token):
+                        self.record_shadow_failure(instance, "clock hard deadline while stopping", generation=token)
+            threading.Thread(target=expire_shadows, name=f"allfather-clock-tail-{token}", daemon=True).start()
+        deferred = None
+        if clock is None:
+            info_cb, complete_cb = self._observed_callbacks(self.config.anchor, on_info, on_complete)
+        else:
+            # Online authority never waits for an observational callback. One
+            # bounded FIFO drains the original receipt timestamps afterwards.
+            if observe_online:
+                if on_observation_end is None:
+                    raise RuntimeError("online replay requires an observation completion hook")
+                def observe(tok: int, line: str, observed: float) -> None:
+                    with self._lock:
+                        observer = self._observer
+                    if observer is not None:
+                        observer(self.config.anchor, tok, line, observed)
+                deferred = DeferredObserver(observe=observe, finished=on_observation_end)
+                self._deferred_observers = [o for o in self._deferred_observers if not o.done.is_set()]
+                self._deferred_observers.append(deferred)
+            def info_cb(tok: int, line: str) -> None:
+                observed = time.monotonic()
+                if deferred is not None:
+                    deferred.submit(tok, line, observed)
+                on_info(tok, line)
+            def complete_cb(tok: int, line: str) -> None:
+                observed = time.monotonic()
+                on_complete(tok, line)
+                if deferred is not None:
+                    deferred.submit(tok, line, observed)
         try:
-            self.anchor.start_search(
-                command,
-                token=token,
-                on_info=info_cb,
-                on_complete=complete_cb,
-            )
+            kwargs = {} if clock is None else {
+                "timeout": max(0.001, clock.plan.hard_deadline - time.monotonic()),
+                "permit": clock.work_open,
+            }
+            self.anchor.start_search(command, token=token, on_info=info_cb,
+                                     on_complete=complete_cb, **kwargs)
         except UciProcessError as exc:
+            if deferred is not None:
+                deferred.abort()
             self._notify_failure(f"anchor search dispatch failed: {exc}", token)
             raise RuntimeError(str(exc)) from exc
+
+    def stop_anchor_for(self, token: int, *, timeout: float) -> bool:
+        try:
+            return self.anchor.stop_search(token, timeout=timeout)
+        except UciProcessError:
+            # The independent hard watchdog owns escalation; this writer must
+            # not attach a late failure to a later frontend generation.
+            return False
+
+    def fail_clock_search(self, token: int, reason: str) -> None:
+        # Called only after the frontend atomically retires this generation.
+        # No successful new go can race into this failed runtime.
+        self.anchor.kill_now()
+        self._notify_failure(reason, token)
+        for observer in self._deferred_observers:
+            observer.abort()
 
     def start_shadow_search(
         self,
@@ -1741,17 +1867,33 @@ class BackendManager:
         if not self.shadow_available(instance):
             return False
         info_cb, complete_cb = self._observed_callbacks(instance, on_info, on_complete)
+        kwargs = {}
+        if self.config.online_time is not None:
+            clock = self._online_clock
+            if clock is None or clock.plan.generation != token or not clock.work_open():
+                return False
+            kwargs = {"permit": clock.work_open,
+                      "timeout": max(0.001, clock.plan.hard_deadline - time.monotonic())}
         try:
             self.backends[instance].start_search(
                 command,
                 token=token,
                 on_info=info_cb,
                 on_complete=complete_cb,
+                **kwargs,
             )
         except UciProcessError as exc:
             self.record_shadow_failure(instance, f"shadow dispatch failed: {exc}", generation=token)
             return False
         return True
+
+    def stop_instance_for(self, instance: str, token: int, *, timeout: float) -> None:
+        process = self.backends.get(instance)
+        if process is not None:
+            try:
+                process.stop_search(token, timeout=timeout)
+            except UciProcessError:
+                pass  # Hard expiry/quiesce owns quarantine, not a late writer.
 
     def stop_instance(self, instance: str) -> None:
         process = self.backends.get(instance)
@@ -1784,6 +1926,8 @@ class BackendManager:
             if self._closing:
                 return
             self._closing = True
+        for observer in self._deferred_observers:
+            observer.abort()
         try:
             for name in reversed(self._startup_order):
                 process = self.backends.get(name)

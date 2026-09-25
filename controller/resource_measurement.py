@@ -17,7 +17,7 @@ import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Callable, Any
 
 from adapters.resource import (
     LinuxProcProvider,
@@ -167,6 +167,7 @@ class ResourceMeasurementRun:
         self.settings = settings
         self._lock = threading.RLock()
         self._provider_error: str | None = None
+        self._interval_error: str | None = None
         self._provider: LinuxProcProvider | None = None
         if settings.enabled:
             try:
@@ -455,7 +456,8 @@ class ResourceMeasurementRun:
         measurements = list(self._measurements.values())
         process_totals = list(self._process_totals.values())
         cpu_complete = (
-            self.settings.enabled
+            self._interval_error is None
+            and self.settings.enabled
             and self._provider is not None
             and not self._active
             and not self._process_starts
@@ -568,7 +570,7 @@ class ResourceMeasurementRun:
             except FileNotFoundError:
                 pass
 
-    def seal(self, path: Path) -> dict[str, object]:
+    def seal(self, path: Path, *, validity_check: Callable[[], bool] | None = None) -> dict[str, object]:
         with self._lock:
             if self._sealed is not None:
                 return dict(self._sealed)
@@ -580,7 +582,11 @@ class ResourceMeasurementRun:
                     reason="resource report sealed before a terminal stage sample was observed",
                 )
             self._finalize_process_totals()
+            if validity_check is not None and not validity_check():
+                self._interval_error = "measurement interval crossed an online anchor generation"
             payload = self._report_payload()
+            if self._interval_error is not None:
+                payload["interval_error"] = self._interval_error
             digest = hashlib.sha256(self._canonical_bytes(payload)).hexdigest()
             payload["report_id"] = f"resource-{digest[:16]}"
             rendered = json.dumps(payload, indent=2, sort_keys=True) + "\n"

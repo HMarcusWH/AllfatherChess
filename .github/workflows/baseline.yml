@@ -217,6 +217,9 @@ jobs:
       - name: Verify live telemetry adapters
         run: python3 scripts/telemetry-adapter-integration.py
 
+      - name: Verify real-engine online clock deadlines
+        run: python3 scripts/online-clock-contract.py
+
       - name: Verify real-engine hybrid UCI shell
         run: python3 scripts/hybrid-shell-contract.py
 
@@ -258,6 +261,8 @@ jobs:
             build/test-results/unified-value-router
             build/test-results/lc0-defect-telemetry
             build/test-results/telemetry-adapters
+            build/test-results/online-clock
+            build/replays-online-clock
             build/test-results/hybrid-shell
             build/test-results/active-hybrid-decision
             build/test-results/shadow-execution

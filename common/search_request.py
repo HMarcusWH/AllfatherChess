@@ -50,6 +50,19 @@ class PositionRequest:
         payload = f"{self.variant}|{self.base_fen}|{' '.join(self.moves)}"
         return "pos-" + hashlib.sha256(payload.encode("utf-8")).hexdigest()[:24]
 
+    @property
+    def side_to_move(self) -> str:
+        """Side after replaying the supplied history, without discarding FEN side.
+
+        This is turn accounting, not a chess-legality oracle. Illegal game
+        histories remain the backend/rules layer's responsibility.
+        """
+        fields = self.base_fen.split()
+        if len(fields) != 6 or fields[1] not in ("w", "b"):
+            raise SearchRequestError("clock position requires a six-field FEN with w/b side")
+        side = fields[1]
+        return side if len(self.moves) % 2 == 0 else ("b" if side == "w" else "w")
+
     def telemetry_position(self) -> dict[str, Any]:
         return {"base_fen": self.base_fen, "moves": list(self.moves)}
 
@@ -71,7 +84,7 @@ def parse_position_command(command: str, *, variant: str = "standard") -> Positi
         raise SearchRequestError(f"unsupported variant: {variant!r}")
 
     rest = command[len("position ") :].strip()
-    if rest.startswith("startpos"):
+    if rest == "startpos" or rest.startswith("startpos "):
         base_fen = STARTPOS_FEN
         rest = rest[len("startpos") :].strip()
     elif rest.startswith("fen "):
@@ -86,7 +99,7 @@ def parse_position_command(command: str, *, variant: str = "standard") -> Positi
 
     moves: tuple[str, ...] = ()
     if rest:
-        if not rest.startswith("moves"):
+        if rest != "moves" and not rest.startswith("moves "):
             raise SearchRequestError(f"unexpected trailing position material: {rest!r}")
         tokens = rest.split()[1:]
         for token in tokens:

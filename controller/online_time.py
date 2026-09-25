@@ -279,7 +279,22 @@ def _online_timing_marker_without_plan(manifest: dict[str, Any]) -> bool:
         if not isinstance(stage, dict) or stage.get("role") != "anchor":
             continue
         anchor_command = stage.get("command")
-        if isinstance(anchor_command, str) and anchor_command != command:
+        if not isinstance(anchor_command, str) or anchor_command == command:
+            continue
+        try:
+            anchor_request = parse_go_request(anchor_command)
+        except SearchRequestError:
+            continue
+        anchor_names = {
+            item.get("name")
+            for item in anchor_request.get("limits", [])
+            if isinstance(item, dict)
+        }
+        # ONLINE-1's translated authority request is exactly a bounded movetime
+        # request (plus optional searchmoves). Legacy synthetic fixtures may
+        # intentionally compare an external movetime request with node-limited
+        # internal stages; those are not clock-envelope provenance.
+        if anchor_names == {"movetime"} and not anchor_request.get("unknown_tokens"):
             return True
     return False
 

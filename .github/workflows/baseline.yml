@@ -80,6 +80,8 @@ jobs:
             scripts/fetch-lc0-network.py \
             scripts/lc0-hardware-probe.py \
             scripts/lc0-strength-profile-contract.py \
+            scripts/qualify-online-profile.py \
+            scripts/online-hardware-probe.py \
             scripts/lc0-defect-telemetry-contract.py \
             scripts/refinement-evidence-sweep.py \
             scripts/validate-telemetry-contract.py \
@@ -115,6 +117,7 @@ jobs:
           bash -n scripts/fetch-reckless-network.sh
           bash -n scripts/build-baselines.sh
           bash -n scripts/build-lc0-strength.sh
+          bash -n scripts/build-online-cpu-reference.sh
           bash -n scripts/smoke-baselines.sh
 
       - name: Verify declared engine ancestry

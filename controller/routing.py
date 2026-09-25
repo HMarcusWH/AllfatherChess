@@ -64,6 +64,7 @@ ROUTE_SCHEMA_VERSION = 2
 _ALPHA_BETA_NODE_SEMANTICS = ("stockfish.uci_nodes", "reckless.uci_nodes")
 
 POLICY_NAME = "conservative_v1"
+UNIFIED_VALUE_POLICY = "unified_value_v1"
 
 
 class RoutingError(RuntimeError):
@@ -207,6 +208,7 @@ class RouteAudit:
     denials: list[dict[str, Any]] = field(default_factory=list)
     specialist_actions: list[dict[str, Any]] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
+    value_decisions: list[dict[str, Any]] = field(default_factory=list)
 
     def record(self, decision: RouteDecision) -> None:
         payload = decision.as_dict()
@@ -232,6 +234,9 @@ class RouteAudit:
                     "reason": payload.get("reason"),
                 }
             )
+
+    def record_value_decision(self, payload: dict[str, Any]) -> None:
+        self.value_decisions.append(dict(payload))
 
     def note(self, message: str) -> None:
         if len(self.notes) < 128:
@@ -262,13 +267,14 @@ class RoutingPolicy:
     refine_stage_gpu_ms_estimate: float = 0.0
     refine_oracle_cpu_ms_estimate: float = 50.0
     refine_oracle_gpu_ms_estimate: float = 0.0
+    policy_name: str = POLICY_NAME
 
     @classmethod
     def from_config(cls, config: dict[str, Any] | None) -> "RoutingPolicy":
         if not config:
             raise RoutingError("active mode requires an explicit routing configuration")
         policy = config.get("policy", POLICY_NAME)
-        if policy != POLICY_NAME:
+        if policy not in (POLICY_NAME, UNIFIED_VALUE_POLICY):
             raise RoutingError(f"unsupported routing policy: {policy!r}")
         def number(key: str, default: float) -> float:
             """Read one threshold, refusing anything that is not a number.
@@ -306,6 +312,7 @@ class RoutingPolicy:
                 refine_stage_gpu_ms_estimate=float(number("refine_stage_gpu_ms_estimate", 0.0)),
                 refine_oracle_cpu_ms_estimate=float(number("refine_oracle_cpu_ms_estimate", 50.0)),
                 refine_oracle_gpu_ms_estimate=float(number("refine_oracle_gpu_ms_estimate", 0.0)),
+                policy_name=str(policy),
             )
         except (TypeError, ValueError) as exc:
             raise RoutingError(f"invalid routing configuration: {exc}") from exc
@@ -320,6 +327,8 @@ class RoutingPolicy:
         `stop_min_stability_fraction: -1` passes any stability. A policy that
         calls itself conservative has to be unable to say that.
         """
+        if self.policy_name not in (POLICY_NAME, UNIFIED_VALUE_POLICY):
+            raise RoutingError(f"unsupported routing policy: {self.policy_name!r}")
         for name in ("stop_max_reversal_risk", "stop_min_stability_fraction"):
             value = float(getattr(self, name))
             if not math.isfinite(value) or not 0.0 <= value <= 1.0:
@@ -385,7 +394,7 @@ class RoutingPolicy:
 
     def as_dict(self) -> dict[str, Any]:
         return {
-            "policy": POLICY_NAME,
+            "policy": self.policy_name,
             "min_observation_nodes": self.min_observation_nodes,
             "checkpoint_interval_ms": self.checkpoint_interval_ms,
             "max_stages_per_owner": self.max_stages_per_owner,
@@ -612,7 +621,7 @@ class ConservativeRouter:
         # clock would hand a slow oracle a second full envelope.
         started = getattr(context, "started_monotonic", None)
         self.ledger = BudgetLedger(self.envelope, clock=self._clock, started=started)
-        self.audit = RouteAudit(run_id=context.run_id, policy=POLICY_NAME)
+        self.audit = RouteAudit(run_id=context.run_id, policy=self.policy.policy_name)
         self._reservations = {}
         self._anchor_reservation = None
         self._specialist_reservations = {}
@@ -834,6 +843,7 @@ class ConservativeRouter:
             },
             "decisions": audit.decisions,
             "specialist_actions": audit.specialist_actions,
+            "value_decisions": audit.value_decisions,
             "denials": audit.denials,
             "notes": audit.notes,
             "authority": (
@@ -1537,11 +1547,25 @@ def build_router(config: Any) -> ConservativeRouter:
             # uncalibrated policy that still looks configured.
             raise RoutingError(f"declared calibration could not be loaded: {exc}") from exc
 
+    calibration_source = None if not source else str(source)
+    if policy.policy_name == UNIFIED_VALUE_POLICY:
+        # Imported lazily so the extension can subclass ConservativeRouter
+        # without creating a module-import cycle during controller startup.
+        from controller.unified_value_router import build_unified_value_router
+
+        return build_unified_value_router(
+            config=config,
+            envelope=envelope,
+            policy=policy,
+            calibration=calibration,
+            calibration_source=calibration_source,
+        )
+
     return ConservativeRouter(
         envelope=envelope,
         policy=policy,
         calibration=calibration,
-        calibration_source=None if not source else str(source),
+        calibration_source=calibration_source,
         verify_enabled=config.verification is not None,
         refine_enabled=config.refinement is not None,
     )

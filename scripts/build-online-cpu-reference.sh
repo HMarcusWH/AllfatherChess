@@ -20,6 +20,9 @@ rm -rf "$BUNDLE"
 mkdir -p "$BUNDLE/bin" "$BUNDLE/networks"
 
 echo "==> Building Stockfish ARCH=x86-64"
+# ARCH is not part of make's object dependency graph.  Clean first so a local
+# native/baseline build can never leak objects into the portable release bundle.
+make -C "$ROOT/engines/stockfish/src" ARCH=x86-64 objclean
 make -C "$ROOT/engines/stockfish/src" -j"$JOBS" build ARCH=x86-64
 cp "$ROOT/engines/stockfish/src/stockfish" "$BUNDLE/bin/stockfish"
 

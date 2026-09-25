@@ -168,6 +168,13 @@ class TimeTests(unittest.TestCase):
             path.write_text(json.dumps(bad))
             with self.assertRaises(RuntimeError):load_runtime_config(path)
 
+            missing=copy.deepcopy(original)
+            lc0=next(value for value in missing['instances'].values() if value['family']=='lc0')
+            lc0['options'].pop('Backend', None)
+            path.write_text(json.dumps(missing))
+            with self.assertRaises(RuntimeError):
+                load_runtime_config(path)
+
             for backend in ('cuda', 'cudnn', 'opencl', 'onnx-cuda'):
                 bad=copy.deepcopy(original)
                 lc0=next(value for value in bad['instances'].values() if value['family']=='lc0')

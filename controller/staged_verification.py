@@ -404,8 +404,44 @@ def verify_staged_verification_integrity(run_dir: Path | str) -> list[str]:
 
     disposition = (manifest.get("disposition") or {}).get("run")
     stages = manifest.get("stages") or []
+    base_disposition = (base.get("disposition") or {}).get("run")
+    base_stages = [
+        stage for stage in (base.get("stages") or [])
+        if isinstance(stage, dict)
+    ]
+    if base_disposition != "completed":
+        problems.append("staged VERIFY source base round is not completed")
+    if len(base_stages) != 3 or any(
+        stage.get("disposition") != "completed" for stage in base_stages
+    ):
+        problems.append("staged VERIFY source base stages are not all completed")
     if disposition == "completed" and len(stages) != 3:
         problems.append("completed staged VERIFY does not contain exactly three stages")
+
+    base_completed = [
+        stage.get("completed_ms")
+        for stage in base_stages
+        if isinstance(stage.get("completed_ms"), (int, float))
+        and not isinstance(stage.get("completed_ms"), bool)
+    ]
+    extension_dispatched = [
+        stage.get("dispatched_ms")
+        for stage in stages
+        if isinstance(stage, dict)
+        and isinstance(stage.get("dispatched_ms"), (int, float))
+        and not isinstance(stage.get("dispatched_ms"), bool)
+    ]
+    if len(base_completed) == 3 and extension_dispatched:
+        if min(float(value) for value in extension_dispatched) < max(
+            float(value) for value in base_completed
+        ):
+            problems.append(
+                "staged VERIFY extension dispatched before the base round fully completed"
+            )
+    elif disposition == "completed":
+        problems.append(
+            "completed staged VERIFY lacks causal base-completion/extension-dispatch timestamps"
+        )
 
     seen_owners: set[str] = set()
     seen_search_ids: set[str] = set()

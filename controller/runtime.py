@@ -293,9 +293,12 @@ def _engine_identity(spec: "BackendSpec") -> dict[str, object]:
         "binary": str(spec.binary),
         "binary_sha256": _hash_file(spec.binary),
         "args": list(spec.args),
-        "environment": dict(spec.environment),
         "options": dict(spec.options),
     }
+    # Preserve historical identity for every existing profile.  Only explicit
+    # process-environment overrides are claim-bearing and therefore serialized.
+    if spec.environment:
+        identity["environment"] = dict(spec.environment)
     if spec.family == "lc0":
         weights = spec.options.get("WeightsFile")
         if isinstance(weights, str) and weights and weights != "<autodiscover>":

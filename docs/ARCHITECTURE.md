@@ -212,3 +212,48 @@ Every active VERIFY/REFINE/oracle dispatch must hold a reservation first, and
 all dispatched work is settled before the run certificate closes. Raw replay,
 VERIFY, and REFINE artifacts remain separated from the routing/audit record.
 See `docs/ACTIVE_SPECIALIST_SCHEDULER.md`.
+
+
+## Unified value-of-compute route plane (M14-G2)
+
+M14-G2 inserts one live routing decision between the completed base VERIFY
+barrier and the optional G1 staged VERIFY extension:
+
+```text
+clean base VERIFY
+      |
+      v
+live staged features + structural regime
+      |
+      v
+unified_value_v1
+   /       \\
+ skip      buy
+   |        |
+   |        v
+   |   existing authorize_specialist
+   |        |
+   |   reserve / deny / dispatch / settle
+   |        |
+   +--------+
+      |
+      v
+counterfactual evidence update
+```
+
+The route decision can recommend buying or skipping compute. It does not own a
+BudgetLedger reservation and cannot emit a chess move. The existing specialist
+resource gate remains mandatory for every dispatched extension, and the M14-C
+DecisionAuthorization type remains the only hybrid outward-authority gate.
+
+Skipping is treated as a shortcut: the exact staged calibration bucket must be
+in-domain and observed on held-out data, its predicted decision-change
+probability must be below the configured threshold, and the M14-F structural
+regime bucket must be in-domain. Any missing/OOD/unvalidated evidence buys more
+compute fail-closed when the resource window remains open.
+
+When the staged extension completes, the shared unanimous-VERIFY decision is
+re-evaluated from its terminal bestmoves. The sealed counterfactual artifact
+records whether its terminal source was base `verification` or
+`staged_verification` and hash-binds the latter when used. This is an evidence
+update, not a move-authority transfer.

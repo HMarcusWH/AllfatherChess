@@ -75,6 +75,7 @@ jobs:
             scripts/staged-verify-contract.py \
             scripts/staged-value-of-compute-sweep.py \
             scripts/staged-decision-calibration.py \
+            scripts/unified-value-router-contract.py \
             scripts/lc0-strength-lock.py \
             scripts/fetch-lc0-network.py \
             scripts/lc0-hardware-probe.py \
@@ -207,6 +208,9 @@ jobs:
       - name: Verify real-engine same-process staged VERIFY contract
         run: python3 scripts/staged-verify-contract.py
 
+      - name: Verify real-engine unified value-of-compute router
+        run: python3 scripts/unified-value-router-contract.py
+
       - name: Verify LC0 defect telemetry provenance contract
         run: python3 scripts/lc0-defect-telemetry-contract.py
 
@@ -251,6 +255,7 @@ jobs:
             build/test-results/counterfactual
             build/test-results/value-of-compute
             build/test-results/staged-verify
+            build/test-results/unified-value-router
             build/test-results/lc0-defect-telemetry
             build/test-results/telemetry-adapters
             build/test-results/hybrid-shell

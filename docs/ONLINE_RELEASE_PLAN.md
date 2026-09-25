@@ -417,6 +417,9 @@ Repository links below are anchored to the reviewed SHA unless the item is inher
 - **S19 — Bot account/token setup:** `https://github.com/lichess-bot-devs/lichess-bot/wiki/How-to-create-a-Lichess-OAuth-token`
 - **S20 — Irreversible BOT upgrade:** `https://github.com/lichess-bot-devs/lichess-bot/wiki/Upgrade-to-a-BOT-account`
 - **S21 — Chess.com public API limitation:** `https://www.chess.com/news/view/published-data-api`; current documentation explicitly says PubAPI is read-only and cannot submit moves. This is why it is not the proposed first deployment path, not a claim that no private/organizer integration can ever exist.
+- **S22 — PR #36 / ONLINE-1:** `https://github.com/HMarcusWH/AllfatherChess/pull/36`; merged main commit `64aa8fd13c390b9b37b8825d8f39e73d9bdbdbf8`.
+- **S23 — Current main qualification runs:** Merge gate `36193538618`; Controller shell `36193538737`; Telemetry `36193538611`; LC0 real inference `36193538614`; Baseline engine validation `36193538665`.
+- **S24 — Current synchronized status:** `docs/CURRENT_STATUS.md` and `qualification/release-baseline.json` on the post-#36 documentation branch.
 - **E01 — Downloaded CI evidence:** `allfather-main-9a1414-validation-evidence.zip`; inspection output `audit/independent-checks.json`; reproducible local inspector `audit/check_ci_evidence.py` in the accompanying audit pack.
 
 For core source paths not expanded as a URL above, prepend `https://github.com/HMarcusWH/AllfatherChess/blob/9a1414b8d7897e856364b15423fe3efb5a7cc7f7/`.

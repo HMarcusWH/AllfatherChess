@@ -1,5 +1,24 @@
 # Claim ledger
 
+## Current repository synchronization after PR #36
+
+- **PROVED / CI-GATED:** synchronized main is `64aa8fd13c390b9b37b8825d8f39e73d9bdbdbf8`; Merge gate,
+  Controller shell validation, Telemetry contract validation, LC0 real-inference
+  qualification, and Baseline engine validation all completed successfully on that
+  commit. See `CURRENT_STATUS.md` for run IDs and the release matrix.
+- **MEASURED / CONTRACT OBSERVATION:** the real baseline ONLINE-1 contract returned
+  three legal anchor results with full measured envelopes; the G2 contract took the
+  conservative `BUY_STAGED_VERIFY` route; the current real M14-C integration run
+  sealed `ANCHOR_FALLBACK`; and the active-routing validation authorized zero stops.
+  These outcomes are not promoted into strength claims.
+- **OPEN RELEASE GATES:** ONLINE-2 real online profile, M14-G3 clock-aware staged
+  authority composition, a real-backend positive HYBRID override test, full-game
+  LOCAL-1 qualification, packaging/bridge integration, network/restart/rollback
+  qualification, one aggregate release gate, main-branch protection, and the explicit
+  Allfather controller licensing decision.
+- **NOT CLAIMED:** deployed-bot status, production learned SKIP value, Elo, move-quality
+  superiority, or equal-envelope superiority.
+
 ## ONLINE-1 clock/deadline qualification
 
 - **POLICY:** `clock_envelope_v1` allocates a bounded per-move CPU/wall envelope

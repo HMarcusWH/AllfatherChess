@@ -1,8 +1,11 @@
 # ONLINE-1: clock-derived envelopes and deadline-safe UCI execution
 
-This opt-in timing/lifecycle milestone implements the first work package of
-[ONLINE_RELEASE_PLAN.md](ONLINE_RELEASE_PLAN.md), anchored at merged PR #35.
-It does not implement a deployed bot or widen M14-C move authority.
+This opt-in timing/lifecycle milestone was implemented and merged in **PR #36** on top
+of the PR #35 / M14-G2 baseline. The synchronized main commit is
+`64aa8fd13c390b9b37b8825d8f39e73d9bdbdbf8`. It implements the first behavior-changing work package of
+[ONLINE_RELEASE_PLAN.md](ONLINE_RELEASE_PLAN.md); it does not implement a deployed bot
+or widen M14-C move authority. See [CURRENT_STATUS.md](CURRENT_STATUS.md) for the live
+release state.
 
 ## Supported surface
 
@@ -124,8 +127,18 @@ retains its report and replay artifacts. The real positive case requires a full
 measured envelope certificate; unsupported/zero-clock rejection is a separate
 negative control. No limits or historical goldens are loosened for these tests.
 
+## Merged qualification status
+
+On synchronized main, Merge gate, Controller shell validation, Telemetry validation,
+LC0 real-inference qualification and Baseline engine validation are green. The real
+baseline ONLINE-1 contract reports three legal anchor results with full measured
+per-move envelopes plus a separate zero-clock rejection control. This qualifies the
+clock/lifecycle mechanism only: the shipped ONLINE-1 profile still uses random LC0 and
+remains anchor-authoritative.
+
 ## Next milestone
 
-ONLINE-2 freezes a real-network hardware-bound playing profile. M14-G3 separately
-qualifies a clock-aware staged hybrid decision boundary. Full games, network
-recovery, packaging, account configuration and the canary remain release gates.
+ONLINE-2 freezes a real-network hardware-bound online profile. M14-G3 then qualifies a
+new clock-aware staged hybrid decision boundary. Full games, network recovery,
+packaging, account configuration, aggregate release qualification and the canary remain
+release gates.

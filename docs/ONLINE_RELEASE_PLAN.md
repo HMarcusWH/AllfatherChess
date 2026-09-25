@@ -1,17 +1,18 @@
-> Repository integration: this is the frozen 25 September 2026 post-#35 deployment plan.
-> ONLINE-1 implementation is specified in [ONLINE_TIME.md](ONLINE_TIME.md).
-> Its implementation does not complete ONLINE-2, M14-G3/G4, the local gauntlet,
-> packaging, account setup, or online qualification. Hardware, licensing and
-> branch-protection items remain explicit release gates; no administrative
-> setting is changed by committing this plan.
+> Repository integration: originally frozen as the 25 September 2026 post-#35 deployment audit;
+> synchronized on 26 September 2026 after merged PR #36 / ONLINE-1.
+> ONLINE-1 is complete. ONLINE-2, M14-G3, LOCAL-1, packaging, lifecycle qualification,
+> release qualification, account setup and the canary remain open. Hardware, licensing and
+> branch-protection items remain explicit release gates.
 
 # AllfatherChess — Final plan from current repository to online bot play
 
-**Review date:** 25 September 2026
-**Repository:** `HMarcusWH/AllfatherChess`
-**Reviewed main commit:** `9a1414b8d7897e856364b15423fe3efb5a7cc7f7`
-**Current milestone:** PR #35 / M14-G2, merged 25 September 2026 at 18:02:18 UTC (20:02:18 Europe/Stockholm).
-**Delivery:** source-backed audit findings and implementation/deployment specification. This document does not represent a merged implementation or a deployed bot.
+**Original review date:** 25 September 2026  
+**Status synchronization:** 26 September 2026  
+**Repository:** `HMarcusWH/AllfatherChess`  
+**Current main commit:** `64aa8fd13c390b9b37b8825d8f39e73d9bdbdbf8`  
+**Current milestone:** PR #36 / ONLINE-1 merged and main-branch qualification green.  
+**Current status authority:** [CURRENT_STATUS.md](CURRENT_STATUS.md)  
+**Delivery:** source-backed audit plus synchronized implementation/deployment plan. The repository is not yet a deployed bot and makes no playing-strength claim.
 
 ## 1. Decision
 
@@ -20,15 +21,15 @@ Build a bounded online release, rather than continue an open-ended sequence of r
 The critical path is:
 
 ```text
-Post-#35 baseline and release controls
-    -> Clock-derived per-move budgets and deadline-safe lifecycle
-    -> Real-network, hardware-bound deployment profile
-    -> Qualified composition of staged routing and hybrid move authority
-    -> Production calibration contract and positive-path qualification
-    -> Local full-game gauntlet and controlled baseline matches
-    -> Reproducible release package + existing lichess-bot bridge
-    -> Restricted, unrated Lichess bot canary
-    -> Broader online experiments
+PR #36 / ONLINE-1 merged
+    -> ONLINE-2 real-network, hardware-bound online profile
+    -> M14-G3 clock-aware staged hybrid authority
+    -> LOCAL-1 full-game lifecycle / controlled baseline matches
+    -> ONLINE-3 reproducible package + pinned lichess-bot bridge
+    -> ONLINE-4 network/restart/rollback qualification
+    -> aggregate release qualification
+    -> restricted, unrated Lichess bot canary
+    -> broader online experiments
 ```
 
 Keep a second, distinct promotion track for the original objective: statistically credible superiority over each constituent under the same declared and measured total resource contract. An online experimental release does not need to claim that result first. Conversely, a high online rating or a win against a bot called Stockfish does not establish that result.
@@ -186,7 +187,7 @@ The repository owner must enable protection for main and require the appropriate
 
 **Done when:** the reviewed baseline is immutable and reproducible; the documentation agrees with the implementation; required release failures actually prevent promotion; and the remaining release blockers are machine-readable rather than hidden in prose.
 
-### ONLINE-1 — Clock-derived budgets and deadline-safe UCI execution
+### ONLINE-1 — Clock-derived budgets and deadline-safe UCI execution — **COMPLETED IN PR #36**
 
 **Suggested title:** `feat: add clock-derived per-move envelopes and deadline-safe UCI execution`
 
@@ -364,11 +365,22 @@ The first online release ends the integration project, not the research objectiv
 
 If the hybrid cannot beat the best constituent in its tested regime, retain the functional online release as an experiment and use the ablations to identify the bottleneck. Do not convert that outcome into a stronger statement by selecting weaker opponents, changing the reference version after seeing results, or dropping overhead from the accounting.
 
-## 9. First implementation after this plan
+## 9. Current next implementation after ONLINE-1
 
-The next **behavior-changing** PR should be **ONLINE-1: clock-derived per-move envelopes and deadline-safe UCI execution**. CLOSE-35 documentation/protection work can precede it or run alongside it as separate housekeeping.
+ONLINE-1 is merged. The next behavior-changing release milestone is **ONLINE-2:
+Hardware-bound real-inference deployment profile**. It should build on the existing
+pinned LC0 BLAS/network qualification rather than inventing a second real-inference
+scheme, and it must bind the actual online host/resource class, engine binaries,
+networks, options and aggregate process/controller costs.
 
-Its bounded scope is time/provenance/lifecycle, not new search policy, GPU accounting, deep recursion, or native integration. It should preserve legacy authority and explicitly reject unsupported clock-based hybrid authorization until M14-G3 is qualified. The subsequent sequence is ONLINE-2, M14-G3, the M14-G4 compatibility/qualification contract, LOCAL-1, ONLINE-3/4, and ONLINE-RC. Production SKIP optimization and the statistically powered superiority campaign may continue after a clearly labeled conservative online canary.
+M14-G3 follows ONLINE-2 and must add a new clock-aware staged authority contract;
+removing the current staged/hybrid or clock/hybrid runtime guards is not sufficient.
+The positive integration gate must exercise a genuine real-backend HYBRID override as
+well as ordinary fail-closed anchor fallback.
+
+M14-G4 production SKIP qualification may proceed alongside LOCAL-1/ONLINE-3. It becomes
+a hard gate before learned SKIP is promoted, but a conservative first canary may retain
+BUY/resource-denial/fallback behavior when shortcut evidence is unsupported.
 
 ## 10. Final acceptance checklist
 
@@ -405,6 +417,9 @@ Repository links below are anchored to the reviewed SHA unless the item is inher
 - **S19 — Bot account/token setup:** `https://github.com/lichess-bot-devs/lichess-bot/wiki/How-to-create-a-Lichess-OAuth-token`
 - **S20 — Irreversible BOT upgrade:** `https://github.com/lichess-bot-devs/lichess-bot/wiki/Upgrade-to-a-BOT-account`
 - **S21 — Chess.com public API limitation:** `https://www.chess.com/news/view/published-data-api`; current documentation explicitly says PubAPI is read-only and cannot submit moves. This is why it is not the proposed first deployment path, not a claim that no private/organizer integration can ever exist.
+- **S22 — PR #36 / ONLINE-1:** `https://github.com/HMarcusWH/AllfatherChess/pull/36`; merged main commit `64aa8fd13c390b9b37b8825d8f39e73d9bdbdbf8`.
+- **S23 — Current main qualification runs:** Merge gate `36193538618`; Controller shell `36193538737`; Telemetry `36193538611`; LC0 real inference `36193538614`; Baseline engine validation `36193538665`.
+- **S24 — Current synchronized status:** `docs/CURRENT_STATUS.md` and `qualification/release-baseline.json` on the post-#36 documentation branch.
 - **E01 — Downloaded CI evidence:** `allfather-main-9a1414-validation-evidence.zip`; inspection output `audit/independent-checks.json`; reproducible local inspector `audit/check_ci_evidence.py` in the accompanying audit pack.
 
 For core source paths not expanded as a URL above, prepend `https://github.com/HMarcusWH/AllfatherChess/blob/9a1414b8d7897e856364b15423fe3efb5a7cc7f7/`.

@@ -1,18 +1,24 @@
 # Build Plan
 
-## Current deployment work order (post-PR #35)
+## Current deployment work order (post-PR #36 / ONLINE-1)
 
-The canonical remaining execution plan is [ONLINE_RELEASE_PLAN.md](ONLINE_RELEASE_PLAN.md).
-Implement ONLINE-1 clock/deadline contracts first, then ONLINE-2 real-inference
-profile, M14-G3 staged decision-authority composition, M14-G4 model compatibility,
-LOCAL-1 full-game qualification, ONLINE-3/4 bridge/recovery and ONLINE-RC canary.
-Structured IPC/native integration and policy evolution remain later experiments,
-not blockers for the first explicitly experimental online release.
+The authoritative current build state is [CURRENT_STATUS.md](CURRENT_STATUS.md) and the
+canonical release sequence is [ONLINE_RELEASE_PLAN.md](ONLINE_RELEASE_PLAN.md).
+ONLINE-1 is merged on `64aa8fd13c390b9b37b8825d8f39e73d9bdbdbf8` and main is green across Merge gate, Controller shell,
+Telemetry, LC0 real-inference qualification, and Baseline engine validation.
 
-[ONLINE_TIME.md](ONLINE_TIME.md) records this branch's opt-in timing implementation,
-validation commands and remaining limits. Existing profiles and M14-C authority
-restrictions are preserved; clock-to-movetime translation is not authority promotion.
-The milestone history below remains the lineage rather than a new status claim.
+The critical path is now **ONLINE-2 real-network deployment profile -> M14-G3 clock-aware
+staged hybrid authority -> LOCAL-1 full-game qualification -> ONLINE-3 packaging ->
+ONLINE-4 lifecycle/recovery -> release qualification / ONLINE-RC**. M14-G4 production
+SKIP calibration can proceed in parallel and becomes mandatory before learned compute
+suppression is promoted; a conservative canary may continue to BUY/fallback fail-closed.
+Structured IPC/native integration and policy evolution remain later experiments.
+
+[ONLINE_TIME.md](ONLINE_TIME.md) records the merged ONLINE-1 timing contract and limits.
+Existing M14-C `movetime_v0` authority, G2 staged routing, real-LC0 qualification, and
+ONLINE-1 are intentionally separate profiles today. Their runtime incompatibilities are
+release guards, not TODOs to delete. The milestone history below remains lineage rather
+than a claim that every completed mechanism is already one deployable composition.
 
 ## Goal
 

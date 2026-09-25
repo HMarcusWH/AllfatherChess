@@ -412,7 +412,7 @@ class StagedDecisionChangeModel:
         )
 
     def as_dict(self) -> dict[str, Any]:
-        return {
+        core = {
             "schema_version": self.schema_version,
             "model_kind": self.model_kind,
             "extractor_version": self.extractor_version,
@@ -433,6 +433,53 @@ class StagedDecisionChangeModel:
                 "correctness, Elo, strength, or strategic utility."
             ),
         }
+        core["evaluation_sha256"] = hashlib.sha256(
+            json.dumps(
+                self.evaluation,
+                sort_keys=True,
+                separators=(",", ":"),
+                allow_nan=False,
+            ).encode("utf-8")
+        ).hexdigest()
+        return core
+
+
+def _model_address(
+    *,
+    dataset_id: str,
+    source_sha256: str,
+    min_support: int,
+    min_position_groups: int,
+    smoothing_alpha: float,
+    prior_change_probability: float,
+    buckets: dict[str, dict[str, Any]],
+    split_by_position: dict[str, str],
+    evaluation: dict[str, Any],
+) -> str:
+    payload = {
+        "schema_version": STAGED_DECISION_CALIBRATION_SCHEMA_VERSION,
+        "model_kind": MODEL_KIND,
+        "extractor_version": STAGED_VALUE_EXTRACTOR_VERSION,
+        "feature_schema": list(FEATURE_SCHEMA),
+        "dataset_id": dataset_id,
+        "source_sha256": source_sha256,
+        "min_support": min_support,
+        "min_position_groups": min_position_groups,
+        "smoothing_alpha": smoothing_alpha,
+        "prior_change_probability": prior_change_probability,
+        "buckets": buckets,
+        "split_by_position": split_by_position,
+        "evaluation": evaluation,
+    }
+    digest = hashlib.sha256(
+        json.dumps(
+            payload,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+    ).hexdigest()
+    return f"staged-decision-change-v1:{digest[:16]}"
 
 
 def fit_staged_decision_change_model(
@@ -483,33 +530,22 @@ def fit_staged_decision_change_model(
         min_position_groups=min_position_groups,
     )
 
-    identity = {
-        "schema_version": STAGED_DECISION_CALIBRATION_SCHEMA_VERSION,
-        "model_kind": MODEL_KIND,
-        "extractor_version": STAGED_VALUE_EXTRACTOR_VERSION,
-        "feature_schema": list(FEATURE_SCHEMA),
-        "dataset_id": dataset.get("dataset_id"),
-        "source_sha256": source_sha256,
-        "min_support": min_support,
-        "min_position_groups": min_position_groups,
-        "smoothing_alpha": float(smoothing_alpha),
-        "prior_change_probability": prior,
-        "buckets": buckets,
-        "split_by_position": split,
-        "evaluation": evaluation,
-    }
-    digest = hashlib.sha256(
-        json.dumps(
-            identity,
-            sort_keys=True,
-            separators=(",", ":"),
-            allow_nan=False,
-        ).encode("utf-8")
-    ).hexdigest()
+    dataset_id = str(dataset.get("dataset_id") or "")
+    model_id = _model_address(
+        dataset_id=dataset_id,
+        source_sha256=source_sha256,
+        min_support=min_support,
+        min_position_groups=min_position_groups,
+        smoothing_alpha=float(smoothing_alpha),
+        prior_change_probability=prior,
+        buckets=buckets,
+        split_by_position=split,
+        evaluation=evaluation,
+    )
     return StagedDecisionChangeModel(
-        model_id=f"staged-decision-change-v1:{digest[:16]}",
+        model_id=model_id,
         created_utc=_dt.datetime.now(_dt.timezone.utc).isoformat(),
-        dataset_id=str(dataset.get("dataset_id") or ""),
+        dataset_id=dataset_id,
         min_support=min_support,
         min_position_groups=min_position_groups,
         smoothing_alpha=float(smoothing_alpha),
@@ -539,6 +575,8 @@ def load_staged_decision_calibration(
     path: Path | str,
 ) -> StagedDecisionChangeModel:
     path = Path(path)
+    if path.is_dir():
+        path = path / "model.json"
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
@@ -549,9 +587,32 @@ def load_staged_decision_calibration(
         raise StagedDecisionCalibrationError(
             f"unexpected staged model kind: {raw.get('model_kind')!r}"
         )
+    if raw.get("schema_version") != STAGED_DECISION_CALIBRATION_SCHEMA_VERSION:
+        raise StagedDecisionCalibrationError("staged model schema mismatch")
     if raw.get("extractor_version") != STAGED_VALUE_EXTRACTOR_VERSION:
         raise StagedDecisionCalibrationError(
             "staged model extractor version mismatch"
+        )
+    if tuple(raw.get("feature_schema") or ()) != FEATURE_SCHEMA:
+        raise StagedDecisionCalibrationError(
+            "staged model feature schema mismatch"
+        )
+    evaluation = raw.get("evaluation")
+    if not isinstance(evaluation, dict):
+        raise StagedDecisionCalibrationError(
+            "staged model evaluation block is malformed"
+        )
+    expected_eval = hashlib.sha256(
+        json.dumps(
+            evaluation,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+    ).hexdigest()
+    if raw.get("evaluation_sha256") != expected_eval:
+        raise StagedDecisionCalibrationError(
+            "staged model evaluation was modified"
         )
     try:
         model = StagedDecisionChangeModel(
@@ -564,13 +625,28 @@ def load_staged_decision_calibration(
             prior_change_probability=float(raw["prior_change_probability"]),
             buckets=dict(raw["buckets"]),
             split_by_position=dict(raw["split_by_position"]),
-            evaluation=dict(raw["evaluation"]),
+            evaluation=evaluation,
             source_sha256=str(raw["source_sha256"]),
         )
     except (KeyError, TypeError, ValueError) as exc:
         raise StagedDecisionCalibrationError(
             f"staged model is malformed: {exc}"
         ) from exc
+    expected_id = _model_address(
+        dataset_id=model.dataset_id,
+        source_sha256=model.source_sha256,
+        min_support=model.min_support,
+        min_position_groups=model.min_position_groups,
+        smoothing_alpha=model.smoothing_alpha,
+        prior_change_probability=model.prior_change_probability,
+        buckets=model.buckets,
+        split_by_position=model.split_by_position,
+        evaluation=model.evaluation,
+    )
+    if model.model_id != expected_id:
+        raise StagedDecisionCalibrationError(
+            f"model declares {model.model_id!r} but contents address to {expected_id!r}"
+        )
     return model
 
 
@@ -579,6 +655,8 @@ def fit_from_path(
     **kwargs: Any,
 ) -> StagedDecisionChangeModel:
     dataset_path = Path(dataset_path)
+    if dataset_path.is_dir():
+        dataset_path = dataset_path / "dataset.json"
     dataset = load_dataset(dataset_path)
     source_sha = hashlib.sha256(dataset_path.read_bytes()).hexdigest()
     return fit_staged_decision_change_model(

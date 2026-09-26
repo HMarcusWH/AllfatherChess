@@ -38,35 +38,88 @@ Retain the repository's existing semantic milestones. The `ONLINE-*`, `CLOSE-35`
 
 ## 2. Review scope and evidence
 
-The review covered the live repository/tree and critical controller source paths; all 33 returned PRs' metadata, descriptions, and available discussion history; the historical Codex audit; relevant project conversations; current CI checks and downloaded main-branch evidence; and current primary documentation for the online integration. Source reads included complete small files and bounded excerpts of large modules. The approximately 215 KB `controller/shadow.py` was examined through its integration changes and related contracts, not certified line by line.
+This document now carries two explicitly different evidence layers:
 
-**This is not a line-by-line re-audit of every vendored engine file.** A full checkout could not be downloaded into the execution environment, so the complete source build and repository test suite were not independently rerun locally. Existing engine behavior was assessed through provenance, PR/audit history, current contracts, and CI artifacts. This limitation must remain visible when using this report as a handover.
+1. **Current synchronized qualification evidence** for the post-PR #39 / M14-G3 tree.
+   This is the live release-state evidence and is summarized in
+   [CURRENT_STATUS.md](CURRENT_STATUS.md).
+2. **Historical downloaded audit evidence** from the original 25 September deployment
+   review. Those artifacts and source links remain frozen to their reviewed SHA so the
+   audit can be reproduced, but they must not be attributed to the current G3 commit.
 
-### 2.1 Verified baseline
+The original review covered the then-live repository/tree and critical controller source
+paths; returned PR metadata/discussion history; the historical Codex audit; relevant
+project conversations; the then-current CI checks and downloaded validation evidence; and
+the primary online-integration documentation. Source reads included complete small files
+and bounded excerpts of large modules. The approximately 215 KB `controller/shadow.py`
+was examined through its integration changes and related contracts, not certified line by
+line.
 
-All four returned checks for the reviewed main SHA were successful. The heavy baseline job completed at **18:09:17 UTC**. Its steps included all three builds, frozen goldens, root/prefix ownership, recursive refinement, process accounting, typed cross-feed, regime classification, counterfactual decisions, staged VERIFY, unified routing, LC0 telemetry provenance, UCI shell, bounded hybrid authority, and active routing. [S01, S02]
+**This is not a line-by-line re-audit of every vendored engine file.** Historical local
+artifact inspection was narrower than rerunning the complete repository suite. Current G3
+qualification is represented by the exact-head GitHub Actions evidence below.
 
-Downloaded CI evidence:
+### 2.1 Current synchronized qualification evidence
+
+PR #39's final qualified head is
+`9ea858eed4133ea1bc8e89137176b4e5cf2eb316`. The merge commit
+`c301e9986566febfbb7978d55c5a3d3429423cff` has the same Git tree
+`397c004a90adf7e1d666ebd10c2fd81617906b23`, so the code content that passed
+the qualification workflows is the content merged to `main`.
+
+| Workflow | Run | Result |
+| --- | ---: | --- |
+| Telemetry contract validation | 36271238300 | success |
+| Controller shell validation | 36271238299 | success |
+| Merge gate | 36271238288 | success |
+| LC0 real-inference qualification | 36271238258 | success |
+| ONLINE-2 real-network online profile qualification | 36271238269 | success |
+| M14-G3 online staged hybrid authority qualification | 36271238298 | success |
+| Baseline engine validation | 36271238264 | success |
+
+The dedicated M14-G3 qualifier requires a real non-anchor HYBRID output from the frozen
+ONLINE-2 bundle and also exercises deterministic rejection/fallback paths. These are
+integration/authority results, not playing-strength results.
+
+### 2.2 Historical downloaded audit snapshot — 25 September
+
+The following evidence belongs to the original post-#35 deployment audit and remains
+anchored to reviewed commit `9a1414b8d7897e856364b15423fe3efb5a7cc7f7`.
+It is intentionally preserved as historical evidence rather than relabeled as current G3
+qualification.
+
+The historical heavy baseline job completed at **18:09:17 UTC**. Its steps included all
+three builds, frozen goldens, root/prefix ownership, recursive refinement, process
+accounting, typed cross-feed, regime classification, counterfactual decisions, staged
+VERIFY, unified routing, LC0 telemetry provenance, UCI shell, bounded hybrid authority,
+and active routing. [S01, S02]
+
+Downloaded historical CI evidence:
 
 - Workflow run: `36170876516`.
 - Artifact ID: `10880230834`.
 - Artifact: `engine-validation-evidence`.
 - Archive SHA-256: `73476f4b0ff532be7b46b69a39b0e16f8f8bef178dcef375b37c65160cd78674`.
 
-Independent local checks on that artifact passed: archive hash verification; parsing **51 JSON files** and **779 JSONL records**; **36 referenced stream/resource file checks**; and executing the CI-built LC0 defect-telemetry provenance tracker, which exited 0. These are narrower checks than rerunning the repository suites. The accompanying audit pack contains the original evidence, an inspection script, and its output. [E01]
+Independent local checks on that historical artifact passed archive-hash verification;
+parsing **51 JSON files** and **779 JSONL records**; **36 referenced stream/resource file
+checks**; and executing the CI-built LC0 defect-telemetry provenance tracker, which exited
+0. These checks remain narrower than rerunning the repository suites. [E01]
 
-### 2.2 What the passing artifacts actually demonstrate
+### 2.3 What the historical passing artifacts demonstrated
 
-| Evidence | Observed result on this exact CI run | Interpretation |
+| Evidence | Observed result on that historical CI run | Interpretation |
 |---|---|---|
-| Frozen goldens | Stockfish, Reckless, LC0: 12 cases each, zero mismatches | Regression reference reproduced; LC0's deterministic test backend is not a strength profile. |
-| Active hybrid contract | `ANCHOR_FALLBACK`; `proposal_move=null`; reason `no frozen hybrid proposal` | Passing this run did not demonstrate an actual real-engine hybrid override. It does not prove that the implementation can never override. |
-| Unified router | `BUY_STAGED_VERIFY`; neither model loaded; three extension resource authorizations | Missing-model conservative path was exercised. This was not a deployment-calibrated SKIP demonstration. |
+| Frozen goldens | Stockfish, Reckless, LC0: 12 cases each, zero mismatches | Regression reference reproduced; LC0's deterministic test backend was not a strength profile. |
+| Active hybrid contract | `ANCHOR_FALLBACK`; `proposal_move=null`; reason `no frozen hybrid proposal` | That historical run did not demonstrate a real-engine hybrid override. PR #39 later added a separate positive G3 qualification. |
+| Unified router | `BUY_STAGED_VERIFY`; neither model loaded; three extension resource authorizations | Missing-model conservative path was exercised. This was not deployment-calibrated SKIP. |
 | Staged VERIFY | Three base stages and three extension stages over one common candidate set | Same-process staged execution and separate authorization were exercised. |
-| Active routing | Zero authorized stops; 79 denied stops | Current small-session evidence did not license suppression at the declared thresholds. Do not weaken thresholds just to manufacture activity. |
-| Envelope controls | Tight negative control failed wall compliance; separately predeclared headroom positive control passed | The test distinguishes an honest failed certificate from a properly budgeted success. Preserve both controls. |
+| Active routing | Zero authorized stops; 79 denied stops | The historical small-session evidence did not license suppression at the declared thresholds. |
+| Envelope controls | Tight negative control failed wall compliance; separately predeclared headroom positive control passed | The test distinguished an honest failed certificate from a properly budgeted success. |
 
-These observations come from `test-results/*/report.json` and the golden report in the downloaded artifact. [E01]
+These observations come from the historical `test-results/*/report.json` and golden
+report in [E01]. They are retained as lineage and must not be mistaken for current G3
+evidence.
 
 ## 3. Decisions recovered from the project conversations
 
@@ -275,32 +328,58 @@ For an initial experimental release, unsupported regimes may retain conservative
 
 **Done when:** train/serve identity is checked; no unseen/OOD shortcut is admitted; both live policy branches are qualified; held-out risk and coverage are reported; and model updates are immutable offline promotions, not live self-modification.
 
-### M15-B / LOCAL-1 — Full-game qualification and strength infrastructure
+### LOCAL-1 — Full-game lifecycle qualification
 
-**Suggested title:** `test: add full-game lifecycle gauntlet and equal-envelope matches`
+**Suggested title:** `test: qualify complete-game hybrid lifecycle with pinned Fastchess`
 
-Add NEW `scripts/run-match-campaign.py`, NEW `config/matches/*.json`, NEW `tests/online/`, NEW `tests/fixtures/online/`, NEW `schemas/match-campaign-v1.schema.json`, and NEW `docs/MATCH_PROTOCOL.md`. Reuse a pinned established UCI match runner, such as Fastchess, rather than rebuilding a chess tournament manager. Verify its integration with the selected controller/profile. [S18]
+LOCAL-1 is an **operational/lifecycle gate**, not the equal-envelope strength campaign.
 
-Run full games rather than isolated `go` commands only. Cover castling, promotion, en passant, checkmate/stalemate, repetition and full move history, low clocks, long games, no legal moves, worker crashes, slow shutdown, filled replay storage, restarts, and fake network reconnects. Test hundreds of consecutive moves for resource/process leakage.
+Add a pinned established UCI match runner (Fastchess is the planned reference), a frozen
+lifecycle qualification manifest, complete-game fixtures, a campaign runner, an evidence
+validator, and a dedicated workflow. Expected repository surface includes a runner lock,
+verified build/fetch path, `qualification/local-full-game.json`, lifecycle fixtures,
+`scripts/run-local-game-campaign.py`, `scripts/qualify-full-game-lifecycle.py`,
+`docs/FULL_GAME_QUALIFICATION.md`, Make targets, and
+`.github/workflows/full-game-qualification.yml`. Exact names may change if implementation
+finds a cleaner boundary. [S18]
 
-The minimum comparison matrix is:
+Run complete games rather than isolated `go` commands only. Cover:
 
-| Arm | Purpose |
-|---|---|
-| Direct Stockfish / Reckless / real-network LC0 | Each constituent baseline under the declared host/envelope. |
-| Allfather anchor-only | Wrapper, clock-policy, and process-management tax. |
-| Anchor plus observational machinery, authority disabled | Cost of evidence collection without hybrid decisions. |
-| Hybrid with fixed verification policy | Value of the decision mechanism before learned skipping. |
-| Hybrid with qualified G2 routing | Incremental value of adaptive compute allocation. |
-| Later REFINE/adapter/ownership policies | Separate ablations, not bundled explanations. |
+- ordinary startpos play from both colors;
+- full move-history propagation and repetition-sensitive state;
+- castling rights;
+- en passant;
+- promotion;
+- mate/stalemate/no-legal-move terminals;
+- low clocks and stop-grace behavior;
+- long games and repeated backend reuse;
+- worker crash/quarantine and slow shutdown;
+- restart between games;
+- replay/storage delay or failure;
+- process/resource cleanup across plies and games.
 
-Pin openings, play color-reversed pairs, record seeds/versions, and control caches, pondering, books, tablebases, CPU/GPU availability, memory, and workload isolation. Native node counts are useful intervention parameters but not a cross-engine compute currency. Keep wall-time and measured-resource comparisons explicit. Count controller, anchor, all specialists, and cleanup; do not hide extra research work between turns.
+Every completed `go` must correspond to exactly one legal outward terminal move. Link the
+game/PGN identity to ordered ply records and the associated replay, decision, route,
+TimePlan and resource evidence. Preserve failed games and incomplete evidence rather than
+silently dropping them.
 
-Use a predeclared fixed-sample analysis or suitable paired-game sequential test. Fishtest's methodology is a useful implementation reference, not a guarantee that its service will accept this hybrid engine. Do not use optional stopping with ordinary repeated significance checks. Freeze the superiority/non-inferiority hypotheses, practical effect size, error budget across the three opponent claims, maximum budget, and inconclusive outcome. [S17, S18]
+The required CI gate should use a bounded deterministic fixture/campaign suitable for
+ordinary pull requests. A separately invokable extended soak should exercise hundreds of
+moves/games for leakage and lifecycle faults; the previously proposed 200-game campaign is
+an engineering soak target, **not** a statistical strength sample-size calculation.
 
-An initial **proposed engineering gate** is 200 completed local games across the selected qualification matrix with no illegal outputs, unexplained duplicate moves, leaked processes, or controller-attributable time forfeits. This count is not a statistical strength sample-size calculation. Expand it when failure modes or uncertainty require it.
+W/D/L may be recorded as diagnostics, but LOCAL-1 must not require constituent superiority,
+paired-game hypothesis testing, Elo estimation, non-inferiority margins or adaptive
+strength routing. A reference opponent is present to drive realistic game lifecycle, not
+to convert this gate into M15-B/C.
 
-**Done when:** complete-game lifecycle reliability is demonstrated; a genuine hybrid decision path is exercised; results and overhead are reproducible; and the experiment can return failure or inconclusive without changing its criteria. Superiority is a later promotion criterion, not a prerequisite for a clearly labeled online experiment.
+**Done when:** complete-game legality/history/timing/resource/process lifecycle is
+reproducible; genuine G3 HYBRID and anchor-fallback decisions can occur without corrupting
+game state; there are zero illegal/stale/duplicate outward moves, zero unexplained
+`bestmove 0000`, zero controller-attributable time forfeits in the engineering campaign,
+no leaked prior-game workers, and complete game→ply→evidence linkage.
+
+
 
 ### ONLINE-3 — Package the engine and reuse lichess-bot
 
@@ -363,15 +442,63 @@ Review any time forfeit, illegal output, missing replay, failed resource certifi
 
 The first online release ends the integration project, not the research objective.
 
-**M15-A — Governed policy evolution.** Improve candidate nomination, root ownership/allocation, verifier selection, reserve fractions, and source-specific evidence use as separate immutable policy generations. Current modulo partitioning is an exact ownership baseline, not a demonstrated optimal assignment of positions to engine strengths. Promote only on prospective quality/resource evidence. Keep runtime policy immutable during a game.
+**M15-A — Governed policy evolution.** Improve candidate nomination, root
+ownership/allocation, verifier selection, reserve fractions, and source-specific evidence
+use as separate immutable policy generations. Current modulo partitioning is an exact
+ownership baseline, not a demonstrated optimal assignment of positions to engine
+strengths. Promote only on prospective quality/resource evidence. Keep runtime policy
+immutable during a game.
 
-**M14-H/I — Measured IPC/native experiments.** Profile the deployed UCI boundaries first. Consider structured IPC or native hooks only where measured benefit exceeds integration and semantic risk. Require source/behavior parity, ownership/provenance preservation, and fresh license review for tighter combinations. These experiments are not prerequisites for the first public bot. [S03]
+**M14-H/I — Measured IPC/native experiments.** Profile the deployed UCI boundaries first.
+Consider structured IPC or native hooks only where measured benefit exceeds integration
+and semantic risk. Require source/behavior parity, ownership/provenance preservation, and
+fresh license review for tighter combinations. These experiments are not prerequisites for
+the first public bot. [S03]
 
-**Recursive refinement and adapter dispatch.** Existing deeper REFINE and typed adapter proposals can graduate into live resource/routing/decision policy only with their own capability, restoration, depth, budget, and outcome gates. Do not enable every completed research module simultaneously and lose the ability to attribute changes.
+**Recursive refinement and adapter dispatch.** Existing deeper REFINE and typed adapter
+proposals can graduate into live resource/routing/decision policy only with their own
+capability, restoration, depth, budget, and outcome gates. Do not enable every completed
+research module simultaneously and lose the ability to attribute changes.
 
-**M15-B/C — Comparative qualification and claim-bounded release.** Run the frozen campaign against each pinned constituent and then a clearly defined external reference set. Give every arm the same declared hardware/clock/resource opportunity, and report actual consumption. A constituent that cannot use an offered GPU does not create a universal CPU/GPU equivalence; label the resource regime. Show effect sizes, uncertainty, all losses/timeouts, and ablations. A CPU-reference win, a GPU-profile win, and “best engine overall” are different claims.
+### M15-B/C — Equal-resource strength campaign
 
-If the hybrid cannot beat the best constituent in its tested regime, retain the functional online release as an experiment and use the ablations to identify the bottleneck. Do not convert that outcome into a stronger statement by selecting weaker opponents, changing the reference version after seeing results, or dropping overhead from the accounting.
+M15-B/C is deliberately **not** part of LOCAL-1 and does not block the first clearly
+labeled experimental online canary.
+
+Build the frozen comparison infrastructure only when the project is ready to answer the
+playing-strength question. The minimum comparison matrix is:
+
+| Arm | Purpose |
+|---|---|
+| Direct Stockfish / Reckless / real-network LC0 | Each constituent baseline under the declared host/envelope. |
+| Allfather anchor-only | Wrapper, clock-policy and process-management tax. |
+| Anchor plus observational machinery, authority disabled | Cost of evidence collection without hybrid decisions. |
+| Hybrid with fixed verification policy | Value of the decision mechanism before learned skipping. |
+| Hybrid with qualified G2/G4 routing | Incremental value of adaptive compute allocation. |
+| Later REFINE/adapter/ownership policies | Separate ablations, not bundled explanations. |
+
+Pin openings, play color-reversed pairs, record seeds/versions, and control caches,
+pondering, books, tablebases, CPU/GPU availability, memory and workload isolation. Native
+node counts are intervention parameters, not a universal cross-engine compute currency.
+Keep wall-time and measured-resource regimes explicit. Count controller, anchor,
+specialists and cleanup; do not hide research work between turns.
+
+Use a predeclared fixed-sample analysis or an appropriate paired-game sequential test.
+Freeze superiority/non-inferiority hypotheses, practical effect size, error budget across
+the constituent claims, maximum budget and inconclusive outcome **before** looking at the
+confirmatory result. Fishtest/Fastchess methodology is an implementation reference, not a
+claim that their infrastructure automatically validates this hybrid. [S17, S18]
+
+Report actual resource consumption, effect sizes, uncertainty, crashes, time losses and all
+excluded/failed cases. A CPU-reference result, GPU-profile result and broad "best engine"
+claim are different claims.
+
+If the hybrid cannot beat the strongest constituent in a tested regime, retain the
+functional online release as an experiment and use the ablations to identify the
+bottleneck. Do not recover a stronger claim by selecting weaker opponents, changing the
+reference after seeing results, or dropping controller/specialist overhead.
+
+
 
 ## 9. Current next implementation after M14-G3
 
@@ -407,13 +534,13 @@ Remaining operator inputs are the deployment host/resource class, the new bot-ac
 
 ## Sources and evidence registry
 
-Repository links below are anchored to the reviewed SHA unless the item is inherently a live status endpoint. Source descriptions distinguish code, declared intent, and observed CI output.
+Sources S01-S21 and E01 preserve the original 25 September audit snapshot and therefore remain anchored to its reviewed SHA where applicable. S22+ record later synchronization milestones. Current qualification status is defined by CURRENT_STATUS plus S25-S26; historical links are retained for reproducibility rather than relabeled as current evidence.
 
 - **S01 — PR #35:** `https://github.com/HMarcusWH/AllfatherChess/pull/35`
-- **S02 — Main CI:** `https://github.com/HMarcusWH/AllfatherChess/actions/runs/36170876516`; all-check status read for commit `9a1414b8d7897e856364b15423fe3efb5a7cc7f7`.
-- **S03 — Canonical build plan:** `https://github.com/HMarcusWH/AllfatherChess/blob/9a1414b8d7897e856364b15423fe3efb5a7cc7f7/docs/BUILD_PLAN.md`
+- **S02 — Historical main CI snapshot:** `https://github.com/HMarcusWH/AllfatherChess/actions/runs/36170876516`; reviewed against commit `9a1414b8d7897e856364b15423fe3efb5a7cc7f7` during the 25 September audit.
+- **S03 — Historical reviewed build-plan snapshot:** `https://github.com/HMarcusWH/AllfatherChess/blob/9a1414b8d7897e856364b15423fe3efb5a7cc7f7/docs/BUILD_PLAN.md`
 - **S04 — Historical review audit:** `https://github.com/HMarcusWH/AllfatherChess/blob/9a1414b8d7897e856364b15423fe3efb5a7cc7f7/docs/CODEX_REVIEW_AUDIT.md`
-- **S05 — Current README:** `https://github.com/HMarcusWH/AllfatherChess/blob/9a1414b8d7897e856364b15423fe3efb5a7cc7f7/README.md`
+- **S05 — Historical reviewed README snapshot:** `https://github.com/HMarcusWH/AllfatherChess/blob/9a1414b8d7897e856364b15423fe3efb5a7cc7f7/README.md`
 - **S06 — UCI/request paths:** `controller/uci_frontend.py` and `common/search_request.py` at the reviewed SHA.
 - **S07 — Configuration and authority:** `controller/runtime.py`, especially staged/hybrid incompatibility and request-class loading; `controller/decision.py`, especially `authorize_decision`, at the reviewed SHA.
 - **S08 — G2 fixture:** `https://github.com/HMarcusWH/AllfatherChess/blob/9a1414b8d7897e856364b15423fe3efb5a7cc7f7/config/allfather.unified-value.validation.json`
@@ -431,9 +558,10 @@ Repository links below are anchored to the reviewed SHA unless the item is inher
 - **S20 — Irreversible BOT upgrade:** `https://github.com/lichess-bot-devs/lichess-bot/wiki/Upgrade-to-a-BOT-account`
 - **S21 — Chess.com public API limitation:** `https://www.chess.com/news/view/published-data-api`; current documentation explicitly says PubAPI is read-only and cannot submit moves. This is why it is not the proposed first deployment path, not a claim that no private/organizer integration can ever exist.
 - **S22 — PR #36 / ONLINE-1:** `https://github.com/HMarcusWH/AllfatherChess/pull/36`; merged main commit `64aa8fd13c390b9b37b8825d8f39e73d9bdbdbf8`.
-- **S23 — Current main qualification runs:** Merge gate `36193538618`; Controller shell `36193538737`; Telemetry `36193538611`; LC0 real inference `36193538614`; Baseline engine validation `36193538665`.
+- **S23 — Post-ONLINE-1 qualification snapshot (historical/pre-G3):** Merge gate `36193538618`; Controller shell `36193538737`; Telemetry `36193538611`; LC0 real inference `36193538614`; Baseline engine validation `36193538665`.
 - **S24 — Current synchronized status:** `docs/CURRENT_STATUS.md`, `docs/ROADMAP.md` and `qualification/release-baseline.json`.
-- **S25 — PR #39 / M14-G3:** `https://github.com/HMarcusWH/AllfatherChess/pull/39`; merge commit `c301e9986566febfbb7978d55c5a3d3429423cff`; qualified head `9ea858eed4133ea1bc8e89137176b4e5cf2eb316`.
-- **E01 — Downloaded CI evidence:** `allfather-main-9a1414-validation-evidence.zip`; inspection output `audit/independent-checks.json`; reproducible local inspector `audit/check_ci_evidence.py` in the accompanying audit pack.
+- **S25 — PR #39 / M14-G3:** `https://github.com/HMarcusWH/AllfatherChess/pull/39`; merge commit `c301e9986566febfbb7978d55c5a3d3429423cff`; qualified head `9ea858eed4133ea1bc8e89137176b4e5cf2eb316`; shared qualified/merged tree `397c004a90adf7e1d666ebd10c2fd81617906b23`.
+- **S26 — Current G3 qualification runs:** Telemetry `36271238300`; Controller shell `36271238299`; Merge gate `36271238288`; LC0 real inference `36271238258`; ONLINE-2 `36271238269`; M14-G3 `36271238298`; Baseline engine validation `36271238264`.
+- **E01 — Historical downloaded CI evidence:** `allfather-main-9a1414-validation-evidence.zip`; inspection output `audit/independent-checks.json`; reproducible local inspector `audit/check_ci_evidence.py` in the accompanying audit pack. This artifact belongs to the 25 September `9a1414...` audit snapshot, not the current G3 tree.
 
 For core source paths not expanded as a URL above, prepend `https://github.com/HMarcusWH/AllfatherChess/blob/9a1414b8d7897e856364b15423fe3efb5a7cc7f7/`.

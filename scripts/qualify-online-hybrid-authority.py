@@ -59,14 +59,17 @@ def main() -> int:
     run = wait_bundle(replay_root, known)
     problems = verify_bundle_integrity(run)
     require(not problems, f"replay integrity failed: {problems}")
+    manifest = load_manifest(run)
+    decision = load_final_decision_artifact(run)["decision"]
+    require(
+        decision["authority"] == policy["positive_case"]["require_authority"],
+        "positive case did not authorize HYBRID; "
+        + json.dumps(decision, sort_keys=True),
+    )
     problems = verify_counterfactual_integrity(run)
     require(not problems, f"counterfactual integrity failed: {problems}")
     problems = verify_final_decision_integrity(run)
     require(not problems, f"final decision integrity failed: {problems}")
-    manifest = load_manifest(run)
-    decision = load_final_decision_artifact(run)["decision"]
-    require(decision["authority"] == policy["positive_case"]["require_authority"],
-            f"positive case did not authorize HYBRID: {decision}")
     snap = decision["authorization_snapshot"]
     require(snap["terminal_source"] == policy["positive_case"]["require_terminal_source"],
             f"wrong terminal source: {snap.get('terminal_source')!r}")

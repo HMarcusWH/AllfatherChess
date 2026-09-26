@@ -203,6 +203,7 @@ class ClockSearch:
     def __init__(self, plan: TimePlan) -> None:
         self.plan = plan
         self.work_closed = threading.Event()
+        self.authority_blocked = threading.Event()
         self.finished = threading.Event()
         self.dispatched = threading.Event()
         self.measurement_superseded = threading.Event()
@@ -214,6 +215,13 @@ class ClockSearch:
 
     def work_open(self) -> bool:
         return not self.work_closed.is_set() and time.monotonic() < self.plan.soft_deadline
+
+    def authority_open(self) -> bool:
+        """Soft compute expiry closes dispatch, not already-frozen authority evidence."""
+        return not self.authority_blocked.is_set() and time.monotonic() < self.plan.hard_deadline
+
+    def block_authority(self) -> None:
+        self.authority_blocked.set()
 
     def finish(self, *, line: str | None = None, failure: str | None = None) -> None:
         with self._lock:
@@ -375,8 +383,28 @@ def verify_time_manifest(manifest: dict[str, Any]) -> list[str]:
             raise OnlineTimeError("clock outcome contradicts its deadline")
         if actual:
             words = emitted_line.split()
-            if len(words) < 2 or words[0] != "bestmove" or words[1] != anchors[0].get("bestmove"):
-                raise OnlineTimeError("clock output does not match the recorded anchor bestmove")
+            if len(words) < 2 or words[0] != "bestmove":
+                raise OnlineTimeError("clock output is not a bestmove line")
+            outward = manifest.get("outward_decision")
+            if outward is None:
+                if words[1] != anchors[0].get("bestmove"):
+                    raise OnlineTimeError(
+                        "clock output does not match the recorded anchor bestmove"
+                    )
+            else:
+                if not isinstance(outward, dict):
+                    raise OnlineTimeError("outward_decision must be an object")
+                authority = outward.get("authority")
+                emitted = outward.get("emitted_move")
+                anchor = outward.get("anchor_move")
+                if anchor != anchors[0].get("bestmove"):
+                    raise OnlineTimeError("outward_decision anchor does not match anchor stage")
+                if words[1] != emitted:
+                    raise OnlineTimeError("clock output does not match outward_decision")
+                if authority not in ("HYBRID", "ANCHOR_FALLBACK"):
+                    raise OnlineTimeError("outward_decision authority is invalid")
+                if authority == "ANCHOR_FALLBACK" and emitted != anchor:
+                    raise OnlineTimeError("anchor fallback changed the anchor move")
         return []
     except (KeyError, TypeError, ValueError, OverflowError, AttributeError, BudgetError, SearchRequestError) as exc:
         return [f"online time integrity: {exc}"]

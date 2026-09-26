@@ -92,7 +92,10 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y             g++ make git meson ninja-build pkg-config             libprotobuf-dev protobuf-compiler zlib1g-dev libopenblas-dev
 
-      - name: Build pinned Fastchess
+      - name: Match Fastchess upstream Linux test environment
+        run: sudo sysctl -w vm.mmap_rnd_bits=28
+
+      - name: Build and test pinned Fastchess
         env:
           JOBS: "2"
         run: bash scripts/build-fastchess.sh
@@ -114,17 +117,17 @@ jobs:
         run: python3 scripts/run-local-game-campaign.py --mode required
 
       - name: Qualify required lifecycle campaign
-        if: always()
+        if: ${{ always() && steps.required_runner.outcome != 'skipped' }}
         run: python3 scripts/qualify-full-game-lifecycle.py --mode required
 
       - name: Run five-arm descriptive baseline
         id: baseline_runner
-        if: always()
+        if: ${{ always() && steps.required_runner.outcome == 'success' }}
         continue-on-error: true
         run: python3 scripts/run-local-game-campaign.py --mode baseline
 
       - name: Qualify five-arm baseline evidence
-        if: always()
+        if: ${{ always() && steps.baseline_runner.outcome != 'skipped' }}
         run: python3 scripts/qualify-full-game-lifecycle.py --mode baseline
 
       - name: Optional extended soak

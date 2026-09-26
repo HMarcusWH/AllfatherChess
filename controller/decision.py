@@ -467,12 +467,21 @@ class FinalDecision:
     proposal_move: str | None
     authorization: DecisionAuthorization
     authorization_snapshot: DecisionAuthorizationSnapshot
+    proposal_evidence_digest: str | None = None
 
     def __post_init__(self) -> None:
         _canonical_move(self.emitted_move, "final emitted move")
         _canonical_move(self.anchor_move, "final anchor move")
         if self.proposal_move is not None:
             _canonical_move(self.proposal_move, "final proposal move")
+        if self.proposal_evidence_digest is not None:
+            if (
+                not isinstance(self.proposal_evidence_digest, str)
+                or len(self.proposal_evidence_digest) != 64
+            ):
+                raise DecisionError(
+                    "final proposal evidence identity must be a SHA-256 digest"
+                )
         if self.authority not in (HYBRID_AUTHORITY, ANCHOR_FALLBACK):
             raise DecisionError(f"unknown final-decision authority: {self.authority!r}")
         if self.authorization.snapshot_digest != self.authorization_snapshot.digest:
@@ -500,6 +509,7 @@ class FinalDecision:
             "emitted_move": self.emitted_move,
             "anchor_move": self.anchor_move,
             "proposal_move": self.proposal_move,
+            "proposal_evidence_digest": self.proposal_evidence_digest,
             "authorization": self.authorization.as_dict(),
             "authorization_snapshot": self.authorization_snapshot.as_dict(),
         }
@@ -920,6 +930,7 @@ def revoke_final_decision_to_anchor(
         proposal_move=decision.proposal_move,
         authorization=authorization,
         authorization_snapshot=snapshot,
+        proposal_evidence_digest=decision.proposal_evidence_digest,
     )
 
 
@@ -940,6 +951,9 @@ def select_final_decision(
             proposal_move=proposal_move,
             authorization=authorization,
             authorization_snapshot=authorization_snapshot,
+            proposal_evidence_digest=(
+                None if proposal is None else proposal.evidence_digest
+            ),
         )
     return FinalDecision(
         authority=ANCHOR_FALLBACK,
@@ -948,6 +962,9 @@ def select_final_decision(
         proposal_move=proposal_move,
         authorization=authorization,
         authorization_snapshot=authorization_snapshot,
+        proposal_evidence_digest=(
+            None if proposal is None else proposal.evidence_digest
+        ),
     )
 
 

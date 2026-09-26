@@ -1,0 +1,67 @@
+name: M14-G3 online staged hybrid authority qualification
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - controller/**
+      - config/allfather.online-hybrid.validation.json
+      - config/allfather.online.cpu-reference.json
+      - qualification/online-hybrid-authority.json
+      - scripts/build-online-cpu-reference.sh
+      - scripts/qualify-online-hybrid-authority.py
+      - tests/controller/test_online_hybrid_authority.py
+      - engines/**
+      - vendor.lock.json
+      - Makefile
+      - .github/workflows/online-hybrid-qualification.yml
+  push:
+    branches: [main]
+    paths:
+      - controller/**
+      - config/allfather.online-hybrid.validation.json
+      - qualification/online-hybrid-authority.json
+      - scripts/qualify-online-hybrid-authority.py
+      - tests/controller/test_online_hybrid_authority.py
+      - .github/workflows/online-hybrid-qualification.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: online-hybrid-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  qualify-online-hybrid:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Static G3 contracts
+        run: |
+          python3 tests/controller/test_online_hybrid_authority.py
+          python3 -m py_compile controller/online_hybrid_profile.py scripts/qualify-online-hybrid-authority.py
+          python3 -m json.tool config/allfather.online-hybrid.validation.json >/dev/null
+          python3 -m json.tool qualification/online-hybrid-authority.json >/dev/null
+      - name: Install real-inference dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y meson ninja-build pkg-config libprotobuf-dev protobuf-compiler zlib1g-dev libopenblas-dev
+      - name: Build frozen ONLINE-2 portable bundle
+        env:
+          JOBS: "2"
+        run: bash scripts/build-online-cpu-reference.sh
+      - name: Qualify LC0 real inference
+        run: python3 scripts/lc0-strength-profile-contract.py
+      - name: Qualify G3 clocked staged authority
+        run: python3 scripts/qualify-online-hybrid-authority.py
+      - name: Upload G3 evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: online-hybrid-authority-evidence
+          path: |
+            build/test-results/online-hybrid
+            build/replays-online-hybrid
+          if-no-files-found: warn

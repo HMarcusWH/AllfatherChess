@@ -1,0 +1,147 @@
+name: LOCAL-1 full-game lifecycle qualification
+
+on:
+  workflow_dispatch:
+    inputs:
+      soak_games:
+        description: "Optional even game count for an extended soak after required/baseline gates"
+        required: false
+        default: ""
+  pull_request:
+    paths:
+      - qualification/fastchess.lock.json
+      - qualification/local-full-game.json
+      - config/allfather.local-game.validation.json
+      - config/allfather.local-control.validation.json
+      - config/allfather.online-hybrid.validation.json
+      - controller/**
+      - common/**
+      - adapters/**
+      - scripts/build-fastchess.sh
+      - scripts/build-online-cpu-reference.sh
+      - scripts/uci-transcript-proxy.py
+      - scripts/run-local-game-campaign.py
+      - scripts/qualify-full-game-lifecycle.py
+      - scripts/lc0-*.py
+      - tests/controller/test_local_full_game.py
+      - tests/controller/test_online_hybrid_authority.py
+      - tests/harness/**
+      - tests/fixtures/local_full_game/**
+      - engines/**
+      - vendor.lock.json
+      - Makefile
+      - .github/workflows/full-game-qualification.yml
+  push:
+    branches: [main]
+    paths:
+      - qualification/fastchess.lock.json
+      - qualification/local-full-game.json
+      - config/allfather.local-game.validation.json
+      - config/allfather.local-control.validation.json
+      - config/allfather.online-hybrid.validation.json
+      - controller/**
+      - common/**
+      - adapters/**
+      - scripts/build-fastchess.sh
+      - scripts/build-online-cpu-reference.sh
+      - scripts/uci-transcript-proxy.py
+      - scripts/run-local-game-campaign.py
+      - scripts/qualify-full-game-lifecycle.py
+      - scripts/lc0-*.py
+      - tests/controller/test_local_full_game.py
+      - tests/controller/test_online_hybrid_authority.py
+      - tests/harness/**
+      - tests/fixtures/local_full_game/**
+      - engines/**
+      - vendor.lock.json
+      - Makefile
+      - .github/workflows/full-game-qualification.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: local-1-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  qualify-full-game:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      ALLFATHER_SOURCE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.ALLFATHER_SOURCE_SHA }}
+
+      - name: Verify checkout identity
+        run: test "$(git rev-parse HEAD)" = "$ALLFATHER_SOURCE_SHA"
+
+      - name: Static LOCAL-1 contracts
+        run: |
+          python3 tests/controller/test_local_full_game.py
+          python3 -m py_compile             scripts/uci-transcript-proxy.py             scripts/run-local-game-campaign.py             scripts/qualify-full-game-lifecycle.py             tests/harness/local_full_game.py
+          python3 -m json.tool qualification/fastchess.lock.json >/dev/null
+          python3 -m json.tool qualification/local-full-game.json >/dev/null
+          python3 -m json.tool config/allfather.local-game.validation.json >/dev/null
+          python3 -m json.tool config/allfather.local-control.validation.json >/dev/null
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y             g++ make git meson ninja-build pkg-config             libprotobuf-dev protobuf-compiler zlib1g-dev libopenblas-dev
+
+      - name: Build pinned Fastchess
+        env:
+          JOBS: "2"
+        run: bash scripts/build-fastchess.sh
+
+      - name: Build frozen ONLINE-2 portable bundle
+        env:
+          JOBS: "2"
+        run: bash scripts/build-online-cpu-reference.sh
+
+      - name: Qualify LC0 real inference
+        run: python3 scripts/lc0-strength-profile-contract.py
+
+      - name: Re-qualify G3 positive authority prerequisite
+        run: python3 scripts/qualify-online-hybrid-authority.py
+
+      - name: Run required lifecycle campaign
+        id: required_runner
+        continue-on-error: true
+        run: python3 scripts/run-local-game-campaign.py --mode required
+
+      - name: Qualify required lifecycle campaign
+        if: always()
+        run: python3 scripts/qualify-full-game-lifecycle.py --mode required
+
+      - name: Run five-arm descriptive baseline
+        id: baseline_runner
+        if: always()
+        continue-on-error: true
+        run: python3 scripts/run-local-game-campaign.py --mode baseline
+
+      - name: Qualify five-arm baseline evidence
+        if: always()
+        run: python3 scripts/qualify-full-game-lifecycle.py --mode baseline
+
+      - name: Optional extended soak
+        if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.soak_games != '' }}
+        run: |
+          python3 scripts/run-local-game-campaign.py --mode soak --games "${{ inputs.soak_games }}"
+          python3 scripts/qualify-full-game-lifecycle.py --mode soak
+
+      - name: Upload LOCAL-1 evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: local-1-full-game-evidence
+          path: |
+            build/test-results/local-full-game
+            build/replays-local-full-game-hybrid
+            build/replays-local-full-game-control
+            build/tools/fastchess/build-manifest.json
+            build/tools/fastchess/LICENSE
+          if-no-files-found: warn

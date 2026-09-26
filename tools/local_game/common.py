@@ -130,6 +130,18 @@ def source_identity(root: Path = ROOT) -> dict:
         for line in git("ls-files", "--others", "--exclude-standard").splitlines()
         if line.strip()
     ]
+    # Fixture suffixes such as *.pgn/*.epd are globally ignored, so ask Git
+    # explicitly for ignored-but-untracked files in the qualification fixture
+    # tree as well.
+    ignored_fixtures = [
+        line
+        for line in git(
+            "ls-files", "--others", "--ignored", "--exclude-standard", "--",
+            "tests/fixtures/local_full_game",
+        ).splitlines()
+        if line.strip()
+    ]
+    untracked.extend(path for path in ignored_fixtures if path not in untracked)
     require(
         not untracked,
         "untracked source/fixture files present; qualify committed source only: "

@@ -275,7 +275,33 @@ class UciFrontend:
         if self.online_time is not None:
             with self._state_lock:
                 active = self._active_generation
+                clock = self._clock_search
+                published = bool(
+                    active is not None
+                    and clock is not None
+                    and clock.finished.is_set()
+                    and clock.outcome().get("failure") is None
+                    and clock.outcome().get("emitted_line") is not None
+                )
             if active is not None and (token is None or token == active):
+                if published:
+                    # The terminal bytes are immutable history. A backend/runtime
+                    # failure during post-output accounting must make the shell
+                    # unhealthy, but it must never emit a second null bestmove or
+                    # retroactively turn the published move into a clock failure.
+                    with self._state_lock:
+                        if self._active_generation == active:
+                            self._state = ShellState.UNHEALTHY
+                            self._active_generation = None
+                    self._shadow_cancel(
+                        "runtime_failure_after_publication",
+                        active,
+                        authority_invalidating=False,
+                    )
+                    self._diagnostic(
+                        f"runtime failure after published bestmove: {message}"
+                    )
+                    return
                 self._clock_fail(active, f"runtime failure: {message}")
                 return
         with self._state_lock:

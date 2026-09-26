@@ -215,7 +215,16 @@ def _verify_clocked_authority(
             for item in value_decisions
             if isinstance(item, dict) and canonical_digest(item) == route_digest
         ]
-    if route_digest is not None:
+
+    authorized = authorization.get("authorized") is True
+    if authorized and (
+        not isinstance(route_digest, str)
+        or len(route_digest) != 64
+    ):
+        problems.append(
+            "authorized G3 decision is missing a valid route decision digest"
+        )
+    elif route_digest is not None:
         if len(route_matches) != 1:
             problems.append(
                 "G3 route decision digest does not identify exactly one sealed route"
@@ -231,7 +240,6 @@ def _verify_clocked_authority(
                     "G3 route buy flag differs from authorization snapshot"
                 )
 
-    authorized = authorization.get("authorized") is True
     if authorized:
         if decision.get("authority") != "HYBRID":
             problems.append("authorized G3 decision is not marked HYBRID")

@@ -312,17 +312,22 @@ class UciFrontend:
             if publish_status != "published" or outward_line is None:
                 return
 
+            # Retain the exact outward decision in bounded in-memory replay
+            # state before advertising READY. This is the durable publication
+            # handshake for bytes that have already crossed stdout.
             if self.shadow is not None:
                 try:
-                    self.shadow.note_anchor_emitted(
+                    self.shadow.note_anchor_published(
                         token,
                         final_decision=final_decision,
                     )
                 except Exception as exc:
                     self._diagnostic(
-                        f"post-output decision/resource publication failed: {exc}"
+                        f"post-output decision publication failed: {exc}"
                     )
 
+            # UCI readiness follows successful stdout publication. Slower
+            # procfs/resource/replay evidence work may continue independently.
             with self._state_lock:
                 if (
                     self._state == ShellState.SEARCHING
@@ -336,6 +341,12 @@ class UciFrontend:
                     )
 
             if self.shadow is not None:
+                try:
+                    self.shadow.note_anchor_emitted(token)
+                except Exception as exc:
+                    self._diagnostic(
+                        f"post-output resource sample failed: {exc}"
+                    )
                 threading.Thread(
                     target=lambda: self._shadow_cancel(
                         "clock_anchor_complete",

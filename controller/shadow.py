@@ -405,6 +405,9 @@ class _ActiveRun:
     outward_publication_done: threading.Event = field(default_factory=threading.Event)
     anchor_observation_done: threading.Event = field(default_factory=threading.Event)
     anchor_resource_done: threading.Event = field(default_factory=threading.Event)
+    # Linearizes the final physical shadow go write against anchor completion.
+    # The lock is held only around a nonblocking <= PIPE_BUF write.
+    dispatch_gate: Any = field(default_factory=threading.Lock)
     # All managed engine/process state for this generation is idle/restored.
     # Replay/telemetry writers may still be flushing after this point.
     engine_quiesced: threading.Event = field(default_factory=threading.Event)
@@ -1188,54 +1191,46 @@ class ShadowRunCoordinator:
             active = self._run
             if active is None or active.generation != generation:
                 return None
-            stage = active.anchor_stage
-            elapsed = (time.monotonic() - active.started_monotonic) * 1000.0
-            # Publish the decision boundary while holding the exact lock used
-            # by EXPLORE/VERIFY dispatch commits. No new specialist work may
-            # begin after this point.
-            active.anchor_completed.set()
 
-            if stage is not None:
-                bestmove = (
-                    line.split()[1]
-                    if line.startswith("bestmove ") and len(line.split()) > 1
-                    else None
-                )
-                active.run.record_completion(
-                    stage,
-                    completed_ms=elapsed,
-                    disposition="completed",
-                    bestmove=bestmove,
-                )
+        # The same gate is held by UciProcess for the final nonblocking shadow
+        # go write. Therefore either that physical write happened first, or
+        # anchor_completed becomes visible before the adapter can write bytes.
+        with active.dispatch_gate:
+            with self._lock:
+                if self._run is not active or active.generation != generation:
+                    return None
+                stage = active.anchor_stage
+                elapsed = (time.monotonic() - active.started_monotonic) * 1000.0
+                active.anchor_completed.set()
 
-            # The authority choice is intentionally made before anchor_done is
-            # published, so finalization cannot race ahead of the in-memory
-            # gate. No engine or filesystem work is permitted here. Any
-            # unexpected selection failure is fail-closed to the exact anchor,
-            # but the boundary is still completed so the worker cannot hang.
-            try:
-                final = self._select_final_decision(active, anchor_line=line)
-            except Exception as exc:  # authority-path isolation
-                active.run.note(
-                    f"hybrid authority failed closed: {type(exc).__name__}: {exc}"
-                )
-                final = None
-            finally:
-                active.anchor_done.set()
-                # Non-clock observation is synchronous on the engine reader:
-                # the terminal line was already submitted to the telemetry
-                # writer before this authority callback ran. ONLINE uses a
-                # DeferredObserver and publishes this signal only from its
-                # finished callback.
-                if active.context.clock is None:
-                    active.anchor_observation_done.set()
+                if stage is not None:
+                    bestmove = (
+                        line.split()[1]
+                        if line.startswith("bestmove ") and len(line.split()) > 1
+                        else None
+                    )
+                    active.run.record_completion(
+                        stage,
+                        completed_ms=elapsed,
+                        disposition="completed",
+                        bestmove=bestmove,
+                    )
 
-        # Selection is complete, but stdout emission has not happened yet. No
-        # new observational stage may be opened against the closed boundary.
+                try:
+                    final = self._select_final_decision(active, anchor_line=line)
+                except Exception as exc:
+                    active.run.note(
+                        f"hybrid authority failed closed: {type(exc).__name__}: {exc}"
+                    )
+                    final = None
+                finally:
+                    active.anchor_done.set()
+                    if active.context.clock is None:
+                        active.anchor_observation_done.set()
+
         if self.settings.on_anchor_complete == "cancel":
             self.cancel(generation, reason="anchor_complete", detach=True)
         return final
-
     def invalidate_final_decision(self, generation: int, reason: str) -> None:
         """Withdraw an in-memory choice that never crossed the outward boundary."""
         with self._lock:
@@ -3069,6 +3064,7 @@ class ShadowRunCoordinator:
             on_info=on_info,
             on_complete=on_complete,
             permit=lambda: self._shadow_dispatch_permitted(active),
+            dispatch_gate=active.dispatch_gate,
         )
         if not dispatched:
             self._abandon_resource_stage(
@@ -3451,6 +3447,7 @@ class ShadowRunCoordinator:
             on_info=on_info,
             on_complete=on_complete,
             permit=lambda: self._shadow_dispatch_permitted(active),
+            dispatch_gate=active.dispatch_gate,
         )
         if not dispatched:
             self._abandon_resource_stage(
@@ -4628,6 +4625,7 @@ class ShadowRunCoordinator:
             on_info=on_info,
             on_complete=on_complete,
             permit=lambda: self._shadow_dispatch_permitted(active),
+            dispatch_gate=active.dispatch_gate,
         )
         if not dispatched:
             self._abandon_resource_stage(
@@ -4992,6 +4990,7 @@ class ShadowRunCoordinator:
             on_info=on_info,
             on_complete=on_complete,
             permit=lambda: self._shadow_dispatch_permitted(active),
+            dispatch_gate=active.dispatch_gate,
         )
         if not dispatched:
             self._abandon_resource_stage(
@@ -5399,6 +5398,7 @@ class ShadowRunCoordinator:
             on_info=on_info,
             on_complete=on_complete,
             permit=lambda: self._shadow_dispatch_permitted(active),
+            dispatch_gate=active.dispatch_gate,
         )
         with self._lock:
             state.dispatch_pending = False

@@ -152,7 +152,7 @@ class RulesTests(unittest.TestCase):
                 "sent_ns": index*100, "received_ns": index*100+10, "metrics": {"cpu_ms_observed": 1}})
             history.append(uci); board.push_uci(uci)
         game = chess.pgn.Game.from_board(board)
-        game.headers.update(White="stockfish", Black="reckless", Result="1-0")
+        game.headers.update(White="stockfish", Black="reckless", Result="1-0", Termination="normal")
         self.assertEqual(len(match_game(game, streams, False)), 7)
         streams["stockfish"][1]["position"] = "position startpos"
         with self.assertRaisesRegex(QualificationError, "history"): match_game(game, streams, False)

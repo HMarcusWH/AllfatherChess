@@ -336,6 +336,32 @@ def verify_resource_claim(run: Path, manifest: dict) -> dict:
     require(budget.get("envelope") == envelope_doc, "budget/envelope identity mismatch")
     envelope = ResourceEnvelope.from_config(envelope_doc)
 
+    lanes = budget.get("lanes") or {}
+    require(isinstance(lanes, dict) and lanes, "budget lane rows missing")
+    lane_cpu = lane_gpu = 0.0
+    for lane, row in lanes.items():
+        require(isinstance(lane, str) and lane and isinstance(row, dict),
+                "malformed budget lane")
+        reserved_cpu = _number(row.get("reserved_cpu_ms"), f"{lane} reserved cpu")
+        spent_cpu = _number(row.get("spent_cpu_ms"), f"{lane} spent cpu")
+        reserved_gpu = _number(row.get("reserved_gpu_ms"), f"{lane} reserved gpu")
+        spent_gpu = _number(row.get("spent_gpu_ms"), f"{lane} spent gpu")
+        lane_cpu += reserved_cpu + spent_cpu
+        lane_gpu += reserved_gpu + spent_gpu
+        settlements = row.get("settlements")
+        require(type(settlements) is int and settlements >= 0,
+                f"{lane} settlements must be non-negative integer")
+        source_settlements = sum(
+            int(row.get(key, 0))
+            for key in (
+                "measured_settlements",
+                "estimated_settlements",
+                "declared_fallback_settlements",
+            )
+        )
+        require(source_settlements == settlements,
+                f"{lane} settlement provenance count mismatch")
+
     purpose = budget.get("purpose_totals") or {}
     require(set(purpose) >= {"solver", "verify", "refine", "controller"}, "budget purpose totals missing")
     committed_cpu = 0.0
@@ -351,6 +377,8 @@ def verify_resource_claim(run: Path, manifest: dict) -> dict:
         committed_cpu += cpu_value
         committed_gpu += gpu_value
 
+    _close(lane_cpu, committed_cpu, "lane/purpose committed CPU")
+    _close(lane_gpu, committed_gpu, "lane/purpose committed GPU")
     _close(budget.get("committed_cpu_ms"), round(committed_cpu, 3), "budget committed_cpu_ms")
     _close(budget.get("committed_gpu_ms"), round(committed_gpu, 3), "budget committed_gpu_ms")
     within_envelope = committed_cpu <= envelope.cpu_ms + 1e-6 and committed_gpu <= envelope.gpu_ms + 1e-6
@@ -378,9 +406,49 @@ def verify_resource_claim(run: Path, manifest: dict) -> dict:
         and type(limits.get("movetime")) is int
         and 0 < limits["movetime"] <= int(time_plan.get("soft_budget_ms", -1))
     )
-    anchor_reserved = committed_by_purpose["solver"][0] > 0
-    gpu_accounted = committed_gpu <= envelope.gpu_ms + 1e-6
-    settlement_complete = budget.get("open_reservations") == 0
+    anchor_lane = lanes.get("anchor")
+    anchor_reserved = bool(
+        isinstance(anchor_lane, dict)
+        and type(anchor_lane.get("settlements")) is int
+        and anchor_lane["settlements"] >= 1
+    )
+
+    thresholds = route.get("thresholds") or {}
+    if envelope.gpu_ms <= 0:
+        gpu_accounted = True
+    else:
+        gpu_accounted = _number(
+            thresholds.get("stage_gpu_ms_estimate"),
+            "stage_gpu_ms_estimate",
+        ) > 0
+        if route.get("verification_enabled", False):
+            gpu_accounted = gpu_accounted and _number(
+                thresholds.get("verify_stage_gpu_ms_estimate"),
+                "verify_stage_gpu_ms_estimate",
+            ) > 0
+        if route.get("refinement_enabled", False):
+            gpu_accounted = gpu_accounted and _number(
+                thresholds.get("refine_stage_gpu_ms_estimate"),
+                "refine_stage_gpu_ms_estimate",
+            ) > 0 and _number(
+                thresholds.get("refine_oracle_gpu_ms_estimate"),
+                "refine_oracle_gpu_ms_estimate",
+            ) > 0
+
+    granted_tokens = set()
+    resolved_tokens = set()
+    for action in route.get("specialist_actions") or []:
+        require(isinstance(action, dict), "malformed specialist action")
+        token = action.get("reservation_token")
+        if action.get("granted") is True and isinstance(token, str) and token:
+            if action.get("event") in ("settle", "release"):
+                resolved_tokens.add(token)
+            elif action.get("event") is None:
+                granted_tokens.add(token)
+    settlement_complete = (
+        budget.get("open_reservations") == 0
+        and granted_tokens <= resolved_tokens
+    )
     wall_within = _number(budget.get("elapsed_ms"), "budget elapsed_ms") <= envelope.wall_ms + 1e-6
     physical_within = physical <= envelope.cpu_ms + 1e-6
     clock_complete = (manifest.get("clock_outcome") or {}).get("output_within_deadline") is True

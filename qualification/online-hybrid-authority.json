@@ -10,12 +10,13 @@
   "allow_skipped_extension_authority": false,
   "verification": {
     "base": {
-      "nodes": 64
+      "nodes": 16
     },
     "extension": {
-      "nodes": 128
+      "nodes": 32
     },
-    "intervention": "same_process_staged_verify_v1"
+    "intervention": "same_process_staged_verify_v1",
+    "reservation_cpu_ms_per_stage": 750
   },
   "claim_boundary": {
     "hybrid_authority": true,
@@ -85,5 +86,9 @@
     "require_terminal_source": "staged_verification",
     "require_non_anchor_move": true,
     "semantics": "At least one predeclared real-backend case must actually emit a specialist-selected move different from the Stockfish anchor."
+  },
+  "explore": {
+    "nodes": 16,
+    "reason": "Measured real-BLAS LC0 256-visit EXPLORE saturated the 3650 ms soft window under concurrent reference load; G3 integration therefore uses a bounded low-visit authority fixture rather than laundering a larger clock."
   }
 }

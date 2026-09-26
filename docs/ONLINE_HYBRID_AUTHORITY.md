@@ -24,7 +24,7 @@ set and requires at least one real Stockfish/Reckless/BLAS-LC0 case where the
 authorized staged proposal is different from the Stockfish anchor and is the move
 actually written outward.
 
-The G3 reference profile may use the full 4000 ms outer ONLINE-2 wall envelope (rather than ONLINE-2's 2000 ms anchor-only reference cap) so real BLAS EXPLORE + staged VERIFY can finish inside one declared envelope. All other TimePlan semantics remain pinned.\n\nThe soft deadline closes new computation. It does not revoke a proposal already\nfrozen legally before that cutoff. Explicit user stop, generation supersession, or
+The G3 reference profile may use the full 4000 ms outer ONLINE-2 wall envelope (rather than ONLINE-2's 2000 ms anchor-only reference cap) so real BLAS EXPLORE + staged VERIFY can finish inside one declared envelope. All other TimePlan semantics remain pinned.\n\nReference-host evidence showed that a 256-visit real-BLAS LC0 EXPLORE could consume the entire 3650 ms soft window under concurrent anchor load. G3 therefore does not manufacture a larger clock: its integration fixture uses 16-node/visit EXPLORE, 16-node base VERIFY, and 32-node staged VERIFY, with a conservative 750 CPU-ms specialist reservation per verifier stage.\n\nThe soft deadline closes new computation. It does not revoke a proposal already\nfrozen legally before that cutoff. Explicit user stop, generation supersession, or
 hard deadline failure does revoke authority.
 
 ## Deliberate nonclaims

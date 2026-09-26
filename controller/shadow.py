@@ -1960,23 +1960,24 @@ class ShadowRunCoordinator:
     def note_clock_observation_end(self, generation: int, line: str, lost: int) -> None:
         """Publish that deferred ONLINE anchor telemetry has fully drained.
 
-        The DeferredObserver invokes this only after every queued info line and
-        the terminal bestmove have been submitted to the anchor telemetry
-        stream. Replay finalization may close/drain that stream only after this
-        signal. It must not stand in for stdout publication or resource
-        sampling, which are committed independently by note_anchor_emitted().
+        The frontend owns the physical anchor-completion/decision boundary for
+        every ONLINE search. This callback is observation-only: replay may not
+        race a second decision selection merely because the deferred FIFO
+        happened to drain before the frontend returned from its callback.
         """
+        del line
         with self._lock:
             active = self._run
             if active is None or active.generation != generation:
                 return
-            already_done = active.anchor_done.is_set()
             if lost and active.anchor_stream is not None:
-                active.anchor_stream.note_loss(f"online anchor observation lost {lost} event(s)")
-                active.run.note(f"online anchor observation lost {lost} event(s)")
-        if not already_done:
-            self.note_anchor_complete(generation, line)
-        active.anchor_observation_done.set()
+                active.anchor_stream.note_loss(
+                    f"online anchor observation lost {lost} event(s)"
+                )
+                active.run.note(
+                    f"online anchor observation lost {lost} event(s)"
+                )
+            active.anchor_observation_done.set()
 
     def _force_close_observation_loss(self, active: _ActiveRun) -> None:
         """Complete a timed-out deferred-observation barrier with explicit loss."""

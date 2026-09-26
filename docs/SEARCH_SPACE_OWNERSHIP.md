@@ -1,5 +1,10 @@
 # Search-space ownership
 
+> **Current composition note (26 September 2026):** the ownership invariant still applies
+> to the three exploration workers. References below to Stockfish as sole outward authority
+> describe the shadow/active ownership profiles. PR #39 / M14-G3 can authorize a staged
+> hybrid move without changing RootShardLedger ownership semantics.
+
 ## Purpose
 
 The controller must prevent three strong solvers from wasting exploration compute on the same assigned problem.

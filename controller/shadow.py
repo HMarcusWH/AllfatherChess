@@ -1246,25 +1246,45 @@ class ShadowRunCoordinator:
             active.run.outward_decision = None
             active.run.note(f"final decision withdrawn before output: {reason}")
 
+    def note_anchor_published(
+        self,
+        generation: int,
+        final_decision: FinalDecision | None = None,
+    ) -> bool:
+        """Persist the exact outward decision immediately after stdout succeeds.
+
+        This boundary is intentionally memory-only and bounded. It must finish
+        before the frontend advertises READY so a concurrent next command or
+        quit can never erase the fact that bytes already crossed stdout.
+        Resource sampling and replay serialization happen later.
+        """
+        with self._lock:
+            active = self._run
+            if active is None or active.generation != generation:
+                return False
+            if final_decision is not None and active.final_decision is None:
+                active.final_decision = final_decision
+                active.run.outward_decision = final_decision.as_dict()
+            active.outward_publication_done.set()
+            return True
+
     def note_anchor_emitted(
         self,
         generation: int,
         final_decision: FinalDecision | None = None,
     ) -> None:
-        """Commit outward authority and sample resources only after stdout write.
+        """Take the post-output resource sample.
 
-        A selected decision is not an emitted decision. Publication into replay
-        state is delayed until the frontend has actually written the outward
-        line; deadline failure or generation retirement before that point
-        therefore cannot leave a false final-decision artifact behind.
+        note_anchor_published owns the outward-decision fact. This method is
+        deliberately separable from protocol readiness because procfs/resource
+        evidence may lag after the client has already received bestmove.
         """
+        if final_decision is not None:
+            self.note_anchor_published(generation, final_decision)
         with self._lock:
             active = self._run
             if active is None or active.generation != generation:
                 return
-            if final_decision is not None and active.final_decision is None:
-                active.final_decision = final_decision
-                active.run.outward_decision = final_decision.as_dict()
             if active.anchor_resource_done.is_set():
                 return
             stage = active.anchor_stage
@@ -1272,12 +1292,7 @@ class ShadowRunCoordinator:
             if stage is not None:
                 self._finish_resource_stage(active, stage.search_id)
         finally:
-            # Publication is an outward fact, not an observation fact. The
-            # replay worker may not retire this run before stdout publication
-            # has either completed here or the controller/runtime has failed.
             active.anchor_resource_done.set()
-            active.outward_publication_done.set()
-
     def _on_shadow_exit(self, instance: str, rc: int | None, token: int | None) -> None:
         with self._lock:
             active = self._run

@@ -1,5 +1,10 @@
 # Search-regime classifier
 
+> **Current composition note (26 September 2026):** regime classification remains
+> descriptive/support evidence, not chess authority. M14-G3 does not let a regime label
+> authorize an outward move; the separate clocked DecisionAuthorization gate still owns
+> that transition.
+
 ## Status
 
 M14-F adds a decision-inert, offline classifier over already-sealed Allfather

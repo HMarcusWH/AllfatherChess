@@ -219,17 +219,27 @@ def verify_resource_claim(run: Path, manifest: dict) -> dict:
     require(isinstance(processes, dict) and processes, "resource process totals are missing")
 
     stage_cpu = 0.0
+    stage_complete = True
     for row in stages:
-        require(isinstance(row, dict) and row.get("complete") is True,
-                "incomplete measured stage")
-        stage_cpu += _number(row.get("cpu_ms"), "stage cpu_ms")
-        _number(row.get("wall_ms"), "stage wall_ms")
+        require(isinstance(row, dict) and type(row.get("complete")) is bool,
+                "malformed measured stage")
+        if row["complete"]:
+            stage_cpu += _number(row.get("cpu_ms"), "stage cpu_ms")
+            _number(row.get("wall_ms"), "stage wall_ms")
+        else:
+            stage_complete = False
+            require(row.get("cpu_ms") is None, "incomplete stage carries fabricated CPU")
 
     process_cpu = 0.0
+    process_complete = True
     for name, row in processes.items():
-        require(isinstance(name, str) and name and isinstance(row, dict), "malformed process total")
-        require(row.get("complete") is True, f"incomplete process total: {name}")
-        process_cpu += _number(row.get("cpu_ms"), f"{name} cpu_ms")
+        require(isinstance(name, str) and name and isinstance(row, dict) and
+                type(row.get("complete")) is bool, "malformed process total")
+        if row["complete"]:
+            process_cpu += _number(row.get("cpu_ms"), f"{name} cpu_ms")
+        else:
+            process_complete = False
+            require(row.get("cpu_ms") is None, f"incomplete process {name} carries fabricated CPU")
 
     controller = resource.get("controller") or {}
     controller_cpu = _number(controller.get("cpu_ms"), "controller cpu_ms")
@@ -238,7 +248,12 @@ def verify_resource_claim(run: Path, manifest: dict) -> dict:
     physical = process_cpu + controller_cpu
     _close(resource.get("physical_cpu_ms"), round(physical, 3), "physical_cpu_ms")
 
-    cpu_complete = True
+    cpu_complete = bool(
+        resource.get("provider_error") is None
+        and resource.get("interval_error") is None
+        and stage_complete
+        and process_complete
+    )
     gpu_complete = False
     coverage = resource.get("coverage") or {}
     cpu = coverage.get("cpu") or {}

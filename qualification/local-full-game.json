@@ -164,7 +164,7 @@
         "file": "tests/fixtures/local_full_game/terminal.epd",
         "start": 1
       },
-      "base_fen": "7k/6Q1/6K1/8/8/8/8/8 b - - 0 1",
+      "base_fen": "7k/6Q1/6K1/8/8/8/8/8 b - -",
       "expected_history_prefix": [],
       "terminal_without_search": true
     },
@@ -182,7 +182,7 @@
         "file": "tests/fixtures/local_full_game/terminal.epd",
         "start": 2
       },
-      "base_fen": "7k/5Q2/6K1/8/8/8/8/8 b - - 0 1",
+      "base_fen": "7k/5Q2/6K1/8/8/8/8/8 b - -",
       "expected_history_prefix": [],
       "terminal_without_search": true
     }

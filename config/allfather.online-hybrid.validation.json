@@ -17,7 +17,7 @@
     "oracle": "stockfish-shadow",
     "partition": "root_index_modulo",
     "dispatch_limit": {
-      "nodes": 256
+      "nodes": 16
     },
     "lc0_score_type": "WDL_mu",
     "replay_root": "build/replays-online-hybrid",
@@ -44,7 +44,7 @@
     "stop_min_stability_fraction": 0.6,
     "stage_cpu_ms_estimate": 500,
     "anchor_cpu_ms_estimate": 0,
-    "verify_stage_cpu_ms_estimate": 300,
+    "verify_stage_cpu_ms_estimate": 750,
     "verify_stage_gpu_ms_estimate": 0,
     "staged_decision_calibration": null,
     "regime_support_calibration": null,
@@ -141,13 +141,13 @@
     "enabled": true,
     "nomination_method": "owner_bestmove_union_v1",
     "dispatch_limit": {
-      "nodes": 64
+      "nodes": 16
     },
     "staged_extension": {
       "enabled": true,
       "intervention": "same_process_staged_verify_v1",
       "dispatch_limit": {
-        "nodes": 128
+        "nodes": 32
       }
     }
   },

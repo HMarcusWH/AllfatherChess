@@ -405,6 +405,9 @@ class _ActiveRun:
     outward_publication_done: threading.Event = field(default_factory=threading.Event)
     anchor_observation_done: threading.Event = field(default_factory=threading.Event)
     anchor_resource_done: threading.Event = field(default_factory=threading.Event)
+    # All managed engine/process state for this generation is idle/restored.
+    # Replay/telemetry writers may still be flushing after this point.
+    engine_quiesced: threading.Event = field(default_factory=threading.Event)
     started_monotonic: float = 0.0
     #: True while the legal-root oracle request is outstanding. Owner states do
     #: not exist yet at that point, so without this the quiesce barrier sees no
@@ -714,6 +717,23 @@ class ShadowRunCoordinator:
                 self._diagnostic(
                     "previous shadow generation did not drain; skipping shadow "
                     "observation for this search"
+                )
+                return False
+            # Engine/process state can be safe for the next move while the
+            # previous bundle still flushes deferred telemetry/replay files.
+            # Never overwrite the current run in that window: old callbacks
+            # still need its generation-scoped state. The outward anchor
+            # proceeds without shadow observation until finalization finishes.
+            with self._lock:
+                replay_only = (
+                    self._run is previous
+                    and not previous.finished.is_set()
+                    and previous.engine_quiesced.is_set()
+                )
+            if replay_only:
+                self._diagnostic(
+                    "previous replay finalization is still pending; this search "
+                    "runs anchor-only rather than replacing its audit state"
                 )
                 return False
 
@@ -1829,42 +1849,82 @@ class ShadowRunCoordinator:
         return drained
 
     def _quiesce_clock(self, *, timeout: float | None, reason: str) -> bool:
-        """Bounded online barrier: late observational processes are quarantined.
+        """Bounded ONLINE engine barrier, independent of replay-only backlog.
 
-        No pipe write, resource sample, replay flush or worker finalization is
-        performed on this caller. An old worker retains its own run until it
-        finishes; prepare_run refuses to replace it while that happens.
+        State-changing UCI commands need physical engines to be idle/restored;
+        they do not need JSONL writers or manifest sealing to have completed.
+        Normal shutdown is the exception: it waits for full replay completion so
+        already-emitted authority evidence is not abandoned.
         """
         if timeout is None:
             timeout = self.runtime.config.online_time.quiesce_budget_ms / 1000
         deadline = time.monotonic() + max(0, timeout)
+
         if not self._lock.acquire(timeout=max(0, deadline - time.monotonic())):
             self._quarantine_clock_workers("clock generation lock deadline")
             return False
         try:
             active = self._run
             prior_stops = tuple(self._stop_threads)
-            if active is not None:
+            replay_only = bool(
+                active is not None and active.engine_quiesced.is_set()
+            )
+            if active is not None and not replay_only:
                 active.cancelled = True
                 active.cancel_reason = active.cancel_reason or reason
         finally:
             self._lock.release()
-        # cancel() can wait for the coordinator lock; keep even that wait off
-        # the outward command loop. Kill on timeout instead of reusing a worker
-        # with a delayed stop queued against its physical process.
-        stopper = threading.Thread(target=lambda: (
-            self.cancel(active.generation, reason=reason, detach=False) if active is not None else None),
-                                   name="allfather-clock-quiesce", daemon=True)
+
+        # A completed process barrier with pending replay is safe for ordinary
+        # position/new-game synchronization. Do not mutate cancellation state or
+        # quarantine healthy idle workers merely because telemetry is flushing.
+        if replay_only and reason != "close":
+            detached = self._join_stop_threads(deadline)
+            if not detached:
+                self._quarantine_clock_workers(
+                    "late stop writer did not drain before synchronization"
+                )
+                return False
+            return True
+
+        stopper = threading.Thread(
+            target=lambda: (
+                self.cancel(
+                    active.generation,
+                    reason=reason,
+                    detach=False,
+                )
+                if active is not None and not replay_only
+                else None
+            ),
+            name="allfather-clock-quiesce",
+            daemon=True,
+        )
         stopper.start()
         stopper.join(max(0, deadline - time.monotonic()))
-        drained = (active is None or active.finished.wait(max(0, deadline - time.monotonic())))
+
+        if active is None:
+            drained = True
+        elif reason == "close":
+            drained = active.finished.wait(
+                max(0, deadline - time.monotonic())
+            )
+        else:
+            drained = active.engine_quiesced.wait(
+                max(0, deadline - time.monotonic())
+            )
+
         for thread in prior_stops:
             thread.join(max(0, deadline - time.monotonic()))
-        if stopper.is_alive() or not drained or any(t.is_alive() for t in prior_stops):
-            self._quarantine_clock_workers("clock generation did not drain before synchronization")
+
+        if stopper.is_alive() or not drained or any(
+            thread.is_alive() for thread in prior_stops
+        ):
+            self._quarantine_clock_workers(
+                "clock engine generation did not drain before synchronization"
+            )
             return False
         return True
-
     def _quarantine_clock_workers(self, reason: str) -> None:
         for instance in self.runtime.shadow_instances:
             self.runtime.record_shadow_failure(instance, reason)
@@ -1896,7 +1956,7 @@ class ShadowRunCoordinator:
     def close(self) -> None:
         with self._lock:
             self._closed = True
-        self.quiesce()
+        self.quiesce(reason="close")
         self.runtime.set_instance_observer(None)
         self.runtime.set_shadow_exit_handler(None)
 
@@ -2080,6 +2140,21 @@ class ShadowRunCoordinator:
                             "the authority stream is incomplete"
                         )
                         break
+
+                if active.anchor_done.is_set():
+                    if (
+                        active.refinement is not None
+                        and not active.refinement.active_stages()
+                        and active.refinement_positioned
+                    ):
+                        self._restore_all_refinement_positions(active)
+                    # Execution has returned, so every shadow dispatch has
+                    # completed or been drained/cut loose. With the anchor
+                    # terminal boundary observed and REFINE positions restored,
+                    # physical engine state is safe to synchronize even if
+                    # replay writers remain backlogged.
+                    active.engine_quiesced.set()
+
                 # Selection completion is not outward publication. Keep
                 # the run alive until the frontend has actually written the
                 # chosen line and published the post-output decision/resource
@@ -2159,13 +2234,6 @@ class ShadowRunCoordinator:
                 # are sealed. Restore every temporarily positioned REFINE worker
                 # first so its cleanup CPU is included in the run-level process
                 # deltas that route.json will certify.
-                if (
-                    active.refinement is not None
-                    and not active.refinement.active_stages()
-                    and active.refinement_positioned
-                ):
-                    self._restore_all_refinement_positions(active)
-
                 # Now that the anchor has answered (or is never going to), the
                 # router's run can be closed against the whole elapsed time.
                 # Every qualification failure -- a terminal position, a dead

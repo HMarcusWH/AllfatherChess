@@ -1,4 +1,5 @@
 name: LOCAL-1 full-game lifecycle and five-arm baselines
+
 on:
   workflow_dispatch:
     inputs:
@@ -46,18 +47,49 @@ on:
       - 'vendor.lock.json'
       - 'Makefile*'
       - '.github/workflows/full-game-qualification.yml'
+
 permissions:
   contents: read
+
 concurrency:
   group: local-full-game-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
+
 jobs:
+  fastchess-source-tests:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    env:
+      ALLFATHER_SOURCE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+      JOBS: '2'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.ALLFATHER_SOURCE_SHA }}
+      - name: Verify checkout identity
+        run: test "$(git rev-parse HEAD)" = "$ALLFATHER_SOURCE_SHA"
+      - name: Match upstream Fastchess Linux test host
+        run: |
+          sudo sysctl -w vm.mmap_rnd_bits=28
+          g++ --version
+      - name: Run pinned Fastchess source tests
+        run: |
+          python3 -m tools.local_game.build_fastchess             --source-test-only             --attestation build/fastchess-source-test/attestation.json
+      - name: Upload Fastchess source-test attestation
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: local1-fastchess-source-test
+          path: build/fastchess-source-test/attestation.json
+          if-no-files-found: error
+          retention-days: 14
+
   qualify:
+    needs: fastchess-source-tests
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.mode == 'required' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 330
     env:
       ALLFATHER_SOURCE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
-      MODE: ${{ inputs.mode || 'required' }}
       JOBS: '2'
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -67,6 +99,11 @@ jobs:
         run: |
           test "$(git rev-parse HEAD)" = "$ALLFATHER_SOURCE_SHA"
           echo "ALLFATHER_RUNNER_ENVIRONMENT=${{ runner.environment }}" >> "$GITHUB_ENV"
+      - name: Download Fastchess source-test attestation
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: local1-fastchess-source-test
+          path: build/fastchess-source-test
       - name: Install real-inference build and pinned test dependencies
         run: |
           sudo apt-get update
@@ -74,12 +111,12 @@ jobs:
           python3 -m pip install --break-system-packages --no-build-isolation --no-deps --require-hashes -r qualification/local-game-requirements.txt
       - name: Run LOCAL-1 negative controls and cross-generation regressions
         run: make -f Makefile.local-game test
-      - name: Build and test the pinned Fastchess tree
+      - name: Build pinned Fastchess runner from tested source identity
         run: make -f Makefile.local-game build-fastchess
       - name: Build the frozen ONLINE-2 engine bundle
         run: make build-online-cpu-reference
-      - name: Qualify prerequisites, rule transitions, full games and five-arm results
-        run: python3 -m tools.local_game.runner --mode "$MODE"
+      - name: Qualify prerequisites, failure cases, rule transitions, full games and five-arm results
+        run: python3 -m tools.local_game.runner --mode required
       - name: Retain evidence including failed/incomplete campaigns
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -90,8 +127,62 @@ jobs:
             build/test-results/lc0-strength
             build/test-results/online-profile
             build/test-results/online-hybrid
+            build/replays-online-cpu-reference
+            build/replays-online-hybrid
+            build/fastchess-source-test/attestation.json
             build/tools/fastchess/build-manifest.json
+            build/tools/fastchess/source-test-attestation.json
             build/tools/fastchess/LICENSE
+            build/online-cpu-reference/build-manifest.json
+          if-no-files-found: warn
+          retention-days: 14
+
+  soak:
+    needs: fastchess-source-tests
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'soak' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0,1,2,3,4,5,6,7,8,9]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 330
+    env:
+      ALLFATHER_SOURCE_SHA: ${{ github.sha }}
+      JOBS: '2'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.ALLFATHER_SOURCE_SHA }}
+      - name: Verify checkout identity
+        run: test "$(git rev-parse HEAD)" = "$ALLFATHER_SOURCE_SHA"
+      - name: Download Fastchess source-test attestation
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: local1-fastchess-source-test
+          path: build/fastchess-source-test
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential git meson ninja-build pkg-config libprotobuf-dev protobuf-compiler zlib1g-dev libopenblas-dev python3-pip python3-setuptools python3-wheel
+          python3 -m pip install --break-system-packages --no-build-isolation --no-deps --require-hashes -r qualification/local-game-requirements.txt
+      - name: Build qualification binaries
+        run: |
+          make -f Makefile.local-game test
+          make -f Makefile.local-game build-fastchess
+          make build-online-cpu-reference
+      - name: Run bounded soak shard
+        run: |
+          python3 -m tools.local_game.runner             --mode soak             --shard-index "${{ matrix.shard }}"             --shard-count 10
+      - name: Retain soak shard evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: local-full-game-soak-${{ github.run_id }}-${{ matrix.shard }}
+          path: |
+            build/test-results/local-full-game
+            build/replays-online-cpu-reference
+            build/replays-online-hybrid
+            build/tools/fastchess/build-manifest.json
             build/online-cpu-reference/build-manifest.json
           if-no-files-found: warn
           retention-days: 14

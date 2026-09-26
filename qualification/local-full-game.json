@@ -25,7 +25,7 @@
   "lifecycle_cases": [
     {
       "id": "startpos-reuse",
-      "opening": null,
+      "opening": "startpos.pgn",
       "restart": false,
       "clock": "lifecycle_clock"
     },

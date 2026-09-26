@@ -1,18 +1,18 @@
 {
   "schema_version": 1,
-  "source_commit": "64aa8fd13c390b9b37b8825d8f39e73d9bdbdbf8",
-  "source_milestone": "PR #36 / ONLINE-1",
+  "source_commit": "c499405fd97600546437c1f91b4c0e9e066023cb",
+  "source_milestone": "PR #38 / ONLINE-2",
   "status_date": "2026-09-26",
   "plan": "docs/ONLINE_RELEASE_PLAN.md",
   "current_status": "docs/CURRENT_STATUS.md",
-  "work_package": "post-ONLINE-1 release synchronization",
-  "scope": "ONLINE-1 timing/provenance/lifecycle merged; no hybrid authority expansion",
+  "work_package": "post-ONLINE-2 release synchronization / M14-G3 candidate",
+  "scope": "ONLINE-2 real-network timing/resource profile merged; G3 is the next authority expansion",
   "completed_gates": [
     "M14-G2 unified value-of-compute router",
-    "ONLINE-1 clock-derived per-move envelopes and deadline-safe UCI execution"
+    "ONLINE-1 clock-derived per-move envelopes and deadline-safe UCI execution",
+    "ONLINE-2 real-network hardware-bound online profile"
   ],
   "remaining_gates": [
-    "ONLINE-2 real-network hardware-bound online profile",
     "M14-G3 clock-aware staged hybrid authority composition",
     "LOCAL-1 full-game lifecycle qualification",
     "ONLINE-3 packaging and pinned lichess-bot bridge",
@@ -25,17 +25,19 @@
     "M15-B/C equal-resource strength campaign before superiority claims"
   ],
   "current_ci": {
-    "Merge gate": 36193538618,
-    "Controller shell validation": 36193538737,
-    "Telemetry contract validation": 36193538611,
-    "LC0 real-inference qualification": 36193538614,
-    "Baseline engine validation": 36193538665
+    "Merge gate": 36198933620,
+    "Controller shell validation": 36198933613,
+    "Telemetry contract validation": 36198933622,
+    "LC0 real-inference qualification": 36198933617,
+    "ONLINE-2 real-network online profile": 36198933607,
+    "Baseline engine validation": 36198933635
   },
   "observed_contract_state": {
     "online_clock": "3 legal anchor results with full measured envelopes; zero-clock rejection control",
     "unified_value_router": "BUY_STAGED_VERIFY; outward anchor",
     "active_hybrid_decision": "ANCHOR_FALLBACK on current real-engine contract",
-    "active_routing": "0 authorized stops on current real-engine validation"
+    "active_routing": "0 authorized stops on current real-engine validation",
+    "online2": "onlineq-8c124a4be7a2c9c6; 3 legal real-network clock cases; authority=stockfish-anchor"
   },
   "administration": {
     "main_protection": "unprotected; no repository ruleset; issues #26 and #27 track the governance gate",

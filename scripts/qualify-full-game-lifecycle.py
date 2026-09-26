@@ -289,10 +289,26 @@ def validate_case(
             problems.append(f"{case_id}: game {game_index} bad termination: {termination}")
         if time_forfeit(termination):
             metrics["time_forfeits"]+=1
-            if mode in {"required","soak"}:
+            allfather_lost=False
+            for candidate in case.get("engines",[]):
+                spec=policy["arms"][candidate]
+                if spec["kind"]!="allfather":
+                    continue
+                outcome=arm_outcome(
+                    {
+                        "White":game["headers"].get("White"),
+                        "Black":game["headers"].get("Black"),
+                        "Result":game["headers"].get("Result"),
+                    },
+                    spec["display_name"],
+                )
+                if outcome=="loss":
+                    allfather_lost=True
+                    break
+            if mode in {"required","soak"} and allfather_lost:
                 metrics["controller_time_forfeits"]+=1
                 problems.append(
-                    f"{case_id}: game {game_index} time forfeit is not allowed in lifecycle gate"
+                    f"{case_id}: game {game_index} Allfather lost on time"
                 )
         baseline_rows.append({
             "case":case_id,

@@ -6,12 +6,13 @@ import json
 from pathlib import Path
 import sys
 import tempfile
+import time
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from common.search_request import parse_position_command
-from controller.online_time import OnlineTimeSettings, OnlineTimeError, make_time_plan, verify_time_manifest
+from controller.online_time import ClockSearch, OnlineTimeSettings, OnlineTimeError, make_time_plan, verify_time_manifest
 from controller.budget import ResourceEnvelope
 from controller.runtime import load_runtime_config, RuntimeError
 from tests.controller.online_helpers import online_config
@@ -99,6 +100,28 @@ class TimeTests(unittest.TestCase):
         self.assertEqual(q.envelope.controller_overhead_reserve_ms,40)
         with self.assertRaises((ValueError, RuntimeError)):
             self.plan(envelope=ResourceEnvelope(wall_ms=2000,cpu_ms=2000,gpu_ms=100))
+
+    def test_authority_commit_linearizes_against_stop_revocation(self):
+        blocked_plan = self.plan(
+            'go movetime 500',
+            received_monotonic=time.monotonic(),
+        )
+        blocked = ClockSearch(blocked_plan)
+        self.assertTrue(blocked.block_authority())
+        self.assertFalse(blocked.commit_authority())
+        self.assertFalse(blocked.authority_committed)
+
+        committed_plan = self.plan(
+            'go movetime 500',
+            received_monotonic=time.monotonic(),
+        )
+        committed = ClockSearch(committed_plan)
+        self.assertTrue(committed.commit_authority())
+        self.assertTrue(committed.authority_committed)
+        self.assertFalse(
+            committed.block_authority(),
+            "a stop after publication commit must not retroactively rewrite output",
+        )
 
     def test_manifest_reconstructs_policy_not_only_hash(self):
         p = self.plan('go movetime 500')

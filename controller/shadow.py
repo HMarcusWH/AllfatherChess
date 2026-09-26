@@ -58,6 +58,7 @@ from controller.counterfactual import (
 )
 from controller.decision import (
     AUTHORIZATION_POLICY,
+    CLOCKED_AUTHORIZATION_POLICY,
     DecisionAuthorization,
     DecisionAuthorizationSnapshot,
     DecisionError,
@@ -897,7 +898,11 @@ class ShadowRunCoordinator:
             if active is None or active.generation != generation:
                 return
             if active.worker is not None:
-                instances = self._cancel_locked(active, reason=reason)
+                instances = self._cancel_locked(
+                active,
+                reason=reason,
+                authority_invalidating=authority_invalidating,
+            )
             else:
                 instances = None
                 self._run = None
@@ -935,6 +940,62 @@ class ShadowRunCoordinator:
             return
         stream.submit(line, max(0.0, (observed_monotonic - t0) * 1000.0))
 
+    def _clocked_authority_snapshot_fields(
+        self,
+        active: _ActiveRun,
+        settings: Any,
+    ) -> dict[str, Any]:
+        if settings.policy != CLOCKED_AUTHORIZATION_POLICY:
+            return {}
+        clock = active.context.clock
+        route_snapshot = None
+        if self.router is not None:
+            getter = getattr(self.router, "staged_route_authority_snapshot", None)
+            if getter is not None:
+                route_snapshot = getter(active.run.run_id)
+        staged = active.staged_verification
+        staged_stages = () if staged is None else staged.stages()
+        staged_complete = bool(
+            staged is not None
+            and staged.disposition == "completed"
+            and len(staged_stages) == 3
+            and all(stage.disposition == "completed" for stage in staged_stages)
+        )
+        plan = None if clock is None else clock.plan
+        plan_dict = None if plan is None else plan.as_dict()
+        proposal = active.decision_proposal
+        return {
+            "time_plan_id": None if plan_dict is None else plan_dict.get("plan_id"),
+            "time_plan_request_class": None if plan is None else plan.request_class,
+            "time_plan_generation": None if plan is None else plan.generation,
+            "time_plan_position_id": None if plan is None else plan.position_id,
+            "time_plan_anchor_go_command": None if plan is None else plan.anchor_go_command,
+            "terminal_source": active.decision_terminal_source,
+            "staged_complete": staged_complete,
+            "staged_intervention": None if staged is None else staged.intervention,
+            "staged_generation": None if staged is None else staged.generation,
+            "staged_candidate_roots": (
+                () if staged is None else tuple(staged.candidate_roots)
+            ),
+            "route_action": (
+                None if route_snapshot is None else route_snapshot.get("action")
+            ),
+            "route_buy_extension": (
+                None if route_snapshot is None else route_snapshot.get("buy_extension")
+            ),
+            "route_decision_digest": (
+                None if route_snapshot is None else route_snapshot.get("digest")
+            ),
+            "authority_evidence_frozen_before_soft_deadline": bool(
+                clock is not None
+                and proposal is not None
+                and proposal.frozen_observed_ms <= clock.plan.soft_budget_ms
+            ),
+            "authority_blocked": bool(
+                clock is None or not clock.authority_open()
+            ),
+        }
+
     def _select_final_decision(
         self,
         active: _ActiveRun,
@@ -958,19 +1019,33 @@ class ShadowRunCoordinator:
             request = {"limits": [], "unknown_tokens": [str(exc)]}
         limits = request.get("limits") or []
         root_restriction = tuple(request.get("root_moves") or ())
-        request_eligible = (
-            not request.get("unknown_tokens")
-            and len(limits) == 1
-            and limits[0].get("name") == "movetime"
-            and isinstance(limits[0].get("value"), int)
-            and not isinstance(limits[0].get("value"), bool)
-            and int(limits[0]["value"]) > 0
-        )
-        request_reason = (
-            "single positive go movetime request"
-            if request_eligible
-            else "v0 requires exactly one positive movetime limit"
-        )
+        clock = active.context.clock
+        if settings.policy == CLOCKED_AUTHORIZATION_POLICY:
+            request_eligible = bool(
+                clock is not None
+                and clock.plan.generation == active.generation
+                and clock.plan.position_id == active.context.position.position_id
+                and clock.authority_open()
+            )
+            request_reason = (
+                "ONLINE TimePlan is current and authority-open"
+                if request_eligible
+                else "G3 requires a current authority-open ONLINE TimePlan"
+            )
+        else:
+            request_eligible = (
+                not request.get("unknown_tokens")
+                and len(limits) == 1
+                and limits[0].get("name") == "movetime"
+                and isinstance(limits[0].get("value"), int)
+                and not isinstance(limits[0].get("value"), bool)
+                and int(limits[0]["value"]) > 0
+            )
+            request_reason = (
+                "single positive go movetime request"
+                if request_eligible
+                else "v0 requires exactly one positive movetime limit"
+            )
 
         route: dict[str, object] = {}
         snapshotter = (
@@ -994,8 +1069,13 @@ class ShadowRunCoordinator:
             if active.ledger is None
             else tuple(active.ledger.candidate_roots)
         )
+        authority_cancelled = (
+            active._cancelled
+            if settings.policy == CLOCKED_AUTHORIZATION_POLICY
+            else active.cancelled
+        )
         backend_current = (
-            not active.cancelled
+            not authority_cancelled
             and all(
                 self.runtime.shadow_available(self.settings.instance(owner))
                 for owner in self.settings.owners
@@ -1044,6 +1124,7 @@ class ShadowRunCoordinator:
             controller_fallback_latched=bool(
                 route.get("controller_fallback_latched", True)
             ),
+            **self._clocked_authority_snapshot_fields(active, settings),
         )
 
         proposal = active.decision_proposal
@@ -1070,6 +1151,7 @@ class ShadowRunCoordinator:
             authorization_snapshot=snapshot,
         )
         active.final_decision = final
+        active.run.outward_decision = final.as_dict()
         return final
 
     def note_anchor_complete(self, generation: int, line: str) -> FinalDecision | None:
@@ -1396,7 +1478,12 @@ class ShadowRunCoordinator:
     # ------------------------------------------------------------------
 
     def cancel(
-        self, generation: int | None = None, *, reason: str, detach: bool = False
+        self,
+        generation: int | None = None,
+        *,
+        reason: str,
+        detach: bool = False,
+        authority_invalidating: bool = True,
     ) -> None:
         """Cancel the active generation and stop its dispatched shadows.
 
@@ -1433,7 +1520,13 @@ class ShadowRunCoordinator:
             self._stop_threads.append(worker)
         worker.start()
 
-    def _cancel_locked(self, active: _ActiveRun, *, reason: str) -> list[str]:
+    def _cancel_locked(
+        self,
+        active: _ActiveRun,
+        *,
+        reason: str,
+        authority_invalidating: bool = True,
+    ) -> list[str]:
         """Mark the run cancelled and report which instances still need `stop`.
 
         The `stop` writes are deliberately NOT done here. Three of this
@@ -1443,8 +1536,10 @@ class ShadowRunCoordinator:
         anchor's own completion. Observation may never hold up authority.
         Callers release the lock and pass this list to `_stop_instances`.
         """
-        if not active._cancelled:
+        if authority_invalidating and not active._cancelled:
             active.cancelled = True
+            active.cancel_reason = reason
+        elif not authority_invalidating and active.cancel_reason is None:
             active.cancel_reason = reason
         instances = [
             state.instance
@@ -1734,10 +1829,12 @@ class ShadowRunCoordinator:
             active = self._run
             if active is None or active.generation != generation:
                 return
+            already_completed = active.anchor_completed.is_set()
             if lost and active.anchor_stream is not None:
                 active.anchor_stream.note_loss(f"online anchor observation lost {lost} event(s)")
                 active.run.note(f"online anchor observation lost {lost} event(s)")
-        self.note_anchor_complete(generation, line)
+        if not already_completed:
+            self.note_anchor_complete(generation, line)
         self.note_anchor_emitted(generation)
 
     def close(self) -> None:
@@ -2414,6 +2511,32 @@ class ShadowRunCoordinator:
         started = time.monotonic()
         charged = False
         try:
+            authority = self.runtime.config.hybrid_authority
+            if authority is not None and authority.policy == CLOCKED_AUTHORIZATION_POLICY:
+                route_snapshot = None
+                if self.router is not None:
+                    getter = getattr(self.router, "staged_route_authority_snapshot", None)
+                    if getter is not None:
+                        route_snapshot = getter(active.run.run_id)
+                if (
+                    route_snapshot is None
+                    or route_snapshot.get("action") != "BUY_STAGED_VERIFY"
+                    or route_snapshot.get("buy_extension") is not True
+                ):
+                    active.run.note(
+                        "G3 counterfactual withheld: authority requires BUY_STAGED_VERIFY"
+                    )
+                    active.decision_evidence = None
+                    active.decision_proposal = None
+                    return
+                staged = active.staged_verification
+                if staged is None or staged.disposition != "completed":
+                    active.run.note(
+                        "G3 counterfactual withheld: bought staged VERIFY is incomplete"
+                    )
+                    active.decision_evidence = None
+                    active.decision_proposal = None
+                    return
             staged_terminal = (
                 active.staged_verification
                 if self.router is not None

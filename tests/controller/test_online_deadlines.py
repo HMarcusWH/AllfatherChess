@@ -175,6 +175,86 @@ class DeadlineTests(unittest.TestCase):
                 )
                 self.assertTrue(shadow._run is None or shadow._run.finished.is_set())
 
+    def test_stop_revokes_authority_while_bestmove_stdout_is_backpressured(self):
+        class BlockingOutput(io.StringIO):
+            def __init__(self):
+                super().__init__()
+                self.entered = threading.Event()
+                self.release = threading.Event()
+
+            def write(self, value):
+                if value.startswith('bestmove '):
+                    self.entered.set()
+                    self.release.wait(3)
+                return super().write(value)
+
+        with shell_fixture(observe=False) as (shell,manager,shadow,out,tmp):
+            blocked = BlockingOutput()
+            shell.output = blocked
+            shell.handle_command('go movetime 500')
+            self.assertTrue(blocked.entered.wait(1))
+            clock = shell._clock_search
+            self.assertIsNotNone(clock)
+
+            stopper = threading.Thread(
+                target=lambda: shell.handle_command('stop'),
+                daemon=True,
+            )
+            stopper.start()
+            wait_for(lambda: clock.authority_blocked.is_set(), timeout=1)
+            self.assertFalse(
+                blocked.release.is_set(),
+                "stop only revoked after the blocked stdout write returned",
+            )
+            blocked.release.set()
+            stopper.join(timeout=1)
+            wait_for(
+                lambda: any(
+                    line.startswith('bestmove ')
+                    for line in blocked.getvalue().splitlines()
+                ),
+                timeout=1,
+            )
+
+    def test_quit_waits_for_post_output_publication_handshake(self):
+        with shell_fixture() as (shell,manager,shadow,out,tmp):
+            entered = threading.Event()
+            release = threading.Event()
+            original = shadow.note_anchor_emitted
+
+            def blocked_publish(token, final_decision=None):
+                entered.set()
+                release.wait(3)
+                return original(token, final_decision=final_decision)
+
+            with patch.object(
+                shadow,
+                'note_anchor_emitted',
+                side_effect=blocked_publish,
+            ):
+                shell.handle_command('go movetime 500')
+                self.assertTrue(entered.wait(1))
+                quitter = threading.Thread(
+                    target=lambda: shell.handle_command('quit'),
+                    daemon=True,
+                )
+                quitter.start()
+                time.sleep(.15)
+                self.assertTrue(
+                    quitter.is_alive(),
+                    "quit retired the run before emitted-decision publication finished",
+                )
+                self.assertIsNotNone(shadow._run)
+                self.assertFalse(shadow._run.finished.is_set())
+                release.set()
+                quitter.join(timeout=2)
+                self.assertFalse(quitter.is_alive())
+
+            run = next(tmp.glob('replays/*'))
+            wait_for(lambda: (run/'manifest.json').is_file(), timeout=2)
+            manifest = json.loads((run/'manifest.json').read_text())
+            self.assertTrue(manifest['clock_outcome']['emitted_line'].startswith('bestmove '))
+
     def test_blocked_replay_setup_uses_same_preparation_deadline(self):
         with shell_fixture() as (shell,manager,shadow,out,tmp):
             original_mkdir=Path.mkdir

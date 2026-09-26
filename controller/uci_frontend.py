@@ -119,14 +119,49 @@ class UciFrontend:
                 if time.monotonic() >= clock.plan.hard_deadline:
                     self._clock_fail(token, "anchor answered after the clock deadline")
                     return
+
+            final_decision = None
+            authority = self.runtime.config.hybrid_authority
+            if (
+                authority is not None
+                and authority.policy == "clocked_staged_preanchor_v1"
+                and self.shadow is not None
+            ):
+                try:
+                    final_decision = self.shadow.note_anchor_complete(token, line)
+                except Exception as exc:
+                    self._diagnostic(f"clocked hybrid decision boundary failed: {exc}")
+
+            with self._state_lock:
+                clock = self._clock_search
+                if self._state != ShellState.SEARCHING or self._active_generation != token or clock is None:
+                    return
+                if time.monotonic() >= clock.plan.hard_deadline:
+                    self._clock_fail(token, "decision selection crossed the clock deadline")
+                    return
                 clock.work_closed.set()
-                self._write(line)  # ONLINE-1: exact anchor, never a hybrid proposal.
-                clock.finish(line=line)
+                outward_line = line
+                if (
+                    final_decision is not None
+                    and final_decision.authority == "HYBRID"
+                    and final_decision.emitted_move != final_decision.anchor_move
+                ):
+                    outward_line = f"bestmove {final_decision.emitted_move}"
+                self._write(outward_line)
+                clock.finish(line=outward_line)
                 self._active_generation = None
                 self._state = ShellState.READY if self.runtime.healthy else ShellState.UNHEALTHY
+
             if self.shadow is not None:
-                threading.Thread(target=lambda: self._shadow_cancel("clock_anchor_complete", token),
-                                 name=f"allfather-clock-complete-{token}", daemon=True).start()
+                threading.Thread(
+                    target=lambda: self._shadow_cancel(
+                        "clock_anchor_complete",
+                        token,
+                        authority_invalidating=False,
+                    ),
+                    name=f"allfather-clock-complete-{token}",
+                    daemon=True,
+                ).start()
             return
         final_decision = None
         if self.shadow is not None:
@@ -159,7 +194,13 @@ class UciFrontend:
             except Exception as exc:  # pragma: no cover - measurement is non-authoritative
                 self._diagnostic(f"anchor terminal resource sample failed: {exc}")
 
-    def _shadow_cancel(self, reason: str, generation: int | None = None) -> None:
+    def _shadow_cancel(
+        self,
+        reason: str,
+        generation: int | None = None,
+        *,
+        authority_invalidating: bool = True,
+    ) -> None:
         """Cancel shadow observation without ever waiting on it.
 
         Every call here is on an authority path -- the command loop or a
@@ -172,7 +213,12 @@ class UciFrontend:
         if self.shadow is None:
             return
         try:
-            self.shadow.cancel(generation, reason=reason, detach=True)
+            self.shadow.cancel(
+                generation,
+                reason=reason,
+                detach=True,
+                authority_invalidating=authority_invalidating,
+            )
         except Exception as exc:  # pragma: no cover - shadow control is non-authoritative
             self._diagnostic(f"shadow cancel failed: {exc}")
 
@@ -360,18 +406,22 @@ class UciFrontend:
                 # already answered; all dispatch sites consume work_open().
                 self.shadow.start_shadow_work(token)
 
-    def _clock_stop(self, token: int) -> None:
+    def _clock_stop(self, token: int, *, authority_invalidating: bool = False) -> None:
         with self._state_lock:
             clock = self._clock_search
             if self._active_generation != token or self._state != ShellState.SEARCHING or clock is None:
                 return
             clock.work_closed.set()
+            if authority_invalidating:
+                clock.block_authority()
         remaining = max(0, clock.plan.hard_deadline - time.monotonic())
         if remaining > 0 and clock.dispatched.is_set():
             self.runtime.stop_anchor_for(token, timeout=remaining)
-        # This is already an independent writer thread, never the deadline
-        # watcher or command loop. The shared work fence closed before IO.
-        self._shadow_cancel("clock_soft_stop", token)
+        self._shadow_cancel(
+            "clock_user_stop" if authority_invalidating else "clock_soft_stop",
+            token,
+            authority_invalidating=authority_invalidating,
+        )
 
     def _clock_fail(self, token: int, reason: str) -> None:
         with self._state_lock:
@@ -381,6 +431,7 @@ class UciFrontend:
             self._active_generation = None
             self._state = ShellState.UNHEALTHY
             clock.work_closed.set()
+            clock.block_authority()
             self._diagnostic(reason)
             self._write("bestmove 0000")
             clock.finish(line="bestmove 0000", failure=reason)
@@ -458,8 +509,13 @@ class UciFrontend:
                     if clock is not None:
                         clock.work_closed.set()
                 if token is not None:
-                    threading.Thread(target=lambda: self._clock_stop(token),
-                                     name=f"allfather-clock-user-stop-{token}", daemon=True).start()
+                    threading.Thread(
+                        target=lambda: self._clock_stop(
+                            token, authority_invalidating=True
+                        ),
+                        name=f"allfather-clock-user-stop-{token}",
+                        daemon=True,
+                    ).start()
                 return True
             if self.state == ShellState.SEARCHING:
                 # AUTHORITY FIRST. Cancelling shadows ahead of this sent `stop`

@@ -1,24 +1,26 @@
 # Build Plan
 
-## Current deployment work order (post-PR #36 / ONLINE-1)
+## Current deployment work order (post-PR #39 / M14-G3)
 
 The authoritative current build state is [CURRENT_STATUS.md](CURRENT_STATUS.md) and the
-canonical release sequence is [ONLINE_RELEASE_PLAN.md](ONLINE_RELEASE_PLAN.md).
-ONLINE-1 is merged on `64aa8fd13c390b9b37b8825d8f39e73d9bdbdbf8` and main is green across Merge gate, Controller shell,
-Telemetry, LC0 real-inference qualification, and Baseline engine validation.
+canonical forward execution order is [ROADMAP.md](ROADMAP.md). The detailed deployment
+audit remains [ONLINE_RELEASE_PLAN.md](ONLINE_RELEASE_PLAN.md).
 
-The critical path is now **ONLINE-2 real-network deployment profile -> M14-G3 clock-aware
-staged hybrid authority -> LOCAL-1 full-game qualification -> ONLINE-3 packaging ->
-ONLINE-4 lifecycle/recovery -> release qualification / ONLINE-RC**. M14-G4 production
-SKIP calibration can proceed in parallel and becomes mandatory before learned compute
-suppression is promoted; a conservative canary may continue to BUY/fallback fail-closed.
-Structured IPC/native integration and policy evolution remain later experiments.
+PR #39 / M14-G3 is merged at `c301e9986566febfbb7978d55c5a3d3429423cff`. Its final
+qualified head `9ea858eed4133ea1bc8e89137176b4e5cf2eb316` has the same Git tree as
+the merge commit and passed all seven qualification workflow families.
 
-[ONLINE_TIME.md](ONLINE_TIME.md) records the merged ONLINE-1 timing contract and limits.
-Existing M14-C `movetime_v0` authority, G2 staged routing, real-LC0 qualification, and
-ONLINE-1 are intentionally separate profiles today. Their runtime incompatibilities are
-release guards, not TODOs to delete. The milestone history below remains lineage rather
-than a claim that every completed mechanism is already one deployable composition.
+The critical path is now **LOCAL-1 full-game lifecycle qualification -> ONLINE-3
+packaging/pinned bridge -> ONLINE-4 lifecycle/recovery -> aggregate release qualification
+-> ONLINE-RC**.
+
+M14-G4 production SKIP calibration can proceed in parallel and is required before learned
+compute suppression is promoted. M15-B/C remains the separate equal-resource strength
+campaign. Structured IPC/native integration and governed policy evolution remain later
+optimization tracks.
+
+[ONLINE_HYBRID_AUTHORITY.md](ONLINE_HYBRID_AUTHORITY.md) records the merged M14-G3
+authority contract and [ROADMAP.md](ROADMAP.md) owns future milestone ordering.
 
 ## Goal
 
@@ -182,6 +184,10 @@ A repo-wide hardening repair is inserted immediately after PR #24. From this poi
 - **M14-F — Search-regime classifier**: multi-label structural hypotheses over sealed VERIFY/RELOCK/cross-feed/REFINE evidence plus separate fail-closed support calibration; unsupported policy-diffuse/endgame/time-critical hypotheses remain explicit and no regime authorizes work or moves. **Implemented in PR #33.**
 - **M14-G1 — Serve-compatible staged VERIFY / value-of-compute substrate**: preserve VERIFY v1, add one explicit same-process base→extension intervention over the identical candidate universe, collect past-only base features plus future decision-change labels, and fit a separate fail-closed staged calibration without route or move authority. **Merged in PR #34.**
 - **M14-G2 — Unified value-of-compute decision router**: combine live regime state and the serve-compatible staged decision-change estimate to decide whether to buy the staged VERIFY extension; the existing specialist resource gate still reserves/denies actual work, and DecisionAuthorization remains separate move authority. Missing/OOD/unvalidated route evidence fails closed to buying more compute. **Merged in PR #35.**
+- **ONLINE-1 — Clock-derived online envelopes**: immutable TimePlan, soft/hard deadlines, generation-scoped stop/kill, deadline-safe UCI output. **Merged in PR #36.**
+- **ONLINE-2 — Real-network online CPU reference**: portable Stockfish/Reckless plus pinned BLAS-LC0/network identity under ONLINE timing/resource qualification. **Merged in PR #38.**
+- **M14-G3 — Clock-aware staged hybrid authority**: route-bound staged terminal evidence, real-network ONLINE composition, fail-closed clock-aware DecisionAuthorization, exact fallback, and deadline/resource publication barriers. **Merged in PR #39.**
+- **LOCAL-1 — Full-game lifecycle qualification**: pin a match runner and qualify complete-game legality/history/timing/resource/process lifecycle. **NEXT.**
 - **M14-H — Structured IPC experiment**: compare typed local transport against current UCI boundaries.
 - **M14-I — Selective native integration**: embed only measured-value hooks with process-adapter parity.
 - **M15-A — Offline governed policy evolution laboratory**: immutable candidate generations, holdout evaluation, rollback and promotion discipline.

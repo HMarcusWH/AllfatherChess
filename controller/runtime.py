@@ -1532,9 +1532,11 @@ class BackendManager:
                         except Exception:  # pragma: no cover - best effort
                             pass
             self.ready_all()
-            if self.config.online_time is not None:
-                for process in self.backends.values():
-                    process.timeout = min(process.timeout, self.config.online_time.quiesce_budget_ms / 1000)
+            # ONLINE quiesce deadlines are passed explicitly to stop/search
+            # operations. They must not redefine the process-wide UCI protocol
+            # timeout: real BLAS LC0 can legitimately spend more than the
+            # quiesce grace loading its pinned network on the first
+            # ucinewgame/isready barrier.
         except Exception as exc:
             self.close()
             if isinstance(exc, RuntimeError):

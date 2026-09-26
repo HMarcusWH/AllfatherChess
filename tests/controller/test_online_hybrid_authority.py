@@ -103,6 +103,7 @@ class ProfileTests(unittest.TestCase):
             "qualification/lc0-strength.lock.json",
             "qualification/lc0-strength-profile.json",
             "config/allfather.online.cpu-reference.json",
+            "config/allfather.strength.validation.json",
             "scripts/build-online-cpu-reference.sh",
             "scripts/build-lc0-strength.sh",
             "scripts/verify-vendor.sh",
@@ -279,6 +280,119 @@ class FinalDecisionAuditTests(unittest.TestCase):
                 "authorized G3 proposal move differs from the granted move",
                 problems,
             )
+
+    def test_authorized_g3_replay_rejects_failed_clock_gates(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run = Path(tmp)
+            (run / "decision").mkdir(parents=True)
+            (run / "staged_verification").mkdir(parents=True)
+
+            route_decision = {
+                "action": "BUY_STAGED_VERIFY",
+                "buy_extension": True,
+            }
+            digest = __import__(
+                "controller.decision",
+                fromlist=["canonical_digest"],
+            ).canonical_digest(route_decision)
+            decision = {
+                "authority": "HYBRID",
+                "anchor_move": "d2d4",
+                "proposal_move": "e2e4",
+                "emitted_move": "e2e4",
+            }
+            base_snapshot = snapshot(
+                route_decision_digest=digest,
+            ).as_dict()
+
+            def write_sources(snapshot_doc):
+                parent = {
+                    "generation": 7,
+                    "position": {"position_id": "pos"},
+                    "time_plan": {
+                        "plan_id": snapshot_doc["time_plan_id"],
+                        "request_class": snapshot_doc["time_plan_request_class"],
+                        "generation": 7,
+                        "position_id": "pos",
+                        "anchor_go_command": snapshot_doc[
+                            "time_plan_anchor_go_command"
+                        ],
+                    },
+                    "outward_decision": decision,
+                }
+                (run / "manifest.json").write_text(
+                    json.dumps(parent),
+                    encoding="utf-8",
+                )
+                (run / "route.json").write_text(
+                    json.dumps({"value_decisions": [route_decision]}),
+                    encoding="utf-8",
+                )
+                (run / "staged_verification" / "manifest.json").write_text(
+                    json.dumps(
+                        {
+                            "generation": 7,
+                            "intervention": "same_process_staged_verify_v1",
+                            "nomination": {
+                                "candidate_roots": [
+                                    "e2e4",
+                                    "d2d4",
+                                    "g1f3",
+                                ]
+                            },
+                            "disposition": {"run": "completed"},
+                            "stages": [
+                                {"disposition": "completed"},
+                                {"disposition": "completed"},
+                                {"disposition": "completed"},
+                            ],
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                (run / "decision" / "counterfactual.json").write_text(
+                    json.dumps(
+                        {
+                            "source": {
+                                "decision_terminal_source":
+                                "staged_verification"
+                            }
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+
+            cases = (
+                (
+                    {"authority_blocked": True},
+                    "authorized G3 decision is bound to blocked clock authority",
+                ),
+                (
+                    {
+                        "authority_evidence_frozen_before_soft_deadline":
+                        False
+                    },
+                    "authorized G3 decision was not frozen before the soft deadline",
+                ),
+            )
+            for changes, expected in cases:
+                with self.subTest(changes=changes):
+                    snapshot_doc = dict(base_snapshot)
+                    snapshot_doc.update(changes)
+                    write_sources(snapshot_doc)
+                    problems: list[str] = []
+                    _verify_clocked_authority(
+                        run,
+                        decision,
+                        {
+                            "policy": CLOCKED_AUTHORIZATION_POLICY,
+                            "authorized": True,
+                            "move": "e2e4",
+                        },
+                        snapshot_doc,
+                        problems,
+                    )
+                    self.assertIn(expected, problems)
 
     def test_authorized_g3_replay_requires_route_digest(self):
         with tempfile.TemporaryDirectory() as tmp:

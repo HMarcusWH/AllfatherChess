@@ -147,6 +147,32 @@ class TimeTests(unittest.TestCase):
             "a stop after bytes cross stdout must not retroactively rewrite output",
         )
 
+    def test_terminal_failure_is_atomic_with_authority_revocation(self):
+        plan = self.plan(
+            'go movetime 500',
+            received_monotonic=time.monotonic(),
+        )
+        clock = ClockSearch(plan)
+        self.assertTrue(
+            clock.fail(
+                reason='runtime failure',
+                line='bestmove 0000',
+            )
+        )
+        writes = []
+        self.assertEqual(
+            clock.try_publish(
+                line='bestmove e2e4',
+                write_once=lambda: writes.append('late') or True,
+                require_authority=False,
+            ),
+            'finished',
+        )
+        self.assertEqual(writes, [])
+        self.assertTrue(clock.authority_blocked.is_set())
+        self.assertEqual(clock.failure, 'runtime failure')
+        self.assertEqual(clock.emitted_line, 'bestmove 0000')
+
     def test_manifest_reconstructs_policy_not_only_hash(self):
         p = self.plan('go movetime 500')
         pos = parse_position_command('position startpos')

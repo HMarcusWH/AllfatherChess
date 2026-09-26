@@ -1,0 +1,97 @@
+name: LOCAL-1 full-game lifecycle and five-arm baselines
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Required lifecycle/baselines or extended 200-baseline-game soak
+        type: choice
+        options: [required, soak]
+        default: required
+  pull_request:
+    paths:
+      - 'tools/local_game/**'
+      - 'tools/__init__.py'
+      - 'tests/local_game/**'
+      - 'tests/fixtures/local_full_game/**'
+      - 'qualification/**'
+      - 'config/**'
+      - 'controller/**'
+      - 'adapters/**'
+      - 'common/**'
+      - 'engines/**'
+      - 'scripts/**'
+      - 'tests/harness/**'
+      - 'tests/controller/**'
+      - 'tests/fixtures/fake_uci_engine.py'
+      - 'vendor.lock.json'
+      - 'Makefile*'
+      - '.github/workflows/full-game-qualification.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'tools/local_game/**'
+      - 'tools/__init__.py'
+      - 'tests/local_game/**'
+      - 'tests/fixtures/local_full_game/**'
+      - 'qualification/**'
+      - 'config/**'
+      - 'controller/**'
+      - 'adapters/**'
+      - 'common/**'
+      - 'engines/**'
+      - 'scripts/**'
+      - 'tests/harness/**'
+      - 'tests/controller/**'
+      - 'tests/fixtures/fake_uci_engine.py'
+      - 'vendor.lock.json'
+      - 'Makefile*'
+      - '.github/workflows/full-game-qualification.yml'
+permissions:
+  contents: read
+concurrency:
+  group: local-full-game-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  qualify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 330
+    env:
+      ALLFATHER_SOURCE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+      MODE: ${{ inputs.mode || 'required' }}
+      JOBS: '2'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.ALLFATHER_SOURCE_SHA }}
+      - name: Verify checkout identity and bind reference runner
+        run: |
+          test "$(git rev-parse HEAD)" = "$ALLFATHER_SOURCE_SHA"
+          echo "ALLFATHER_RUNNER_ENVIRONMENT=${{ runner.environment }}" >> "$GITHUB_ENV"
+      - name: Install real-inference build and pinned test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential git meson ninja-build pkg-config libprotobuf-dev protobuf-compiler zlib1g-dev libopenblas-dev python3-pip python3-setuptools python3-wheel
+          python3 -m pip install --break-system-packages --no-build-isolation --no-deps --require-hashes -r qualification/local-game-requirements.txt
+      - name: Run LOCAL-1 negative controls and cross-generation regressions
+        run: make -f Makefile.local-game test
+      - name: Build and test the pinned Fastchess tree
+        run: make -f Makefile.local-game build-fastchess
+      - name: Build the frozen ONLINE-2 engine bundle
+        run: make build-online-cpu-reference
+      - name: Qualify prerequisites, rule transitions, full games and five-arm results
+        run: python3 -m tools.local_game.runner --mode "$MODE"
+      - name: Retain evidence including failed/incomplete campaigns
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: local-full-game-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            build/test-results/local-full-game
+            build/test-results/lc0-strength
+            build/test-results/online-profile
+            build/test-results/online-hybrid
+            build/tools/fastchess/build-manifest.json
+            build/tools/fastchess/LICENSE
+            build/online-cpu-reference/build-manifest.json
+          if-no-files-found: warn
+          retention-days: 14

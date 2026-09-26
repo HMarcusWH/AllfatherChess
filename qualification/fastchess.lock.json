@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "repository": "https://github.com/Disservin/fastchess.git",
+  "label": "v1.8.2-alpha",
+  "commit": "f618e34540f94f4719ad3817950618dabe441318",
+  "tree": "7af51c972096164b267d617ea4c32a856a17b586",
+  "license": "MIT",
+  "zlib": false,
+  "role": "test runner only; not a chess engine and not an unpinned PyPI fastchess package"
+}

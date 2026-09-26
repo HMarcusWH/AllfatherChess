@@ -1,0 +1,22 @@
+# Standalone LOCAL-1 entry point; the production Makefile/targets stay unchanged.
+.PHONY: test build-fastchess build qualification soak verify
+
+test:
+	python3 -c 'import chess; assert chess.__version__ == "1.11.2"'
+	python3 -m unittest discover -s tests/local_game -v
+
+build-fastchess:
+	python3 -m tools.local_game.build_fastchess
+
+build: build-fastchess
+	$(MAKE) build-online-cpu-reference
+
+qualification: test build
+	python3 -m tools.local_game.runner --mode required
+
+soak: test build
+	python3 -m tools.local_game.runner --mode soak
+
+verify:
+	@test -n "$(CAMPAIGN)" || (echo 'Set CAMPAIGN=build/test-results/local-full-game/<id>' >&2; exit 2)
+	python3 -m tools.local_game.validate "$(CAMPAIGN)"

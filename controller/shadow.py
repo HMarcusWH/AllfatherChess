@@ -1198,6 +1198,16 @@ class ShadowRunCoordinator:
             self.cancel(generation, reason="anchor_complete", detach=True)
         return final
 
+    def invalidate_final_decision(self, generation: int, reason: str) -> None:
+        """Withdraw an in-memory choice that never crossed the outward boundary."""
+        with self._lock:
+            active = self._run
+            if active is None or active.generation != generation:
+                return
+            active.final_decision = None
+            active.run.outward_decision = None
+            active.run.note(f"final decision withdrawn before output: {reason}")
+
     def note_anchor_emitted(self, generation: int) -> None:
         """Take the terminal anchor sample only after bestmove left stdout.
 

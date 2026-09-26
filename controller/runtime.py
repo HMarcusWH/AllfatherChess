@@ -1966,6 +1966,7 @@ class BackendManager:
         token: int,
         on_info: Callable[[int, str], None],
         on_complete: Callable[[int, str], None],
+        permit: Callable[[], bool] | None = None,
     ) -> bool:
         """Dispatch one restricted observational search.
 
@@ -1978,13 +1979,28 @@ class BackendManager:
         if not self.shadow_available(instance):
             return False
         info_cb, complete_cb = self._observed_callbacks(instance, on_info, on_complete)
-        kwargs = {}
+        clock = None
         if self.config.online_time is not None:
             clock = self._online_clock
-            if clock is None or clock.plan.generation != token or not clock.work_open():
+            if clock is None or clock.plan.generation != token:
                 return False
-            kwargs = {"permit": clock.work_open,
-                      "timeout": max(0.001, clock.plan.hard_deadline - time.monotonic())}
+
+        def dispatch_permitted() -> bool:
+            if permit is not None and not permit():
+                return False
+            if clock is not None and not clock.work_open():
+                return False
+            return True
+
+        if not dispatch_permitted():
+            return False
+
+        kwargs: dict[str, Any] = {"permit": dispatch_permitted}
+        if clock is not None:
+            kwargs["timeout"] = max(
+                0.001,
+                clock.plan.hard_deadline - time.monotonic(),
+            )
         try:
             self.backends[instance].start_search(
                 command,

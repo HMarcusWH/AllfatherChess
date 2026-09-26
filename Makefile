@@ -1,4 +1,4 @@
-.PHONY: online-hybrid-tests online-hybrid-contract run-allfather-online-hybrid online-profile-tests build-online-cpu-reference online-profile-contract run-allfather-online-cpu-reference online-time-tests online-clock-contract run-allfather-online-clock unified-value-router-tests unified-value-router-contract run-allfather-unified-value staged-verification-tests staged-value-of-compute-tests staged-decision-calibration-tests staged-verify-contract staged-value-of-compute-sweep staged-decision-calibration run-allfather-staged-verify vendor verify-vendor build-baselines smoke-baselines golden-baselines record-golden-baselines telemetry-contract telemetry-adapters telemetry-adapter-integration crossfeed-adapter-tests crossfeed-adapter-contract regime-tests regime-calibration-tests regime-contract controller-tests resource-measurement-tests resource-accounting-contract shard-ledger-tests prefix-shard-tests refinement-tests refinement-policy-tests active-specialist-tests crossfeed-tests decision-tests hybrid-authority-tests counterfactual-tests value-of-compute-tests decision-calibration-tests strength-profile-tests shard-ledger-contract prefix-shard-contract refinement-execution-contract recursive-refinement-contract active-specialist-contract crossfeed-contract counterfactual-decision-contract active-hybrid-decision-contract value-of-compute-contract lc0-strength-contract lc0-defect-telemetry-contract hybrid-shell-contract shadow-tests replay-tests residual-tests routing-tests verification-tests verification-analysis-tests shadow-execution-contract verification-execution-contract verification-analysis-contract active-routing-contract shadow-evidence-sweep verification-evidence-sweep refinement-evidence-sweep counterfactual-decision-sweep value-of-compute-sweep regime-sweep decision-calibration residual-calibration verification-analysis fetch-lc0-strength build-lc0-strength run-allfather run-allfather-shadow run-allfather-verify run-allfather-refine run-allfather-recursive-refine run-allfather-crossfeed run-allfather-counterfactual run-allfather-hybrid run-allfather-value run-allfather-strength run-allfather-active-specialist
+.PHONY: local-full-game-tests build-fastchess local-full-game-run local-full-game-contract local-full-game-baseline local-full-game-qualification local-full-game-soak online-hybrid-tests online-hybrid-contract run-allfather-online-hybrid online-profile-tests build-online-cpu-reference online-profile-contract run-allfather-online-cpu-reference online-time-tests online-clock-contract run-allfather-online-clock unified-value-router-tests unified-value-router-contract run-allfather-unified-value staged-verification-tests staged-value-of-compute-tests staged-decision-calibration-tests staged-verify-contract staged-value-of-compute-sweep staged-decision-calibration run-allfather-staged-verify vendor verify-vendor build-baselines smoke-baselines golden-baselines record-golden-baselines telemetry-contract telemetry-adapters telemetry-adapter-integration crossfeed-adapter-tests crossfeed-adapter-contract regime-tests regime-calibration-tests regime-contract controller-tests resource-measurement-tests resource-accounting-contract shard-ledger-tests prefix-shard-tests refinement-tests refinement-policy-tests active-specialist-tests crossfeed-tests decision-tests hybrid-authority-tests counterfactual-tests value-of-compute-tests decision-calibration-tests strength-profile-tests shard-ledger-contract prefix-shard-contract refinement-execution-contract recursive-refinement-contract active-specialist-contract crossfeed-contract counterfactual-decision-contract active-hybrid-decision-contract value-of-compute-contract lc0-strength-contract lc0-defect-telemetry-contract hybrid-shell-contract shadow-tests replay-tests residual-tests routing-tests verification-tests verification-analysis-tests shadow-execution-contract verification-execution-contract verification-analysis-contract active-routing-contract shadow-evidence-sweep verification-evidence-sweep refinement-evidence-sweep counterfactual-decision-sweep value-of-compute-sweep regime-sweep decision-calibration residual-calibration verification-analysis fetch-lc0-strength build-lc0-strength run-allfather run-allfather-shadow run-allfather-verify run-allfather-refine run-allfather-recursive-refine run-allfather-crossfeed run-allfather-counterfactual run-allfather-hybrid run-allfather-value run-allfather-strength run-allfather-active-specialist
 
 vendor:
 	@echo "Refusing implicit destructive vendor refresh." >&2
@@ -78,6 +78,7 @@ controller-tests:
 	python3 tests/controller/test_unified_value_router.py
 	python3 tests/controller/test_strength_profile.py
 	python3 tests/controller/test_online_profile.py
+	python3 tests/controller/test_local_full_game.py
 
 online-profile-tests:
 	python3 tests/controller/test_online_profile.py
@@ -321,3 +322,35 @@ online-hybrid-contract:
 
 run-allfather-online-hybrid:
 	python3 -m controller --config config/allfather.online-hybrid.validation.json
+
+
+local-full-game-tests:
+	python3 tests/controller/test_local_full_game.py
+
+build-fastchess:
+	bash scripts/build-fastchess.sh
+
+local-full-game-run:
+	python3 scripts/run-local-game-campaign.py --mode required
+
+local-full-game-contract:
+	python3 scripts/qualify-full-game-lifecycle.py --mode required
+
+local-full-game-baseline:
+	python3 scripts/run-local-game-campaign.py --mode baseline
+	python3 scripts/qualify-full-game-lifecycle.py --mode baseline
+
+local-full-game-qualification:
+	$(MAKE) local-full-game-tests
+	$(MAKE) build-fastchess
+	$(MAKE) build-online-cpu-reference
+	$(MAKE) lc0-strength-contract
+	$(MAKE) online-hybrid-contract
+	$(MAKE) local-full-game-run
+	$(MAKE) local-full-game-contract
+	$(MAKE) local-full-game-baseline
+
+local-full-game-soak:
+	@test -n "$(GAMES)" || (echo "Usage: make local-full-game-soak GAMES=<even-number>" >&2; exit 2)
+	python3 scripts/run-local-game-campaign.py --mode soak --games "$(GAMES)"
+	python3 scripts/qualify-full-game-lifecycle.py --mode soak

@@ -243,6 +243,21 @@ def _verify_clocked_authority(
     if authorized:
         if decision.get("authority") != "HYBRID":
             problems.append("authorized G3 decision is not marked HYBRID")
+
+        granted_move = authorization.get("move")
+        proposal_move = decision.get("proposal_move")
+        emitted_move = decision.get("emitted_move")
+        if not isinstance(granted_move, str) or not granted_move:
+            problems.append("authorized G3 decision is missing the granted move")
+        else:
+            if proposal_move != granted_move:
+                problems.append(
+                    "authorized G3 proposal move differs from the granted move"
+                )
+            if emitted_move != granted_move:
+                problems.append(
+                    "authorized G3 emitted move differs from the granted move"
+                )
         if snapshot.get("route_action") != "BUY_STAGED_VERIFY":
             problems.append("authorized G3 decision did not bind BUY_STAGED_VERIFY")
         if snapshot.get("route_buy_extension") is not True:

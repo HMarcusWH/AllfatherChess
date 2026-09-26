@@ -1524,6 +1524,86 @@ class ReviewRegressionRoundTenTests(unittest.TestCase):
         finally:
             released.set()
 
+    def test_blocked_shadow_dispatch_does_not_hold_anchor_completion_lock(self):
+        """A wedged shadow stdin may not delay an already-completed anchor."""
+        import controller.shadow as shadow_module
+
+        with tempfile.TemporaryDirectory() as tmp:
+            manager = BackendManager.from_path(write_shadow_config(Path(tmp)))
+            manager.start()
+            coordinator = shadow_module.ShadowRunCoordinator(runtime=manager)
+            release = threading.Event()
+            entered = threading.Event()
+            dispatch_result = []
+            completion_result = []
+            try:
+                self.assertTrue(
+                    coordinator.prepare_run(generation=1, go_command="go nodes 64")
+                )
+                active = coordinator._run
+                self.assertIsNotNone(active)
+                owner = coordinator.settings.owners[0]
+                instance = coordinator.settings.instance_by_owner[owner]
+                state = shadow_module._OwnerState(
+                    owner=owner,
+                    instance=instance,
+                    family=manager.spec(instance).family,
+                    roots=("e2e4",),
+                )
+                active.owners[owner] = state
+
+                original_start = manager.start_shadow_search
+
+                def blocked_start(*args, **kwargs):
+                    entered.set()
+                    release.wait(timeout=5.0)
+                    return False
+
+                manager.start_shadow_search = blocked_start  # type: ignore[assignment]
+                dispatcher = threading.Thread(
+                    target=lambda: dispatch_result.append(
+                        coordinator._dispatch_stage(
+                            active,
+                            state,
+                            limit={"nodes": 1},
+                        )
+                    ),
+                    daemon=True,
+                )
+                dispatcher.start()
+                self.assertTrue(entered.wait(timeout=2.0))
+
+                completer = threading.Thread(
+                    target=lambda: completion_result.append(
+                        coordinator.note_anchor_complete(
+                            1,
+                            "bestmove e2e4",
+                        )
+                    ),
+                    daemon=True,
+                )
+                completer.start()
+                completer.join(timeout=0.5)
+                self.assertFalse(
+                    completer.is_alive(),
+                    "blocked shadow dispatch IO held the coordinator authority lock",
+                )
+                self.assertTrue(active.anchor_done.is_set())
+                self.assertTrue(state.dispatch_pending)
+            finally:
+                release.set()
+                try:
+                    dispatcher.join(timeout=2.0)
+                except UnboundLocalError:
+                    pass
+                manager.start_shadow_search = original_start  # type: ignore[assignment]
+                if 'active' in locals() and active is not None:
+                    active.outward_publication_done.set()
+                    active.anchor_observation_done.set()
+                    active.anchor_resource_done.set()
+                coordinator.close()
+                manager.close()
+
     def test_cancelling_shadows_does_not_hold_the_coordinator_lock(self):
         """`stop` writes happen outside `self._lock`.
 

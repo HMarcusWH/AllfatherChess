@@ -2317,9 +2317,19 @@ class ShadowRunCoordinator:
                         )
 
                 resource_interval_frozen = process_endpoints_frozen
-                if active.resources is not None and active.resources.settings.enabled:
+                if (
+                    active.anchor_done.is_set()
+                    and active.resources is not None
+                    and active.resources.settings.enabled
+                ):
                     try:
+                        # A first process-only freeze may have failed because a
+                        # terminal measurement was still active. Router sealing
+                        # is allowed to close/abandon incomplete evidence, so a
+                        # successful full freeze here is the authoritative
+                        # immutable boundary for safe engine reuse.
                         active.resources.freeze_interval()
+                        resource_interval_frozen = True
                     except Exception as exc:
                         active.run.note(
                             "resource interval could not freeze after route finalization: "

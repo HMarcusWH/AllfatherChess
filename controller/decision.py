@@ -17,7 +17,7 @@ import hashlib
 import json
 import math
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from controller.crossfeed import CrossFeedView
@@ -880,6 +880,46 @@ def authorize_decision(
         move=proposal.move,
         reason="all bounded M14-C authorization gates passed",
         snapshot_digest=snapshot.digest,
+    )
+
+
+def revoke_final_decision_to_anchor(
+    decision: FinalDecision,
+    *,
+    reason: str,
+) -> FinalDecision:
+    """Fail a selected HYBRID choice closed after clock authority is revoked.
+
+    The anchor move may still be emitted after an explicit user stop.  In that
+    case replay must record what actually crossed stdout rather than dropping
+    the decision artifact entirely.  An already-denied fallback is preserved;
+    a previously granted HYBRID decision is rebound to an authority-blocked
+    snapshot and a denied authorization before it can be published.
+    """
+
+    if not isinstance(reason, str) or not reason:
+        raise DecisionError("revocation reason must be non-empty")
+    if decision.authority == ANCHOR_FALLBACK:
+        return decision
+
+    snapshot = replace(
+        decision.authorization_snapshot,
+        authority_blocked=True,
+    )
+    authorization = DecisionAuthorization(
+        policy=decision.authorization.policy,
+        authorized=False,
+        move=None,
+        reason=reason,
+        snapshot_digest=snapshot.digest,
+    )
+    return FinalDecision(
+        authority=ANCHOR_FALLBACK,
+        emitted_move=decision.anchor_move,
+        anchor_move=decision.anchor_move,
+        proposal_move=decision.proposal_move,
+        authorization=authorization,
+        authorization_snapshot=snapshot,
     )
 
 

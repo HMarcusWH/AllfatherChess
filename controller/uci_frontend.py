@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import io
+import os
+import queue
 import re
+import select
 import sys
 import threading
 import time
-import queue
 from enum import Enum
 from typing import TYPE_CHECKING, TextIO
 
@@ -71,6 +74,110 @@ class UciFrontend:
             self.output.write(line + "\n")
             self.output.flush()
 
+    def _clocked_hybrid_authority_enabled(self) -> bool:
+        authority = getattr(getattr(self.runtime, "config", None), "hybrid_authority", None)
+        return bool(
+            self.online_time is not None
+            and authority is not None
+            and authority.policy == "clocked_staged_preanchor_v1"
+        )
+
+    def _output_fd(self) -> int | None:
+        try:
+            fd = self.output.fileno()
+        except (AttributeError, io.UnsupportedOperation, OSError, ValueError):
+            return None
+        return fd if isinstance(fd, int) and fd >= 0 else None
+
+    def _try_write_online_line_once(self, line: str) -> bool:
+        """Attempt one complete ONLINE line without ever blocking."""
+        if not self._write_lock.acquire(blocking=False):
+            return False
+        try:
+            if isinstance(self.output, io.StringIO):
+                self.output.write(line + "\n")
+                self.output.flush()
+                return True
+
+            fd = self._output_fd()
+            if fd is None:
+                return False
+
+            payload = (line + "\n").encode("ascii", errors="strict")
+            was_blocking = os.get_blocking(fd)
+            if was_blocking:
+                os.set_blocking(fd, False)
+            try:
+                try:
+                    written = os.write(fd, payload)
+                except BlockingIOError:
+                    return False
+            finally:
+                if was_blocking:
+                    os.set_blocking(fd, True)
+
+            if written != len(payload):
+                raise RuntimeError(
+                    "deadline-safe UCI publication produced a partial line"
+                )
+            return True
+        finally:
+            self._write_lock.release()
+
+    def _wait_online_output_capacity(self, clock: ClockSearch) -> None:
+        remaining = max(0.0, clock.plan.hard_deadline - time.monotonic())
+        if remaining <= 0:
+            return
+        fd = self._output_fd()
+        timeout = min(0.01, remaining)
+        if fd is None:
+            time.sleep(min(0.002, timeout))
+            return
+        try:
+            select.select([], [fd], [], timeout)
+        except (OSError, ValueError):
+            time.sleep(min(0.002, timeout))
+
+    def _publish_online_bestmove(
+        self,
+        *,
+        token: int,
+        clock: ClockSearch,
+        anchor_line: str,
+        final_decision,
+    ) -> tuple[str | None, object | None, str]:
+        """Publish one terminal line without blocking stop or hard expiry."""
+        del token  # token is carried by the caller's terminal-state checks.
+        while True:
+            hybrid = (
+                final_decision is not None
+                and final_decision.authority == "HYBRID"
+            )
+            outward_line = anchor_line
+            if (
+                hybrid
+                and final_decision.emitted_move != final_decision.anchor_move
+            ):
+                outward_line = f"bestmove {final_decision.emitted_move}"
+
+            status = clock.try_publish(
+                line=outward_line,
+                require_authority=hybrid,
+                write_once=lambda: self._try_write_online_line_once(outward_line),
+            )
+            if status == "published":
+                return outward_line, final_decision, status
+            if status == "revoked":
+                final_decision = revoke_final_decision_to_anchor(
+                    final_decision,
+                    reason="clock authority revoked before bytes crossed stdout",
+                )
+                continue
+            if status == "would_block":
+                self._wait_online_output_capacity(clock)
+                continue
+            return None, final_decision, status
+
     def _diagnostic(self, message: str) -> None:
         sanitized = " ".join(str(message).splitlines())
         self._write(f"info string Allfather {sanitized}")
@@ -109,17 +216,27 @@ class UciFrontend:
         with self._state_lock:
             if self._state != ShellState.SEARCHING or self._active_generation != token:
                 return
-            self._write(line)
+            suppress = self._clocked_hybrid_authority_enabled()
+        # G3 may emit a move the Stockfish anchor did not select. Do not attach
+        # the anchor's score/PV to a different outward move.
+        if suppress:
+            return
+        self._write(line)
 
     def _on_search_complete(self, token: int, line: str) -> None:
         if self.online_time is not None:
             with self._state_lock:
                 clock = self._clock_search
-                if self._state != ShellState.SEARCHING or self._active_generation != token or clock is None:
+                if (
+                    self._state != ShellState.SEARCHING
+                    or self._active_generation != token
+                    or clock is None
+                ):
                     return
-                if time.monotonic() >= clock.plan.hard_deadline:
-                    self._clock_fail(token, "anchor answered after the clock deadline")
-                    return
+                expired = time.monotonic() >= clock.plan.hard_deadline
+            if expired:
+                self._clock_fail(token, "anchor answered after the clock deadline")
+                return
 
             final_decision = None
             authority = self.runtime.config.hybrid_authority
@@ -131,65 +248,59 @@ class UciFrontend:
                 try:
                     final_decision = self.shadow.note_anchor_complete(token, line)
                 except Exception as exc:
-                    self._diagnostic(f"clocked hybrid decision boundary failed: {exc}")
+                    self._diagnostic(
+                        f"clocked hybrid decision boundary failed: {exc}"
+                    )
 
             with self._state_lock:
                 clock = self._clock_search
-                if self._state != ShellState.SEARCHING or self._active_generation != token or clock is None:
+                if (
+                    self._state != ShellState.SEARCHING
+                    or self._active_generation != token
+                    or clock is None
+                ):
                     return
-                if time.monotonic() >= clock.plan.hard_deadline:
-                    if self.shadow is not None:
-                        self.shadow.invalidate_final_decision(
-                            token, "decision selection crossed the clock deadline"
-                        )
-                    self._clock_fail(token, "decision selection crossed the clock deadline")
-                    return
-
                 clock.work_closed.set()
 
-                # Actual publication boundary. Online stop revokes authority
-                # without first taking _state_lock, so it can still win while
-                # stdout is backpressured. commit_authority() linearizes the
-                # last legal revocation point immediately before output.write.
-                with self._write_lock:
-                    if (
-                        final_decision is not None
-                        and final_decision.authority == "HYBRID"
-                        and not clock.commit_authority()
-                    ):
-                        final_decision = revoke_final_decision_to_anchor(
-                            final_decision,
-                            reason="clock authority revoked before publication commit",
-                        )
+            outward_line, final_decision, publish_status = (
+                self._publish_online_bestmove(
+                    token=token,
+                    clock=clock,
+                    anchor_line=line,
+                    final_decision=final_decision,
+                )
+            )
+            if publish_status == "expired":
+                self._clock_fail(
+                    token,
+                    "outward publication reached the clock hard deadline",
+                )
+                return
+            if publish_status != "published" or outward_line is None:
+                return
 
-                    outward_line = line
-                    if (
-                        final_decision is not None
-                        and final_decision.authority == "HYBRID"
-                        and final_decision.emitted_move != final_decision.anchor_move
-                    ):
-                        outward_line = f"bestmove {final_decision.emitted_move}"
-                    self.output.write(outward_line + "\n")
-                    self.output.flush()
+            if self.shadow is not None:
+                try:
+                    self.shadow.note_anchor_emitted(
+                        token,
+                        final_decision=final_decision,
+                    )
+                except Exception as exc:
+                    self._diagnostic(
+                        f"post-output decision/resource publication failed: {exc}"
+                    )
 
-                clock.finish(line=outward_line)
-
-                # Do not expose READY until the emitted decision has been
-                # published into replay state. This closes the READY->quit
-                # race where shadow.close() could retire the run first.
-                if self.shadow is not None:
-                    try:
-                        self.shadow.note_anchor_emitted(
-                            token,
-                            final_decision=final_decision,
-                        )
-                    except Exception as exc:
-                        self._diagnostic(
-                            f"post-output decision/resource publication failed: {exc}"
-                        )
-
-                self._active_generation = None
-                self._state = ShellState.READY if self.runtime.healthy else ShellState.UNHEALTHY
+            with self._state_lock:
+                if (
+                    self._state == ShellState.SEARCHING
+                    and self._active_generation == token
+                ):
+                    self._active_generation = None
+                    self._state = (
+                        ShellState.READY
+                        if self.runtime.healthy
+                        else ShellState.UNHEALTHY
+                    )
 
             if self.shadow is not None:
                 threading.Thread(
@@ -466,23 +577,39 @@ class UciFrontend:
         )
 
     def _clock_fail(self, token: int, reason: str) -> None:
+        clock_hint = self._clock_search
+        if clock_hint is not None:
+            clock_hint.block_authority()
+
         with self._state_lock:
             clock = self._clock_search
-            if self._state != ShellState.SEARCHING or self._active_generation != token or clock is None:
+            if (
+                self._state != ShellState.SEARCHING
+                or self._active_generation != token
+                or clock is None
+            ):
                 return
-            self._active_generation = None
-            self._state = ShellState.UNHEALTHY
+
+        # Seal failure before any potentially blocking diagnostic/output. A
+        # concurrent publication attempt sees the finished clock and exits.
+        if not clock.finish(line="bestmove 0000", failure=reason):
+            return
+
+        with self._state_lock:
+            if self._active_generation == token:
+                self._active_generation = None
+                self._state = ShellState.UNHEALTHY
             clock.work_closed.set()
-            clock.block_authority()
-            self._diagnostic(reason)
-            self._write("bestmove 0000")
-            clock.finish(line="bestmove 0000", failure=reason)
-        # No inference of a legal move from an incomplete PV. A dead/stuck
-        # anchor is an explicit failed game; supervisor recovery is ONLINE-2/4.
+
         self.runtime.fail_clock_search(token, reason)
+        self._diagnostic(reason)
+        self._write("bestmove 0000")
         if self.shadow is not None:
-            threading.Thread(target=lambda: self._shadow_cancel(reason, token),
-                             name=f"allfather-clock-failure-{token}", daemon=True).start()
+            threading.Thread(
+                target=lambda: self._shadow_cancel(reason, token),
+                name=f"allfather-clock-failure-{token}",
+                daemon=True,
+            ).start()
 
     def _on_clock_observation_end(self, token: int, line: str, lost: int) -> None:
         if self.shadow is not None:

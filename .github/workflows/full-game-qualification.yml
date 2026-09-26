@@ -18,6 +18,7 @@ on:
       - common/**
       - adapters/**
       - scripts/build-fastchess.sh
+      - scripts/test-fastchess-source.sh
       - scripts/build-online-cpu-reference.sh
       - scripts/uci-transcript-proxy.py
       - scripts/run-local-game-campaign.py
@@ -43,6 +44,7 @@ on:
       - common/**
       - adapters/**
       - scripts/build-fastchess.sh
+      - scripts/test-fastchess-source.sh
       - scripts/build-online-cpu-reference.sh
       - scripts/uci-transcript-proxy.py
       - scripts/run-local-game-campaign.py
@@ -65,7 +67,28 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  fastchess-source-tests:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 25
+    env:
+      ALLFATHER_SOURCE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.ALLFATHER_SOURCE_SHA }}
+      - name: Verify checkout identity
+        run: test "$(git rev-parse HEAD)" = "$ALLFATHER_SOURCE_SHA"
+      - name: Match Fastchess upstream Linux unit-test environment
+        run: |
+          sudo sysctl -w vm.mmap_rnd_bits=28
+          g++ --version
+      - name: Run pinned Fastchess source tests
+        env:
+          JOBS: "2"
+        run: bash scripts/test-fastchess-source.sh
+
   qualify-full-game:
+    needs: fastchess-source-tests
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     env:
@@ -92,10 +115,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y             g++ make git meson ninja-build pkg-config             libprotobuf-dev protobuf-compiler zlib1g-dev libopenblas-dev
 
-      - name: Match Fastchess upstream Linux test environment
-        run: sudo sysctl -w vm.mmap_rnd_bits=28
-
-      - name: Build and test pinned Fastchess
+      - name: Build pinned Fastchess lifecycle runner
         env:
           JOBS: "2"
         run: bash scripts/build-fastchess.sh

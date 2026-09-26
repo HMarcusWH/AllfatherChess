@@ -36,8 +36,16 @@ jobs:
   qualify-online-hybrid:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    env:
+      ALLFATHER_SOURCE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.ALLFATHER_SOURCE_SHA }}
+      - name: Verify checkout identity
+        run: test "$(git rev-parse HEAD)" = "$ALLFATHER_SOURCE_SHA"
+      - name: Bind runner environment
+        run: echo "ALLFATHER_RUNNER_ENVIRONMENT=${{ runner.environment }}" >> "$GITHUB_ENV"
       - name: Static G3 contracts
         run: |
           python3 tests/controller/test_online_hybrid_authority.py

@@ -93,6 +93,52 @@ class UciFrontend:
             and authority.policy == "clocked_staged_preanchor_v1"
         )
 
+    def _finish_online_generation_after_measurement(
+        self,
+        token: int,
+        clock: ClockSearch,
+    ) -> None:
+        """Publish READY only after the prior measured interval is immutable."""
+        clock.measurement_frozen.wait()
+        with self._state_lock:
+            if (
+                self._state == ShellState.SEARCHING
+                and self._active_generation == token
+                and self._clock_search is clock
+            ):
+                self._active_generation = None
+                self._state = (
+                    ShellState.READY
+                    if self.runtime.healthy
+                    else ShellState.UNHEALTHY
+                )
+
+    def _await_post_output_measurement(self) -> None:
+        """Wait only for the post-bestmove resource barrier, never active search.
+
+        UCI permits `isready` during a live search, so an unfinished clock is
+        left alone. Once bestmove has already crossed stdout, however, authority
+        commands for the next protocol phase must not touch the anchor until the
+        previous run's process/controller resource endpoints are frozen.
+        """
+        if self.online_time is None:
+            return
+        with self._state_lock:
+            clock = self._clock_search
+            token = self._active_generation
+            should_wait = bool(
+                self._state == ShellState.SEARCHING
+                and token is not None
+                and clock is not None
+                and clock.finished.is_set()
+                and clock.outcome().get("failure") is None
+                and clock.outcome().get("emitted_line") is not None
+            )
+        if not should_wait or clock is None or token is None:
+            return
+        clock.measurement_frozen.wait()
+        self._finish_online_generation_after_measurement(token, clock)
+
     def _output_fd(self) -> int | None:
         try:
             fd = self.output.fileno()
@@ -324,24 +370,13 @@ class UciFrontend:
                 return
 
             # The successful write callback already retained the exact outward
-            # decision under the clock publication gate.
-            # UCI readiness follows successful stdout publication. Slower
-            # procfs/resource/replay evidence work may continue independently.
-            with self._state_lock:
-                if (
-                    self._state == ShellState.SEARCHING
-                    and self._active_generation == token
-                ):
-                    self._active_generation = None
-                    self._state = (
-                        ShellState.READY
-                        if self.runtime.healthy
-                        else ShellState.UNHEALTHY
-                    )
-
+            # decision under the clock publication gate. Take the terminal
+            # anchor sample now, but do not advertise protocol readiness until
+            # the complete measured interval has been frozen by finalization.
+            measurement_owned = False
             if self.shadow is not None:
                 try:
-                    self.shadow.note_anchor_emitted(token)
+                    measurement_owned = bool(self.shadow.note_anchor_emitted(token))
                 except Exception as exc:
                     self._diagnostic(
                         f"post-output resource sample failed: {exc}"
@@ -355,6 +390,17 @@ class UciFrontend:
                     name=f"allfather-clock-complete-{token}",
                     daemon=True,
                 ).start()
+
+            # If no replay/resource run exists there is no interval to protect.
+            if not measurement_owned:
+                clock.measurement_frozen.set()
+
+            threading.Thread(
+                target=self._finish_online_generation_after_measurement,
+                args=(token, clock),
+                name=f"allfather-clock-ready-{token}",
+                daemon=True,
+            ).start()
             return
         final_decision = None
         if self.shadow is not None:
@@ -448,6 +494,7 @@ class UciFrontend:
         self._diagnostic(f"rejected {command!r} while anchor search is active")
 
     def _handle_setoption(self, command: str) -> None:
+        self._await_post_output_measurement()
         with self._state_lock:
             if self._state == ShellState.SEARCHING:
                 self._reject_while_searching(command)
@@ -481,6 +528,7 @@ class UciFrontend:
                 self._runtime_failed(str(exc), None)
 
     def _handle_ready(self) -> None:
+        self._await_post_output_measurement()
         if self.state == ShellState.UNHEALTHY:
             self._diagnostic(self.runtime.unhealthy_reason or "runtime is unhealthy")
             return
@@ -550,6 +598,7 @@ class UciFrontend:
                 self._diagnostic(f"shadow dispatch failed: {exc}")
 
     def _handle_clock_go(self, command: str) -> None:
+        self._await_post_output_measurement()
         received = time.monotonic() if self._receipt_monotonic is None else self._receipt_monotonic
         cpu_started = time.process_time_ns() if self._receipt_cpu_ns is None else self._receipt_cpu_ns
         with self._state_lock:
@@ -681,6 +730,7 @@ class UciFrontend:
             return True
 
         if command == "ucinewgame":
+            self._await_post_output_measurement()
             if self.state == ShellState.SEARCHING:
                 self._reject_while_searching(command)
                 return True
@@ -695,6 +745,7 @@ class UciFrontend:
             return True
 
         if command.startswith("position "):
+            self._await_post_output_measurement()
             if self.state == ShellState.SEARCHING:
                 self._reject_while_searching(command)
                 return True

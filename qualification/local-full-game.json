@@ -1,0 +1,197 @@
+{
+  "schema_version": 1,
+  "profile_id": "local-full-game-v1",
+  "runner_lock": "qualification/fastchess.lock.json",
+  "runner_binary": "build/tools/fastchess/bin/fastchess",
+  "bundle_root": "build/online-cpu-reference",
+  "output_root": "build/test-results/local-full-game",
+  "time_control": {
+    "tc": "10+0.1",
+    "timemargin_ms": 100,
+    "concurrency": 1,
+    "ponder": false
+  },
+  "arms": {
+    "stockfish": {
+      "display_name": "Stockfish",
+      "kind": "direct",
+      "binary": "build/online-cpu-reference/bin/stockfish"
+    },
+    "reckless": {
+      "display_name": "Reckless",
+      "kind": "direct",
+      "binary": "build/online-cpu-reference/bin/reckless"
+    },
+    "lc0": {
+      "display_name": "LC0",
+      "kind": "direct",
+      "binary": "build/online-cpu-reference/bin/lc0"
+    },
+    "allfather-control": {
+      "display_name": "Allfather-Control",
+      "kind": "allfather",
+      "config": "config/allfather.local-control.validation.json",
+      "replay_root": "build/replays-local-full-game-control",
+      "semantics": "G3 observation/routing stack with outward hybrid authorization disabled; not a pure wrapper-overhead measurement."
+    },
+    "allfather-hybrid": {
+      "display_name": "Allfather-Hybrid",
+      "kind": "allfather",
+      "config": "config/allfather.local-game.validation.json",
+      "replay_root": "build/replays-local-full-game-hybrid",
+      "semantics": "Qualified M14-G3 authority composition."
+    }
+  },
+  "required_cases": [
+    {
+      "id": "startpos-persistent",
+      "engines": ["allfather-hybrid", "stockfish"],
+      "games": 2,
+      "rounds": 1,
+      "maxmoves": 30,
+      "opening": {"type": "startpos"},
+      "expected_history_prefix": [],
+      "terminal_without_search": false
+    },
+    {
+      "id": "castling-history",
+      "engines": ["allfather-hybrid", "stockfish"],
+      "games": 2,
+      "rounds": 1,
+      "maxmoves": 20,
+      "opening": {
+        "type": "pgn",
+        "file": "tests/fixtures/local_full_game/openings.pgn",
+        "start": 1
+      },
+      "expected_history_prefix": ["e2e4", "e7e5", "g1f3", "b8c6", "f1c4", "g8f6", "e1g1"],
+      "terminal_without_search": false
+    },
+    {
+      "id": "en-passant-history",
+      "engines": ["allfather-hybrid", "stockfish"],
+      "games": 2,
+      "rounds": 1,
+      "maxmoves": 20,
+      "opening": {
+        "type": "pgn",
+        "file": "tests/fixtures/local_full_game/openings.pgn",
+        "start": 2
+      },
+      "expected_history_prefix": ["e2e4", "a7a6", "e4e5", "d7d5", "e5d6"],
+      "terminal_without_search": false
+    },
+    {
+      "id": "repetition-history",
+      "engines": ["allfather-hybrid", "stockfish"],
+      "games": 2,
+      "rounds": 1,
+      "maxmoves": 20,
+      "opening": {
+        "type": "pgn",
+        "file": "tests/fixtures/local_full_game/openings.pgn",
+        "start": 3
+      },
+      "expected_history_prefix": ["g1f3", "g8f6", "f3g1", "f6g8"],
+      "terminal_without_search": false
+    },
+    {
+      "id": "promotion-history",
+      "engines": ["allfather-hybrid", "stockfish"],
+      "games": 2,
+      "rounds": 1,
+      "maxmoves": 12,
+      "opening": {
+        "type": "pgn",
+        "file": "tests/fixtures/local_full_game/openings.pgn",
+        "start": 4
+      },
+      "base_fen": "7k/P7/8/8/8/8/8/K7 w - - 0 1",
+      "expected_history_prefix": ["a7a8q"],
+      "terminal_without_search": false
+    },
+    {
+      "id": "terminal-checkmate",
+      "engines": ["allfather-hybrid", "stockfish"],
+      "games": 2,
+      "rounds": 1,
+      "maxmoves": 1,
+      "opening": {
+        "type": "epd",
+        "file": "tests/fixtures/local_full_game/terminal.epd",
+        "start": 1
+      },
+      "base_fen": "7k/6Q1/6K1/8/8/8/8/8 b - - 0 1",
+      "expected_history_prefix": [],
+      "terminal_without_search": true
+    },
+    {
+      "id": "terminal-stalemate",
+      "engines": ["allfather-hybrid", "stockfish"],
+      "games": 2,
+      "rounds": 1,
+      "maxmoves": 1,
+      "opening": {
+        "type": "epd",
+        "file": "tests/fixtures/local_full_game/terminal.epd",
+        "start": 2
+      },
+      "base_fen": "7k/5Q2/6K1/8/8/8/8/8 b - - 0 1",
+      "expected_history_prefix": [],
+      "terminal_without_search": true
+    }
+  ],
+  "baseline": {
+    "purpose": "Descriptive same-clock baseline only; not an equal-resource strength campaign.",
+    "games_per_pairing": 2,
+    "rounds": 1,
+    "maxmoves": 20,
+    "opening": {"type": "startpos"},
+    "arms": ["stockfish", "reckless", "lc0", "allfather-control", "allfather-hybrid"],
+    "pairings": [
+      ["stockfish", "reckless"],
+      ["stockfish", "lc0"],
+      ["stockfish", "allfather-control"],
+      ["stockfish", "allfather-hybrid"],
+      ["reckless", "lc0"],
+      ["reckless", "allfather-control"],
+      ["reckless", "allfather-hybrid"],
+      ["lc0", "allfather-control"],
+      ["lc0", "allfather-hybrid"],
+      ["allfather-control", "allfather-hybrid"]
+    ]
+  },
+  "soak": {
+    "engines": ["allfather-hybrid", "stockfish"],
+    "maxmoves": 60,
+    "default_games": 50
+  },
+  "acceptance": {
+    "required": {
+      "illegal_moves": 0,
+      "duplicate_bestmoves": 0,
+      "null_bestmoves": 0,
+      "controller_time_forfeits": 0,
+      "missing_replays": 0,
+      "reused_replays": 0,
+      "replay_integrity_errors": 0,
+      "unqualified_required_resources": 0,
+      "process_leaks": 0
+    },
+    "baseline": {
+      "required_completed_games": 20,
+      "illegal_moves": 0,
+      "disconnects": 0,
+      "stalls": 0,
+      "unterminated_games": 0
+    }
+  },
+  "claim_boundary": {
+    "full_game_lifecycle": true,
+    "same_clock_baseline": true,
+    "equal_resource_comparison": false,
+    "elo": false,
+    "superiority": false,
+    "deployment": false
+  }
+}

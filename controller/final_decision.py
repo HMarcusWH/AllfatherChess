@@ -30,6 +30,7 @@ _SOURCE_PATHS = (
     "route.json",
     "resource.json",
 )
+_OPTIONAL_SOURCE_PATHS = ("staged_verification/manifest.json",)
 
 
 def _source_hashes(run_dir: Path) -> tuple[dict[str, str], tuple[str, ...]]:
@@ -41,6 +42,10 @@ def _source_hashes(run_dir: Path) -> tuple[dict[str, str], tuple[str, ...]]:
             sources[relative] = sha256_file(path)
         else:
             missing.append(relative)
+    for relative in _OPTIONAL_SOURCE_PATHS:
+        path = run_dir / relative
+        if path.is_file():
+            sources[relative] = sha256_file(path)
     return sources, tuple(missing)
 
 
@@ -122,6 +127,14 @@ def verify_final_decision_integrity(run_dir: Path | str) -> list[str]:
             expected_snapshot = canonical_digest(snapshot)
             if authorization.get("snapshot_digest") != expected_snapshot:
                 problems.append("final decision authorization snapshot digest mismatch")
+            if (
+                snapshot.get("terminal_source") == "staged_verification"
+                and "staged_verification/manifest.json"
+                not in (artifact.get("sources") or {})
+            ):
+                problems.append(
+                    "staged authority is missing direct staged VERIFY source binding"
+                )
         else:
             problems.append("final decision authorization evidence is incomplete")
     else:

@@ -93,6 +93,14 @@ def main() -> int:
         manifest = load_manifest(run)
         decision = load_final_decision_artifact(run)["decision"]
         snap = decision["authorization_snapshot"]
+        route_doc = json.loads(
+            (run / "route.json").read_text(encoding="utf-8")
+        )
+        resource_doc = json.loads(
+            (run / "resource.json").read_text(encoding="utf-8")
+        )
+        envelope_claim = route_doc.get("envelope_claim") or {}
+        route_resource = route_doc.get("resource_measurement") or {}
         final_problems = verify_final_decision_integrity(run)
         require(
             not final_problems,
@@ -109,6 +117,9 @@ def main() -> int:
             "terminal_source": snap.get("terminal_source"),
             "route_action": snap.get("route_action"),
             "staged_complete": snap.get("staged_complete"),
+            "envelope_claimed": envelope_claim.get("claimed"),
+            "resource_qualified": resource_doc.get("qualified"),
+            "route_resource_qualified": route_resource.get("qualified"),
             "driver_observed_ms": elapsed,
             "clock_outcome": manifest.get("clock_outcome"),
         }
@@ -121,6 +132,9 @@ def main() -> int:
             and snap.get("route_action") == "BUY_STAGED_VERIFY"
             and snap.get("route_buy_extension") is True
             and snap.get("staged_complete") is True
+            and envelope_claim.get("claimed") is True
+            and resource_doc.get("qualified") is True
+            and route_resource.get("qualified") is True
             and decision["proposal_move"] is not None
             and (
                 not requirement.get("require_non_anchor_move")

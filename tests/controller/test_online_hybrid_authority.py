@@ -208,10 +208,12 @@ class FinalDecisionAuditTests(unittest.TestCase):
                 route_decision
             )
             snap_doc = snapshot(route_decision_digest=route_digest).as_dict()
+            evidence_digest = evidence().digest
             decision = {
                 "authority": "HYBRID",
                 "anchor_move": "d2d4",
                 "proposal_move": "e2e4",
+                "proposal_evidence_digest": evidence_digest,
                 "emitted_move": "g1f3",
             }
             parent = {
@@ -223,6 +225,7 @@ class FinalDecisionAuditTests(unittest.TestCase):
                     "generation": 7,
                     "position_id": "pos",
                     "anchor_go_command": snap_doc["time_plan_anchor_go_command"],
+                    "soft_budget_ms": 1000,
                 },
                 "outward_decision": decision,
             }
@@ -254,7 +257,13 @@ class FinalDecisionAuditTests(unittest.TestCase):
                     {
                         "source": {
                             "decision_terminal_source": "staged_verification"
-                        }
+                        },
+                        "proposal": {
+                            "move": "e2e4",
+                            "evidence_digest": evidence_digest,
+                            "frozen_observed_ms": 700.0,
+                            "frozen_before_anchor": True,
+                        },
                     }
                 ),
                 encoding="utf-8",
@@ -278,6 +287,197 @@ class FinalDecisionAuditTests(unittest.TestCase):
             )
             self.assertNotIn(
                 "authorized G3 proposal move differs from the granted move",
+                problems,
+            )
+
+    def test_authorized_g3_replay_recomputes_soft_deadline_from_sealed_proposal(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run = Path(tmp)
+            (run / "decision").mkdir(parents=True)
+            (run / "staged_verification").mkdir(parents=True)
+
+            route_decision = {
+                "action": "BUY_STAGED_VERIFY",
+                "buy_extension": True,
+            }
+            digest = __import__(
+                "controller.decision",
+                fromlist=["canonical_digest"],
+            ).canonical_digest(route_decision)
+            evidence_digest = evidence().digest
+            snap_doc = snapshot(route_decision_digest=digest).as_dict()
+            decision = {
+                "authority": "HYBRID",
+                "anchor_move": "d2d4",
+                "proposal_move": "e2e4",
+                "proposal_evidence_digest": evidence_digest,
+                "emitted_move": "e2e4",
+            }
+            parent = {
+                "generation": 7,
+                "position": {"position_id": "pos"},
+                "time_plan": {
+                    "plan_id": snap_doc["time_plan_id"],
+                    "request_class": snap_doc["time_plan_request_class"],
+                    "generation": 7,
+                    "position_id": "pos",
+                    "anchor_go_command": snap_doc["time_plan_anchor_go_command"],
+                    "soft_budget_ms": 700,
+                },
+                "outward_decision": decision,
+            }
+            (run / "manifest.json").write_text(json.dumps(parent), encoding="utf-8")
+            (run / "route.json").write_text(
+                json.dumps({"value_decisions": [route_decision]}),
+                encoding="utf-8",
+            )
+            (run / "staged_verification" / "manifest.json").write_text(
+                json.dumps(
+                    {
+                        "generation": 7,
+                        "intervention": "same_process_staged_verify_v1",
+                        "nomination": {
+                            "candidate_roots": ["e2e4", "d2d4", "g1f3"]
+                        },
+                        "disposition": {"run": "completed"},
+                        "stages": [
+                            {"disposition": "completed"},
+                            {"disposition": "completed"},
+                            {"disposition": "completed"},
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (run / "decision" / "counterfactual.json").write_text(
+                json.dumps(
+                    {
+                        "source": {
+                            "decision_terminal_source": "staged_verification"
+                        },
+                        "proposal": {
+                            "move": "e2e4",
+                            "evidence_digest": evidence_digest,
+                            "frozen_observed_ms": 701.0,
+                            "frozen_before_anchor": True,
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            problems: list[str] = []
+            _verify_clocked_authority(
+                run,
+                decision,
+                {
+                    "policy": CLOCKED_AUTHORIZATION_POLICY,
+                    "authorized": True,
+                    "move": "e2e4",
+                },
+                snap_doc,
+                problems,
+            )
+            self.assertIn(
+                "authorized G3 sealed proposal crossed the soft deadline",
+                problems,
+            )
+            self.assertIn(
+                "G3 soft-deadline snapshot disagrees with sealed evidence",
+                problems,
+            )
+
+    def test_authorized_g3_replay_binds_sealed_proposal_identity(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run = Path(tmp)
+            (run / "decision").mkdir(parents=True)
+            (run / "staged_verification").mkdir(parents=True)
+
+            route_decision = {
+                "action": "BUY_STAGED_VERIFY",
+                "buy_extension": True,
+            }
+            digest = __import__(
+                "controller.decision",
+                fromlist=["canonical_digest"],
+            ).canonical_digest(route_decision)
+            snap_doc = snapshot(route_decision_digest=digest).as_dict()
+            decision = {
+                "authority": "HYBRID",
+                "anchor_move": "d2d4",
+                "proposal_move": "e2e4",
+                "proposal_evidence_digest": "a" * 64,
+                "emitted_move": "e2e4",
+            }
+            parent = {
+                "generation": 7,
+                "position": {"position_id": "pos"},
+                "time_plan": {
+                    "plan_id": snap_doc["time_plan_id"],
+                    "request_class": snap_doc["time_plan_request_class"],
+                    "generation": 7,
+                    "position_id": "pos",
+                    "anchor_go_command": snap_doc["time_plan_anchor_go_command"],
+                    "soft_budget_ms": 1000,
+                },
+                "outward_decision": decision,
+            }
+            (run / "manifest.json").write_text(json.dumps(parent), encoding="utf-8")
+            (run / "route.json").write_text(
+                json.dumps({"value_decisions": [route_decision]}),
+                encoding="utf-8",
+            )
+            (run / "staged_verification" / "manifest.json").write_text(
+                json.dumps(
+                    {
+                        "generation": 7,
+                        "intervention": "same_process_staged_verify_v1",
+                        "nomination": {
+                            "candidate_roots": ["e2e4", "d2d4", "g1f3"]
+                        },
+                        "disposition": {"run": "completed"},
+                        "stages": [
+                            {"disposition": "completed"},
+                            {"disposition": "completed"},
+                            {"disposition": "completed"},
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (run / "decision" / "counterfactual.json").write_text(
+                json.dumps(
+                    {
+                        "source": {
+                            "decision_terminal_source": "staged_verification"
+                        },
+                        "proposal": {
+                            "move": "g1f3",
+                            "evidence_digest": "b" * 64,
+                            "frozen_observed_ms": 700.0,
+                            "frozen_before_anchor": True,
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            problems: list[str] = []
+            _verify_clocked_authority(
+                run,
+                decision,
+                {
+                    "policy": CLOCKED_AUTHORIZATION_POLICY,
+                    "authorized": True,
+                    "move": "e2e4",
+                },
+                snap_doc,
+                problems,
+            )
+            self.assertIn(
+                "authorized G3 granted move differs from sealed proposal",
+                problems,
+            )
+            self.assertIn(
+                "authorized G3 final decision evidence identity differs from sealed proposal",
                 problems,
             )
 

@@ -467,7 +467,7 @@ class DeadlineTests(unittest.TestCase):
                 'quiesce',
             )
 
-    def test_ready_precedes_slow_resource_sample_and_quit_keeps_published_decision(self):
+    def test_post_bestmove_isready_waits_for_resource_freeze_and_keeps_decision(self):
         with shell_fixture() as (shell,manager,shadow,out,tmp):
             entered = threading.Event()
             release = threading.Event()
@@ -496,7 +496,7 @@ class DeadlineTests(unittest.TestCase):
                 shell.handle_command('go movetime 500')
                 self.assertTrue(entered.wait(1))
                 wait_for(lambda: len(bestmoves(out)) == 1, 1)
-                self.assertEqual(shell.state, ShellState.READY)
+                self.assertEqual(shell.state, ShellState.SEARCHING)
                 self.assertIsNotNone(shadow._run)
                 self.assertTrue(shadow._run.outward_publication_done.is_set())
                 self.assertEqual(
@@ -505,17 +505,29 @@ class DeadlineTests(unittest.TestCase):
                     'published bestmove was not retained before slow sampling',
                 )
 
+                ready = threading.Thread(
+                    target=lambda: shell.handle_command('isready'),
+                    daemon=True,
+                )
+                ready.start()
+                time.sleep(.10)
+                self.assertTrue(
+                    ready.is_alive(),
+                    'isready crossed the anchor before the prior resource sample froze',
+                )
+                self.assertNotIn('readyok', out.getvalue().splitlines())
+
+                release.set()
+                ready.join(timeout=4)
+                self.assertFalse(ready.is_alive())
+                wait_for(lambda: shell.state == ShellState.READY, timeout=3)
+                self.assertIn('readyok', out.getvalue().splitlines())
+
                 quitter = threading.Thread(
                     target=lambda: shell.handle_command('quit'),
                     daemon=True,
                 )
                 quitter.start()
-                time.sleep(.15)
-                self.assertEqual(
-                    shadow._run.run.outward_decision,
-                    synthetic.as_dict(),
-                )
-                release.set()
                 quitter.join(timeout=4)
                 self.assertFalse(quitter.is_alive())
 
@@ -576,6 +588,39 @@ class DeadlineTests(unittest.TestCase):
             shell.handle_command('go movetime 400')
             wait_for(lambda:len(bestmoves(out))==2)
             self.assertEqual(bestmoves(out)[-1],'bestmove e2e4')
+
+    def test_router_finalization_cpu_is_inside_resource_interval(self):
+        with shell_fixture() as (shell,manager,shadow,out,tmp):
+            observed = {}
+            original_end = shadow._router_end
+
+            def instrumented_end(active):
+                resources = active.resources
+                self.assertIsNotNone(resources)
+                before = resources.controller_cpu_ms()
+                target = time.process_time_ns() + 20_000_000
+                while time.process_time_ns() < target:
+                    _ = sum(i * i for i in range(250))
+                after = resources.controller_cpu_ms()
+                observed['delta'] = after - before
+                return original_end(active)
+
+            with patch.object(shadow, '_router_end', side_effect=instrumented_end):
+                shell.handle_command('go movetime 500')
+                wait_for(lambda: len(bestmoves(out)) == 1, 1)
+                wait_for(lambda: list(tmp.glob('replays/*/route.json')), 3)
+
+            self.assertGreater(
+                observed.get('delta', 0.0),
+                5.0,
+                'controller CPU was already frozen before router finalization',
+            )
+            run = next(tmp.glob('replays/*'))
+            resource = json.loads((run/'resource.json').read_text())
+            self.assertGreaterEqual(
+                resource['controller']['cpu_ms'],
+                observed['delta'],
+            )
 
     def test_repeated_successful_go_and_isready_do_not_emit_duplicates(self):
         with shell_fixture(observe=False) as (shell,manager,shadow,out,tmp):

@@ -10,6 +10,7 @@ on:
       - qualification/lc0-strength-profile.json
       - config/allfather.online-hybrid.validation.json
       - config/allfather.online.cpu-reference.json
+      - config/allfather.strength.validation.json
       - controller/**
       - adapters/process/**
       - adapters/resource/**
@@ -40,6 +41,7 @@ on:
       - qualification/lc0-strength-profile.json
       - config/allfather.online-hybrid.validation.json
       - config/allfather.online.cpu-reference.json
+      - config/allfather.strength.validation.json
       - controller/**
       - adapters/process/**
       - adapters/resource/**

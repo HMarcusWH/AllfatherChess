@@ -75,19 +75,37 @@ def main() -> int:
                 label=f"G3 bestmove {label}",
                 timeout=8,
             )
+
+            # A single first terminal line is not enough: publication races can
+            # emit a duplicate bestmove immediately afterwards. Drain through a
+            # subsequent UCI readiness barrier and reject every extra terminal
+            # line before accepting this case.
+            shell.send("isready")
+            barrier_lines = shell.read_until(
+                lambda line: line == "readyok",
+                label=f"G3 post-bestmove readyok {label}",
+                timeout=8,
+            )
+            observed_lines = [*lines, *barrier_lines]
             elapsed = (time.monotonic() - started) * 1000
             moves_out = [
                 line.split()[1]
-                for line in lines
+                for line in observed_lines
                 if line.startswith("bestmove ")
             ]
             require(
                 len(moves_out) == 1
                 and MOVE_RE.fullmatch(moves_out[0]) is not None,
-                f"{label}: invalid outward move: {moves_out!r}",
+                f"{label}: expected exactly one legal outward bestmove before "
+                f"readyok, got {moves_out!r}",
             )
 
-        run = wait_bundle(replay_root, known)
+            # Keep the controller alive while its declared replay-drain window
+            # completes. UciSession.close() has a shorter generic process wait,
+            # so waiting only after leaving this context could kill an otherwise
+            # valid replay before decision/final.json is sealed.
+            run = wait_bundle(replay_root, known)
+
         known.add(run.name)
         problems = verify_bundle_integrity(run)
         require(not problems, f"{label}: replay integrity failed: {problems}")

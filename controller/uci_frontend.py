@@ -157,6 +157,15 @@ class UciFrontend:
                 self._state = ShellState.READY if self.runtime.healthy else ShellState.UNHEALTHY
 
             if self.shadow is not None:
+                try:
+                    self.shadow.note_anchor_emitted(
+                        token,
+                        final_decision=final_decision,
+                    )
+                except Exception as exc:
+                    self._diagnostic(
+                        f"post-output decision/resource publication failed: {exc}"
+                    )
                 threading.Thread(
                     target=lambda: self._shadow_cancel(
                         "clock_anchor_complete",
@@ -194,7 +203,10 @@ class UciFrontend:
 
         if self.shadow is not None:
             try:
-                self.shadow.note_anchor_emitted(token)
+                self.shadow.note_anchor_emitted(
+                    token,
+                    final_decision=final_decision,
+                )
             except Exception as exc:  # pragma: no cover - measurement is non-authoritative
                 self._diagnostic(f"anchor terminal resource sample failed: {exc}")
 
@@ -512,6 +524,7 @@ class UciFrontend:
                     clock = self._clock_search
                     if clock is not None:
                         clock.work_closed.set()
+                        clock.block_authority()
                 if token is not None:
                     threading.Thread(
                         target=lambda: self._clock_stop(

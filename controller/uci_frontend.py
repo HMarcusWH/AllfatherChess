@@ -144,37 +144,54 @@ class UciFrontend:
                         )
                     self._clock_fail(token, "decision selection crossed the clock deadline")
                     return
-                # Selection ran outside the frontend state lock. A user stop
-                # can revoke authority while that pure check is running, so
-                # revalidate immediately before deciding the outward line.
-                if final_decision is not None and not clock.authority_open():
-                    final_decision = revoke_final_decision_to_anchor(
-                        final_decision,
-                        reason="clock authority revoked before outward write",
-                    )
+
                 clock.work_closed.set()
-                outward_line = line
-                if (
-                    final_decision is not None
-                    and final_decision.authority == "HYBRID"
-                    and final_decision.emitted_move != final_decision.anchor_move
-                ):
-                    outward_line = f"bestmove {final_decision.emitted_move}"
-                self._write(outward_line)
+
+                # Actual publication boundary. Online stop revokes authority
+                # without first taking _state_lock, so it can still win while
+                # stdout is backpressured. commit_authority() linearizes the
+                # last legal revocation point immediately before output.write.
+                with self._write_lock:
+                    if (
+                        final_decision is not None
+                        and final_decision.authority == "HYBRID"
+                        and not clock.commit_authority()
+                    ):
+                        final_decision = revoke_final_decision_to_anchor(
+                            final_decision,
+                            reason="clock authority revoked before publication commit",
+                        )
+
+                    outward_line = line
+                    if (
+                        final_decision is not None
+                        and final_decision.authority == "HYBRID"
+                        and final_decision.emitted_move != final_decision.anchor_move
+                    ):
+                        outward_line = f"bestmove {final_decision.emitted_move}"
+                    self.output.write(outward_line + "\n")
+                    self.output.flush()
+
                 clock.finish(line=outward_line)
+
+                # Do not expose READY until the emitted decision has been
+                # published into replay state. This closes the READY->quit
+                # race where shadow.close() could retire the run first.
+                if self.shadow is not None:
+                    try:
+                        self.shadow.note_anchor_emitted(
+                            token,
+                            final_decision=final_decision,
+                        )
+                    except Exception as exc:
+                        self._diagnostic(
+                            f"post-output decision/resource publication failed: {exc}"
+                        )
+
                 self._active_generation = None
                 self._state = ShellState.READY if self.runtime.healthy else ShellState.UNHEALTHY
 
             if self.shadow is not None:
-                try:
-                    self.shadow.note_anchor_emitted(
-                        token,
-                        final_decision=final_decision,
-                    )
-                except Exception as exc:
-                    self._diagnostic(
-                        f"post-output decision/resource publication failed: {exc}"
-                    )
                 threading.Thread(
                     target=lambda: self._shadow_cancel(
                         "clock_anchor_complete",
@@ -528,10 +545,17 @@ class UciFrontend:
 
         if command == "stop":
             if self.online_time is not None:
+                # Revoke hybrid authority before waiting for frontend state.
+                # A backpressured bestmove write may hold _state_lock, but the
+                # stop command must still be able to win the publication gate.
+                clock_hint = self._clock_search
+                if clock_hint is not None:
+                    clock_hint.work_closed.set()
+                    clock_hint.block_authority()
                 with self._state_lock:
                     token = self._active_generation
                     clock = self._clock_search
-                    if clock is not None:
+                    if clock is not None and clock is not clock_hint:
                         clock.work_closed.set()
                         clock.block_authority()
                 if token is not None:

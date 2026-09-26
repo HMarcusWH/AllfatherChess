@@ -71,6 +71,32 @@ class _DecisionShadowStub:
 
 
 class UciFrontendTests(unittest.TestCase):
+    def test_online_mode_rejects_output_without_deadline_safe_fileno(self):
+        class WrappedWriter:
+            def __init__(self):
+                self.lines = []
+
+            def write(self, value):
+                self.lines.append(value)
+                return len(value)
+
+            def flush(self):
+                return None
+
+        runtime = _RuntimeStub()
+        runtime.config = SimpleNamespace(online_time=object())
+        with self.assertRaisesRegex(
+            Exception,
+            "usable fileno",
+        ):
+            UciFrontend(runtime, output=WrappedWriter())
+
+        # Offline mode keeps ordinary TextIO-like embedding compatibility.
+        runtime_offline = _RuntimeStub()
+        runtime_offline.config = SimpleNamespace(online_time=None)
+        frontend = UciFrontend(runtime_offline, output=WrappedWriter())
+        self.assertIsNone(frontend.online_time)
+
     def test_external_identity_anchor_search_and_isready_during_infinite(self):
         with tempfile.TemporaryDirectory() as tmp:
             config = write_config(Path(tmp))

@@ -536,6 +536,52 @@ class DeadlineTests(unittest.TestCase):
             manifest = json.loads((run/'manifest.json').read_text())
             self.assertEqual(manifest.get('outward_decision'), synthetic.as_dict())
             wait_for(lambda: (run/'decision'/'final.json').is_file(), timeout=3)
+    def test_visible_bestmove_isready_race_is_fenced_before_clock_finished(self):
+        """Bytes may be readable before try_publish sets ClockSearch.finished."""
+        with shell_fixture() as (shell,manager,shadow,out,tmp):
+            published_entered = threading.Event()
+            release_published = threading.Event()
+            original_published = shadow.note_anchor_published
+
+            def blocked_published(token, final_decision=None):
+                published_entered.set()
+                release_published.wait(5)
+                return original_published(token, final_decision=final_decision)
+
+            with patch.object(
+                shadow,
+                'note_anchor_published',
+                side_effect=blocked_published,
+            ):
+                shell.handle_command('go movetime 500')
+                self.assertTrue(published_entered.wait(1))
+                wait_for(lambda: len(bestmoves(out)) == 1, 1)
+                token = shell._active_generation
+                self.assertIsNotNone(token)
+                self.assertFalse(
+                    shell._clock_search.finished.is_set(),
+                    'test did not capture the visible-bytes/pre-finished window',
+                )
+                self.assertEqual(shell._post_output_generation, token)
+
+                ready = threading.Thread(
+                    target=lambda: shell.handle_command('isready'),
+                    daemon=True,
+                )
+                ready.start()
+                time.sleep(.10)
+                self.assertTrue(
+                    ready.is_alive(),
+                    'isready escaped while bestmove was visible but clock.finished was false',
+                )
+                self.assertNotIn('readyok', out.getvalue().splitlines())
+
+                release_published.set()
+                ready.join(timeout=4)
+                self.assertFalse(ready.is_alive())
+                wait_for(lambda: shell.state == ShellState.READY, timeout=3)
+                self.assertIn('readyok', out.getvalue().splitlines())
+
     def test_blocked_replay_setup_uses_same_preparation_deadline(self):
         with shell_fixture() as (shell,manager,shadow,out,tmp):
             original_mkdir=Path.mkdir

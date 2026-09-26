@@ -7,6 +7,7 @@ import os
 import queue
 import re
 import select
+import stat
 import sys
 import threading
 import time
@@ -59,16 +60,16 @@ class UciFrontend:
         self._generation = 0
         self._active_generation: int | None = None
         self.online_time = getattr(getattr(runtime, "config", None), "online_time", None)
-        if (
-            self.online_time is not None
-            and not isinstance(self.output, io.StringIO)
-            and self._output_fd() is None
-        ):
-            raise RuntimeError(
-                "ONLINE mode requires an output stream with a usable fileno() "
-                "for deadline-safe nonblocking publication (StringIO is supported "
-                "for in-process tests)"
-            )
+        self._online_atomic_write_limit: int | None = None
+        if self.online_time is not None and not isinstance(self.output, io.StringIO):
+            fd = self._output_fd()
+            limit = None if fd is None else self._atomic_pipe_write_limit(fd)
+            if limit is None:
+                raise RuntimeError(
+                    "ONLINE mode requires StringIO for in-process tests or a "
+                    "POSIX pipe/FIFO output with PIPE_BUF atomic-write semantics"
+                )
+            self._online_atomic_write_limit = limit
         self._clock_search: ClockSearch | None = None
         self._receipt_monotonic: float | None = None
         self._receipt_cpu_ns: int | None = None
@@ -99,6 +100,18 @@ class UciFrontend:
             return None
         return fd if isinstance(fd, int) and fd >= 0 else None
 
+    @staticmethod
+    def _atomic_pipe_write_limit(fd: int) -> int | None:
+        """Return the atomic write bound only for POSIX pipe/FIFO descriptors."""
+        try:
+            mode = os.fstat(fd).st_mode
+            if not stat.S_ISFIFO(mode):
+                return None
+            bound = int(os.fpathconf(fd, "PC_PIPE_BUF"))
+        except (OSError, ValueError, TypeError):
+            return None
+        return bound if bound > 0 else None
+
     def _try_write_online_line_once(self, line: str) -> bool:
         """Attempt one complete ONLINE line without ever blocking."""
         if not self._write_lock.acquire(blocking=False):
@@ -110,10 +123,15 @@ class UciFrontend:
                 return True
 
             fd = self._output_fd()
-            if fd is None:
+            limit = self._online_atomic_write_limit
+            if fd is None or limit is None:
                 return False
 
             payload = (line + "\n").encode("ascii", errors="strict")
+            if len(payload) > limit:
+                raise RuntimeError(
+                    "deadline-safe UCI line exceeds the output pipe atomic-write bound"
+                )
             was_blocking = os.get_blocking(fd)
             if was_blocking:
                 os.set_blocking(fd, False)
@@ -127,8 +145,12 @@ class UciFrontend:
                     os.set_blocking(fd, True)
 
             if written != len(payload):
+                # POSIX requires writes <= PIPE_BUF to a pipe/FIFO to be
+                # all-or-nothing. Treat violation as a transport invariant
+                # failure; unsupported short-write descriptors are rejected at
+                # construction and never reach this path.
                 raise RuntimeError(
-                    "deadline-safe UCI publication produced a partial line"
+                    "atomic pipe contract produced an impossible partial UCI line"
                 )
             return True
         finally:

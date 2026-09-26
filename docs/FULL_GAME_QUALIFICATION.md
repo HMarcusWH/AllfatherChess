@@ -15,16 +15,23 @@ It does **not** use a small local campaign to claim Elo or equal-resource superi
 
 The campaign pins Fastchess through `qualification/fastchess.lock.json`.
 
-The lock records upstream repository, tag, exact commit and exact Git tree. The build script
-checks out that commit, verifies the tree, builds Fastchess, runs Fastchess's own tests, and
-records the resulting binary hash/toolchain in:
+The lock records upstream repository, tag, exact commit and exact Git tree. Fastchess's
+upstream unit-test workflow currently qualifies Linux on Ubuntu 22.04, while Allfather's
+real-network lifecycle reference runs on Ubuntu 24.04. LOCAL-1 preserves that distinction:
+
+1. a dedicated Ubuntu 22.04 job checks out the exact source pin, verifies the tree, and
+   runs the upstream clean `make tests -> fastchess-tests` contract;
+2. the Ubuntu 24.04 lifecycle job checks out the same pin, builds the portable release
+   runner, and records the resulting binary hash/toolchain in:
 
 ```text
 build/tools/fastchess/build-manifest.json
 ```
 
 The runner binary is therefore measured output, not assumed byte-reproducible across arbitrary
-compilers.
+compilers. The two jobs are intentionally separate: the pinned upstream test binary was observed
+to crash during teardown on Ubuntu 24.04 even after its assertions completed, so LOCAL-1 does
+not relabel an unsupported-host test crash as success and does not weaken the upstream test gate.
 
 ## Runtime profiles
 
@@ -159,6 +166,11 @@ After installing the same Linux build dependencies used by CI:
 
 ```bash
 make local-full-game-tests
+
+# On the upstream-supported Ubuntu 22.04 source-test host:
+make test-fastchess-source
+
+# On the Ubuntu 24.04 LOCAL-1 lifecycle host:
 make build-fastchess
 make build-online-cpu-reference
 make lc0-strength-contract

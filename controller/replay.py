@@ -531,6 +531,7 @@ class ReplayRun:
     qualification_ms: float | None = None
     time_plan: dict[str, Any] | None = None
     clock_outcome: dict[str, Any] | None = None
+    outward_decision: dict[str, Any] | None = None
 
     # -- streams -------------------------------------------------------------
 
@@ -690,6 +691,8 @@ class ReplayRun:
             if self.time_plan is not None:
                 manifest["time_plan"] = self.time_plan
                 manifest["clock_outcome"] = self.clock_outcome
+            if self.outward_decision is not None:
+                manifest["outward_decision"] = self.outward_decision
             payload = json.dumps(manifest, indent=2, sort_keys=True) + "\n"
 
             atomic_write_text(self.run_dir / "manifest.json", payload)

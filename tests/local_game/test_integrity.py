@@ -14,6 +14,8 @@ class EffectiveCommandTests(unittest.TestCase):
     def test_effective_commands_cannot_sneak_a_baseline_work_limit(self):
         plan = {"clock": "0:30+1", "driver_nodes": None}
         lines = events([("in", "setoption name UCI_Chess960 value false"),
+                        ("in", "ucinewgame"),
+                        ("in", "position startpos"),
                         ("in", "go wtime 30000 btime 30000 winc 1000 binc 1000")])
         verify_session_commands(lines, "allfather-g3", plan, {})
         for suffix in (" nodes 1", " movetime 500", " searchmoves e2e4"):

@@ -106,10 +106,35 @@ def verify_g3_derivation(source: dict, candidate: dict, root: Path, replay: Path
 
 
 def source_identity(root: Path = ROOT) -> dict:
-    require(subprocess.run(["git", "-C", str(root), "diff", "--quiet", "HEAD", "--"]).returncode == 0,
-            "tracked checkout is dirty; qualify committed source only")
+    require(
+        subprocess.run(
+            ["git", "-C", str(root), "diff", "--quiet", "HEAD", "--"],
+            check=False,
+        ).returncode == 0,
+        "tracked checkout is dirty; qualify committed source only",
+    )
+
     def git(*args):
-        return subprocess.check_output(["git", "-C", str(root), *args], text=True).strip()
+        return subprocess.check_output(
+            ["git", "-C", str(root), *args],
+            text=True,
+        ).strip()
+
+    # A clean tracked diff is insufficient: an untracked sitecustomize.py,
+    # importable helper, or fixture can change qualification behavior while the
+    # manifest still claims pristine HEAD. Respect .gitignore so generated
+    # build evidence does not make qualification impossible, but fail closed on
+    # every other untracked path.
+    untracked = [
+        line
+        for line in git("ls-files", "--others", "--exclude-standard").splitlines()
+        if line.strip()
+    ]
+    require(
+        not untracked,
+        "untracked source/fixture files present; qualify committed source only: "
+        + ", ".join(untracked[:20]),
+    )
     return {"commit": git("rev-parse", "HEAD"), "tree": git("rev-parse", "HEAD^{tree}")}
 
 

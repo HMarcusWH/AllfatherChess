@@ -1,16 +1,18 @@
 > Repository integration: originally frozen as the 25 September 2026 post-#35 deployment audit;
-> synchronized on 26 September 2026 after merged PR #36 / ONLINE-1.
-> ONLINE-1 and ONLINE-2 are complete. M14-G3, LOCAL-1, packaging, lifecycle qualification,
-> release qualification, account setup and the canary remain open. Hardware, licensing and
-> branch-protection items remain explicit release gates.
+> synchronized on 26 September 2026 after merged PR #39 / M14-G3.
+> ONLINE-1, ONLINE-2 and M14-G3 are complete. LOCAL-1 is next, followed by packaging,
+> lifecycle/recovery qualification, aggregate release qualification and the canary.
+> [ROADMAP.md](ROADMAP.md) is now the canonical forward-order document; this file remains
+> the detailed deployment audit. Hardware, licensing and branch-protection items remain
+> explicit release gates.
 
 # AllfatherChess — Final plan from current repository to online bot play
 
 **Original review date:** 25 September 2026  
 **Status synchronization:** 26 September 2026  
 **Repository:** `HMarcusWH/AllfatherChess`  
-**Current main commit:** `c499405fd97600546437c1f91b4c0e9e066023cb`  
-**Current milestone:** PR #38 / ONLINE-2 merged and main-branch qualification green.  
+**Current main commit:** `c301e9986566febfbb7978d55c5a3d3429423cff`  
+**Current milestone:** PR #39 / M14-G3 merged; LOCAL-1 is the active execution gate.  
 **Current status authority:** [CURRENT_STATUS.md](CURRENT_STATUS.md)  
 **Delivery:** source-backed audit plus synchronized implementation/deployment plan. The repository is not yet a deployed bot and makes no playing-strength claim.
 
@@ -21,8 +23,7 @@ Build a bounded online release, rather than continue an open-ended sequence of r
 The critical path is:
 
 ```text
-PR #38 / ONLINE-2 merged
-    -> M14-G3 clock-aware staged hybrid authority
+PR #39 / M14-G3 merged
     -> LOCAL-1 full-game lifecycle / controlled baseline matches
     -> ONLINE-3 reproducible package + pinned lichess-bot bridge
     -> ONLINE-4 network/restart/rollback qualification
@@ -222,7 +223,15 @@ Measure cold start, network loading, first move, warm moves, and stop tails. Mov
 
 **Done when:** the profile uses actual inference; recorded identities match launched processes; all four backend/controller costs are visible; aggregate resources are enforced; and missing required measurement prevents qualification. This proves an operational profile, not superiority.
 
-### M14-G3 — Compose staged verification with hybrid authority
+### M14-G3 — Compose staged verification with hybrid authority — **COMPLETED IN PR #39**
+
+The merged implementation is documented in [ONLINE_HYBRID_AUTHORITY.md](ONLINE_HYBRID_AUTHORITY.md).
+Its exact-head qualification requires a genuine non-anchor HYBRID output with the real
+ONLINE-2 bundle plus deterministic fallback/rejection coverage. The implementation also
+hardens stdout/stop/deadline linearization, post-output readiness, generation safety and
+resource freeze ordering.
+
+The design text below is retained as the pre-implementation acceptance contract.
 
 **Suggested title:** `feat: qualify staged terminal evidence for bounded hybrid decisions`
 
@@ -364,22 +373,27 @@ The first online release ends the integration project, not the research objectiv
 
 If the hybrid cannot beat the best constituent in its tested regime, retain the functional online release as an experiment and use the ablations to identify the bottleneck. Do not convert that outcome into a stronger statement by selecting weaker opponents, changing the reference version after seeing results, or dropping overhead from the accounting.
 
-## 9. Current next implementation after ONLINE-1
+## 9. Current next implementation after M14-G3
 
-ONLINE-1 is merged. The next behavior-changing release milestone is **ONLINE-2:
-Hardware-bound real-inference deployment profile**. It should build on the existing
-pinned LC0 BLAS/network qualification rather than inventing a second real-inference
-scheme, and it must bind the actual online host/resource class, engine binaries,
-networks, options and aggregate process/controller costs.
+ONLINE-1, ONLINE-2 and M14-G3 are merged. The next behavior-changing release milestone is
+**LOCAL-1: full-game lifecycle qualification**.
 
-M14-G3 follows ONLINE-2 and must add a new clock-aware staged authority contract;
-removing the current staged/hybrid or clock/hybrid runtime guards is not sufficient.
-The positive integration gate must exercise a genuine real-backend HYBRID override as
-well as ordinary fail-closed anchor fallback.
+LOCAL-1 must pin an established UCI match runner and exercise complete games rather than
+isolated `go` calls. It must validate full move history, repetition-sensitive state,
+castling, en passant, promotion, mate/stalemate, low clocks, long-game process reuse,
+worker failure, replay/storage pressure, cleanup and resource isolation across plies.
 
-M14-G4 production SKIP qualification may proceed alongside LOCAL-1/ONLINE-3. It becomes
-a hard gate before learned SKIP is promoted, but a conservative first canary may retain
-BUY/resource-denial/fallback behavior when shortcut evidence is unsupported.
+The engineering acceptance gate is zero illegal/stale/duplicate outward moves, zero
+controller-attributable time forfeits in the lifecycle campaign, no leaked prior-game
+workers, and complete game→ply→replay/resource linkage. W/D/L may be recorded but is not
+the acceptance criterion and does not become an Elo claim.
+
+After LOCAL-1, the critical path is ONLINE-3 packaging/pinned bridge, ONLINE-4
+network/restart/reconciliation/rollback qualification, aggregate release qualification,
+then ONLINE-RC.
+
+M14-G4 production SKIP qualification may proceed alongside LOCAL-1/ONLINE-3. It remains a
+hard gate before learned SKIP is promoted.
 
 ## 10. Final acceptance checklist
 
@@ -418,7 +432,8 @@ Repository links below are anchored to the reviewed SHA unless the item is inher
 - **S21 — Chess.com public API limitation:** `https://www.chess.com/news/view/published-data-api`; current documentation explicitly says PubAPI is read-only and cannot submit moves. This is why it is not the proposed first deployment path, not a claim that no private/organizer integration can ever exist.
 - **S22 — PR #36 / ONLINE-1:** `https://github.com/HMarcusWH/AllfatherChess/pull/36`; merged main commit `64aa8fd13c390b9b37b8825d8f39e73d9bdbdbf8`.
 - **S23 — Current main qualification runs:** Merge gate `36193538618`; Controller shell `36193538737`; Telemetry `36193538611`; LC0 real inference `36193538614`; Baseline engine validation `36193538665`.
-- **S24 — Current synchronized status:** `docs/CURRENT_STATUS.md` and `qualification/release-baseline.json` on the post-#36 documentation branch.
+- **S24 — Current synchronized status:** `docs/CURRENT_STATUS.md`, `docs/ROADMAP.md` and `qualification/release-baseline.json`.
+- **S25 — PR #39 / M14-G3:** `https://github.com/HMarcusWH/AllfatherChess/pull/39`; merge commit `c301e9986566febfbb7978d55c5a3d3429423cff`; qualified head `9ea858eed4133ea1bc8e89137176b4e5cf2eb316`.
 - **E01 — Downloaded CI evidence:** `allfather-main-9a1414-validation-evidence.zip`; inspection output `audit/independent-checks.json`; reproducible local inspector `audit/check_ci_evidence.py` in the accompanying audit pack.
 
 For core source paths not expanded as a URL above, prepend `https://github.com/HMarcusWH/AllfatherChess/blob/9a1414b8d7897e856364b15423fe3efb5a7cc7f7/`.

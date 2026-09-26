@@ -2212,8 +2212,13 @@ class ShadowRunCoordinator:
                         )
                         break
 
-                process_endpoints_frozen = True
+                # Engine reuse is safe only after the anchor actually reached
+                # its terminal callback and every managed endpoint below was
+                # frozen/restored. A close/runtime-failure escape from the wait
+                # above must never manufacture an engine-quiesced barrier.
+                process_endpoints_frozen = False
                 if active.anchor_done.is_set():
+                    process_endpoints_frozen = True
                     if (
                         active.refinement is not None
                         and not active.refinement.active_stages()

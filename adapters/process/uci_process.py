@@ -6,12 +6,13 @@ import collections
 import math
 import os
 import re
+import select
 import subprocess
 import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
 
 class UciProcessError(RuntimeError):
@@ -437,6 +438,108 @@ class UciProcess:
     def new_game(self) -> None:
         self.send("ucinewgame")
 
+    def _send_search_command(
+        self,
+        command: str,
+        *,
+        timeout: float,
+        permit: Callable[[], bool] | None,
+        dispatch_gate: Any | None,
+    ) -> None:
+        """Publish one search command atomically against the authority boundary.
+
+        Ordinary UCI writes retain the bounded writer-thread contract. Shadow
+        search dispatch is stricter: the final permit and the physical pipe
+        write must be one causal boundary with anchor completion. When a
+        dispatch gate is supplied, this method therefore performs only a
+        nonblocking <= PIPE_BUF write while holding that gate. If the pipe is
+        full it releases the gate, waits briefly for capacity, and retries;
+        anchor completion can then win and close the permit before any bytes
+        are written.
+        """
+        if dispatch_gate is None:
+            self.send(command, timeout=timeout, permit=permit)
+            return
+
+        proc = self.proc
+        if proc is None or proc.stdin is None:
+            raise UciProcessError(f"{self.name}: process not started")
+        if proc.poll() is not None:
+            raise UciProcessError(
+                f"{self.name}: engine exited before command: {command}"
+            )
+
+        try:
+            fd = proc.stdin.fileno()
+            pipe_buf = int(os.fpathconf(fd, "PC_PIPE_BUF"))
+        except (AttributeError, OSError, ValueError, TypeError) as exc:
+            raise UciProcessError(
+                f"{self.name}: search stdin lacks atomic pipe semantics: {exc}"
+            ) from exc
+
+        payload = (command + "\n").encode("utf-8")
+        if len(payload) > pipe_buf:
+            raise UciProcessError(
+                f"{self.name}: search command exceeds PIPE_BUF atomic bound"
+            )
+
+        deadline = time.monotonic() + timeout
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                self._transcript.append(f"!! stdin write timeout: {command}")
+                try:
+                    if proc.poll() is None:
+                        proc.kill()
+                except OSError:
+                    pass
+                raise UciProcessError(
+                    f"{self.name}: timeout writing command {command!r}\n"
+                    + self._diagnostic_tail()
+                )
+
+            if not self._stdin_lock.acquire(timeout=min(0.05, remaining)):
+                continue
+            try:
+                with dispatch_gate:
+                    if proc.poll() is not None:
+                        raise UciProcessError(
+                            f"{self.name}: engine exited before command: {command}"
+                        )
+                    if permit is not None and not permit():
+                        raise UciProcessError(
+                            f"{self.name}: command window closed before write"
+                        )
+
+                    was_blocking = os.get_blocking(fd)
+                    if was_blocking:
+                        os.set_blocking(fd, False)
+                    try:
+                        try:
+                            written = os.write(fd, payload)
+                        except BlockingIOError:
+                            written = None
+                    finally:
+                        if was_blocking:
+                            os.set_blocking(fd, True)
+
+                    if written is not None:
+                        if written != len(payload):
+                            raise UciProcessError(
+                                f"{self.name}: atomic search pipe produced a partial command"
+                            )
+                        self._transcript.append(f">> {command}")
+                        return
+            finally:
+                self._stdin_lock.release()
+
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                continue
+            try:
+                select.select([], [fd], [], min(0.01, remaining))
+            except (OSError, ValueError):
+                time.sleep(min(0.002, remaining))
     def start_search(
         self,
         command: str,
@@ -446,6 +549,7 @@ class UciProcess:
         on_complete: Callable[[int, str], None],
         timeout: float | None = None,
         permit: Callable[[], bool] | None = None,
+        dispatch_gate: Any | None = None,
     ) -> None:
         if command != "go" and not command.startswith("go "):
             raise UciProcessError(f"{self.name}: invalid go command: {command!r}")
@@ -466,7 +570,12 @@ class UciProcess:
                     on_complete=on_complete,
                 )
             try:
-                self.send(command, timeout=bound, permit=permit)
+                self._send_search_command(
+                    command,
+                    timeout=bound,
+                    permit=permit,
+                    dispatch_gate=dispatch_gate,
+                )
             except Exception:
                 with self._state_lock:
                     if self._search is not None and self._search.token == token:

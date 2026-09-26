@@ -964,7 +964,7 @@ def _load_hybrid_authority_settings(
         request_class = raw.get("request_class", "movetime_v0")
         if request_class != "movetime_v0":
             raise RuntimeError(
-                "bounded_preanchor_v0 supports exactly request_class='movetime_v0'"
+                "bounded_preanchor_v0 request_class supports exactly 'movetime_v0'"
             )
         terminal_source_policy = raw.get("terminal_source_policy", "base_verify_v0")
         allow_skipped = raw.get("allow_skipped_extension_authority", False)

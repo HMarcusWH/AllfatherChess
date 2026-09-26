@@ -99,7 +99,8 @@ class ProfileTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
         critical_inputs = (
             "qualification/online-cpu-reference.json",
-            "qualification/lc0-strength-*.json",
+            "qualification/lc0-strength.lock.json",
+            "qualification/lc0-strength-profile.json",
             "config/allfather.online.cpu-reference.json",
             "scripts/build-online-cpu-reference.sh",
             "scripts/build-lc0-strength.sh",

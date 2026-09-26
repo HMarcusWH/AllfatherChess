@@ -1,5 +1,10 @@
 # Shadow REFINE execution
 
+> **Current composition note (26 September 2026):** REFINE still carries no direct move
+> authority. PR #39 / M14-G3's qualified authority source is the route-bound staged VERIFY
+> terminal plane; recursive REFINE remains outside that G3 authority contract unless a
+> future separately qualified version says otherwise.
+
 ## Status
 
 PR #17 wired the qualified PrefixShardLedger v2 substrate into the live

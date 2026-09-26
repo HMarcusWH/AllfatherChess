@@ -87,9 +87,16 @@ class UciFrontendTests(unittest.TestCase):
         runtime.config = SimpleNamespace(online_time=object())
         with self.assertRaisesRegex(
             Exception,
-            "usable fileno",
+            "POSIX pipe/FIFO",
         ):
             UciFrontend(runtime, output=WrappedWriter())
+
+        # A usable descriptor alone is not enough: regular files, sockets and
+        # PTYs do not provide the PIPE_BUF all-or-nothing contract required by
+        # the deadline-safe publication path.
+        with tempfile.TemporaryFile(mode="w+") as regular:
+            with self.assertRaisesRegex(Exception, "POSIX pipe/FIFO"):
+                UciFrontend(runtime, output=regular)
 
         # Offline mode keeps ordinary TextIO-like embedding compatibility.
         runtime_offline = _RuntimeStub()

@@ -22,22 +22,28 @@ The product target is not "three engines worth of compute against one engine." I
 
 ## Current composition boundary
 
-The live repository is post-PR #36 / ONLINE-1. Several advanced mechanisms are
-individually qualified but intentionally not composable in one production profile yet.
-See [CURRENT_STATUS.md](CURRENT_STATUS.md) for the exact release matrix.
+The live repository is post-PR #39 / M14-G3. The current integrated reference profile
+`allfather.online-hybrid.validation.json` composes:
 
-The key present firewalls are:
+- ONLINE-2 real-network portable CPU binaries and pinned BLAS-LC0 network identity;
+- ONLINE-1 immutable TimePlan / soft-hard deadline semantics;
+- pairwise-disjoint EXPLORE ownership;
+- common-support base VERIFY;
+- M14-G2 route-bound staged VERIFY;
+- frozen staged proposal/evidence identity;
+- clock-aware fail-closed DecisionAuthorization;
+- deadline-safe outward publication;
+- deterministic Stockfish fallback;
+- measured process/controller resource sealing.
 
-- M14-C can grant hybrid outward authority only for its qualified `movetime_v0` class;
-- M14-G1/G2 staged VERIFY/value routing does not grant outward move authority and staged
-  VERIFY is rejected when M14-C authority is enabled;
-- ONLINE-1 clock-derived `TimePlan` execution is CPU-only, anchor-authoritative, and
-  rejected with M14-C authority or recursive REFINE;
-- the real-network LC0 BLAS profile is a separate inference qualification, not yet the
-  ONLINE-1 deployment profile.
+The older profiles remain intentionally narrower regression contracts. M14-G3 does not
+delete their firewalls or reinterpret their historical claims.
 
-The next architecture composition milestone is M14-G3, after ONLINE-2 establishes the
-real-network online host/profile identity.
+The immediate architecture milestone is no longer another move-authority expansion.
+It is **LOCAL-1 full-game lifecycle qualification**: prove that this composition preserves
+history, legality, clocks, generation isolation, resource accounting and process cleanup
+across complete games. See [CURRENT_STATUS.md](CURRENT_STATUS.md) and
+[ROADMAP.md](ROADMAP.md).
 
 ## Generations
 
@@ -83,20 +89,23 @@ Each layer is independently testable and no layer may reach upward. Residuals ne
 
 ### Execution modes
 
-| Mode | Instances | Ledger | Routing | Outward authority |
-| --- | --- | --- | --- | --- |
-| `anchor` | 3, legacy profile | unused live | none | Stockfish anchor |
-| `shadow` | 4 | 3 shadow owners | none | `stockfish-anchor` |
-| `active` default | 4 | 3 shadow owners | conservative observation/resource routing | `stockfish-anchor` |
-| `active` M14-C hybrid profile | 4 | 3 shadow owners | VERIFY/REFINE + separate DecisionAuthorization | HYBRID only when `movetime_v0` gates pass; otherwise anchor fallback |
-| `active` M14-G2 staged profile | 4 | 3 shadow owners | base VERIFY -> BUY/SKIP -> optional staged VERIFY | `stockfish-anchor` |
-| `active` ONLINE-1 clock profile | 4 | 3 shadow owners | clock-derived bounded observation/resource routing | `stockfish-anchor` |
+| Mode / profile | Instances | Routing/evidence | Outward authority |
+| --- | ---: | --- | --- |
+| `anchor` | 3 legacy | none | Stockfish anchor |
+| `shadow` | 4 | disjoint observation/replay | Stockfish anchor |
+| `active` default | 4 | conservative resource/observation routing | Stockfish anchor |
+| M14-C hybrid validation | 4 | VERIFY/REFINE + bounded movetime_v0 authorization | HYBRID only when M14-C gates pass; otherwise anchor fallback |
+| M14-G2 staged validation | 4 | base VERIFY -> BUY/SKIP -> optional staged VERIFY | Stockfish anchor |
+| ONLINE-1 clock validation | 4 | TimePlan-bounded observation/resource routing | Stockfish anchor |
+| ONLINE-2 CPU reference | 4 | real-network ONLINE timing/resource composition | Stockfish anchor |
+| **M14-G3 online-hybrid reference** | 4 | ONLINE-2 + route-bound staged VERIFY + frozen clocked authorization | **HYBRID when G3 gates pass; exact anchor fallback otherwise** |
 
-Default active routing and G2/ONLINE-1 remain observation/resource authority only. The
-narrow M14-C profile is the sole current path that can replace the anchor move, and its
-request/evidence contract is deliberately incompatible with staged VERIFY and ONLINE-1
-until M14-G3. See `docs/BUDGET_ROUTING.md`, `docs/DECISION_AUTHORITY.md`,
-`docs/UNIFIED_VALUE_ROUTER.md`, and `docs/ONLINE_TIME.md`.
+M14-G3 is the first qualified composition in which the real-network online profile and
+same-process staged evidence can authorize a non-anchor outward move. Resource authority,
+routing recommendation and move authority remain separate objects. Unsupported/OOD route
+evidence does not gain move authority by implication.
+
+The next release gate is complete-game lifecycle qualification, not broader authority.
 
 ### Generation 1.5 — measured control
 

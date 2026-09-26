@@ -143,6 +143,11 @@ class UciFrontend:
                         )
                     self._clock_fail(token, "decision selection crossed the clock deadline")
                     return
+                # Selection ran outside the frontend state lock. A user stop
+                # can revoke authority while that pure check is running, so
+                # revalidate immediately before deciding the outward line.
+                if final_decision is not None and not clock.authority_open():
+                    final_decision = None
                 clock.work_closed.set()
                 outward_line = line
                 if (

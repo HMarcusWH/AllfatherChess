@@ -44,6 +44,28 @@ class DeadlineTests(unittest.TestCase):
             self.assertTrue(route['envelope_claim']['clock_output_complete'])
             self.assertTrue(route['envelope_claim']['claimed'])
 
+    def test_quiesce_grace_does_not_shrink_protocol_readiness_timeout(self):
+        with shell_fixture(settings={"quiesce_budget_ms": 200}) as (
+            shell,
+            manager,
+            shadow,
+            out,
+            tmp,
+        ):
+            self.assertEqual(manager.config.online_time.quiesce_budget_ms, 200)
+            for name, process in manager.backends.items():
+                with self.subTest(instance=name):
+                    self.assertGreater(
+                        process.timeout,
+                        0.2,
+                        "online stop grace must not become the UCI readiness timeout",
+                    )
+            # A state barrier remains legal after ONLINE startup and does not
+            # quarantine a healthy observational worker merely for exceeding
+            # the stop grace.
+            manager.new_game()
+            self.assertTrue(manager.shadow_available("lc0-shadow"))
+
     def test_soft_stop_actual_engine_ignoring_movetime(self):
         with shell_fixture(args={ANCHOR:['--info-lines','200','--info-delay-ms','10']},observe=False) as (shell,manager,shadow,out,tmp):
             t=time.monotonic();shell.handle_command('go movetime 300')

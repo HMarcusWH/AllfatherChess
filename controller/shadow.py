@@ -898,10 +898,12 @@ class ShadowRunCoordinator:
             if active is None or active.generation != generation:
                 return
             if active.worker is not None:
+                # Anchor dispatch failure invalidates this generation
+                # unconditionally. abort_run() has no soft-stop semantics.
                 instances = self._cancel_locked(
                 active,
                 reason=reason,
-                authority_invalidating=authority_invalidating,
+                authority_invalidating=True,
             )
             else:
                 instances = None

@@ -91,7 +91,7 @@ def _campaign_child_groups(cwd: Path) -> list[int]:
                 except ProcessLookupError:
                     continue
                 groups.add(pgid)
-        except (OSError, ValueError, KeyError):
+        except FileNotFoundError:
             continue
     return sorted(groups)
 

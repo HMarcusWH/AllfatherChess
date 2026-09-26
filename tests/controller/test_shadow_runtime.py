@@ -1415,6 +1415,51 @@ class ReviewRegressionRoundTenTests(unittest.TestCase):
             states.append(state)
         return states
 
+    def test_abort_run_with_assigned_worker_uses_explicit_invalidating_cancel(self):
+        """Anchor dispatch failure must never depend on an undefined stop mode."""
+        import controller.shadow as shadow_module
+
+        with tempfile.TemporaryDirectory() as tmp:
+            manager = BackendManager.from_path(write_shadow_config(Path(tmp)))
+            manager.start()
+            coordinator = shadow_module.ShadowRunCoordinator(runtime=manager)
+            active = None
+            try:
+                self.assertTrue(
+                    coordinator.prepare_run(generation=1, go_command="go nodes 64")
+                )
+                active = coordinator._run
+                self.assertIsNotNone(active)
+
+                # Exercise abort_run's worker-assigned branch without starting
+                # the real orchestration worker. A completed Thread is enough
+                # to select that cleanup path while keeping the test isolated.
+                worker = threading.Thread(target=lambda: None)
+                worker.start()
+                worker.join(timeout=1.0)
+                active.worker = worker
+
+                coordinator.abort_run(
+                    1,
+                    reason="anchor_dispatch_failed",
+                )
+                self.assertTrue(active.cancelled)
+                self.assertEqual(active.cancel_reason, "anchor_dispatch_failed")
+            finally:
+                if active is not None:
+                    try:
+                        active.run.finalize(
+                            disposition="aborted",
+                            stop_reason="test_cleanup",
+                        )
+                    except Exception:
+                        pass
+                    active.finished.set()
+                with coordinator._lock:
+                    coordinator._run = None
+                coordinator.close()
+                manager.close()
+
     def test_the_stop_command_reaches_the_anchor_before_any_shadow(self):
         """A blocked shadow must not swallow the GUI's `stop`.
 

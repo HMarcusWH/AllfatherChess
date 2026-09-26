@@ -1,19 +1,22 @@
 {
   "schema_version": 1,
-  "source_commit": "c499405fd97600546437c1f91b4c0e9e066023cb",
-  "source_milestone": "PR #38 / ONLINE-2",
+  "source_commit": "c301e9986566febfbb7978d55c5a3d3429423cff",
+  "qualified_pr_head": "9ea858eed4133ea1bc8e89137176b4e5cf2eb316",
+  "source_tree": "397c004a90adf7e1d666ebd10c2fd81617906b23",
+  "source_milestone": "PR #39 / M14-G3",
   "status_date": "2026-09-26",
+  "roadmap": "docs/ROADMAP.md",
   "plan": "docs/ONLINE_RELEASE_PLAN.md",
   "current_status": "docs/CURRENT_STATUS.md",
-  "work_package": "post-ONLINE-2 release synchronization / M14-G3 candidate",
-  "scope": "ONLINE-2 real-network timing/resource profile merged; G3 is the next authority expansion",
+  "work_package": "post-M14-G3 synchronization / LOCAL-1 next",
+  "scope": "M14-G3 real-network clock-aware staged hybrid authority merged; full-game lifecycle is the next release gate",
   "completed_gates": [
     "M14-G2 unified value-of-compute router",
     "ONLINE-1 clock-derived per-move envelopes and deadline-safe UCI execution",
-    "ONLINE-2 real-network hardware-bound online profile"
+    "ONLINE-2 real-network hardware-bound online profile",
+    "M14-G3 clock-aware staged hybrid authority composition"
   ],
   "remaining_gates": [
-    "M14-G3 clock-aware staged hybrid authority composition",
     "LOCAL-1 full-game lifecycle qualification",
     "ONLINE-3 packaging and pinned lichess-bot bridge",
     "ONLINE-4 network/restart/rollback qualification",
@@ -24,24 +27,24 @@
     "M14-G4 production SKIP calibration before learned SKIP promotion",
     "M15-B/C equal-resource strength campaign before superiority claims"
   ],
-  "current_ci": {
-    "Merge gate": 36198933620,
-    "Controller shell validation": 36198933613,
-    "Telemetry contract validation": 36198933622,
-    "LC0 real-inference qualification": 36198933617,
-    "ONLINE-2 real-network online profile": 36198933607,
-    "Baseline engine validation": 36198933635
+  "qualified_ci": {
+    "Telemetry contract validation": 36271238300,
+    "Controller shell validation": 36271238299,
+    "Merge gate": 36271238288,
+    "LC0 real-inference qualification": 36271238258,
+    "ONLINE-2 real-network online profile qualification": 36271238269,
+    "M14-G3 online staged hybrid authority qualification": 36271238298,
+    "Baseline engine validation": 36271238264
   },
   "observed_contract_state": {
-    "online_clock": "3 legal anchor results with full measured envelopes; zero-clock rejection control",
-    "unified_value_router": "BUY_STAGED_VERIFY; outward anchor",
-    "active_hybrid_decision": "ANCHOR_FALLBACK on current real-engine contract",
-    "active_routing": "0 authorized stops on current real-engine validation",
-    "online2": "onlineq-8c124a4be7a2c9c6; 3 legal real-network clock cases; authority=stockfish-anchor"
+    "online2": "real-network CPU reference qualification green",
+    "m14_g3": "qualified clocked staged authority requires a real non-anchor HYBRID output and deterministic fail-closed fallback",
+    "authority": "HYBRID only through clocked_staged_preanchor_v1; unsupported/invalid states fall back to the exact Stockfish anchor or explicit terminal failure",
+    "resource_boundary": "process endpoints freeze before reuse; controller CPU remains live through resource-relevant route finalization; full interval freezes before post-move readiness"
   },
   "administration": {
-    "main_protection": "unprotected; no repository ruleset; issues #26 and #27 track the governance gate",
-    "controller_license": "owner decision outstanding"
+    "main_protection": "operator governance gate remains open; issues #26/#27",
+    "controller_license": "explicit combined-distribution decision outstanding"
   },
-  "claim_boundary": "No playing-strength, equal-envelope superiority, or online-deployment claim."
+  "claim_boundary": "No full-game, deployed-bot, Elo, or equal-envelope superiority claim."
 }

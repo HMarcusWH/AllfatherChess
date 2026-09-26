@@ -1889,7 +1889,10 @@ class BackendManager:
         if clock is not None:
             with self._lock:
                 previous = self._online_clock
-                if previous is not None:
+                if (
+                    previous is not None
+                    and not previous.measurement_frozen.is_set()
+                ):
                     previous.measurement_superseded.set()
                 self._online_clock = clock
             # A short-lived tail guard remains active even after the outward

@@ -271,17 +271,18 @@ class UciFrontend:
                 return
 
             final_decision = None
-            authority = self.runtime.config.hybrid_authority
-            if (
-                authority is not None
-                and authority.policy == "clocked_staged_preanchor_v1"
-                and self.shadow is not None
-            ):
+            if self.shadow is not None:
                 try:
+                    # Publish the physical anchor-completion boundary for every
+                    # ONLINE profile immediately. Hybrid-enabled profiles may
+                    # also return a bounded decision here; anchor-only profiles
+                    # return None. Deferred telemetry completion is a separate
+                    # replay barrier and must never be the only signal that the
+                    # engine process itself is idle.
                     final_decision = self.shadow.note_anchor_complete(token, line)
                 except Exception as exc:
                     self._diagnostic(
-                        f"clocked hybrid decision boundary failed: {exc}"
+                        f"clocked decision boundary failed: {exc}"
                     )
 
             with self._state_lock:

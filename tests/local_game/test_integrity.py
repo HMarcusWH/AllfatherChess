@@ -26,11 +26,32 @@ class EffectiveCommandTests(unittest.TestCase):
         with self.assertRaises(QualificationError):
             verify_session_commands(changed, "allfather-g3", plan, {})
 
-    def test_nonfinite_measurement_cannot_be_presented_as_cost(self):
-        for value in (float("nan"), float("inf"), -1, True):
+    def test_nonfinite_or_missing_measurement_cannot_be_presented_as_cost(self):
+        for value in (None, float("nan"), float("inf"), -1, True):
             with self.assertRaises(QualificationError):
                 finite_metrics({"search_metrics": [{"cpu_ms_observed": value}],
-                                "resources": {"reaped_subtree_cpu_ms": 1, "proxy_cpu_ms": 1}})
+                                "resources": {"cpu_complete": True,
+                                              "reaped_subtree_cpu_ms": 1,
+                                              "proxy_cpu_ms": 1}})
+        with self.assertRaises(QualificationError):
+            finite_metrics({"search_metrics": [{"cpu_ms_observed": 1}],
+                            "resources": {"cpu_complete": False,
+                                          "reaped_subtree_cpu_ms": 1,
+                                          "proxy_cpu_ms": 1}})
+
+    def test_first_transmitted_clock_must_match_frozen_control(self):
+        plan = {"clock": "0:30+1", "driver_nodes": None}
+        lines = events([
+            ("in", "setoption name UCI_Chess960 value false"),
+            ("in", "ucinewgame"),
+            ("in", "position startpos"),
+            ("in", "go wtime 30000 btime 30000 winc 1000 binc 1000"),
+        ])
+        verify_session_commands(lines, "allfather-g3", plan, {})
+        changed = copy.deepcopy(lines)
+        changed[-1]["line"] = "go wtime 1 btime 1 winc 1000 binc 1000"
+        with self.assertRaises(QualificationError):
+            verify_session_commands(changed, "allfather-g3", plan, {})
 
 
 if __name__ == "__main__":

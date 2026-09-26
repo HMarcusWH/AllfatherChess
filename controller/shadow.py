@@ -1150,8 +1150,6 @@ class ShadowRunCoordinator:
             authorization=authorization,
             authorization_snapshot=snapshot,
         )
-        active.final_decision = final
-        active.run.outward_decision = final.as_dict()
         return final
 
     def note_anchor_complete(self, generation: int, line: str) -> FinalDecision | None:
@@ -1182,15 +1180,18 @@ class ShadowRunCoordinator:
 
             # The authority choice is intentionally made before anchor_done is
             # published, so finalization cannot race ahead of the in-memory
-            # M14-C gate. No engine or filesystem work is permitted here.
+            # gate. No engine or filesystem work is permitted here. Any
+            # unexpected selection failure is fail-closed to the exact anchor,
+            # but the boundary is still completed so the worker cannot hang.
             try:
                 final = self._select_final_decision(active, anchor_line=line)
-            except DecisionError as exc:
-                active.run.note(f"hybrid authority failed closed: {exc}")
+            except Exception as exc:  # authority-path isolation
+                active.run.note(
+                    f"hybrid authority failed closed: {type(exc).__name__}: {exc}"
+                )
                 final = None
-
-            # Finalization waits on anchor_done, not merely anchor_completed.
-            active.anchor_done.set()
+            finally:
+                active.anchor_done.set()
 
         # Selection is complete, but stdout emission has not happened yet. No
         # new observational stage may be opened against the closed boundary.
@@ -1208,17 +1209,26 @@ class ShadowRunCoordinator:
             active.run.outward_decision = None
             active.run.note(f"final decision withdrawn before output: {reason}")
 
-    def note_anchor_emitted(self, generation: int) -> None:
-        """Take the terminal anchor sample only after bestmove left stdout.
+    def note_anchor_emitted(
+        self,
+        generation: int,
+        final_decision: FinalDecision | None = None,
+    ) -> None:
+        """Commit outward authority and sample resources only after stdout write.
 
-        Procfs reads are evidence work. Even tiny filesystem reads may not sit
-        in front of the authority write, so the frontend calls this after
-        emitting bestmove. The shadow worker, not the authority thread, waits
-        for this measurement before sealing the resource certificate.
+        A selected decision is not an emitted decision. Publication into replay
+        state is delayed until the frontend has actually written the outward
+        line; deadline failure or generation retirement before that point
+        therefore cannot leave a false final-decision artifact behind.
         """
         with self._lock:
             active = self._run
             if active is None or active.generation != generation:
+                return
+            if final_decision is not None and active.final_decision is None:
+                active.final_decision = final_decision
+                active.run.outward_decision = final_decision.as_dict()
+            if active.anchor_resource_done.is_set():
                 return
             stage = active.anchor_stage
         if stage is not None:
@@ -1511,7 +1521,11 @@ class ShadowRunCoordinator:
                 return
             if generation is not None and active.generation != generation:
                 return
-            instances = self._cancel_locked(active, reason=reason)
+            instances = self._cancel_locked(
+                active,
+                reason=reason,
+                authority_invalidating=authority_invalidating,
+            )
         if not instances:
             return
         stop_kwargs = {} if active.context.clock is None else {"generation": active.generation}
@@ -1839,11 +1853,11 @@ class ShadowRunCoordinator:
             active = self._run
             if active is None or active.generation != generation:
                 return
-            already_completed = active.anchor_completed.is_set()
+            already_done = active.anchor_done.is_set()
             if lost and active.anchor_stream is not None:
                 active.anchor_stream.note_loss(f"online anchor observation lost {lost} event(s)")
                 active.run.note(f"online anchor observation lost {lost} event(s)")
-        if not already_completed:
+        if not already_done:
             self.note_anchor_complete(generation, line)
         self.note_anchor_emitted(generation)
 

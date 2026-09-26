@@ -243,6 +243,17 @@ def _verify_clocked_authority(
     if authorized:
         if decision.get("authority") != "HYBRID":
             problems.append("authorized G3 decision is not marked HYBRID")
+        if snapshot.get("authority_blocked") is not False:
+            problems.append(
+                "authorized G3 decision is bound to blocked clock authority"
+            )
+        if (
+            snapshot.get("authority_evidence_frozen_before_soft_deadline")
+            is not True
+        ):
+            problems.append(
+                "authorized G3 decision was not frozen before the soft deadline"
+            )
 
         granted_move = authorization.get("move")
         proposal_move = decision.get("proposal_move")

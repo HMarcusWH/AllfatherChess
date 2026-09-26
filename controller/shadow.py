@@ -1274,8 +1274,11 @@ class ShadowRunCoordinator:
         deliberately separable from protocol readiness because procfs/resource
         evidence may lag after the client has already received bestmove.
         """
-        if final_decision is not None:
-            self.note_anchor_published(generation, final_decision)
+        # Every successfully emitted anchor line closes the publication
+        # barrier, including legacy/offline anchor-only profiles whose
+        # final_decision is None. ONLINE normally published this fact inside
+        # the clock gate already, making this call idempotent.
+        self.note_anchor_published(generation, final_decision)
         with self._lock:
             active = self._run
             if active is None or active.generation != generation:

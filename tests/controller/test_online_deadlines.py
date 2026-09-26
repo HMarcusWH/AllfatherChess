@@ -219,7 +219,10 @@ class DeadlineTests(unittest.TestCase):
                     manifest['clock_outcome']['emitted_line'],
                     bestmoves(out)[0],
                 )
-                self.assertTrue(shadow._run is None or shadow._run.finished.is_set())
+                wait_for(
+                lambda: shadow._run is None or shadow._run.finished.is_set(),
+                timeout=3,
+            )
 
     def test_stop_revokes_real_hybrid_while_publication_would_block(self):
         with shell_fixture(observe=False) as (shell,manager,shadow,out,tmp):

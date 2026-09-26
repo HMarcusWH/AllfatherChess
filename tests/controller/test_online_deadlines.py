@@ -180,6 +180,47 @@ class DeadlineTests(unittest.TestCase):
             self.assertTrue(anchor_stream['complete'])
             self.assertTrue(anchor_stream['contract_validatable'])
 
+    def test_replay_only_backlog_does_not_quarantine_or_block_next_anchor(self):
+        with shell_fixture() as (shell,manager,shadow,out,tmp):
+            entered=threading.Event();release=threading.Event();original=manager._observer
+
+            def observe(instance,token,*args):
+                if instance==ANCHOR and token==1:
+                    entered.set()
+                    release.wait(3)
+                original(instance,token,*args)
+
+            manager.set_instance_observer(observe)
+            try:
+                shell.handle_command('go movetime 500')
+                self.assertTrue(entered.wait(1))
+                wait_for(lambda:len(bestmoves(out))==1,1)
+                self.assertIsNotNone(shadow._run)
+                wait_for(lambda:shadow._run.engine_quiesced.is_set(),1)
+
+                # Deferred telemetry is still blocked, but every physical
+                # engine is already idle/restored. Synchronization must not
+                # quarantine healthy workers for replay-only backlog.
+                shell.handle_command('position startpos moves e2e4')
+                for name in SHADOWS:
+                    self.assertTrue(
+                        manager.shadow_available(name),
+                        f"{name} was quarantined for replay-only backlog",
+                    )
+
+                # A new anchor can run immediately. Until generation 1 replay
+                # finalizes, the coordinator deliberately declines a new shadow
+                # bundle rather than overwriting its callback state.
+                shell.handle_command('go movetime 500')
+                wait_for(lambda:len(bestmoves(out))==2,1)
+                self.assertEqual(bestmoves(out)[-1],'bestmove e2e4')
+                for name in SHADOWS:
+                    self.assertTrue(manager.shadow_available(name))
+            finally:
+                release.set()
+
+            wait_for(lambda:list(tmp.glob('replays/*/manifest.json')),3)
+
     def test_slow_stdout_write_keeps_run_alive_until_decision_publication(self):
         with shell_fixture(
             settings={"max_move_ms": 3000},

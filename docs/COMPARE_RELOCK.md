@@ -1,5 +1,10 @@
 # COMPARE / RELOCK derived analysis
 
+> **Current composition note (26 September 2026):** this file remains a derived-analysis
+> contract. Descriptive RELOCK is not move authority. PR #39 / M14-G3 may consume other
+> route-bound staged evidence through a separate authorization path; this derived layer
+> remains non-authoritative.
+
 ## Status
 
 Implemented as an **offline derived layer** over the raw common-support VERIFY

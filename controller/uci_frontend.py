@@ -59,6 +59,16 @@ class UciFrontend:
         self._generation = 0
         self._active_generation: int | None = None
         self.online_time = getattr(getattr(runtime, "config", None), "online_time", None)
+        if (
+            self.online_time is not None
+            and not isinstance(self.output, io.StringIO)
+            and self._output_fd() is None
+        ):
+            raise RuntimeError(
+                "ONLINE mode requires an output stream with a usable fileno() "
+                "for deadline-safe nonblocking publication (StringIO is supported "
+                "for in-process tests)"
+            )
         self._clock_search: ClockSearch | None = None
         self._receipt_monotonic: float | None = None
         self._receipt_cpu_ns: int | None = None

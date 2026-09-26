@@ -1,5 +1,10 @@
 # LC0 strength-facing backend qualification
 
+> **Current composition note (26 September 2026):** the pinned real-network BLAS-LC0
+> qualification described here is reused by ONLINE-2 and PR #39 / M14-G3. This still does
+> not make the reference host a final equal-resource strength platform; M15-B/C remains the
+> comparative strength gate.
+
 ## Status
 
 PR #24 introduces the first **real-network, real-backend LC0 qualification

@@ -115,12 +115,21 @@ class ProfileTests(unittest.TestCase):
             "engines/**",
             "vendor.lock.json",
         )
+        path_lines = [
+            line.strip()[2:]
+            for line in workflow.splitlines()
+            if line.strip().startswith("- ")
+        ]
+        self.assertFalse(
+            any("\\n" in line for line in path_lines),
+            "workflow path filters must not contain literal newline escapes",
+        )
         for path in critical_inputs:
             with self.subTest(path=path):
                 self.assertEqual(
-                    workflow.count(f"- {path}"),
+                    path_lines.count(path),
                     2,
-                    f"{path} must trigger both pull-request and main qualification",
+                    f"{path} must be an exact path entry in both PR and main triggers",
                 )
 
     def test_skip_authority_rejected(self):
@@ -184,6 +193,92 @@ class FinalDecisionAuditTests(unittest.TestCase):
             self.assertEqual(artifact["missing_sources"], [])
             self.assertEqual(verify_final_decision_integrity(run), [])
 
+
+    def test_authorized_g3_replay_binds_granted_proposal_and_emitted_move(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run = Path(tmp)
+            (run / "decision").mkdir(parents=True)
+            (run / "staged_verification").mkdir(parents=True)
+            route_decision = {
+                "action": "BUY_STAGED_VERIFY",
+                "buy_extension": True,
+            }
+            route_digest = __import__("controller.decision", fromlist=["canonical_digest"]).canonical_digest(
+                route_decision
+            )
+            snap_doc = snapshot(route_decision_digest=route_digest).as_dict()
+            decision = {
+                "authority": "HYBRID",
+                "anchor_move": "d2d4",
+                "proposal_move": "e2e4",
+                "emitted_move": "g1f3",
+            }
+            parent = {
+                "generation": 7,
+                "position": {"position_id": "pos"},
+                "time_plan": {
+                    "plan_id": snap_doc["time_plan_id"],
+                    "request_class": snap_doc["time_plan_request_class"],
+                    "generation": 7,
+                    "position_id": "pos",
+                    "anchor_go_command": snap_doc["time_plan_anchor_go_command"],
+                },
+                "outward_decision": decision,
+            }
+            (run / "manifest.json").write_text(json.dumps(parent), encoding="utf-8")
+            (run / "route.json").write_text(
+                json.dumps({"value_decisions": [route_decision]}),
+                encoding="utf-8",
+            )
+            (run / "staged_verification" / "manifest.json").write_text(
+                json.dumps(
+                    {
+                        "generation": 7,
+                        "intervention": "same_process_staged_verify_v1",
+                        "nomination": {
+                            "candidate_roots": ["e2e4", "d2d4", "g1f3"]
+                        },
+                        "disposition": {"run": "completed"},
+                        "stages": [
+                            {"disposition": "completed"},
+                            {"disposition": "completed"},
+                            {"disposition": "completed"},
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (run / "decision" / "counterfactual.json").write_text(
+                json.dumps(
+                    {
+                        "source": {
+                            "decision_terminal_source": "staged_verification"
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            problems: list[str] = []
+            _verify_clocked_authority(
+                run,
+                decision,
+                {
+                    "policy": CLOCKED_AUTHORIZATION_POLICY,
+                    "authorized": True,
+                    "move": "e2e4",
+                },
+                snap_doc,
+                problems,
+            )
+            self.assertIn(
+                "authorized G3 emitted move differs from the granted move",
+                problems,
+            )
+            self.assertNotIn(
+                "authorized G3 proposal move differs from the granted move",
+                problems,
+            )
 
     def test_authorized_g3_replay_requires_route_digest(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -1,0 +1,169 @@
+{
+  "schema_version": 2,
+  "mode": "active",
+  "anchor": "stockfish-anchor",
+  "root": "..",
+  "shadow": {
+    "owners": [
+      "stockfish",
+      "reckless",
+      "lc0"
+    ],
+    "instance_by_owner": {
+      "stockfish": "stockfish-shadow",
+      "reckless": "reckless-shadow",
+      "lc0": "lc0-shadow"
+    },
+    "oracle": "stockfish-shadow",
+    "partition": "root_index_modulo",
+    "dispatch_limit": {
+      "nodes": 256
+    },
+    "lc0_score_type": "WDL_mu",
+    "replay_root": "build/replays-online-hybrid",
+    "oracle_timeout_s": 10,
+    "drain_timeout_s": 5,
+    "on_anchor_complete": "drain"
+  },
+  "budget": {
+    "wall_ms": 4000,
+    "cpu_ms": 12000,
+    "gpu_ms": 0,
+    "verification_reserve_fraction": 0.3,
+    "controller_overhead_reserve_ms": 250
+  },
+  "routing": {
+    "policy": "unified_value_v1",
+    "calibration": null,
+    "min_observation_nodes": 4000,
+    "checkpoint_interval_ms": 120,
+    "max_stages_per_owner": 1,
+    "extend_nodes": 8000,
+    "stop_max_reversal_risk": 0.05,
+    "stop_min_support": 25,
+    "stop_min_stability_fraction": 0.6,
+    "stage_cpu_ms_estimate": 500,
+    "anchor_cpu_ms_estimate": 0,
+    "verify_stage_cpu_ms_estimate": 300,
+    "verify_stage_gpu_ms_estimate": 0,
+    "staged_decision_calibration": null,
+    "regime_support_calibration": null,
+    "staged_skip_max_change_probability": 0.1
+  },
+  "instances": {
+    "stockfish-anchor": {
+      "family": "stockfish",
+      "role": "anchor",
+      "binary": "build/online-cpu-reference/bin/stockfish",
+      "cwd": ".",
+      "args": [],
+      "options": {
+        "Threads": 1,
+        "Hash": 16,
+        "MultiPV": 1,
+        "UCI_Chess960": false
+      }
+    },
+    "stockfish-shadow": {
+      "family": "stockfish",
+      "role": "shadow",
+      "binary": "build/online-cpu-reference/bin/stockfish",
+      "cwd": ".",
+      "args": [],
+      "options": {
+        "Threads": 1,
+        "Hash": 16,
+        "MultiPV": 3,
+        "UCI_Chess960": false
+      }
+    },
+    "reckless-shadow": {
+      "family": "reckless",
+      "role": "shadow",
+      "binary": "build/online-cpu-reference/bin/reckless",
+      "cwd": ".",
+      "args": [],
+      "options": {
+        "Threads": 1,
+        "Hash": 16,
+        "MultiPV": 3,
+        "Minimal": false,
+        "UCI_Chess960": false
+      }
+    },
+    "lc0-shadow": {
+      "family": "lc0",
+      "role": "shadow",
+      "binary": "build/online-cpu-reference/bin/lc0",
+      "cwd": ".",
+      "args": [],
+      "environment": {
+        "OPENBLAS_NUM_THREADS": "1",
+        "GOTO_NUM_THREADS": "1",
+        "OMP_NUM_THREADS": "1"
+      },
+      "options": {
+        "WeightsFile": "build/online-cpu-reference/networks/791556.pb.gz",
+        "Backend": "blas",
+        "BackendOptions": "",
+        "NNCacheSize": 0,
+        "MinibatchSize": 32,
+        "MaxConcurrentSearchers": 1,
+        "TaskWorkers": 0,
+        "MultiPV": 3,
+        "UCI_Chess960": false,
+        "Threads": 1,
+        "ScoreType": "WDL_mu"
+      }
+    }
+  },
+  "resource_measurement": {
+    "enabled": true,
+    "provider": "linux-procfs-v1",
+    "require_cpu_for_claim": true,
+    "require_gpu_for_claim": false,
+    "record_memory": true
+  },
+  "online_time": {
+    "enabled": true,
+    "policy": "clock_envelope_v1",
+    "moves_horizon": 30,
+    "increment_fraction": 0.75,
+    "max_move_ms": 2000,
+    "network_reserve_ms": 100,
+    "stop_grace_ms": 300,
+    "output_margin_ms": 50,
+    "prepare_budget_ms": 100,
+    "quiesce_budget_ms": 250,
+    "cpu_parallelism": 4
+  },
+  "verification": {
+    "enabled": true,
+    "nomination_method": "owner_bestmove_union_v1",
+    "dispatch_limit": {
+      "nodes": 64
+    },
+    "staged_extension": {
+      "enabled": true,
+      "intervention": "same_process_staged_verify_v1",
+      "dispatch_limit": {
+        "nodes": 128
+      }
+    }
+  },
+  "crossfeed": {
+    "enabled": true,
+    "policy": "typed_verify_refine_v1"
+  },
+  "counterfactual": {
+    "enabled": true,
+    "policy": "unanimous_verify_v1"
+  },
+  "hybrid_authority": {
+    "enabled": true,
+    "policy": "clocked_staged_preanchor_v1",
+    "request_class": "online_time_v1",
+    "terminal_source_policy": "route_bound_staged_v1",
+    "allow_skipped_extension_authority": false
+  }
+}

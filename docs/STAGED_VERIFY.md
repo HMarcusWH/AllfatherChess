@@ -1,5 +1,10 @@
 # M14-G1 — Same-process staged VERIFY and serve-compatible value-of-compute
 
+> **Current composition note (26 September 2026):** M14-G1 remains a no-move-authority
+> intervention substrate by itself. PR #39 / M14-G3 now consumes **complete** staged
+> extension evidence in a separate clock-aware DecisionAuthorization profile; that does
+> not retroactively grant authority to G1. See [ONLINE_HYBRID_AUTHORITY.md](ONLINE_HYBRID_AUTHORITY.md).
+
 ## Status and claim boundary
 
 M14-G1 adds the intervention substrate needed before the unified M14-G router may

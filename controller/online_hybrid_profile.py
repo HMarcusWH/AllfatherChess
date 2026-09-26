@@ -44,6 +44,37 @@ def validate_online_hybrid_profile(
     if policy.get("allow_skipped_extension_authority") is not False:
         raise OnlineHybridProfileError("G3 may not license SKIP-derived authority")
 
+    cases = policy.get("positive_cases")
+    if not isinstance(cases, list) or not cases:
+        raise OnlineHybridProfileError("G3 requires a non-empty positive_cases corpus")
+    seen_ids: set[str] = set()
+    for case in cases:
+        if not isinstance(case, dict):
+            raise OnlineHybridProfileError("G3 positive case must be an object")
+        case_id = case.get("id")
+        moves = case.get("moves")
+        command = case.get("command")
+        if not isinstance(case_id, str) or not case_id or case_id in seen_ids:
+            raise OnlineHybridProfileError("G3 positive case ids must be unique non-empty strings")
+        seen_ids.add(case_id)
+        if not isinstance(moves, list) or not all(isinstance(move, str) and move for move in moves):
+            raise OnlineHybridProfileError(f"G3 positive case {case_id}: moves must be strings")
+        if not isinstance(command, str) or not command.startswith("go movetime "):
+            raise OnlineHybridProfileError(
+                f"G3 positive case {case_id}: command must be a bounded go movetime request"
+            )
+    requirement = policy.get("positive_requirement")
+    if not isinstance(requirement, dict):
+        raise OnlineHybridProfileError("G3 positive_requirement must be an object")
+    if requirement.get("require_authority") != "HYBRID":
+        raise OnlineHybridProfileError("G3 qualification must require HYBRID authority")
+    if requirement.get("require_terminal_source") != "staged_verification":
+        raise OnlineHybridProfileError("G3 qualification must require staged terminal authority")
+    if requirement.get("require_non_anchor_move") is not True:
+        raise OnlineHybridProfileError(
+            "G3 qualification must require a real non-anchor authority transfer"
+        )
+
     for key in ("instances", "resource_measurement"):
         _eq(config.get(key), online2_config.get(key), f"runtime.{key}")
 

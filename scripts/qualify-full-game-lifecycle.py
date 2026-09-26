@@ -279,7 +279,13 @@ def validate_case(
         termination=game["headers"].get("Termination","")
         marker=bad_termination(termination)
         if marker:
-            metrics[f"{marker.replace(' ','_')}s"]+=1
+            metric_key={
+                "illegal move":"illegal_moves",
+                "disconnect":"disconnects",
+                "stall":"stalls",
+                "unterminated":"unterminated_games",
+            }[marker]
+            metrics[metric_key]+=1
             problems.append(f"{case_id}: game {game_index} bad termination: {termination}")
         if time_forfeit(termination):
             metrics["time_forfeits"]+=1

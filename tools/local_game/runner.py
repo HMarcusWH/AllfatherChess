@@ -76,6 +76,34 @@ def command(job: dict, directory: Path, p: dict, source: dict, fastchess: Path, 
     return argv
 
 
+def _campaign_child_groups(cwd: Path) -> list[int]:
+    groups = set()
+    sessions = cwd / "sessions"
+    if not sessions.exists():
+        return []
+    for record in sessions.glob("*/*/session.json"):
+        try:
+            summary = load(record)
+            pgid = summary.get("pgid")
+            if type(pgid) is int and pgid > 1:
+                try:
+                    os.killpg(pgid, 0)
+                except ProcessLookupError:
+                    continue
+                groups.add(pgid)
+        except (OSError, ValueError, KeyError):
+            continue
+    return sorted(groups)
+
+
+def _signal_campaign_groups(cwd: Path, signum: int) -> None:
+    for pgid in _campaign_child_groups(cwd):
+        try:
+            os.killpg(pgid, signum)
+        except ProcessLookupError:
+            pass
+
+
 def bounded(argv: list[str], cwd: Path, log: Path, timeout: int) -> dict:
     started = time.monotonic_ns()
     result = {"argv": argv, "started_ns": started, "timed_out": False}
@@ -91,14 +119,26 @@ def bounded(argv: list[str], cwd: Path, log: Path, timeout: int) -> dict:
                 os.killpg(process.pid, signal.SIGTERM)
             except ProcessLookupError:
                 pass
+            # Proxies deliberately put their engine/controller children in
+            # independent sessions. Signal those campaign-owned groups too;
+            # killing only Fastchess/proxies can otherwise strand engines.
+            _signal_campaign_groups(cwd, signal.SIGTERM)
             try:
-                process.wait(timeout=45)  # proxy SIGTERM handlers own descendant cleanup
+                process.wait(timeout=45)
             except subprocess.TimeoutExpired:
-                os.killpg(process.pid, signal.SIGKILL)
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                _signal_campaign_groups(cwd, signal.SIGKILL)
                 process.wait(timeout=5)
+            # A proxy may have exited before its child; one final kill/poll is
+            # evidence-preserving cleanup, never something converted into pass.
+            _signal_campaign_groups(cwd, signal.SIGKILL)
             result["returncode"] = process.returncode
         finally:
             result["ended_ns"] = time.monotonic_ns()
+            result["detached_groups_after_cleanup"] = _campaign_child_groups(cwd)
     return result
 
 
@@ -119,24 +159,45 @@ def prerequisites(output: Path) -> list[dict]:
         require(run["returncode"] == 0 and not run["timed_out"], f"{label} prerequisite failed")
         require(report.is_file(), f"{label}: expected qualification report not produced: {report}")
         shutil.copy2(report, output / f"{label}.json")
-    g3 = load(output / "g3.json")["positive_case"]
+    g3_report = load(output / "g3.json")
+    g3 = g3_report["positive_case"]
     require(g3["authority"] == "HYBRID" and g3["emitted_move"] != g3["anchor_move"],
             "G3 prerequisite did not exercise actual non-anchor authority")
+
+    online_runtime = load(ROOT / "config/allfather.online.cpu-reference.json")
+    online_root = ROOT / online_runtime["shadow"]["replay_root"]
+    require(online_root.is_dir(), "ONLINE-2 prerequisite replay root missing")
+    shutil.copytree(online_root, output / "online2-replays")
+
     runtime = load(ROOT / "config/allfather.online-hybrid.validation.json")
-    source_run = contained(ROOT / runtime["shadow"]["replay_root"], g3["run_id"])
+    g3_root = ROOT / runtime["shadow"]["replay_root"]
+    require(g3_root.is_dir(), "G3 prerequisite replay root missing")
+    shutil.copytree(g3_root, output / "g3-replays")
+    source_run = contained(g3_root, g3["run_id"])
     shutil.copytree(source_run, output / "g3-positive-replay")
     return records
 
 
-def run(mode: str, output: Path) -> int:
+def run(mode: str, output: Path, *, shard_index: int = 0, shard_count: int = 1) -> int:
     require(sys.platform == "linux", "LOCAL-1 reference requires Linux procfs")
     require(not any(c.isspace() for c in str(ROOT)), "reference checkout path must have no whitespace")
     require(output.resolve().is_relative_to(ROOT / "build"), "campaign output must be inside build/")
     output.mkdir(parents=True, exist_ok=False)  # never merge a rerun into an earlier campaign
     p = policy()
     source = load(ROOT / p["source_runtime"])
-    expected = schedule(p, mode)
+    full_schedule = schedule(p, mode)
+    require(type(shard_index) is int and type(shard_count) is int and
+            shard_count >= 1 and 0 <= shard_index < shard_count,
+            "invalid campaign shard")
+    if mode == "soak" and shard_count > 1:
+        expected = [job for index, job in enumerate(full_schedule)
+                    if index % shard_count == shard_index]
+    else:
+        require(shard_count == 1 and shard_index == 0,
+                "sharding is supported only for soak mode")
+        expected = full_schedule
     manifest = {"schema_version": 1, "campaign_id": output.name, "mode": mode,
+                "shard": {"index": shard_index, "count": shard_count},
                 "source": source_identity(), "status": "running", "planned_jobs": expected,
                 "jobs": [], "failures": [], "prerequisites": [],
                 "host": {"system": list(os.uname()), "logical_cpus": os.cpu_count()},
@@ -153,6 +214,9 @@ def run(mode: str, output: Path) -> int:
         manifest["prerequisites"] = prerequisites(pre)
         from .probes import run_probes
         manifest["rule_probes"] = run_probes(output / "rule-probes", source)
+        from .faults import run_faults
+        manifest["fault_cases"] = run_faults(output, p)
+        save(output / "manifest.json", manifest)
         for job in expected:
             print(f"LOCAL-1 starting {job['id']}: {job['arms']}", flush=True)
             directory = output / job["id"]
@@ -162,8 +226,10 @@ def run(mode: str, output: Path) -> int:
             entry = {"plan": job, "execution": result}
             manifest["jobs"].append(entry)
             save(output / "manifest.json", manifest)
-            if result["returncode"] != 0 or result["timed_out"]:
-                manifest["failures"].append(f"{job['id']}: runner failed; retained without retry")
+            if result["returncode"] != 0 or result["timed_out"] or result.get("detached_groups_after_cleanup"):
+                manifest["failures"].append(
+                    f"{job['id']}: runner/lifecycle cleanup failed; retained without retry"
+                )
         for record in manifest["inputs"]:
             verify_record(ROOT, record)
         require(source_identity() == manifest["source"], "checkout identity changed during campaign")
@@ -192,9 +258,12 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--mode", choices=("required", "soak"), default="required")
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--shard-index", type=int, default=0)
+    parser.add_argument("--shard-count", type=int, default=1)
     args = parser.parse_args()
     output = args.output or ROOT / "build/test-results/local-full-game" / f"{time.time_ns()}-{uuid.uuid4().hex[:8]}"
-    return run(args.mode, output.resolve())
+    return run(args.mode, output.resolve(),
+               shard_index=args.shard_index, shard_count=args.shard_count)
 
 
 if __name__ == "__main__":

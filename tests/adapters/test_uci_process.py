@@ -183,7 +183,7 @@ class UciProcessTests(unittest.TestCase):
             self.assertIsInstance(failures[0], UciProcessError)
             self.assertIn("window closed", str(failures[0]))
             self.assertFalse(
-                any(line == ">> go nodes 1" for line in process.transcript),
+                any(line == ">> go nodes 1" for line in process._transcript),
                 "go crossed the pipe after the final permit was revoked",
             )
             self.assertFalse(process.active_search)

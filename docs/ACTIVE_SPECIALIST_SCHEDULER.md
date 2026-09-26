@@ -1,5 +1,9 @@
 # Active specialist scheduler
 
+> **Current composition note (26 September 2026):** specialist reservations still grant
+> compute authority only. PR #39 / M14-G3 may later use completed staged specialist evidence
+> through a separate DecisionAuthorization gate; no reservation is move authority by itself.
+
 ## Status
 
 PR #18 moves explicit VERIFY and one-level REFINE from the deliberately

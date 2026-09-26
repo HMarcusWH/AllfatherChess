@@ -1,9 +1,14 @@
-# Standalone LOCAL-1 entry point; the production Makefile/targets stay unchanged.
-.PHONY: test build-fastchess build qualification soak verify
+# Standalone LOCAL-1 entry point; production engine logic is unchanged.
+.PHONY: test source-test-fastchess build-fastchess build qualification soak soak-shard verify
 
 test:
 	python3 -c 'import chess; assert chess.__version__ == "1.11.2"'
 	python3 -m unittest discover -s tests/local_game -v
+
+# Upstream Fastchess source tests. The reference CI runs this on Ubuntu 22.04
+# and carries the resulting identity-bound attestation into the lifecycle job.
+source-test-fastchess:
+	python3 -m tools.local_game.build_fastchess 		--source-test-only 		--attestation build/fastchess-source-test/attestation.json
 
 build-fastchess:
 	python3 -m tools.local_game.build_fastchess
@@ -14,9 +19,15 @@ build: build-fastchess
 qualification: test build
 	python3 -m tools.local_game.runner --mode required
 
+# Serial local reproduction of the complete engineering soak.
 soak: test build
 	python3 -m tools.local_game.runner --mode soak
 
+# Reproduce one bounded CI soak shard, e.g. SHARD=0 SHARDS=10.
+soak-shard: test build
+	@test -n "$(SHARD)" -a -n "$(SHARDS)" || 		(echo 'Set SHARD=<zero-based-index> SHARDS=<count>' >&2; exit 2)
+	python3 -m tools.local_game.runner --mode soak 		--shard-index "$(SHARD)" --shard-count "$(SHARDS)"
+
 verify:
-	@test -n "$(CAMPAIGN)" || (echo 'Set CAMPAIGN=build/test-results/local-full-game/<id>' >&2; exit 2)
+	@test -n "$(CAMPAIGN)" || 		(echo 'Set CAMPAIGN=build/test-results/local-full-game/<id>' >&2; exit 2)
 	python3 -m tools.local_game.validate "$(CAMPAIGN)"

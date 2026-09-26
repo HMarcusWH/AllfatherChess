@@ -23,6 +23,32 @@
 - **OPEN STRENGTH GATE:** no Elo or equal-envelope superiority claim follows from M14-G3.
   M15-B/C remains the separate comparative campaign.
 
+## LOCAL-1 full-game lifecycle candidate — OPEN until exact-head qualification passes
+
+### IMPLEMENTED IN THE CANDIDATE
+
+- exact Fastchess commit/tree lock with supported-host source-test attestation and measured runner binary;
+- hash-pinned independent chess/PGN verification;
+- transparent UCI session/game/search recording and exact launched spec/environment checks;
+- G3 runtime derived from the qualified online-hybrid profile rather than copied by hand;
+- forced castling, en-passant, promotion, repetition, checkmate and stalemate witnesses;
+- mandatory shadow-crash, slow-shutdown, replay-storage-failure, active-stop/new-game and
+  long-generation-reuse fault cases;
+- game→ply→session→search→replay bijection, campaign-wide run uniqueness and reconstructed
+  resource/envelope qualification;
+- five-arm descriptive same-clock baseline across Stockfish, Reckless, LC0,
+  Allfather-Anchor and Allfather-G3;
+- process-group cleanup auditing and a sharded 200-game engineering soak.
+
+### OPEN / NOT PROMOTED
+
+- implementation is not proof: LOCAL-1 remains OPEN until the dedicated exact-head workflow is green;
+- same-clock W/D/L is not equal-resource evidence and establishes no Elo/superiority claim;
+- Allfather-Anchor is a native-clock single-Stockfish wrapper control, not a clean isolated
+  measurement of every cost introduced by G3;
+- online bridge/reconnect/restart service behavior remains ONLINE-3/4;
+- M15-B/C remains the separate equal-resource strength campaign.
+
 ## ONLINE-2 real-network online CPU reference
 
 - **IMPLEMENTED / QUALIFICATION-GATED:** an isolated portable CPU-target bundle,

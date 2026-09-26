@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Iterable
 
-from adapters.process import UciProcess, UciProcessError
+from adapters.process import UciDispatchRejected, UciProcess, UciProcessError
 from adapters.telemetry import SUPPORTED_SCORE_TYPES
 from common.search_request import SearchRequestError, parse_position_command
 from controller.resource_measurement import ResourceMeasurementError, ResourceMeasurementSettings
@@ -2014,6 +2014,12 @@ class BackendManager:
                 dispatch_gate=dispatch_gate,
                 **kwargs,
             )
+        except UciDispatchRejected:
+            # Anchor completion / budget closure winning the final dispatch
+            # linearization point is an expected rejected dispatch. No bytes
+            # crossed the worker pipe, so the still-live worker remains healthy
+            # and reusable by later generations.
+            return False
         except UciProcessError as exc:
             self.record_shadow_failure(instance, f"shadow dispatch failed: {exc}", generation=token)
             return False

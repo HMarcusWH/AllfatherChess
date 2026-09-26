@@ -66,7 +66,7 @@ class _DecisionShadowStub:
     def note_anchor_complete(self, token, line):
         return self.decision
 
-    def note_anchor_emitted(self, token):
+    def note_anchor_emitted(self, token, final_decision=None):
         self.emitted.append(token)
 
 

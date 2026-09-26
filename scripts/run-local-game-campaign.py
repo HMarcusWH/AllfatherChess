@@ -343,7 +343,7 @@ def cases_for_mode(policy:dict[str,Any], mode:str, games:int|None)->list[dict[st
             "games":2,
             "rounds":count//2,
             "maxmoves":int(soak["maxmoves"]),
-            "opening":{"type":"startpos"},
+            "opening":dict(soak.get("opening",{"type":"epd","file":"tests/fixtures/local_full_game/startpos.epd","start":1})),
             "expected_history_prefix":[],
             "terminal_without_search":False,
             "timeout_s":max(1800,count*120),

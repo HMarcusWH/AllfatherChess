@@ -11,15 +11,16 @@ with this file, the current code/configuration and this record take precedence.
 
 ## Current CI evidence on main
 
-All five main-branch workflow families completed successfully on the authoritative commit:
+All six applicable main-branch workflow families completed successfully on the authoritative commit:
 
 | Workflow | Run | Result |
 | --- | --- | --- |
-| Merge gate | 36193538618 | success |
-| Controller shell validation | 36193538737 | success |
-| Telemetry contract validation | 36193538611 | success |
-| LC0 real-inference qualification | 36193538614 | success |
-| Baseline engine validation | 36193538665 | success |
+| Merge gate | 36198933620 | success |
+| Controller shell validation | 36198933613 | success |
+| Telemetry contract validation | 36198933622 | success |
+| LC0 real-inference qualification | 36198933617 | success |
+| ONLINE-2 real-network online profile | 36198933607 | success |
+| Baseline engine validation | 36198933635 | success |
 
 The baseline job built all three real engine trees and passed the retained golden,
 restricted-root, ShardLedger, recursive REFINE, specialist-budget, measured-resource,

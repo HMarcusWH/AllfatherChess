@@ -101,14 +101,29 @@ class TimeTests(unittest.TestCase):
         with self.assertRaises((ValueError, RuntimeError)):
             self.plan(envelope=ResourceEnvelope(wall_ms=2000,cpu_ms=2000,gpu_ms=100))
 
-    def test_authority_commit_linearizes_against_stop_revocation(self):
+    def test_authority_publication_linearizes_on_actual_nonblocking_write(self):
         blocked_plan = self.plan(
             'go movetime 500',
             received_monotonic=time.monotonic(),
         )
         blocked = ClockSearch(blocked_plan)
+        self.assertEqual(
+            blocked.try_publish(
+                line='bestmove e2e4',
+                write_once=lambda: False,
+                require_authority=True,
+            ),
+            'would_block',
+        )
         self.assertTrue(blocked.block_authority())
-        self.assertFalse(blocked.commit_authority())
+        self.assertEqual(
+            blocked.try_publish(
+                line='bestmove e2e4',
+                write_once=lambda: True,
+                require_authority=True,
+            ),
+            'revoked',
+        )
         self.assertFalse(blocked.authority_committed)
 
         committed_plan = self.plan(
@@ -116,11 +131,20 @@ class TimeTests(unittest.TestCase):
             received_monotonic=time.monotonic(),
         )
         committed = ClockSearch(committed_plan)
-        self.assertTrue(committed.commit_authority())
+        writes = []
+        self.assertEqual(
+            committed.try_publish(
+                line='bestmove e2e4',
+                write_once=lambda: writes.append('written') or True,
+                require_authority=True,
+            ),
+            'published',
+        )
+        self.assertEqual(writes, ['written'])
         self.assertTrue(committed.authority_committed)
         self.assertFalse(
             committed.block_authority(),
-            "a stop after publication commit must not retroactively rewrite output",
+            "a stop after bytes cross stdout must not retroactively rewrite output",
         )
 
     def test_manifest_reconstructs_policy_not_only_hash(self):

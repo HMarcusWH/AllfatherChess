@@ -195,8 +195,10 @@ class DeadlineTests(unittest.TestCase):
                 shell.handle_command('go movetime 500')
                 self.assertTrue(entered.wait(1))
                 wait_for(lambda:len(bestmoves(out))==1,1)
+                old_clock = shell._clock_search
                 self.assertIsNotNone(shadow._run)
                 wait_for(lambda:shadow._run.engine_quiesced.is_set(),3)
+                self.assertTrue(old_clock.measurement_frozen.is_set())
                 self.assertFalse(
                     release.is_set(),
                     "deferred telemetry drained before replay-only barrier was exercised",
@@ -216,6 +218,10 @@ class DeadlineTests(unittest.TestCase):
                 # finalizes, the coordinator deliberately declines a new shadow
                 # bundle rather than overwriting its callback state.
                 shell.handle_command('go movetime 500')
+                self.assertFalse(
+                    old_clock.measurement_superseded.is_set(),
+                    "a new anchor invalidated already-frozen resource evidence",
+                )
                 wait_for(lambda:len(bestmoves(out))==2,1)
                 self.assertEqual(bestmoves(out)[-1],'bestmove e2e4')
                 for name in SHADOWS:
@@ -410,6 +416,57 @@ class DeadlineTests(unittest.TestCase):
             release.set()
             wait_for(lambda:active.finished.is_set(),3)
 
+    def test_quiesce_after_published_move_does_not_mark_run_cancelled(self):
+        with shell_fixture() as (shell,manager,shadow,out,tmp):
+            entered=threading.Event();release=threading.Event()
+            original_sample=shadow.note_anchor_emitted
+
+            def blocked_sample(token, final_decision=None):
+                entered.set()
+                release.wait(3)
+                return original_sample(token, final_decision=final_decision)
+
+            with patch.object(
+                shadow,
+                'note_anchor_emitted',
+                side_effect=blocked_sample,
+            ):
+                try:
+                    shell.handle_command('go movetime 500')
+                    self.assertTrue(entered.wait(1))
+                    wait_for(lambda:len(bestmoves(out))==1,1)
+                    active=shadow._run
+                    self.assertIsNotNone(active)
+                    self.assertTrue(active.outward_publication_done.is_set())
+                    self.assertFalse(active.engine_quiesced.is_set())
+
+                    # A state barrier may have to wait/fail while the physical
+                    # resource endpoint is still being frozen, but a move that
+                    # already crossed stdout is no longer cancellable history.
+                    with patch.object(
+                        shadow,
+                        '_quarantine_clock_workers',
+                        return_value=None,
+                    ):
+                        self.assertFalse(
+                            shadow.quiesce(timeout=.05,reason='quiesce')
+                        )
+                    self.assertFalse(active._cancelled)
+                    self.assertNotEqual(active.cancel_reason,'quiesce')
+                finally:
+                    release.set()
+
+            wait_for(lambda:active.finished.is_set(),3)
+            manifest=json.loads((active.run.run_dir/'manifest.json').read_text())
+            self.assertNotEqual(
+                (manifest.get('disposition') or {}).get('run'),
+                'cancelled',
+            )
+            self.assertNotEqual(
+                (manifest.get('disposition') or {}).get('stop_reason'),
+                'quiesce',
+            )
+
     def test_ready_precedes_slow_resource_sample_and_quit_keeps_published_decision(self):
         with shell_fixture() as (shell,manager,shadow,out,tmp):
             entered = threading.Event()
@@ -571,29 +628,39 @@ class DeadlineTests(unittest.TestCase):
 
     def test_delayed_old_measurement_cannot_qualify_across_new_anchor(self):
         with shell_fixture() as (shell,manager,shadow,out,tmp):
-            release=threading.Event();entered=threading.Event();original=manager._observer
-            def observe(instance,token,*args):
-                if instance==ANCHOR and token==1:
-                    entered.set();release.wait(3)
-                original(instance,token,*args)
-            manager.set_instance_observer(observe)
-            try:
-                shell.handle_command('go movetime 500')
-                self.assertTrue(entered.wait(1))
-                wait_for(lambda:len(bestmoves(out))==1)
-                old=shell._clock_search
-                shell.handle_command('go movetime 500')
-                self.assertTrue(old.measurement_superseded.is_set())
-                release.set()
-                wait_for(lambda:len(bestmoves(out))==2)
-                wait_for(lambda:list(tmp.glob('replays/*/route.json')))
-                first=next(tmp.glob('replays/*'))
-                route=json.loads((first/'route.json').read_text())
-                resource=json.loads((first/'resource.json').read_text())
-                self.assertFalse(route['envelope_claim']['claimed'])
-                self.assertFalse(resource['qualified'])
-                self.assertIn('generation',resource['interval_error'])
-            finally:release.set()
+            release=threading.Event();entered=threading.Event()
+            original_sample=shadow.note_anchor_emitted
+
+            def blocked_sample(token, final_decision=None):
+                if token==1:
+                    entered.set()
+                    release.wait(3)
+                return original_sample(token, final_decision=final_decision)
+
+            with patch.object(
+                shadow,
+                'note_anchor_emitted',
+                side_effect=blocked_sample,
+            ):
+                try:
+                    shell.handle_command('go movetime 500')
+                    self.assertTrue(entered.wait(1))
+                    wait_for(lambda:len(bestmoves(out))==1)
+                    old=shell._clock_search
+                    self.assertFalse(old.measurement_frozen.is_set())
+                    shell.handle_command('go movetime 500')
+                    self.assertTrue(old.measurement_superseded.is_set())
+                    release.set()
+                    wait_for(lambda:len(bestmoves(out))==2)
+                    wait_for(lambda:list(tmp.glob('replays/*/route.json')))
+                    first=next(tmp.glob('replays/*'))
+                    route=json.loads((first/'route.json').read_text())
+                    resource=json.loads((first/'resource.json').read_text())
+                    self.assertFalse(route['envelope_claim']['claimed'])
+                    self.assertFalse(resource['qualified'])
+                    self.assertIn('generation',resource['interval_error'])
+                finally:
+                    release.set()
 
     def test_dispatch_permit_is_rechecked_after_slow_stage_preparation(self):
         args={ANCHOR:['--info-lines','200','--info-delay-ms','10']}

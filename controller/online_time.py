@@ -210,6 +210,10 @@ class ClockSearch:
         self._authority_committed = False
         self.finished = threading.Event()
         self.dispatched = threading.Event()
+        # Resource endpoints become immutable before replay-only finalization.
+        # A later search may supersede only an interval that has not yet crossed
+        # this freeze boundary.
+        self.measurement_frozen = threading.Event()
         self.measurement_superseded = threading.Event()
         self._lock = threading.Lock()
         self.emitted_ms: float | None = None

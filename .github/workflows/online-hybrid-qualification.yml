@@ -4,13 +4,27 @@ on:
   workflow_dispatch:
   pull_request:
     paths:
-      - controller/**
+      - qualification/online-hybrid-authority.json
+      - qualification/online-cpu-reference.json
+      - qualification/lc0-strength-*.json
       - config/allfather.online-hybrid.validation.json
       - config/allfather.online.cpu-reference.json
-      - qualification/online-hybrid-authority.json
+      - controller/**
+      - adapters/process/**
+      - adapters/resource/**
+      - adapters/telemetry/**
+      - common/**
       - scripts/build-online-cpu-reference.sh
+      - scripts/build-lc0-strength.sh
+      - scripts/verify-vendor.sh
+      - scripts/vendor-lock.py
+      - scripts/fetch-*.py
+      - scripts/fetch-*.sh
+      - scripts/lc0-*.py
       - scripts/qualify-online-hybrid-authority.py
       - tests/controller/test_online_hybrid_authority.py
+      - tests/controller/test_online_profile.py
+      - tests/harness/**
       - engines/**
       - vendor.lock.json
       - Makefile
@@ -18,13 +32,31 @@ on:
   push:
     branches: [main]
     paths:
-      - controller/**
-      - config/allfather.online-hybrid.validation.json
       - qualification/online-hybrid-authority.json
+      - qualification/online-cpu-reference.json
+      - qualification/lc0-strength-*.json
+      - config/allfather.online-hybrid.validation.json
+      - config/allfather.online.cpu-reference.json
+      - controller/**
+      - adapters/process/**
+      - adapters/resource/**
+      - adapters/telemetry/**
+      - common/**
+      - scripts/build-online-cpu-reference.sh
+      - scripts/build-lc0-strength.sh
+      - scripts/verify-vendor.sh
+      - scripts/vendor-lock.py
+      - scripts/fetch-*.py
+      - scripts/fetch-*.sh
+      - scripts/lc0-*.py
       - scripts/qualify-online-hybrid-authority.py
       - tests/controller/test_online_hybrid_authority.py
+      - tests/controller/test_online_profile.py
+      - tests/harness/**
+      - engines/**
+      - vendor.lock.json
+      - Makefile
       - .github/workflows/online-hybrid-qualification.yml
-
 permissions:
   contents: read
 

@@ -92,6 +92,33 @@ class ProfileTests(unittest.TestCase):
     def test_shipped_profile(self):
         validate_online_hybrid_profile(load_json(POLICY), load_json(CONFIG), load_json(ONLINE2))
 
+    def test_g3_workflow_tracks_all_bundle_inputs_on_pr_and_main(self):
+        workflow = (
+            ROOT / ".github/workflows/online-hybrid-qualification.yml"
+        ).read_text(encoding="utf-8")
+        critical_inputs = (
+            "qualification/online-cpu-reference.json",
+            "qualification/lc0-strength-*.json",
+            "config/allfather.online.cpu-reference.json",
+            "scripts/build-online-cpu-reference.sh",
+            "scripts/build-lc0-strength.sh",
+            "scripts/verify-vendor.sh",
+            "scripts/vendor-lock.py",
+            "scripts/fetch-*.py",
+            "scripts/fetch-*.sh",
+            "scripts/lc0-*.py",
+            "tests/controller/test_online_profile.py",
+            "engines/**",
+            "vendor.lock.json",
+        )
+        for path in critical_inputs:
+            with self.subTest(path=path):
+                self.assertEqual(
+                    workflow.count(f"- {path}"),
+                    2,
+                    f"{path} must trigger both pull-request and main qualification",
+                )
+
     def test_skip_authority_rejected(self):
         cfg = copy.deepcopy(load_json(CONFIG))
         cfg["hybrid_authority"]["allow_skipped_extension_authority"] = True

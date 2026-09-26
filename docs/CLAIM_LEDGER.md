@@ -1,23 +1,27 @@
 # Claim ledger
 
-## Current repository synchronization after PR #36
+## Current repository synchronization after PR #39
 
-- **PROVED / CI-GATED:** synchronized main is `64aa8fd13c390b9b37b8825d8f39e73d9bdbdbf8`; Merge gate,
-  Controller shell validation, Telemetry contract validation, LC0 real-inference
-  qualification, and Baseline engine validation all completed successfully on that
-  commit. See `CURRENT_STATUS.md` for run IDs and the release matrix.
-- **MEASURED / CONTRACT OBSERVATION:** the real baseline ONLINE-1 contract returned
-  three legal anchor results with full measured envelopes; the G2 contract took the
-  conservative `BUY_STAGED_VERIFY` route; the current real M14-C integration run
-  sealed `ANCHOR_FALLBACK`; and the active-routing validation authorized zero stops.
-  These outcomes are not promoted into strength claims.
-- **OPEN RELEASE GATES:** M14-G3 clock-aware staged
-  authority composition, a real-backend positive HYBRID override test, full-game
-  LOCAL-1 qualification, packaging/bridge integration, network/restart/rollback
-  qualification, one aggregate release gate, main-branch protection, and the explicit
-  Allfather controller licensing decision.
-- **NOT CLAIMED:** deployed-bot status, production learned SKIP value, Elo, move-quality
-  superiority, or equal-envelope superiority.
+- **PROVED / CI-GATED:** main is `c301e9986566febfbb7978d55c5a3d3429423cff`.
+  The qualified PR #39 head `9ea858eed4133ea1bc8e89137176b4e5cf2eb316` and the
+  merge commit share Git tree `397c004a90adf7e1d666ebd10c2fd81617906b23`.
+  Telemetry, Controller shell, Merge gate, LC0 real-inference, ONLINE-2,
+  M14-G3 and Baseline validation all passed on that qualified tree.
+- **PROVED / AUTHORITY:** M14-G3 composes the real ONLINE-2 bundle, G2
+  BUY_STAGED_VERIFY routing, complete same-process staged VERIFY terminals,
+  a frozen proposal/evidence digest, clock-aware DecisionAuthorization and
+  deadline-safe publication. The qualifier requires a real non-anchor HYBRID
+  emission; invalid/unsupported states retain deterministic Stockfish fallback.
+- **PROVED / LIFECYCLE-INTEGRITY MECHANISMS:** closed dispatch permits are normal
+  rejected work rather than worker failure; post-output UCI readiness waits for the
+  measured interval to freeze; process endpoints freeze before reuse while controller
+  CPU remains measured through resource-relevant route finalization; published terminal
+  moves are immutable history.
+- **OPEN RELEASE GATES:** LOCAL-1 complete-game lifecycle qualification, ONLINE-3
+  packaging/bridge, ONLINE-4 network/restart/rollback, aggregate release qualification,
+  ONLINE-RC, main governance, and combined-distribution licensing.
+- **OPEN STRENGTH GATE:** no Elo or equal-envelope superiority claim follows from M14-G3.
+  M15-B/C remains the separate comparative campaign.
 
 ## ONLINE-2 real-network online CPU reference
 
@@ -1031,3 +1035,42 @@ policy result.
   superiority.
 - Promotion of fitted staged/regime models onto the eventual competitive
   strength platform remains downstream work.
+
+
+## M14-G3 clock-aware staged hybrid authority
+
+### PROVED / qualified composition
+
+- `clocked_staged_preanchor_v1` is a distinct authority policy; it does not mutate
+  the historical M14-C `movetime_v0` contract.
+- the exact ONLINE-2 real-network CPU bundle is reused rather than replaced by a
+  backend-light surrogate;
+- the route source must be the supported staged BUY path and complete extension
+  evidence must come from one consistent generation/candidate universe;
+- proposal move, proposal evidence digest, authorization grant, final decision and
+  emitted move are identity-bound and independently replay-checked;
+- the soft-deadline gate is recomputed from sealed proposal timing rather than trusting
+  a stored boolean;
+- explicit stop/revocation, stale generation, partial/mixed evidence, resource failure,
+  illegal proposal, late publication and unsupported states fail closed;
+- outward publication is tied to a complete deadline-safe write; a different hybrid root
+  never inherits the Stockfish anchor ponder continuation;
+- post-output readiness waits until the prior measured interval is immutable;
+- resource accounting separates backend process-endpoint freeze from final controller
+  CPU freeze so route/settlement finalization remains inside the physical claim;
+- the qualification suite requires at least one real-backend HYBRID move different from
+  the Stockfish anchor and also exercises fallback/rejection controls.
+
+### MEASURED / observed qualification
+
+The dedicated M14-G3 workflow passed on the final qualified PR head together with the
+ONLINE-2 real-network, LC0 real-inference, controller, telemetry, merge-gate and baseline
+workflow families.
+
+### OPEN
+
+- complete-game lifecycle correctness across many consecutive plies is not yet qualified;
+- ONLINE deployment/recovery is not yet qualified;
+- learned SKIP promotion remains gated by M14-G4;
+- no result establishes move correctness, Elo gain, optimal compute allocation or
+  equal-envelope superiority.

@@ -56,18 +56,28 @@ def run(spec: dict) -> int:
                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True,
                                bufsize=0)
     pgid = process.pid
+    os.set_blocking(process.stdin.fileno(), False)
+    os.set_blocking(sys.stdout.fileno(), False)
     save(session / "session.json", {"schema_version": 1, "status": "running", "arm": arm,
         "session_id": session.name, "pid": process.pid, "pgid": pgid,
         "started_ns": started_ns, "command": command, "spec": spec})
 
-    def child_write(raw: bytes) -> None:
+    def pipe_write(fd: int, raw: bytes, timeout: float = 3.0) -> None:
         view = memoryview(raw)
+        deadline = time.monotonic() + timeout
         while view:
-            count = process.stdin.write(view)
-            if not count:
-                raise BrokenPipeError("child stdin write made no progress")
-            view = view[count:]
-        process.stdin.flush()
+            try:
+                count = os.write(fd, view)
+                if count <= 0:
+                    raise BrokenPipeError("pipe write made no progress")
+                view = view[count:]
+            except BlockingIOError:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0 or not select.select([], [fd], [], remaining)[1]:
+                    raise TimeoutError("qualification proxy pipe stalled")
+
+    def child_write(raw: bytes) -> None:
+        pipe_write(process.stdin.fileno(), raw)
 
     def record(direction: str, line: str, **extra) -> None:
         nonlocal seq
@@ -120,12 +130,7 @@ def run(spec: dict) -> int:
                     record(direction, line)
                     if direction == "out":
                         # Real pipe to the child and to Fastchess; no PTY/stdout logfile.
-                        view = memoryview(raw)
-                        while view:
-                            written = os.write(sys.stdout.fileno(), view)
-                            if written <= 0:
-                                raise BrokenPipeError("stdout write made no progress")
-                            view = view[written:]
+                        pipe_write(sys.stdout.fileno(), raw)
         except Exception as exc:
             errors.append(f"{direction} reader: {type(exc).__name__}: {exc}")
 
@@ -205,8 +210,6 @@ def run(spec: dict) -> int:
                 errors.append("reader failed to close")
         if pending is not None:
             errors.append("go has no terminal bestmove")
-        # Drain adopted descendants. Their exit is not evidence of successful cleanup
-        # if we had to kill them; the leaked map above remains in the report.
         until = time.monotonic() + 5
         while time.monotonic() < until:
             try:

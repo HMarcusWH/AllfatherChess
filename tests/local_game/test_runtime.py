@@ -20,7 +20,7 @@ def terminals(output):
 
 
 class GenerationLifecycleTests(unittest.TestCase):
-    def test_repeated_protocol_games_keep_generations_unique(self):
+    def test_repeated_finalized_protocol_games_keep_generations_unique(self):
         with shell_fixture(args={"stockfish-anchor": ["--info-lines", "3", "--info-delay-ms", "20"]}) as (shell, manager, shadow, out, tmp):
             for game in range(3):
                 shell.handle_command("ucinewgame")
@@ -30,6 +30,10 @@ class GenerationLifecycleTests(unittest.TestCase):
                     shell.handle_command("go movetime 500")
                     wait_for(lambda: len(terminals(out)) == count + 1)
                     shell.handle_command("isready")
+                    # This test isolates reuse of finalized runs. The real campaign
+                    # does NOT wait for artifacts between plies; it independently
+                    # rejects an unobserved fast-next-turn generation.
+                    wait_for(lambda: shadow._run is None or shadow._run.finished.is_set())
             wait_for(lambda: len(list(tmp.glob("replays/*/manifest.json"))) == 12)
             bundles = discover_replay_bundles(tmp / "replays")
             self.assertFalse(bundles.skipped)

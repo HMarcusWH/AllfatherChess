@@ -11,7 +11,9 @@ import statistics
 
 from .common import (ARMS, ROOT, QualificationError, contained, file_record, load, policy,
                      require, source_identity, verify_g3_derivation, verify_record, save)
-from .runner import schedule
+from .runner import schedule, command
+from .integrity import (input_paths, verify_builds, verify_prerequisites, verify_probes,
+                        verify_session_commands, finite_metrics)
 
 MOVE = re.compile(r"bestmove ([a-h][1-8][a-h][1-8][qrbn]?)(?: ponder [a-h][1-8][a-h][1-8][qrbn]?)?\Z")
 
@@ -104,7 +106,7 @@ def trace_searches(events: list[dict]) -> dict[int, list[dict]]:
     return dict(games)
 
 
-def session_games(directory: Path, arm: str, source: dict) -> tuple[list[list[dict]], list[dict]]:
+def session_games(directory: Path, arm: str, source: dict, plan: dict) -> tuple[list[list[dict]], list[dict]]:
     groups, summaries = [], []
     session_root = directory / "sessions" / arm
     require(session_root.is_dir(), f"missing sessions for {arm}")
@@ -120,6 +122,8 @@ def session_games(directory: Path, arm: str, source: dict) -> tuple[list[list[di
         trace = verify_record(session, summary["transcript"])
         events = [json.loads(line) for line in trace.read_text().splitlines()]
         require(len(events) == summary["event_count"], "truncated event log")
+        verify_session_commands(events, arm, plan, source)
+        finite_metrics(summary)
         grouped = trace_searches(events)
         require(bool(grouped), "a game session performed no searches")
         metrics = {m["search"]: m for m in summary["search_metrics"]}
@@ -199,7 +203,7 @@ def match_game(game, streams: dict[str, list[dict]], allow_denial: bool, opening
     root_fen = board.fen(en_passant="fen")
     counters = {name: 0 for name in streams}
     history, plies = [], []
-    # Opening-book plies are not engine moves; distinguish them by the first trace history.
+    # Opening-book plies are not engine moves; distinguish them by the pinned opening.
     all_searches = [item for seq in streams.values() for item in seq]
     require(all_searches, "no searched plies")
     opening_moves = [] if opening is None else [m.uci() for m in opening.mainline_moves()]
@@ -252,6 +256,10 @@ def qualify(output: Path) -> dict:
         require([j["plan"] for j in m["jobs"]] == expected[:len(m["jobs"])], "altered executed schedule")
         if len(m["jobs"]) != len(expected):
             errors.append(f"unfulfilled jobs: {len(expected) - len(m['jobs'])}")
+        require(len(m["inputs"]) == len(input_paths(p)) and
+                {r["path"] for r in m["inputs"]} == {str(path.relative_to(ROOT)) for path in input_paths(p)},
+                "campaign omitted/duplicated/added a required input")
+        fastchess = verify_builds(m["source"])
         for record in m["inputs"]:
             verify_record(ROOT, record)
         actual_paths = {str(path.relative_to(output)) for path in output.rglob("*")
@@ -264,12 +272,14 @@ def qualify(output: Path) -> dict:
         if ([s["id"] for s in m["prerequisites"]] != ["lc0", "online2", "g3"] or
                 not all(s["returncode"] == 0 and not s["timed_out"] for s in m["prerequisites"])):
             errors.append("prerequisites missing or failed")
-        if m.get("rule_probes", {}).get("passed") is not True:
-            errors.append("rule-transition probes failed/missing")
+        verify_prerequisites(output, m["source"])
+        verify_probes(output, m.get("rule_probes", {}))
         for job in m["jobs"]:
             plan, execution = job["plan"], job["execution"]
             directory = output / plan["id"]
             try:
+                require(execution["argv"] == command(plan, directory, p, source, fastchess, write_specs=False),
+                        "executed match command differs from policy")
                 if execution["returncode"] != 0 or execution["timed_out"]:
                     errors.append(f"{plan['id']}: Fastchess did not finish")
                 games = read_games(directory / "games.pgn")
@@ -293,7 +303,7 @@ def qualify(output: Path) -> dict:
                 require(len(games) == 2, "expected exactly two color-reversed games")
                 by_arm = {}
                 for arm in plan["arms"]:
-                    groups, summaries = session_games(directory, arm, source)
+                    groups, summaries = session_games(directory, arm, source, plan)
                     require(len(groups) == 2, f"{arm}: expected two searched games")
                     require(len(summaries) == (2 if plan["restart"] else 1), "wrong process restart/reuse lifecycle")
                     report["sessions"].extend({"job": plan["id"], "arm": arm,

@@ -14,6 +14,7 @@ import uuid
 
 from .common import (ARMS, ROOT, contained, file_record, load, policy, require, save,
                      sha, source_identity, verify_record)
+from .integrity import input_paths, verify_builds
 
 
 def schedule(p: dict, mode: str) -> list[dict]:
@@ -45,7 +46,7 @@ def engine_options(arm: str, source: dict) -> tuple[dict, dict]:
     return options, dict(spec.get("environment", {}))
 
 
-def command(job: dict, directory: Path, p: dict, source: dict, fastchess: Path) -> list[str]:
+def command(job: dict, directory: Path, p: dict, source: dict, fastchess: Path, *, write_specs: bool = True) -> list[str]:
     argv = [str(fastchess), "-concurrency", "1", "-rounds", "1", "-games", "2", "-repeat",
             "-variant", "standard", "-ratinginterval", "0", "-autosaveinterval", "0",
             "-strict", "-startup-ms", str(p["startup_ms"]), "-ping-ms", str(p["ping_ms"]),
@@ -61,7 +62,8 @@ def command(job: dict, directory: Path, p: dict, source: dict, fastchess: Path) 
         spec_path = directory / f"{arm}.json"
         spec = {"schema_version": 1, "arm": arm, "root": str(ROOT),
                 "sessions": str(directory / "sessions" / arm), "environment": environment}
-        save(spec_path, spec)
+        if write_specs:
+            save(spec_path, spec)
         argv += ["-engine", f"name={arm}", f"cmd={sys.executable}",
                  f"args=-m tools.local_game.proxy --spec {spec_path}", f"dir={ROOT}",
                  "proto=uci", f"tc={job['clock']}", f"timemargin={p['timemargin_ms']}",
@@ -120,6 +122,9 @@ def prerequisites(output: Path) -> list[dict]:
     g3 = load(output / "g3.json")["positive_case"]
     require(g3["authority"] == "HYBRID" and g3["emitted_move"] != g3["anchor_move"],
             "G3 prerequisite did not exercise actual non-anchor authority")
+    runtime = load(ROOT / "config/allfather.online-hybrid.validation.json")
+    source_run = contained(ROOT / runtime["shadow"]["replay_root"], g3["run_id"])
+    shutil.copytree(source_run, output / "g3-positive-replay")
     return records
 
 
@@ -137,33 +142,19 @@ def run(mode: str, output: Path) -> int:
                 "host": {"system": list(os.uname()), "logical_cpus": os.cpu_count()},
                 "clock_regime": "same tournament clock; NOT equal aggregate compute",
                 "control": "allfather-anchor is one Stockfish process through the legacy native-clock shell"}
-    inputs = [ROOT / "qualification/local-full-game.json", ROOT / "qualification/fastchess.lock.json",
-              ROOT / "qualification/local-game-requirements.txt", ROOT / p["source_runtime"],
-              ROOT / "build/online-cpu-reference/build-manifest.json",
-              ROOT / "build/tools/fastchess/build-manifest.json"]
-    inputs += sorted((ROOT / "tests/fixtures/local_full_game").glob("*"))
+    inputs = input_paths(p)
     save(output / "manifest.json", manifest)
     try:
         manifest["inputs"] = [file_record(path) for path in inputs if path.is_file()]
         require(len(manifest["inputs"]) == len(inputs), "missing build/qualification input")
-        fc_root = ROOT / "build/tools/fastchess"
-        fc = load(fc_root / "build-manifest.json")
-        require(fc["source"] == load(ROOT / "qualification/fastchess.lock.json"), "Fastchess pin mismatch")
-        require(fc["upstream_tests_passed"] is True, "Fastchess upstream tests missing")
-        fastchess = verify_record(fc_root, fc["binary"])
-        bundle = ROOT / "build/online-cpu-reference"
-        build = load(bundle / "build-manifest.json")
-        require(build["source_commit"] == manifest["source"]["commit"], "ONLINE-2 bundle is from another checkout")
-        for category in ("engines", "networks"):
-            for item in build["artifacts"][category].values():
-                # ONLINE-2 uses `size` rather than `bytes`.
-                verify_record(bundle, {"path": item["path"], "sha256": item["sha256"], "bytes": item["size"]})
+        fastchess = verify_builds(manifest["source"])
         pre = output / "prerequisites"
         pre.mkdir()
         manifest["prerequisites"] = prerequisites(pre)
         from .probes import run_probes
         manifest["rule_probes"] = run_probes(output / "rule-probes", source)
         for job in expected:
+            print(f"LOCAL-1 starting {job['id']}: {job['arms']}", flush=True)
             directory = output / job["id"]
             directory.mkdir()
             argv = command(job, directory, p, source, fastchess)
@@ -172,11 +163,12 @@ def run(mode: str, output: Path) -> int:
             manifest["jobs"].append(entry)
             save(output / "manifest.json", manifest)
             if result["returncode"] != 0 or result["timed_out"]:
-                raise RuntimeError(f"{job['id']}: runner failed; all remaining planned jobs stay unfulfilled")
+                manifest["failures"].append(f"{job['id']}: runner failed; retained without retry")
         for record in manifest["inputs"]:
             verify_record(ROOT, record)
         require(source_identity() == manifest["source"], "checkout identity changed during campaign")
-        manifest["status"] = "completed"
+        verify_builds(manifest["source"])
+        manifest["status"] = "failed" if manifest["failures"] else "completed"
     except Exception as exc:
         manifest["status"] = "failed"
         manifest["failures"].append(f"{type(exc).__name__}: {exc}")

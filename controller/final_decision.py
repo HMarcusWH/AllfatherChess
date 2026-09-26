@@ -219,6 +219,94 @@ def verify_final_decision_integrity(run_dir: Path | str) -> list[str]:
                 if source.get("decision_terminal_source") != snapshot.get("terminal_source"):
                     problems.append("G3 counterfactual terminal source mismatch")
 
+    # G3 replay audit: the live authorization snapshot is hash-bound, but
+    # the authoritative sources must also reconstruct the identities that gate
+    # clocked staged authority. This keeps route/TimePlan/staged provenance from
+    # becoming self-asserted fields inside one snapshot.
+    decision_payload = artifact.get("decision")
+    if isinstance(decision_payload, dict):
+        authorization = decision_payload.get("authorization")
+        snapshot = decision_payload.get("authorization_snapshot")
+        if (
+            isinstance(authorization, dict)
+            and isinstance(snapshot, dict)
+            and authorization.get("policy") == "clocked_staged_preanchor_v1"
+        ):
+            try:
+                parent = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
+                route = json.loads((run_dir / "route.json").read_text(encoding="utf-8"))
+                staged = json.loads(
+                    (run_dir / "staged_verification" / "manifest.json").read_text(
+                        encoding="utf-8"
+                    )
+                )
+            except (OSError, json.JSONDecodeError) as exc:
+                problems.append(f"G3 authority source could not be loaded: {exc}")
+            else:
+                time_plan = parent.get("time_plan") or {}
+                if snapshot.get("time_plan_id") != time_plan.get("plan_id"):
+                    problems.append("G3 TimePlan id does not match parent replay")
+                if snapshot.get("time_plan_generation") != parent.get("generation"):
+                    problems.append("G3 TimePlan generation does not match parent replay")
+                position = parent.get("position") or {}
+                if snapshot.get("time_plan_position_id") != position.get("position_id"):
+                    problems.append("G3 TimePlan position does not match parent replay")
+                if (
+                    snapshot.get("time_plan_anchor_go_command")
+                    != time_plan.get("anchor_go_command")
+                ):
+                    problems.append("G3 TimePlan anchor command does not match parent replay")
+                if parent.get("outward_decision") != decision_payload:
+                    problems.append("G3 parent outward_decision differs from final decision")
+
+                value_decisions = route.get("value_decisions")
+                if not isinstance(value_decisions, list) or len(value_decisions) != 1:
+                    problems.append("G3 requires exactly one sealed staged route decision")
+                else:
+                    route_decision = value_decisions[0]
+                    if not isinstance(route_decision, dict):
+                        problems.append("G3 staged route decision is malformed")
+                    else:
+                        if (
+                            snapshot.get("route_decision_digest")
+                            != canonical_digest(route_decision)
+                        ):
+                            problems.append("G3 route decision digest mismatch")
+                        if snapshot.get("route_action") != route_decision.get("action"):
+                            problems.append("G3 route action differs from sealed route")
+                        if (
+                            snapshot.get("route_buy_extension")
+                            is not route_decision.get("buy_extension")
+                        ):
+                            problems.append("G3 route buy flag differs from sealed route")
+
+                if snapshot.get("terminal_source") != "staged_verification":
+                    problems.append("G3 final decision did not bind staged terminal source")
+                if snapshot.get("staged_generation") != staged.get("generation"):
+                    problems.append("G3 staged generation mismatch")
+                if snapshot.get("staged_intervention") != staged.get("intervention"):
+                    problems.append("G3 staged intervention mismatch")
+                nomination = staged.get("nomination") or {}
+                if (
+                    list(snapshot.get("staged_candidate_roots") or [])
+                    != list(nomination.get("candidate_roots") or [])
+                ):
+                    problems.append("G3 staged candidate order mismatch")
+                staged_disposition = staged.get("disposition") or {}
+                stages = staged.get("stages") or []
+                staged_complete = bool(
+                    staged_disposition.get("run") == "completed"
+                    and isinstance(stages, list)
+                    and len(stages) == 3
+                    and all(
+                        isinstance(stage, dict)
+                        and stage.get("disposition") == "completed"
+                        for stage in stages
+                    )
+                )
+                if snapshot.get("staged_complete") is not staged_complete:
+                    problems.append("G3 staged completion state mismatch")
+
     stored_sources = artifact.get("sources")
     if not isinstance(stored_sources, dict):
         problems.append("final decision sources must be an object")

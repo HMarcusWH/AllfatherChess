@@ -1,5 +1,10 @@
 # Historical Codex Review Audit
 
+> **Historical scope note (26 September 2026):** this file audits the early PR #1-#7
+> review history and remains useful as hardening lineage. It is **not** the current review
+> ledger for PR #39. Current repository/qualification state is in
+> [CURRENT_STATUS.md](CURRENT_STATUS.md), and forward work is in [ROADMAP.md](ROADMAP.md).
+
 Status: pre-hybrid-shell hardening audit.
 
 This audit covers the user-requested review history for PRs #1, #2, #3, #5, #6, and #7. It records every actionable Codex finding that was available from those PR discussions and how the current tree handles it. PRs #2 and #3 contain Codex usage-limit notices rather than review findings.

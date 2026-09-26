@@ -300,7 +300,18 @@ def qualify(output: Path) -> dict:
             errors.append(f"campaign incomplete: {m.get('failures')}")
         require(m["source"] == source_identity(), "campaign does not match this source checkout")
         p = policy()
-        expected = schedule(p, m["mode"])
+        full_schedule = schedule(p, m["mode"])
+        shard = m.get("shard") or {"index": 0, "count": 1}
+        require(type(shard.get("index")) is int and type(shard.get("count")) is int and
+                shard["count"] >= 1 and 0 <= shard["index"] < shard["count"],
+                "invalid campaign shard identity")
+        if m["mode"] == "soak" and shard["count"] > 1:
+            expected = [job for index, job in enumerate(full_schedule)
+                        if index % shard["count"] == shard["index"]]
+        else:
+            require(shard == {"index": 0, "count": 1},
+                    "required campaign may not be sharded")
+            expected = full_schedule
         require(m["planned_jobs"] == expected, "altered campaign schedule")
         require([j["plan"] for j in m["jobs"]] == expected[:len(m["jobs"])], "altered executed schedule")
         if len(m["jobs"]) != len(expected):
@@ -333,8 +344,9 @@ def qualify(output: Path) -> dict:
             try:
                 require(execution["argv"] == command(plan, directory, p, source, fastchess, write_specs=False),
                         "executed match command differs from policy")
-                if execution["returncode"] != 0 or execution["timed_out"]:
-                    errors.append(f"{plan['id']}: Fastchess did not finish")
+                if (execution["returncode"] != 0 or execution["timed_out"] or
+                        execution.get("detached_groups_after_cleanup")):
+                    errors.append(f"{plan['id']}: Fastchess/lifecycle cleanup did not finish")
                 games = read_games(directory / "games.pgn", require_completed=True)
                 rows = []
                 for index, game in enumerate(games):

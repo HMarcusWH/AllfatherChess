@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "profile_id": "online-hybrid-authority-v1",
+  "qualification_tier": "online-hybrid-authority",
+  "source_profile": "online-cpu-reference-v1",
+  "runtime_config": "config/allfather.online-hybrid.validation.json",
+  "bundle_root": "build/online-cpu-reference",
+  "authority_policy": "clocked_staged_preanchor_v1",
+  "terminal_source_policy": "route_bound_staged_v1",
+  "allow_skipped_extension_authority": false,
+  "verification": {
+    "base": {
+      "nodes": 64
+    },
+    "extension": {
+      "nodes": 128
+    },
+    "intervention": "same_process_staged_verify_v1"
+  },
+  "positive_case": {
+    "command": "go movetime 1800 searchmoves e2e4 d2d4 g1f3",
+    "position": "position startpos",
+    "require_authority": "HYBRID",
+    "require_terminal_source": "staged_verification"
+  },
+  "claim_boundary": {
+    "hybrid_authority": true,
+    "learned_skip": false,
+    "elo": false,
+    "equal_envelope_superiority": false,
+    "deployed_bot": false
+  }
+}

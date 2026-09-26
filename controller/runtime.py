@@ -1150,6 +1150,14 @@ def load_runtime_config(path: Path) -> RuntimeConfig:
         online_time = OnlineTimeSettings.from_config(data.get("online_time"))
     except OnlineTimeError as exc:
         raise RuntimeError(str(exc)) from exc
+    if (
+        hybrid_authority is not None
+        and hybrid_authority.policy == "clocked_staged_preanchor_v1"
+        and online_time is None
+    ):
+        raise RuntimeError(
+            "clocked_staged_preanchor_v1 requires online_time"
+        )
     if online_time is not None:
         if mode != "active":
             raise RuntimeError("ONLINE-1 requires active resource routing")

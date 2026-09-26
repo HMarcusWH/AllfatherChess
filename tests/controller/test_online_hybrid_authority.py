@@ -106,6 +106,7 @@ class AuthorityTests(unittest.TestCase):
             {"route_action": "SKIP_STAGED_VERIFY", "route_buy_extension": False},
             {"authority_evidence_frozen_before_soft_deadline": False},
             {"authority_blocked": True},
+            {"time_plan_request_class": "unsupported"},
             {"staged_candidate_roots": ("d2d4", "e2e4", "g1f3")},
         )
         for change in cases:

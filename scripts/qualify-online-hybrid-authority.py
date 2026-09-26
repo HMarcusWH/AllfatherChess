@@ -9,6 +9,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from controller.online_hybrid_profile import load_json, validate_online_hybrid_profile
+from controller.decision import CLOCKED_AUTHORIZATION_POLICY
 from controller.replay import discover_replay_bundles, load_manifest, verify_bundle_integrity
 from controller.counterfactual import verify_counterfactual_integrity
 from controller.final_decision import load_final_decision_artifact, verify_final_decision_integrity
@@ -92,6 +93,7 @@ def main() -> int:
         require(not problems, f"{label}: replay integrity failed: {problems}")
         manifest = load_manifest(run)
         decision = load_final_decision_artifact(run)["decision"]
+        authorization = decision.get("authorization") or {}
         snap = decision["authorization_snapshot"]
         route_doc = json.loads(
             (run / "route.json").read_text(encoding="utf-8")
@@ -111,6 +113,8 @@ def main() -> int:
             "case": label,
             "run_id": run.name,
             "authority": decision["authority"],
+            "authorization_policy": authorization.get("policy"),
+            "authorization_granted": authorization.get("authorized"),
             "anchor_move": decision["anchor_move"],
             "proposal_move": decision["proposal_move"],
             "emitted_move": decision["emitted_move"],
@@ -127,6 +131,8 @@ def main() -> int:
 
         qualifies = (
             decision["authority"] == requirement["require_authority"]
+            and authorization.get("policy") == CLOCKED_AUTHORIZATION_POLICY
+            and authorization.get("authorized") is True
             and snap.get("terminal_source")
             == requirement["require_terminal_source"]
             and snap.get("route_action") == "BUY_STAGED_VERIFY"

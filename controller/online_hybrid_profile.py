@@ -104,6 +104,15 @@ def validate_online_hybrid_profile(
     if (config.get("budget") or {}).get("verification_reserve_fraction", 0) <= 0:
         raise OnlineHybridProfileError("G3 requires a positive VERIFY reserve")
 
+    shadow = config.get("shadow")
+    if not isinstance(shadow, dict):
+        raise OnlineHybridProfileError("G3 requires shadow settings")
+    _eq(
+        shadow.get("dispatch_limit"),
+        {"nodes": policy.get("explore", {}).get("nodes")},
+        "G3 EXPLORE dispatch limit",
+    )
+
     verify = config.get("verification")
     if not isinstance(verify, dict) or verify.get("enabled") is not True:
         raise OnlineHybridProfileError("G3 requires verification.enabled")
@@ -116,6 +125,11 @@ def validate_online_hybrid_profile(
 
     if (config.get("routing") or {}).get("policy") != "unified_value_v1":
         raise OnlineHybridProfileError("G3 requires unified_value_v1 routing")
+    _eq(
+        (config.get("routing") or {}).get("verify_stage_cpu_ms_estimate"),
+        policy["verification"].get("reservation_cpu_ms_per_stage"),
+        "G3 VERIFY reservation estimate",
+    )
     if (config.get("routing") or {}).get("staged_decision_calibration") is not None:
         raise OnlineHybridProfileError("G3 does not promote a learned SKIP model")
     if (config.get("routing") or {}).get("regime_support_calibration") is not None:

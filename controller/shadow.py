@@ -1917,9 +1917,21 @@ class ShadowRunCoordinator:
         for thread in prior_stops:
             thread.join(max(0, deadline - time.monotonic()))
 
-        if stopper.is_alive() or not drained or any(
+        stop_stuck = stopper.is_alive() or any(
             thread.is_alive() for thread in prior_stops
-        ):
+        )
+        if reason == "close" and active is not None and active.engine_quiesced.is_set():
+            if stop_stuck:
+                self._quarantine_clock_workers(
+                    "clock stop writer did not drain during shutdown"
+                )
+                return False
+            # Replay-only backlog is not an engine fault. close() will either
+            # wait for it to finish or explicitly mark the deferred observation
+            # as lost before callbacks are detached.
+            return bool(drained)
+
+        if stop_stuck or not drained:
             self._quarantine_clock_workers(
                 "clock engine generation did not drain before synchronization"
             )
@@ -1953,10 +1965,47 @@ class ShadowRunCoordinator:
             self.note_anchor_complete(generation, line)
         active.anchor_observation_done.set()
 
+    def _force_close_observation_loss(self, active: _ActiveRun) -> None:
+        """Complete a timed-out deferred-observation barrier with explicit loss."""
+        with self._lock:
+            if self._run is not active or active.anchor_observation_done.is_set():
+                return
+            stream = active.anchor_stream
+            message = (
+                "controller close timed out waiting for deferred ONLINE anchor "
+                "telemetry; remaining observation was explicitly marked lost"
+            )
+            active.run.note(message)
+            if stream is not None:
+                stream.note_loss(message)
+            active.anchor_observation_done.set()
+
     def close(self) -> None:
         with self._lock:
             self._closed = True
-        self.quiesce(reason="close")
+            active = self._run
+
+        timeout = None
+        if self.runtime.config.online_time is not None:
+            timeout = max(
+                self.settings.drain_timeout_s,
+                self.runtime.config.online_time.quiesce_budget_ms / 1000,
+            )
+        drained = self.quiesce(reason="close", timeout=timeout)
+
+        if (
+            not drained
+            and active is not None
+            and active.context.clock is not None
+            and active.engine_quiesced.is_set()
+            and not active.anchor_observation_done.is_set()
+        ):
+            # Normal shutdown may terminate a DeferredObserver only after the
+            # replay records that the remaining observation was lost. Publishing
+            # this barrier lets the worker close the stream deterministically.
+            self._force_close_observation_loss(active)
+            active.finished.wait(timeout=self.settings.drain_timeout_s)
+
         self.runtime.set_instance_observer(None)
         self.runtime.set_shadow_exit_handler(None)
 
@@ -2148,12 +2197,52 @@ class ShadowRunCoordinator:
                         and active.refinement_positioned
                     ):
                         self._restore_all_refinement_positions(active)
-                    # Execution has returned, so every shadow dispatch has
-                    # completed or been drained/cut loose. With the anchor
-                    # terminal boundary observed and REFINE positions restored,
-                    # physical engine state is safe to synchronize even if
-                    # replay writers remain backlogged.
-                    active.engine_quiesced.set()
+
+                    resource_frozen = True
+                    if (
+                        active.resources is not None
+                        and active.resources.settings.enabled
+                    ):
+                        # The anchor's terminal resource sample is taken only
+                        # after stdout publication. State synchronization must
+                        # not begin until that stage is closed and the run-level
+                        # process/controller endpoints are frozen, otherwise the
+                        # next position/new-game commands can contaminate this
+                        # move's resource certificate.
+                        while not active.anchor_resource_done.is_set():
+                            if active.anchor_resource_done.wait(timeout=0.05):
+                                break
+                            if not self.runtime.healthy:
+                                resource_frozen = False
+                                break
+                            if self._closed:
+                                clock = active.context.clock
+                                outcome = None if clock is None else clock.outcome()
+                                if not (
+                                    isinstance(outcome, dict)
+                                    and outcome.get("failure") is None
+                                    and outcome.get("emitted_line") is not None
+                                ):
+                                    resource_frozen = False
+                                    break
+                        if active.anchor_resource_done.is_set():
+                            try:
+                                active.resources.freeze_interval()
+                            except Exception as exc:
+                                active.run.note(
+                                    "resource interval could not freeze before engine reuse: "
+                                    f"{type(exc).__name__}: {exc}"
+                                )
+                                resource_frozen = False
+                        else:
+                            resource_frozen = False
+
+                    if resource_frozen:
+                        # Execution has returned, all temporarily positioned
+                        # workers are restored, and physical measurement
+                        # endpoints are immutable. Only replay serialization may
+                        # remain.
+                        active.engine_quiesced.set()
 
                 # Selection completion is not outward publication. Keep
                 # the run alive until the frontend has actually written the

@@ -30,6 +30,8 @@ historical design/audit material.
 - [ONLINE_PROFILE.md](ONLINE_PROFILE.md) — ONLINE-2 real-network CPU reference.
 - [ONLINE_HYBRID_AUTHORITY.md](ONLINE_HYBRID_AUTHORITY.md) — M14-G3 qualified
   clock-aware staged hybrid authority.
+- [FULL_GAME_QUALIFICATION.md](FULL_GAME_QUALIFICATION.md) — LOCAL-1 pinned Fastchess
+  lifecycle gate, exact UCI transcript/replay linkage, and descriptive five-arm baseline.
 - [DECISION_AUTHORITY.md](DECISION_AUTHORITY.md) — proposal/authorization/outward-decision
   authority layers, including M14-C and M14-G3.
 - [RESOURCE_ACCOUNTING.md](RESOURCE_ACCOUNTING.md) — measured CPU/memory/resource

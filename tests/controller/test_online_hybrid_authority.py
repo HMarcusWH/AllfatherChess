@@ -22,6 +22,7 @@ from controller.decision import (
     select_final_decision,
 )
 from controller.final_decision import (
+    _verify_clocked_authority,
     seal_final_decision_artifact,
     verify_final_decision_integrity,
 )
@@ -182,6 +183,60 @@ class FinalDecisionAuditTests(unittest.TestCase):
             self.assertTrue(artifact["audit_complete"])
             self.assertEqual(artifact["missing_sources"], [])
             self.assertEqual(verify_final_decision_integrity(run), [])
+
+
+    def test_authorized_g3_replay_requires_route_digest(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run = Path(tmp)
+            (run / "decision").mkdir(parents=True)
+            (run / "staged_verification").mkdir(parents=True)
+            decision = {
+                "authority": "HYBRID",
+                "anchor_move": "d2d4",
+                "proposal_move": "e2e4",
+                "emitted_move": "e2e4",
+            }
+            snapshot_doc = snapshot(route_decision_digest=None).as_dict()
+            parent = {
+                "generation": 7,
+                "position": {"position_id": "pos"},
+                "time_plan": {
+                    "plan_id": snapshot_doc["time_plan_id"],
+                    "request_class": snapshot_doc["time_plan_request_class"],
+                    "generation": 7,
+                    "position_id": "pos",
+                    "anchor_go_command": snapshot_doc["time_plan_anchor_go_command"],
+                },
+                "outward_decision": decision,
+            }
+            (run / "manifest.json").write_text(
+                json.dumps(parent), encoding="utf-8"
+            )
+            (run / "route.json").write_text(
+                json.dumps({"value_decisions": []}), encoding="utf-8"
+            )
+            (run / "staged_verification" / "manifest.json").write_text(
+                json.dumps({}), encoding="utf-8"
+            )
+            (run / "decision" / "counterfactual.json").write_text(
+                json.dumps({}), encoding="utf-8"
+            )
+
+            problems: list[str] = []
+            _verify_clocked_authority(
+                run,
+                decision,
+                {
+                    "policy": CLOCKED_AUTHORIZATION_POLICY,
+                    "authorized": True,
+                },
+                snapshot_doc,
+                problems,
+            )
+            self.assertIn(
+                "authorized G3 decision is missing a valid route decision digest",
+                problems,
+            )
 
 
 class AuthorityTests(unittest.TestCase):

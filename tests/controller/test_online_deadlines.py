@@ -356,6 +356,60 @@ class DeadlineTests(unittest.TestCase):
             self.assertEqual(shell.state,ShellState.UNHEALTHY)
             self.assertFalse(clock.authority_committed)
 
+    def test_stop_after_terminal_publication_does_not_cancel_shadow_run(self):
+        with shell_fixture(observe=False) as (shell,manager,shadow,out,tmp):
+            token=43
+            clock=standalone_clock(shell,manager,token=token,movetime=500)
+            shell._clock_search=clock
+            shell._active_generation=token
+            shell._state=ShellState.SEARCHING
+            self.assertEqual(
+                clock.try_publish(
+                    line='bestmove d2d4',
+                    write_once=lambda: True,
+                    require_authority=False,
+                ),
+                'published',
+            )
+            with patch.object(shell,'_clock_stop') as clock_stop:
+                shell.handle_command('stop')
+                time.sleep(.05)
+                clock_stop.assert_not_called()
+            self.assertTrue(clock.finished.is_set())
+            self.assertFalse(clock.authority_blocked.is_set())
+
+    def test_close_records_loss_before_aborting_blocked_deferred_observation(self):
+        with shell_fixture() as (shell,manager,shadow,out,tmp):
+            entered=threading.Event();release=threading.Event();original=manager._observer
+
+            def observe(instance,token,*args):
+                if instance==ANCHOR and token==1:
+                    entered.set()
+                    release.wait(10)
+                original(instance,token,*args)
+
+            manager.set_instance_observer(observe)
+            shell.handle_command('go movetime 500')
+            self.assertTrue(entered.wait(1))
+            wait_for(lambda:len(bestmoves(out))==1,1)
+            wait_for(lambda:shadow._run.engine_quiesced.is_set(),3)
+            active=shadow._run
+            self.assertFalse(active.anchor_observation_done.is_set())
+
+            # Exercise the close-time fallback directly with a short synthetic
+            # timeout instead of making the suite sleep for drain_timeout_s.
+            with patch.object(shadow,'quiesce',return_value=False):
+                shadow.close()
+            self.assertTrue(active.anchor_observation_done.is_set())
+            self.assertTrue(
+                any(
+                    'explicitly marked lost' in note
+                    for note in active.run.notes
+                )
+            )
+            release.set()
+            wait_for(lambda:active.finished.is_set(),3)
+
     def test_quit_waits_for_post_output_publication_handshake(self):
         with shell_fixture() as (shell,manager,shadow,out,tmp):
             entered = threading.Event()

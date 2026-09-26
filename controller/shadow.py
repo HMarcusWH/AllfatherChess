@@ -396,6 +396,12 @@ class _ActiveRun:
     finished: threading.Event = field(default_factory=threading.Event)
     anchor_done: threading.Event = field(default_factory=threading.Event)
     anchor_completed: threading.Event = field(default_factory=threading.Event)
+    # Outward publication and deferred anchor observation are separate causal
+    # boundaries. ONLINE decision selection may finish before stdout is written,
+    # and stdout may be written before the DeferredObserver has replayed the
+    # terminal line into the telemetry stream.
+    outward_publication_done: threading.Event = field(default_factory=threading.Event)
+    anchor_observation_done: threading.Event = field(default_factory=threading.Event)
     anchor_resource_done: threading.Event = field(default_factory=threading.Event)
     started_monotonic: float = 0.0
     #: True while the legal-root oracle request is outstanding. Owner states do
@@ -1194,6 +1200,13 @@ class ShadowRunCoordinator:
                 final = None
             finally:
                 active.anchor_done.set()
+                # Non-clock observation is synchronous on the engine reader:
+                # the terminal line was already submitted to the telemetry
+                # writer before this authority callback ran. ONLINE uses a
+                # DeferredObserver and publishes this signal only from its
+                # finished callback.
+                if active.context.clock is None:
+                    active.anchor_observation_done.set()
 
         # Selection is complete, but stdout emission has not happened yet. No
         # new observational stage may be opened against the closed boundary.
@@ -1233,9 +1246,15 @@ class ShadowRunCoordinator:
             if active.anchor_resource_done.is_set():
                 return
             stage = active.anchor_stage
-        if stage is not None:
-            self._finish_resource_stage(active, stage.search_id)
-        active.anchor_resource_done.set()
+        try:
+            if stage is not None:
+                self._finish_resource_stage(active, stage.search_id)
+        finally:
+            # Publication is an outward fact, not an observation fact. The
+            # replay worker may not retire this run before stdout publication
+            # has either completed here or the controller/runtime has failed.
+            active.anchor_resource_done.set()
+            active.outward_publication_done.set()
 
     def _on_shadow_exit(self, instance: str, rc: int | None, token: int | None) -> None:
         with self._lock:
@@ -1851,6 +1870,14 @@ class ShadowRunCoordinator:
                 process.kill_now()
 
     def note_clock_observation_end(self, generation: int, line: str, lost: int) -> None:
+        """Publish that deferred ONLINE anchor telemetry has fully drained.
+
+        The DeferredObserver invokes this only after every queued info line and
+        the terminal bestmove have been submitted to the anchor telemetry
+        stream. Replay finalization may close/drain that stream only after this
+        signal. It must not stand in for stdout publication or resource
+        sampling, which are committed independently by note_anchor_emitted().
+        """
         with self._lock:
             active = self._run
             if active is None or active.generation != generation:
@@ -1861,7 +1888,7 @@ class ShadowRunCoordinator:
                 active.run.note(f"online anchor observation lost {lost} event(s)")
         if not already_done:
             self.note_anchor_complete(generation, line)
-        self.note_anchor_emitted(generation)
+        active.anchor_observation_done.set()
 
     def close(self) -> None:
         with self._lock:
@@ -2050,14 +2077,49 @@ class ShadowRunCoordinator:
                             "the authority stream is incomplete"
                         )
                         break
+                # Selection completion is not outward publication. Keep
+                # the run alive until the frontend has actually written the
+                # chosen line and published the post-output decision/resource
+                # boundary. There is deliberately no fixed one-second timeout:
+                # a legal write may take longer while still preceding the UCI
+                # hard deadline. Runtime failure/controller close are the only
+                # fail-closed escape hatches.
+                while (
+                    active.anchor_done.is_set()
+                    and not active.outward_publication_done.is_set()
+                ):
+                    if active.outward_publication_done.wait(timeout=0.25):
+                        break
+                    if self._closed or not self.runtime.healthy:
+                        active.run.note(
+                            "outward publication did not complete before controller/runtime failure"
+                        )
+                        break
+
+                # ONLINE anchor telemetry is replayed by DeferredObserver after
+                # the authority callback so it cannot delay bestmove. Do not
+                # close the TelemetryStreamWriter until that FIFO has delivered
+                # every queued info line plus the terminal bestmove into the
+                # stream. writer.close() below then drains the stream's own
+                # asynchronous file queue.
+                if active.context.clock is not None:
+                    while not active.anchor_observation_done.is_set():
+                        if active.anchor_observation_done.wait(timeout=0.25):
+                            break
+                        if self._closed or not self.runtime.healthy:
+                            active.run.note(
+                                "deferred anchor observation did not drain before controller/runtime failure"
+                            )
+                            break
+
                 if (
                     active.resources is not None
                     and active.resources.settings.enabled
-                    and active.anchor_done.is_set()
-                    and not active.anchor_resource_done.wait(timeout=1.0)
+                    and active.outward_publication_done.is_set()
+                    and not active.anchor_resource_done.is_set()
                 ):
                     active.run.note(
-                        "anchor resource terminal sample was not published within 1s; "
+                        "outward publication completed without an anchor resource terminal sample; "
                         "the measured-resource certificate will fail closed"
                     )
 

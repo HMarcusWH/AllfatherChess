@@ -1,5 +1,9 @@
 # Residual geometry and calibration
 
+> **Current composition note (26 September 2026):** residual/calibration artifacts remain
+> derived evidence and never grant authority directly. PR #39 / M14-G3 preserves that
+> separation; its move grant is a distinct replay-bound DecisionAuthorization.
+
 ## Status
 
 Implemented as a **derived** layer. Nothing here is raw evidence, and nothing

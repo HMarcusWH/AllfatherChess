@@ -148,6 +148,22 @@ def validate_allfather_replays(
             continue
         resource=load_json(resource_path)
         route=load_json(route_path)
+        route_resource=route.get("resource_measurement") or {}
+        if route_resource.get("sha256") != sha256(resource_path):
+            metrics["replay_integrity_errors"]+=1
+            problems.append(
+                f"{case['case']}:{arm}:{run.name}: route resource SHA does not bind resource.json"
+            )
+        if route_resource.get("report_id") != resource.get("report_id"):
+            metrics["replay_integrity_errors"]+=1
+            problems.append(
+                f"{case['case']}:{arm}:{run.name}: route resource report_id mismatch"
+            )
+        if route_resource.get("qualified") != resource.get("qualified"):
+            metrics["replay_integrity_errors"]+=1
+            problems.append(
+                f"{case['case']}:{arm}:{run.name}: route/resource qualification mismatch"
+            )
         if resource.get("qualified") is not True:
             metrics["unqualified_required_resources"]+=1
             problems.append(f"{case['case']}:{arm}:{run.name}: resource certificate unqualified")
@@ -162,6 +178,15 @@ def validate_allfather_replays(
         if len(bestmoves)!=1:
             continue
         emitted=bestmoves[0].split()[1].lower()
+
+        cf=run/"decision"/"counterfactual.json"
+        if cf.is_file():
+            cf_problems=verify_counterfactual_integrity(run)
+            if cf_problems:
+                metrics["replay_integrity_errors"]+=len(cf_problems)
+                problems.append(
+                    f"{case['case']}:{arm}:{run.name}: counterfactual integrity: {cf_problems}"
+                )
 
         if arm=="allfather-hybrid":
             final_path=run/"decision"/"final.json"
@@ -182,14 +207,6 @@ def validate_allfather_replays(
                 )
             authority=str(final.get("authority"))
             metrics["authority"][authority]+=1
-            cf=run/"decision"/"counterfactual.json"
-            if cf.is_file():
-                cf_problems=verify_counterfactual_integrity(run)
-                if cf_problems:
-                    metrics["replay_integrity_errors"]+=len(cf_problems)
-                    problems.append(
-                        f"{case['case']}:{arm}:{run.name}: counterfactual integrity: {cf_problems}"
-                    )
         else:
             if (run/"decision"/"final.json").exists():
                 problems.append(

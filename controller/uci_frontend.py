@@ -59,6 +59,10 @@ class UciFrontend:
         self._state = ShellState.READY if runtime.healthy else ShellState.UNHEALTHY
         self._generation = 0
         self._active_generation: int | None = None
+        # Set under _state_lock at the exact successful stdout-write boundary.
+        # This closes the tiny interval between bytes becoming visible to the
+        # client and ClockSearch.finished being published by try_publish().
+        self._post_output_generation: int | None = None
         self.online_time = getattr(getattr(runtime, "config", None), "online_time", None)
         self._online_atomic_write_limit: int | None = None
         if self.online_time is not None and not isinstance(self.output, io.StringIO):
@@ -99,13 +103,21 @@ class UciFrontend:
         clock: ClockSearch,
     ) -> None:
         """Publish READY only after the prior measured interval is immutable."""
-        clock.measurement_frozen.wait()
+        while not clock.measurement_frozen.wait(timeout=0.05):
+            with self._state_lock:
+                if (
+                    self._state != ShellState.SEARCHING
+                    or self._active_generation != token
+                    or self._clock_search is not clock
+                ):
+                    return
         with self._state_lock:
             if (
                 self._state == ShellState.SEARCHING
                 and self._active_generation == token
                 and self._clock_search is clock
             ):
+                self._post_output_generation = None
                 self._active_generation = None
                 self._state = (
                     ShellState.READY
@@ -130,13 +142,10 @@ class UciFrontend:
                 self._state == ShellState.SEARCHING
                 and token is not None
                 and clock is not None
-                and clock.finished.is_set()
-                and clock.outcome().get("failure") is None
-                and clock.outcome().get("emitted_line") is not None
+                and self._post_output_generation == token
             )
         if not should_wait or clock is None or token is None:
             return
-        clock.measurement_frozen.wait()
         self._finish_online_generation_after_measurement(token, clock)
 
     def _output_fd(self) -> int | None:
@@ -238,7 +247,14 @@ class UciFrontend:
                 outward_line = f"bestmove {final_decision.emitted_move}"
 
             def write_and_retain() -> bool:
-                written = self._try_write_online_line_once(outward_line)
+                # The state lock linearizes client-visible stdout against every
+                # post-output UCI command. A client may read the bytes before
+                # try_publish() has set ClockSearch.finished, so the explicit
+                # generation marker—not finished—is the readiness fence.
+                with self._state_lock:
+                    written = self._try_write_online_line_once(outward_line)
+                    if written:
+                        self._post_output_generation = token
                 if written and self.shadow is not None:
                     # Bytes have crossed stdout. Retain the exact decision
                     # before the clock publication gate opens to quit/next-turn
@@ -292,6 +308,7 @@ class UciFrontend:
                     with self._state_lock:
                         if self._active_generation == active:
                             self._state = ShellState.UNHEALTHY
+                            self._post_output_generation = None
                             self._active_generation = None
                     self._shadow_cancel(
                         "runtime_failure_after_publication",
@@ -312,6 +329,7 @@ class UciFrontend:
             if token is not None and searching and active is not None and token != active:
                 return
             self._state = ShellState.UNHEALTHY
+            self._post_output_generation = None
             self._active_generation = None
 
         # Avoid unsolicited UCI output while idle. An unhealthy idle runtime
@@ -652,6 +670,7 @@ class UciFrontend:
                 return
             self._generation = token
             self._active_generation = token
+            self._post_output_generation = None
             self._state = ShellState.SEARCHING
             clock = ClockSearch(plan)
             self._clock_search = clock
@@ -721,6 +740,7 @@ class UciFrontend:
 
         with self._state_lock:
             if self._active_generation == token:
+                self._post_output_generation = None
                 self._active_generation = None
                 self._state = ShellState.UNHEALTHY
             clock.work_closed.set()

@@ -178,5 +178,7 @@ make staged-verify-contract              # real engines: same-process base -> ex
 make unified-value-router-tests           # fail-closed route-value gates
 make unified-value-router-contract        # real engines: route -> resource auth -> staged evidence update
 make online-hybrid-tests                  # M14-G3 clock/evidence/authority regressions
+make build-online-cpu-reference           # prerequisite: portable real-network bundle
+make lc0-strength-contract                # prerequisite: prove real LC0 backend/network
 make online-hybrid-contract               # real-network G3 positive HYBRID + fallback qualification
 ```

@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, TextIO
 
 from .runtime import BackendManager, RuntimeError
 from .online_time import ClockSearch, OnlineTimeError, make_time_plan
+from .decision import revoke_final_decision_to_anchor
 from .budget import ResourceEnvelope
 from common.search_request import parse_position_command, SearchRequestError
 
@@ -147,7 +148,10 @@ class UciFrontend:
                 # can revoke authority while that pure check is running, so
                 # revalidate immediately before deciding the outward line.
                 if final_decision is not None and not clock.authority_open():
-                    final_decision = None
+                    final_decision = revoke_final_decision_to_anchor(
+                        final_decision,
+                        reason="clock authority revoked before outward write",
+                    )
                 clock.work_closed.set()
                 outward_line = line
                 if (

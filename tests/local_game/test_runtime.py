@@ -22,6 +22,7 @@ def terminals(output):
 class GenerationLifecycleTests(unittest.TestCase):
     def test_repeated_finalized_protocol_games_keep_generations_unique(self):
         with shell_fixture(args={"stockfish-anchor": ["--info-lines", "3", "--info-delay-ms", "20"]}) as (shell, manager, shadow, out, tmp):
+            expected_manifests = 0
             for game in range(3):
                 shell.handle_command("ucinewgame")
                 for turn in range(4):
@@ -30,11 +31,19 @@ class GenerationLifecycleTests(unittest.TestCase):
                     shell.handle_command("go movetime 500")
                     wait_for(lambda: len(terminals(out)) == count + 1)
                     shell.handle_command("isready")
-                    # This test isolates reuse of finalized runs. The real campaign
-                    # does NOT wait for artifacts between plies; it independently
-                    # rejects an unobserved fast-next-turn generation.
+                    expected_manifests += 1
+                    # This regression explicitly tests *finalized* run reuse.
+                    # Wait for the replay barrier before admitting the next go;
+                    # otherwise the coordinator correctly declines a second
+                    # shadow run while replay-only work from the prior
+                    # generation is still draining.
+                    wait_for(
+                        lambda: len(list(tmp.glob("replays/*/manifest.json")))
+                        == expected_manifests,
+                        timeout=5,
+                    )
                     wait_for(lambda: shadow._run is None or shadow._run.finished.is_set())
-            wait_for(lambda: len(list(tmp.glob("replays/*/manifest.json"))) == 12)
+            self.assertEqual(len(list(tmp.glob("replays/*/manifest.json"))), 12)
             bundles = discover_replay_bundles(tmp / "replays")
             self.assertFalse(bundles.skipped)
             generations = [load_manifest(p)["generation"] for p in bundles.bundles]

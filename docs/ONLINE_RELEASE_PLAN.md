@@ -334,14 +334,18 @@ For an initial experimental release, unsupported regimes may retain conservative
 
 LOCAL-1 is an **operational/lifecycle gate**, not the equal-envelope strength campaign.
 
-Add a pinned established UCI match runner (Fastchess is the planned reference), a frozen
-lifecycle qualification manifest, complete-game fixtures, a campaign runner, an evidence
-validator, and a dedicated workflow. Expected repository surface includes a runner lock,
-verified build/fetch path, `qualification/local-full-game.json`, lifecycle fixtures,
-`scripts/run-local-game-campaign.py`, `scripts/qualify-full-game-lifecycle.py`,
-`docs/FULL_GAME_QUALIFICATION.md`, Make targets, and
-`.github/workflows/full-game-qualification.yml`. Exact names may change if implementation
-finds a cleaner boundary. [S18]
+The implementation candidate is specified in
+[FULL_GAME_QUALIFICATION.md](FULL_GAME_QUALIFICATION.md). It adds exact external UCI
+transcripts and a five-arm **same-clock descriptive baseline** (Stockfish, Reckless, LC0,
+Allfather-Control authorization ablation, Allfather-Hybrid). The baseline records W/D/L and
+terminations but cannot be promoted into an equal-resource strength conclusion because the
+arms do not consume the same process/resource topology.
+
+The candidate pins Fastchess by exact upstream commit/tree, builds and tests it from source,
+and adds `qualification/local-full-game.json`, dedicated G3/control profiles, lifecycle
+fixtures, `scripts/uci-transcript-proxy.py`, `scripts/run-local-game-campaign.py`,
+`scripts/qualify-full-game-lifecycle.py`, Make targets, and
+`.github/workflows/full-game-qualification.yml`. [S18]
 
 Run complete games rather than isolated `go` commands only. Cover:
 

@@ -32,9 +32,17 @@ git -C "$SRC" -c advice.detachedHead=false checkout -q --detach FETCH_HEAD
 test "$(git -C "$SRC" rev-parse HEAD)" = "$COMMIT"
 test "$(git -C "$SRC" rev-parse 'HEAD^{tree}')" = "$TREE"
 
-make -C "$SRC" -j"$JOBS"
+# Match upstream's unit-test build discipline exactly: tests and release use
+# different flag/source sets but the same object directory, so building them
+# without a clean boundary can reuse incompatible objects.
+make -C "$SRC" clean
 make -C "$SRC" -j"$JOBS" tests
 "$SRC/fastchess-tests"
+
+# Build the runner only after the test objects are gone. Release mode pins the
+# portable x86-64 target used by upstream release artifacts instead of native.
+make -C "$SRC" clean
+make -C "$SRC" -j"$JOBS" build=release NATIVE='-march=x86-64'
 
 cp "$SRC/fastchess" "$OUT/bin/fastchess"
 chmod +x "$OUT/bin/fastchess"
@@ -63,6 +71,8 @@ manifest={
     "binary":{"path":"bin/fastchess","size":binary.stat().st_size,"sha256":sha(binary)},
     "license":{"path":"LICENSE","sha256":sha(out/"LICENSE")},
     "compiler":subprocess.check_output(["c++","--version"],text=True).splitlines()[0],
+    "test_discipline":"upstream clean -> make tests -> fastchess-tests -> clean -> release build",
+    "release_build":"make build=release NATIVE=-march=x86-64",
     "reported_version":subprocess.check_output([str(binary),"-version"],text=True,stderr=subprocess.STDOUT).strip(),
 }
 (out/"build-manifest.json").write_text(

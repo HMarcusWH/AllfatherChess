@@ -16,6 +16,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
+from adapters.process import UciDispatchRejected
 from controller.runtime import BackendManager, RuntimeError, load_runtime_config
 from controller.shadow import partition_roots
 from controller.shards import ShardLedgerError
@@ -1401,6 +1402,37 @@ class ReviewRegressionRoundNineTests(unittest.TestCase):
 
 class ReviewRegressionRoundTenTests(unittest.TestCase):
     """Round-ten findings: authority isolation, shared deadlines, gate binding."""
+
+    def test_closed_dispatch_permit_does_not_quarantine_worker(self):
+        """A permit race rejects one dispatch; it is not backend health evidence."""
+        with tempfile.TemporaryDirectory() as tmp:
+            manager = BackendManager.from_path(write_shadow_config(Path(tmp)))
+            manager.start()
+            instance = SHADOWS[0]
+            process = manager.process(instance)
+            original = process.start_search
+            try:
+                def rejected(*args, **kwargs):
+                    raise UciDispatchRejected(
+                        f"{instance}: command window closed before write"
+                    )
+
+                process.start_search = rejected  # type: ignore[assignment]
+                dispatched = manager.start_shadow_search(
+                    instance,
+                    "go nodes 1",
+                    token=1,
+                    on_info=lambda token, line: None,
+                    on_complete=lambda token, line: None,
+                )
+                self.assertFalse(dispatched)
+                self.assertTrue(
+                    manager.shadow_available(instance),
+                    "normal dispatch rejection permanently quarantined a live worker",
+                )
+            finally:
+                process.start_search = original  # type: ignore[assignment]
+                manager.close()
 
     @staticmethod
     def _install_owners(coordinator, active) -> list:

@@ -1,5 +1,12 @@
 # Adversarial audit
 
+> **Historical scope note (26 September 2026):** this audit predates the merged
+> ONLINE-2/M14-G3 composition. Statements about Stockfish being the sole outward authority
+> are correct for the shadow/active profiles audited here, but are not the current
+> repository-wide authority boundary. See [CURRENT_STATUS.md](CURRENT_STATUS.md),
+> [ONLINE_HYBRID_AUTHORITY.md](ONLINE_HYBRID_AUTHORITY.md), and
+> [ROADMAP.md](ROADMAP.md).
+
 Written before finalizing the immediate controller stack. Each question is
 answered against the code and the tests, not against intent.
 

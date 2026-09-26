@@ -1,5 +1,11 @@
 # AllfatherChess UCI Shell v1
 
+> **Current composition note (26 September 2026):** this document describes the original
+> PR #9 anchor-shell contract. That anchor/fallback path remains a regression baseline, but
+> the live repository also contains the separately qualified PR #39 / M14-G3 online-hybrid
+> authority profile. See [ARCHITECTURE.md](ARCHITECTURE.md) and
+> [CURRENT_STATUS.md](CURRENT_STATUS.md).
+
 ## Scope
 
 PR #9 establishes the first external AllfatherChess engine process.

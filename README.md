@@ -77,11 +77,15 @@ remains [ONLINE_RELEASE_PLAN.md](docs/ONLINE_RELEASE_PLAN.md). The synchronized 
 baseline is `qualification/release-baseline.json`.
 
 The currently qualified integrated profile is documented in
-[ONLINE_HYBRID_AUTHORITY.md](docs/ONLINE_HYBRID_AUTHORITY.md):
+[ONLINE_HYBRID_AUTHORITY.md](docs/ONLINE_HYBRID_AUTHORITY.md). On a clean Linux checkout,
+install the ONLINE-2 real-inference build dependencies first, then reproduce the same
+prerequisite order used by the dedicated G3 workflow:
 
 ```bash
 make online-hybrid-tests
-make online-hybrid-contract
+make build-online-cpu-reference   # creates build/online-cpu-reference and builds real BLAS LC0
+make lc0-strength-contract        # proves the same real LC0 backend/network identity
+make online-hybrid-contract       # consumes the frozen ONLINE-2 bundle
 make run-allfather-online-hybrid
 ```
 

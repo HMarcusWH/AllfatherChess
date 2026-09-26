@@ -44,8 +44,26 @@ def validate_online_hybrid_profile(
     if policy.get("allow_skipped_extension_authority") is not False:
         raise OnlineHybridProfileError("G3 may not license SKIP-derived authority")
 
-    for key in ("instances", "resource_measurement", "online_time"):
+    for key in ("instances", "resource_measurement"):
         _eq(config.get(key), online2_config.get(key), f"runtime.{key}")
+
+    online = config.get("online_time")
+    online2 = online2_config.get("online_time")
+    if not isinstance(online, dict) or not isinstance(online2, dict):
+        raise OnlineHybridProfileError("G3 and ONLINE-2 require online_time objects")
+    for key, value in online2.items():
+        if key == "max_move_ms":
+            continue
+        _eq(online.get(key), value, f"runtime.online_time.{key}")
+    _eq(
+        online.get("max_move_ms"),
+        policy.get("clock", {}).get("max_move_ms"),
+        "runtime.online_time.max_move_ms",
+    )
+    if online["max_move_ms"] > (config.get("budget") or {}).get("wall_ms", 0):
+        raise OnlineHybridProfileError(
+            "G3 max_move_ms may not exceed the frozen outer wall envelope"
+        )
     for key in ("wall_ms", "cpu_ms", "gpu_ms", "controller_overhead_reserve_ms"):
         _eq(
             (config.get("budget") or {}).get(key),

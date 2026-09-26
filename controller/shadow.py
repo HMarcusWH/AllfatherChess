@@ -192,6 +192,8 @@ class _OwnerState:
     stage_index: int = 0
     done: threading.Event = field(default_factory=threading.Event)
     dispatched: bool = False
+    # Coordinator-boundary commit made, backend command write still pending.
+    dispatch_pending: bool = False
     failed: bool = False
     stopped_by_policy: bool = False
     stages_dispatched: int = 0
@@ -1589,7 +1591,8 @@ class ShadowRunCoordinator:
         instances = [
             state.instance
             for state in active.owners.values()
-            if state.dispatched and not state.done.is_set()
+            if (state.dispatched or state.dispatch_pending)
+            and not state.done.is_set()
         ]
         if active.verification is not None:
             instances.extend(stage.instance for stage in active.verification.active_stages())
@@ -2880,19 +2883,21 @@ class ShadowRunCoordinator:
                 command=command,
                 dispatched_ms=(time.monotonic() - active.started_monotonic) * 1000.0,
             )
-            self._begin_resource_stage(
-                active,
-                key=search_id,
-                instance=instance,
-                phase="VERIFY",
-            )
-            dispatched = self.runtime.start_shadow_search(
-                instance,
-                command,
-                token=generation,
-                on_info=on_info,
-                on_complete=on_complete,
-            )
+
+        self._begin_resource_stage(
+            active,
+            key=search_id,
+            instance=instance,
+            phase="VERIFY",
+        )
+        dispatched = self.runtime.start_shadow_search(
+            instance,
+            command,
+            token=generation,
+            on_info=on_info,
+            on_complete=on_complete,
+            permit=lambda: self._shadow_dispatch_permitted(active),
+        )
         if not dispatched:
             self._abandon_resource_stage(
                 active,
@@ -3260,19 +3265,21 @@ class ShadowRunCoordinator:
                 command=command,
                 dispatched_ms=(time.monotonic() - active.started_monotonic) * 1000.0,
             )
-            self._begin_resource_stage(
-                active,
-                key=search_id,
-                instance=instance,
-                phase="VERIFY_EXTENSION",
-            )
-            dispatched = self.runtime.start_shadow_search(
-                instance,
-                command,
-                token=generation,
-                on_info=on_info,
-                on_complete=on_complete,
-            )
+
+        self._begin_resource_stage(
+            active,
+            key=search_id,
+            instance=instance,
+            phase="VERIFY_EXTENSION",
+        )
+        dispatched = self.runtime.start_shadow_search(
+            instance,
+            command,
+            token=generation,
+            on_info=on_info,
+            on_complete=on_complete,
+            permit=lambda: self._shadow_dispatch_permitted(active),
+        )
         if not dispatched:
             self._abandon_resource_stage(
                 active,
@@ -4436,19 +4443,20 @@ class ShadowRunCoordinator:
                 prefixes=prefixes,
                 dispatched_ms=(time.monotonic() - active.started_monotonic) * 1000.0,
             )
-            self._begin_resource_stage(
-                active,
-                key=search_id,
-                instance=instance,
-                phase="REFINE",
-            )
-            dispatched = self.runtime.start_shadow_search(
-                instance,
-                dispatch.go_command,
-                token=generation,
-                on_info=on_info,
-                on_complete=on_complete,
-            )
+        self._begin_resource_stage(
+            active,
+            key=search_id,
+            instance=instance,
+            phase="REFINE",
+        )
+        dispatched = self.runtime.start_shadow_search(
+            instance,
+            dispatch.go_command,
+            token=generation,
+            on_info=on_info,
+            on_complete=on_complete,
+            permit=lambda: self._shadow_dispatch_permitted(active),
+        )
         if not dispatched:
             self._abandon_resource_stage(
                 active,
@@ -4799,19 +4807,20 @@ class ShadowRunCoordinator:
                 prefixes=prefixes,
                 dispatched_ms=(time.monotonic() - active.started_monotonic) * 1000.0,
             )
-            self._begin_resource_stage(
-                active,
-                key=search_id,
-                instance=instance,
-                phase="REFINE",
-            )
-            dispatched = self.runtime.start_shadow_search(
-                instance,
-                dispatch.go_command,
-                token=generation,
-                on_info=on_info,
-                on_complete=on_complete,
-            )
+        self._begin_resource_stage(
+            active,
+            key=search_id,
+            instance=instance,
+            phase="REFINE",
+        )
+        dispatched = self.runtime.start_shadow_search(
+            instance,
+            dispatch.go_command,
+            token=generation,
+            on_info=on_info,
+            on_complete=on_complete,
+            permit=lambda: self._shadow_dispatch_permitted(active),
+        )
         if not dispatched:
             self._abandon_resource_stage(
                 active,
@@ -5082,6 +5091,15 @@ class ShadowRunCoordinator:
                     active.refinement_positioned.discard(instance)
         return ok
 
+    def _shadow_dispatch_permitted(self, active: _ActiveRun) -> bool:
+        """Lock-free final permit checked immediately before backend stdin IO."""
+        return bool(
+            not self._closed
+            and not active.cancelled
+            and not active.anchor_completed.is_set()
+            and not active.finished.is_set()
+        )
+
     def _dispatch_stage(self, active: _ActiveRun, state: _OwnerState, *, limit: dict[str, Any]) -> bool:
         if active.cancelled or self._closed:
             return False
@@ -5194,20 +5212,24 @@ class ShadowRunCoordinator:
             )
             state.stage = stage
             state.done.clear()
-            self._begin_resource_stage(
-                active,
-                key=search_id,
-                instance=state.instance,
-                phase="EXPLORE",
-            )
+            state.dispatch_pending = True
 
-            dispatched = self.runtime.start_shadow_search(
-                state.instance,
-                command,
-                token=generation,
-                on_info=on_info,
-                on_complete=on_complete,
-            )
+        self._begin_resource_stage(
+            active,
+            key=search_id,
+            instance=state.instance,
+            phase="EXPLORE",
+        )
+        dispatched = self.runtime.start_shadow_search(
+            state.instance,
+            command,
+            token=generation,
+            on_info=on_info,
+            on_complete=on_complete,
+            permit=lambda: self._shadow_dispatch_permitted(active),
+        )
+        with self._lock:
+            state.dispatch_pending = False
         if not dispatched:
             self._abandon_resource_stage(
                 active,
@@ -5224,9 +5246,10 @@ class ShadowRunCoordinator:
             state.done.set()
             return False
 
-        state.dispatched = True
-        state.stages_dispatched += 1
-        state.stage_index += 1
+        with self._lock:
+            state.dispatched = True
+            state.stages_dispatched += 1
+            state.stage_index += 1
         return True
 
     def _on_shadow_complete(self, generation: int, owner: str, token: int, line: str) -> None:

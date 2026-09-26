@@ -77,20 +77,20 @@ than isolated `go` requests.
 
 ### Planned repository surface
 
-Expected additions:
+The LOCAL-1 candidate now defines this repository surface:
 
-- `qualification/fastchess.lock.json` — exact match-runner revision/provenance;
-- `scripts/build-fastchess.sh` — verified reproducible match-runner build;
-- `config/allfather.local-game.validation.json` — full-game validation profile derived
-  from the qualified online-hybrid profile without weakening G3 gates;
-- `qualification/local-full-game.json` — frozen campaign/acceptance definition;
-- `scripts/qualify-full-game-lifecycle.py` — PGN/replay/resource validator;
-- `.github/workflows/full-game-qualification.yml` — dedicated lifecycle gate;
-- `docs/FULL_GAME_QUALIFICATION.md` — lifecycle semantics and evidence contract;
-- Make targets for runner build, qualification, and local reproduction.
+- `qualification/fastchess.lock.json` — exact Fastchess commit/tree provenance;
+- `scripts/build-fastchess.sh` — verified build plus upstream test execution;
+- `config/allfather.local-game.validation.json` — exact G3 composition with a dedicated replay root;
+- `config/allfather.local-control.validation.json` — same stack with outward hybrid authorization removed;
+- `qualification/local-full-game.json` — frozen lifecycle, baseline and acceptance policy;
+- `scripts/uci-transcript-proxy.py` — exact external UCI session/request transcript boundary;
+- `scripts/run-local-game-campaign.py` — pinned Fastchess campaign driver;
+- `scripts/qualify-full-game-lifecycle.py` — game→ply→request→replay/resource/final-decision validator;
+- `.github/workflows/full-game-qualification.yml` — dedicated lifecycle/baseline gate;
+- `docs/FULL_GAME_QUALIFICATION.md` — semantics, evidence and claim boundary.
 
-Names may change if implementation reveals a cleaner boundary, but the evidence requirements
-below are not optional.
+The gate remains OPEN until the dedicated workflow passes on the merged tree.
 
 ### Lifecycle coverage
 
@@ -132,6 +132,12 @@ A qualifying campaign requires:
 
 LOCAL-1 may record W/D/L and controller behavior for diagnostics, but lifecycle acceptance
 is not an Elo test. A small campaign cannot become a playing-strength claim by implication.
+
+LOCAL-1 also freezes a five-arm descriptive same-clock matrix: direct Stockfish, Reckless,
+real-BLAS LC0, Allfather-Control (authorization ablation), and Allfather-Hybrid. Every unordered
+pair receives a color-reversed two-game mini-match. W/D/L and terminations are retained as a
+baseline, but unequal process/resource usage means these results are **not** the M15-B/C
+equal-resource strength campaign.
 
 ## 4. ONLINE-3 — reproducible service package and bridge
 

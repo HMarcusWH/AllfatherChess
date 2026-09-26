@@ -137,6 +137,10 @@ class UciFrontend:
                 if self._state != ShellState.SEARCHING or self._active_generation != token or clock is None:
                     return
                 if time.monotonic() >= clock.plan.hard_deadline:
+                    if self.shadow is not None:
+                        self.shadow.invalidate_final_decision(
+                            token, "decision selection crossed the clock deadline"
+                        )
                     self._clock_fail(token, "decision selection crossed the clock deadline")
                     return
                 clock.work_closed.set()

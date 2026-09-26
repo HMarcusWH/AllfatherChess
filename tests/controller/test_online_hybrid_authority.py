@@ -18,6 +18,7 @@ from controller.decision import (
     DecisionProposal,
     VerificationTerminalEvidence,
     authorize_decision,
+    revoke_final_decision_to_anchor,
     select_final_decision,
 )
 from controller.final_decision import (
@@ -187,6 +188,55 @@ class AuthorityTests(unittest.TestCase):
         result = authorize_decision(proposal(ev), ev, snapshot(), policy=CLOCKED_AUTHORIZATION_POLICY)
         self.assertTrue(result.authorized)
         self.assertEqual(result.move, "e2e4")
+
+    def test_clock_revocation_rebinds_hybrid_to_auditable_anchor_fallback(self):
+        ev = evidence()
+        granted = authorize_decision(
+            proposal(ev),
+            ev,
+            snapshot(),
+            policy=CLOCKED_AUTHORIZATION_POLICY,
+        )
+        selected = select_final_decision(
+            anchor_move="d2d4",
+            proposal=proposal(ev),
+            authorization=granted,
+            authorization_snapshot=snapshot(),
+        )
+        self.assertEqual(selected.authority, "HYBRID")
+        revoked = revoke_final_decision_to_anchor(
+            selected,
+            reason="clock authority revoked before outward write",
+        )
+        self.assertEqual(revoked.authority, "ANCHOR_FALLBACK")
+        self.assertEqual(revoked.emitted_move, "d2d4")
+        self.assertEqual(revoked.anchor_move, "d2d4")
+        self.assertEqual(revoked.proposal_move, "e2e4")
+        self.assertFalse(revoked.authorization.authorized)
+        self.assertTrue(revoked.authorization_snapshot.authority_blocked)
+        self.assertEqual(
+            revoked.authorization.snapshot_digest,
+            revoked.authorization_snapshot.digest,
+        )
+
+        already_denied = select_final_decision(
+            anchor_move="d2d4",
+            proposal=proposal(ev),
+            authorization=authorize_decision(
+                proposal(ev),
+                ev,
+                snapshot(authority_blocked=True),
+                policy=CLOCKED_AUTHORIZATION_POLICY,
+            ),
+            authorization_snapshot=snapshot(authority_blocked=True),
+        )
+        self.assertIs(
+            revoke_final_decision_to_anchor(
+                already_denied,
+                reason="clock authority remains revoked",
+            ),
+            already_denied,
+        )
 
     def test_partial_or_mixed_evidence_fails_closed(self):
         ev = evidence()

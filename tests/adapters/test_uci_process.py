@@ -12,7 +12,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from adapters.process import UciProcess, UciProcessError
+from adapters.process import UciDispatchRejected, UciProcess, UciProcessError
 
 
 FAKE = ROOT / "tests" / "fixtures" / "fake_uci_engine.py"
@@ -180,7 +180,7 @@ class UciProcessTests(unittest.TestCase):
 
             self.assertFalse(worker.is_alive())
             self.assertTrue(failures)
-            self.assertIsInstance(failures[0], UciProcessError)
+            self.assertIsInstance(failures[0], UciDispatchRejected)
             self.assertIn("window closed", str(failures[0]))
             self.assertFalse(
                 any(line == ">> go nodes 1" for line in process._transcript),

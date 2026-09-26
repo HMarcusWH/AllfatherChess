@@ -595,11 +595,17 @@ class UciFrontend:
     def _clock_stop(self, token: int, *, authority_invalidating: bool = False) -> None:
         with self._state_lock:
             clock = self._clock_search
-            if self._active_generation != token or self._state != ShellState.SEARCHING or clock is None:
+            if (
+                self._active_generation != token
+                or self._state != ShellState.SEARCHING
+                or clock is None
+                or clock.finished.is_set()
+            ):
                 return
             clock.work_closed.set()
-            if authority_invalidating:
-                clock.block_authority()
+            if authority_invalidating and not clock.block_authority():
+                # Publication already won the terminal race.
+                return
         remaining = max(0, clock.plan.hard_deadline - time.monotonic())
         if remaining > 0 and clock.dispatched.is_set():
             self.runtime.stop_anchor_for(token, timeout=remaining)
@@ -610,10 +616,6 @@ class UciFrontend:
         )
 
     def _clock_fail(self, token: int, reason: str) -> None:
-        clock_hint = self._clock_search
-        if clock_hint is not None:
-            clock_hint.block_authority()
-
         with self._state_lock:
             clock = self._clock_search
             if (
@@ -623,9 +625,9 @@ class UciFrontend:
             ):
                 return
 
-        # Seal failure before any potentially blocking diagnostic/output. A
-        # concurrent publication attempt sees the finished clock and exits.
-        if not clock.finish(line="bestmove 0000", failure=reason):
+        # Runtime failure / hard expiry is one atomic terminal clock operation.
+        # There is never an intermediate revoked-but-publishable fallback state.
+        if not clock.fail(reason=reason, line="bestmove 0000"):
             return
 
         with self._state_lock:
@@ -705,19 +707,28 @@ class UciFrontend:
 
         if command == "stop":
             if self.online_time is not None:
-                # Revoke hybrid authority before waiting for frontend state.
-                # A backpressured bestmove write may hold _state_lock, but the
-                # stop command must still be able to win the publication gate.
+                # Revoke before waiting for frontend state. Only launch an
+                # invalidating stop if revocation actually wins; a stop that
+                # arrives after terminal publication must not rewrite replay.
                 clock_hint = self._clock_search
+                revoked = False
                 if clock_hint is not None:
                     clock_hint.work_closed.set()
-                    clock_hint.block_authority()
+                    revoked = clock_hint.block_authority()
+
                 with self._state_lock:
-                    token = self._active_generation
                     clock = self._clock_search
                     if clock is not None and clock is not clock_hint:
                         clock.work_closed.set()
-                        clock.block_authority()
+                        revoked = clock.block_authority()
+                    token = (
+                        self._active_generation
+                        if revoked
+                        and clock is not None
+                        and not clock.finished.is_set()
+                        else None
+                    )
+
                 if token is not None:
                     threading.Thread(
                         target=lambda: self._clock_stop(

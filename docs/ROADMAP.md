@@ -80,7 +80,8 @@ than isolated `go` requests.
 The LOCAL-1 candidate now defines this repository surface:
 
 - `qualification/fastchess.lock.json` — exact Fastchess commit/tree provenance;
-- `scripts/build-fastchess.sh` — verified build plus upstream test execution;
+- `scripts/test-fastchess-source.sh` — exact upstream unit-test contract on its supported Ubuntu 22.04 host;
+- `scripts/build-fastchess.sh` — portable lifecycle-runner build on the Ubuntu 24.04 reference host;
 - `config/allfather.local-game.validation.json` — exact G3 composition with a dedicated replay root;
 - `config/allfather.local-control.validation.json` — same stack with outward hybrid authorization removed;
 - `qualification/local-full-game.json` — frozen lifecycle, baseline and acceptance policy;

@@ -334,14 +334,16 @@ For an initial experimental release, unsupported regimes may retain conservative
 
 LOCAL-1 is an **operational/lifecycle gate**, not the equal-envelope strength campaign.
 
-Add a pinned established UCI match runner (Fastchess is the planned reference), a frozen
-lifecycle qualification manifest, complete-game fixtures, a campaign runner, an evidence
-validator, and a dedicated workflow. Expected repository surface includes a runner lock,
-verified build/fetch path, `qualification/local-full-game.json`, lifecycle fixtures,
-`scripts/run-local-game-campaign.py`, `scripts/qualify-full-game-lifecycle.py`,
-`docs/FULL_GAME_QUALIFICATION.md`, Make targets, and
-`.github/workflows/full-game-qualification.yml`. Exact names may change if implementation
-finds a cleaner boundary. [S18]
+The current candidate uses an isolated `tools/local_game/` qualification package,
+`Makefile.local-game`, a frozen Fastchess commit/tree lock, hash-pinned independent
+chess/PGN verification, exact UCI session/game/search evidence, mandatory failure-injection
+lifecycle cases, forced rule-transition witnesses, and an exact-head workflow. The playing
+G3 runtime is derived from `config/allfather.online-hybrid.validation.json` so LOCAL-1
+cannot silently fork the qualified move-authority policy. [S18]
+
+The same PR also records a five-arm **same-clock descriptive baseline**: direct Stockfish,
+Reckless, real-BLAS LC0, Allfather-Anchor (one Stockfish process through the native-clock
+wrapper), and full Allfather-G3. It is deliberately not an equal-resource comparison.
 
 Run complete games rather than isolated `go` commands only. Cover:
 

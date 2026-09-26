@@ -410,45 +410,63 @@ class DeadlineTests(unittest.TestCase):
             release.set()
             wait_for(lambda:active.finished.is_set(),3)
 
-    def test_quit_waits_for_post_output_publication_handshake(self):
+    def test_ready_precedes_slow_resource_sample_and_quit_keeps_published_decision(self):
         with shell_fixture() as (shell,manager,shadow,out,tmp):
             entered = threading.Event()
             release = threading.Event()
-            original = shadow.note_anchor_emitted
+            original_sample = shadow.note_anchor_emitted
+            original_complete = shadow.note_anchor_complete
+            synthetic = g3_hybrid_final_decision()
 
-            def blocked_publish(token, final_decision=None):
+            def complete_with_hybrid(token, line):
+                original_complete(token, line)
+                return synthetic
+
+            def blocked_sample(token, final_decision=None):
                 entered.set()
-                release.wait(3)
-                return original(token, final_decision=final_decision)
+                release.wait(5)
+                return original_sample(token, final_decision=final_decision)
 
             with patch.object(
                 shadow,
+                'note_anchor_complete',
+                side_effect=complete_with_hybrid,
+            ), patch.object(
+                shadow,
                 'note_anchor_emitted',
-                side_effect=blocked_publish,
+                side_effect=blocked_sample,
             ):
                 shell.handle_command('go movetime 500')
                 self.assertTrue(entered.wait(1))
+                wait_for(lambda: len(bestmoves(out)) == 1, 1)
+                self.assertEqual(shell.state, ShellState.READY)
+                self.assertIsNotNone(shadow._run)
+                self.assertTrue(shadow._run.outward_publication_done.is_set())
+                self.assertEqual(
+                    shadow._run.run.outward_decision,
+                    synthetic.as_dict(),
+                    'published bestmove was not retained before slow sampling',
+                )
+
                 quitter = threading.Thread(
                     target=lambda: shell.handle_command('quit'),
                     daemon=True,
                 )
                 quitter.start()
                 time.sleep(.15)
-                self.assertTrue(
-                    quitter.is_alive(),
-                    "quit retired the run before emitted-decision publication finished",
+                self.assertEqual(
+                    shadow._run.run.outward_decision,
+                    synthetic.as_dict(),
                 )
-                self.assertIsNotNone(shadow._run)
-                self.assertFalse(shadow._run.finished.is_set())
                 release.set()
-                quitter.join(timeout=2)
+                quitter.join(timeout=4)
                 self.assertFalse(quitter.is_alive())
 
             run = next(tmp.glob('replays/*'))
-            wait_for(lambda: (run/'manifest.json').is_file(), timeout=2)
+            wait_for(lambda: (run/'manifest.json').is_file(), timeout=3)
             manifest = json.loads((run/'manifest.json').read_text())
-            self.assertTrue(manifest['clock_outcome']['emitted_line'].startswith('bestmove '))
-
+            self.assertEqual(manifest.get('outward_decision'), synthetic.as_dict())
+            wait_for(lambda: (run/'decision'/'final.json').is_file(), timeout=3)
     def test_blocked_replay_setup_uses_same_preparation_deadline(self):
         with shell_fixture() as (shell,manager,shadow,out,tmp):
             original_mkdir=Path.mkdir

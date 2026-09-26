@@ -1,9 +1,12 @@
 # ONLINE-2: real-network hardware-bound online CPU reference
 
 ONLINE-2 composes the already-merged ONLINE-1 clock/lifecycle contract with the
-already-qualified LC0 real-inference BLAS/network identity. It remains deliberately
-**Stockfish-anchor authoritative**. M14-G3 is the later milestone that may allow
-qualified staged specialist evidence to replace the anchor move.
+already-qualified LC0 real-inference BLAS/network identity. This profile remains deliberately
+**Stockfish-anchor authoritative**.
+
+> **Current composition note:** PR #39 / M14-G3 is now merged and reuses this exact
+> real-network CPU bundle inside a separately qualified staged hybrid authority profile.
+> ONLINE-2 itself remains unchanged as the anchor-authoritative reference/control.
 
 ## Frozen scope
 
@@ -91,4 +94,6 @@ A passing ONLINE-2 report supports only:
 It does **not** establish hybrid move authority, learned SKIP value, Elo, optimal time
 management, a final equal-resource platform, or playing-strength superiority.
 
-The next behavioral release milestone is M14-G3.
+M14-G3 is now merged in PR #39. The next release milestone is LOCAL-1 complete-game
+lifecycle qualification. See [CURRENT_STATUS.md](CURRENT_STATUS.md) and
+[ROADMAP.md](ROADMAP.md).

@@ -1,5 +1,9 @@
 # Recursive PrefixShardLedger v2
 
+> **Current composition note (26 September 2026):** PrefixShardLedger remains an ownership
+> and recursive-dispatch substrate. PR #39 / M14-G3 does not turn prefix ownership into
+> chess decision authority. LOCAL-1 is the next release gate.
+
 ## Status
 
 PR #16 adds a recursive ownership substrate and descendant UCI-dispatch

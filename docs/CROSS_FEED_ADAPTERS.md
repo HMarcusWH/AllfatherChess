@@ -1,5 +1,9 @@
 # Engine-specific cross-feed adapters
 
+> **Current composition note (26 September 2026):** adapter output remains a typed
+> translation/proposal surface, not authority. PR #39 / M14-G3 does not let adapters
+> dispatch, reserve resources, or write the outward move.
+
 ## Status
 
 M14-E qualifies a pure translation layer between typed Allfather evidence and

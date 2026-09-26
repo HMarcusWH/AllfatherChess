@@ -1,5 +1,10 @@
 # Prospective VERIFY value-of-compute calibration
 
+> **Current composition note (26 September 2026):** this document's intervention/calibration
+> claims retain their original scope. PR #39 / M14-G3 now composes the supported staged BUY
+> path with a separate move-authority gate, but value-of-compute labels or route estimates
+> are not themselves move authority. M14-G4 remains the production SKIP promotion gate.
+
 > **M14-G1 distinction:** this document describes the PR #23 whole-run paired
 > intervention family. M14-G1 adds a separate serve-compatible family in
 > [STAGED_VERIFY.md](STAGED_VERIFY.md): one completed base VERIFY round followed

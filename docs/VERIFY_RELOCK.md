@@ -1,5 +1,10 @@
 # Explicit VERIFY evidence plane
 
+> **Current composition note (26 September 2026):** raw VERIFY remains an evidence plane.
+> Statements below about Stockfish being sole outward authority describe the VERIFY/active
+> profiles documented here. PR #39 / M14-G3 composes **staged** VERIFY terminals with a
+> separate clock-aware DecisionAuthorization gate.
+
 ## Status
 
 Implemented as raw common-support instrumentation in shadow mode and, under PR #18, as reservation-backed observational work in active mode.

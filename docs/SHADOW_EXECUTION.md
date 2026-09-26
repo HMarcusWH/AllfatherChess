@@ -1,5 +1,10 @@
 # Shadow Execution and Replay
 
+> **Current composition note (26 September 2026):** shadow mode remains evidence-only.
+> PR #39 / M14-G3 can consume staged evidence produced by the managed workers through a
+> separate active authority gate, but no shadow worker writes outward UCI or gains direct
+> move authority. See [ONLINE_HYBRID_AUTHORITY.md](ONLINE_HYBRID_AUTHORITY.md).
+
 ## Status
 
 **Implemented.** This document was the frozen design contract; it now also

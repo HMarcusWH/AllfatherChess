@@ -211,3 +211,38 @@ stage commands and stream hashes.
 
 This keeps root EXPLORE replay consumers backward-compatible while preserving
 unambiguous recursive provenance. See `docs/REFINEMENT.md`.
+
+
+## ONLINE / M14-G3 evidence extensions
+
+The replay bundle remains the run-level source of executed-stage identity. ONLINE and G3
+add sibling artifacts rather than rewriting raw telemetry semantics.
+
+An ONLINE/G3 run may additionally bind:
+
+```text
+manifest.json
+resource.json
+route.json
+decision/
+  counterfactual.json
+  final.json
+verification/
+  manifest.json
+staged_verification/
+  manifest.json
+```
+
+The parent manifest may carry the external request, immutable TimePlan and terminal clock
+outcome. `route.json` identifies routing/resource decisions. `decision/counterfactual.json`
+records the frozen proposal source/identity; `decision/final.json` records the actual
+outward HYBRID or ANCHOR_FALLBACK disposition.
+
+PR #39 adds an important lifecycle distinction: outward publication, physical engine
+quiescence/resource freeze, and replay-only telemetry/artifact finalization are separate
+barriers. A move may already be immutable client-visible history while replay serialization
+is still draining. Conversely, the next measured generation may not contaminate an
+unfrozen prior interval.
+
+Replay/integrity verification must therefore reconstruct identities across these sibling
+artifacts rather than assuming one file alone grants authority.

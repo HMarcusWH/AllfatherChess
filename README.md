@@ -1,8 +1,8 @@
 # AllfatherChess
 
-> **Current synchronized build state:** PR #38 / ONLINE-2 is merged at `c499405fd97600546437c1f91b4c0e9e066023cb`; M14-G3 is the active candidate.  
-> See [docs/CURRENT_STATUS.md](docs/CURRENT_STATUS.md) for the exact implemented surface,
-> current CI evidence, profile incompatibilities, and remaining release gates.
+> **Current synchronized build state:** PR #39 / M14-G3 is merged at `c301e9986566febfbb7978d55c5a3d3429423cff`; LOCAL-1 full-game lifecycle qualification is next.  
+> See [docs/CURRENT_STATUS.md](docs/CURRENT_STATUS.md) for the exact implemented surface and
+> [docs/ROADMAP.md](docs/ROADMAP.md) for the canonical forward execution order.
 
 AllfatherChess is a research monorepo for a residual-aware hybrid chess engine that coordinates **Stockfish**, **Reckless**, and **LC0** under one meta-control layer.
 
@@ -55,36 +55,52 @@ The current stack includes the immediate controller layers plus an explicit comm
 12. **search-regime classifier (M14-F)** — sealed typed evidence is summarized into multi-label structural hypotheses such as RELOCK-based stable convergence, VERIFY disagreement, native mate rupture, and recursive REFINE productivity. Unsupported policy-diffusion/endgame/time-critical hypotheses remain explicit rather than inferred from fake proxies, while a separate support model can mark novel structural buckets out-of-domain. Regimes do not route work or authorize moves;
 13. **same-process staged VERIFY / serve-compatible value-of-compute (M14-G1)** — after one clean base VERIFY round, an explicitly configured research profile may buy a fresh larger-budget VERIFY round on the same three managed solver processes and exact candidate universe. Base and extension work receive separate reservations/measurements; the extension is sealed separately, cannot coexist with hybrid move authority, and trains a distinct past-only decision-change model rather than reusing the PR #23 whole-run calibration.
 14. **unified value-of-compute routing (M14-G2)** — the live `unified_value_v1` router evaluates the clean base VERIFY state before the staged extension. It may skip that extension only when the exact staged decision-change bucket has held-out support, predicted decision-change risk is below the declared threshold, and the M14-F regime-support bucket is in-domain. Otherwise it fails closed to buying more compute; actual dispatch still requires the existing specialist resource authorization. A completed extension may update the frozen counterfactual decision evidence, but route authority remains separate from resource and move authority.
-15. **ONLINE-1 clock/deadline safety (PR #36)** — an opt-in active CPU profile derives one immutable per-move `TimePlan` from UCI clocks or movetime, preserves original versus actual bounded anchor requests, closes optional-work windows at the soft deadline, applies generation-scoped stop/kill and hard expiry, and hash-binds clock evidence into replay/resource artifacts. It remains anchor-authoritative, CPU-only, and deliberately incompatible with M14-C hybrid authority and recursive REFINE until later qualification.
+15. **ONLINE-1 clock/deadline safety (PR #36)** — an opt-in active CPU profile derives one immutable per-move `TimePlan` from UCI clocks or movetime, preserves original versus actual bounded anchor requests, closes optional-work windows at the soft deadline, applies generation-scoped stop/kill and hard expiry, and hash-binds clock evidence into replay/resource artifacts. The historical ONLINE-1 validation profile remains anchor-authoritative and CPU-only.
+16. **ONLINE-2 real-network online CPU reference (PR #38)** — packages portable Stockfish/Reckless builds with the pinned BLAS-LC0 network/backend identity under ONLINE timing/resource contracts while retaining Stockfish outward authority.
+17. **M14-G3 clock-aware staged hybrid authority (PR #39)** — composes ONLINE-2, G1/G2 staged VERIFY, frozen route-bound proposal evidence, clock-aware DecisionAuthorization, deadline-safe outward publication, deterministic Stockfish fallback, and post-output resource/replay sealing. The qualification requires a genuine real-backend non-anchor HYBRID emission.
 
-Documentation: `docs/CURRENT_STATUS.md`, `docs/ONLINE_RELEASE_PLAN.md`, `docs/ONLINE_TIME.md`, `docs/BUILD_PLAN.md`, `docs/ARCHITECTURE.md`, `docs/UCI_SHELL.md`, `docs/SHARD_LEDGER.md`, `docs/PREFIX_SHARDS.md`, `docs/SHADOW_EXECUTION.md`, `docs/REPLAY_FORMAT.md`, `docs/RESIDUAL_CALIBRATION.md`, `docs/BUDGET_ROUTING.md`, `docs/VERIFY_RELOCK.md`, `docs/COMPARE_RELOCK.md`, `docs/PREFIX_SHARDS.md`, `docs/REFINEMENT.md`, `docs/ACTIVE_SPECIALIST_SCHEDULER.md`, `docs/CROSS_FEED.md`, `docs/CROSS_FEED_ADAPTERS.md`, `docs/SEARCH_REGIMES.md`, `docs/STAGED_VERIFY.md`, `docs/UNIFIED_VALUE_ROUTER.md`, `docs/RESOURCE_ACCOUNTING.md`, `docs/SEARCH_SPACE_OWNERSHIP.md`, `docs/TELEMETRY_SCHEMA.md`, `docs/TELEMETRY_MAPPING.md`, `docs/THEORY_IMPLEMENTATION_MAP.md`, `docs/CLAIM_LEDGER.md`, `docs/ADVERSARIAL_AUDIT.md`, `docs/CODEX_REVIEW_AUDIT.md`, `docs/UPSTREAM_PROVENANCE.md`, and `LICENSES.md`.
+Documentation: `docs/README.md`, `docs/CURRENT_STATUS.md`, `docs/ROADMAP.md`, `docs/ONLINE_RELEASE_PLAN.md`, `docs/ONLINE_TIME.md`, `docs/BUILD_PLAN.md`, `docs/ARCHITECTURE.md`, `docs/UCI_SHELL.md`, `docs/SHARD_LEDGER.md`, `docs/PREFIX_SHARDS.md`, `docs/SHADOW_EXECUTION.md`, `docs/REPLAY_FORMAT.md`, `docs/RESIDUAL_CALIBRATION.md`, `docs/BUDGET_ROUTING.md`, `docs/VERIFY_RELOCK.md`, `docs/COMPARE_RELOCK.md`, `docs/PREFIX_SHARDS.md`, `docs/REFINEMENT.md`, `docs/ACTIVE_SPECIALIST_SCHEDULER.md`, `docs/CROSS_FEED.md`, `docs/CROSS_FEED_ADAPTERS.md`, `docs/SEARCH_REGIMES.md`, `docs/STAGED_VERIFY.md`, `docs/UNIFIED_VALUE_ROUTER.md`, `docs/RESOURCE_ACCOUNTING.md`, `docs/SEARCH_SPACE_OWNERSHIP.md`, `docs/TELEMETRY_SCHEMA.md`, `docs/TELEMETRY_MAPPING.md`, `docs/THEORY_IMPLEMENTATION_MAP.md`, `docs/CLAIM_LEDGER.md`, `docs/ADVERSARIAL_AUDIT.md`, `docs/CODEX_REVIEW_AUDIT.md`, `docs/UPSTREAM_PROVENANCE.md`, and `LICENSES.md`.
 
-**No strength claim is made.** No Elo experiment has been run. Stockfish remains the exact fallback authority, and only the narrow M14-C active `movetime_v0` profile can emit an already-frozen authorized hybrid proposal. Routing/resource authority is separate from move authority, recursive REFINE is excluded from M14-C beyond depth 2, and shadow mode deliberately overspends compute to collect evidence. `docs/CLAIM_LEDGER.md` labels every claim as PROVED, MEASURED, DERIVED, CALIBRATED, POLICY, or OPEN. The fast LC0 random/backend-light profile remains deterministic regression infrastructure only. PR #24 added a separate pinned real-network BLAS qualification profile and recorded-host reference run. M14-B now binds Linux process-CPU/memory evidence into that reference and into active-run `resource.json` certificates. The reference remains explicitly `strength_campaign_eligible = false` until a fixed competitive platform and the later strength campaign are qualified.
+**No strength claim is made.** No equal-envelope Elo/superiority campaign has been completed.
+PR #39 establishes a qualified real-network, clock-aware staged hybrid authority composition,
+not that its HYBRID choices are stronger. Stockfish remains the deterministic fallback on
+any denied/unsupported authority state. The existing random/backend-light LC0 profiles remain
+regression infrastructure; the real BLAS/network identity is separately pinned by ONLINE-2
+and reused by M14-G3. Full-game lifecycle, deployment, and the formal strength campaign remain
+separate gates. `docs/CLAIM_LEDGER.md` labels the evidence boundary explicitly.
 
 
 ## Route to online deployment
 
-The canonical remaining release sequence is [ONLINE_RELEASE_PLAN.md](docs/ONLINE_RELEASE_PLAN.md).
-The post-#36 / ONLINE-1 runtime baseline is synchronized in `qualification/release-baseline.json` at `64aa8fd13c390b9b37b8825d8f39e73d9bdbdbf8`.
-The opt-in ONLINE-1 clock/deadline layer is specified in [ONLINE_TIME.md](docs/ONLINE_TIME.md).
-The ONLINE-2 real-network CPU reference composition is specified in [ONLINE_PROFILE.md](docs/ONLINE_PROFILE.md):
+The canonical forward sequence is [ROADMAP.md](docs/ROADMAP.md); the deeper deployment audit
+remains [ONLINE_RELEASE_PLAN.md](docs/ONLINE_RELEASE_PLAN.md). The synchronized release
+baseline is `qualification/release-baseline.json`.
+
+The currently qualified integrated profile is documented in
+[ONLINE_HYBRID_AUTHORITY.md](docs/ONLINE_HYBRID_AUTHORITY.md). On a clean Linux checkout,
+install the ONLINE-2 real-inference build dependencies first, then reproduce the same
+prerequisite order used by the dedicated G3 workflow:
 
 ```bash
-make online-time-tests
-make online-clock-contract        # after building the three baseline engines
-make run-allfather-online-clock   # timing validation only; NOT a production bot
-
-make online-profile-tests
-make build-online-cpu-reference   # isolated portable CPU-target bundle
-make online-profile-contract      # requires independent LC0 qualification report
-make run-allfather-online-cpu-reference
+make online-hybrid-tests
+make build-online-cpu-reference   # creates build/online-cpu-reference and builds real BLAS LC0
+make lc0-strength-contract        # proves the same real LC0 backend/network identity
+make online-hybrid-contract       # consumes the frozen ONLINE-2 bundle
+make run-allfather-online-hybrid
 ```
 
-The new profile uses caller-supplied clocks to derive a per-move CPU/wall envelope,
-retains the original and actual anchor requests, and applies independent soft/hard
-deadlines. It never grants hybrid move authority. Legacy profiles are unchanged.
-A stuck anchor produces an explicit failed request (`bestmove 0000`), not an invented
-legal move. ONLINE-2 now composes the real-network LC0 BLAS path with ONLINE timing under one portable CPU profile. The remaining first-canary critical path is M14-G3 clock-aware staged hybrid authority -> LOCAL-1 full-game qualification -> ONLINE-3 packaging -> ONLINE-4 lifecycle/recovery -> release qualification / ONLINE-RC. Production learned SKIP calibration may proceed in parallel; no strength claim is introduced.
+PR #39 completed M14-G3. The remaining first-canary path is now:
+
+```text
+LOCAL-1 full-game lifecycle qualification
+    -> ONLINE-3 reproducible package + pinned lichess-bot bridge
+    -> ONLINE-4 network/restart/reconciliation/rollback qualification
+    -> aggregate release qualification
+    -> ONLINE-RC restricted unrated bot canary
+```
+
+M14-G4 production SKIP calibration and M15-B/C equal-resource strength work proceed on
+separate promotion tracks. ONLINE operation is not a substitute for the strength campaign.
 
 ## Run the Generation-1 validation shell
 
@@ -161,4 +177,8 @@ make staged-decision-calibration-tests   # position-group support + fail-closed 
 make staged-verify-contract              # real engines: same-process base -> extension mechanism
 make unified-value-router-tests           # fail-closed route-value gates
 make unified-value-router-contract        # real engines: route -> resource auth -> staged evidence update
+make online-hybrid-tests                  # M14-G3 clock/evidence/authority regressions
+make build-online-cpu-reference           # prerequisite: portable real-network bundle
+make lc0-strength-contract                # prerequisite: prove real LC0 backend/network
+make online-hybrid-contract               # real-network G3 positive HYBRID + fallback qualification
 ```

@@ -1,54 +1,40 @@
 # AllfatherChess current build and release status
 
 **Status date:** 26 September 2026  
-**Authoritative source commit:** `c499405fd97600546437c1f91b4c0e9e066023cb`  
-**Merged milestone:** PR #38 / ONLINE-2 — real-network online CPU execution profile  
-**Canonical deployment plan:** [ONLINE_RELEASE_PLAN.md](ONLINE_RELEASE_PLAN.md)
+**Authoritative main commit:** `c301e9986566febfbb7978d55c5a3d3429423cff`  
+**Merged milestone:** PR #39 / M14-G3 — clock-aware staged hybrid authority  
+**Qualified PR head:** `9ea858eed4133ea1bc8e89137176b4e5cf2eb316`  
+**Tree identity:** both the qualified PR head and merge commit use tree `397c004a90adf7e1d666ebd10c2fd81617906b23`  
+**Current execution milestone:** LOCAL-1 — full-game lifecycle qualification  
+**Forward roadmap:** [ROADMAP.md](ROADMAP.md)  
+**Detailed deployment plan:** [ONLINE_RELEASE_PLAN.md](ONLINE_RELEASE_PLAN.md)
 
 This document is the short-form synchronization point for the live repository. Historical
-roadmaps remain useful as lineage, but when a status sentence in an older section conflicts
-with this file, the current code/configuration and this record take precedence.
+plans/specifications retain design lineage, but this file and `ROADMAP.md` take precedence
+for current status and forward ordering.
 
-## Current CI evidence on main
+## Current qualification evidence
 
-All six applicable main-branch workflow families completed successfully on the authoritative commit:
+PR #39 merged as a normal two-parent merge. Its final qualified head and the merge commit
+have the same Git tree, so the exact content that passed qualification is the content now
+on `main`.
 
 | Workflow | Run | Result |
-| --- | --- | --- |
-| Merge gate | 36198933620 | success |
-| Controller shell validation | 36198933613 | success |
-| Telemetry contract validation | 36198933622 | success |
-| LC0 real-inference qualification | 36198933617 | success |
-| ONLINE-2 real-network online profile | 36198933607 | success |
-| Baseline engine validation | 36198933635 | success |
+| --- | ---: | --- |
+| Telemetry contract validation | 36271238300 | success |
+| Controller shell validation | 36271238299 | success |
+| Merge gate | 36271238288 | success |
+| LC0 real-inference qualification | 36271238258 | success |
+| ONLINE-2 real-network online profile qualification | 36271238269 | success |
+| M14-G3 online staged hybrid authority qualification | 36271238298 | success |
+| Baseline engine validation | 36271238264 | success |
 
-The baseline job built all three real engine trees and passed the retained golden,
-restricted-root, ShardLedger, recursive REFINE, specialist-budget, measured-resource,
-typed cross-feed, regime, counterfactual, value-of-compute, staged VERIFY, unified
-routing, telemetry, ONLINE-1 clock, UCI-shell, M14-C authority, shadow, VERIFY,
-COMPARE/RELOCK, and active-routing contracts.
+PR #39 also closed its Codex code-review threads before merge. Review automation is evidence
+about the reviewed code, not a substitute for the runtime qualification gates above.
 
-Important observed current-main outcomes are claim-bounded:
+## What is implemented and qualified
 
-- ONLINE-1 real-engine clock contract: **3 legal anchor results with full measured
-  envelopes**, plus the zero-clock rejection control.
-- M14-G2 real-engine contract: **`BUY_STAGED_VERIFY`** with outward anchor move;
-  the shipped validation profile has no production staged/regime models and therefore
-  fails closed rather than demonstrating a learned SKIP.
-- M14-C real-engine authority contract: the current run completed as
-  **`ANCHOR_FALLBACK`**. The mechanism is qualified, but a production-facing
-  real-backend positive HYBRID override is still a release gate.
-- Active routing contract: **0 authorized stops** in the current real-engine validation
-  run. Thresholds must not be weakened merely to manufacture activity.
-- LC0 real-inference qualification: pinned network + BLAS backend passed on the
-  recorded Ubuntu 24.04 / x86-64 CPU reference environment. That reference remains
-  explicitly not a final equal-resource strength platform.
-
-These are integration/qualification facts, not an Elo or superiority claim.
-
-## What is implemented
-
-The repository currently contains, in code and contracts:
+The repository now contains, in code and contract tests:
 
 1. pinned derived Stockfish, Reckless and LC0 source trees with reproducible provenance;
 2. frozen constituent goldens and restricted-root parity;
@@ -60,139 +46,122 @@ The repository currently contains, in code and contracts:
 8. PrefixShardLedger v2 and bounded recursive REFINE;
 9. specialist reservation-before-dispatch and measured Linux process/controller CPU evidence;
 10. typed cross-feed plus engine-specific proposal adapters;
-11. counterfactual decisions and bounded M14-C `movetime_v0` hybrid authority;
+11. M14-C bounded hybrid authority for its historical `movetime_v0` profile;
 12. real-network LC0 BLAS qualification;
 13. M14-F structural regime classification/support calibration;
 14. M14-G1 same-process staged VERIFY;
 15. M14-G2 unified BUY/SKIP value-of-compute routing;
-16. ONLINE-1 clock-derived `TimePlan`, deadline fencing, bounded stop/kill, stale-generation
-    protection, and replay-bound timing evidence.
+16. ONLINE-1 clock-derived `TimePlan`, soft/hard deadline fencing and stale-generation protection;
+17. ONLINE-2 real-network hardware-bound online CPU reference composition;
+18. **M14-G3 clock-aware staged hybrid authority**, composing the real-network ONLINE profile,
+    staged VERIFY and an explicit fail-closed outward DecisionAuthorization gate.
 
-## Current profile compatibility matrix
+## M14-G3 result
 
-The important release constraint is that these mechanisms are **not yet one qualified
-production profile**.
+PR #39 changes the authority boundary from "hybrid proposals are research/counterfactual
+or narrow movetime-only authority" to a qualified ONLINE composition:
 
-| Profile / capability | Real LC0 inference | Clock TimePlan | Staged VERIFY / G2 | Hybrid outward authority | Current role |
+```text
+TimePlan
+  -> disjoint EXPLORE
+  -> base VERIFY
+  -> G2 BUY_STAGED_VERIFY
+  -> same-process staged VERIFY extension
+  -> frozen staged proposal
+  -> clocked DecisionAuthorization
+       -> HYBRID
+       -> exact Stockfish fallback
+  -> deadline-safe bestmove publication
+```
+
+The reference qualifier requires at least one real-backend case where the staged proposal
+differs from the Stockfish anchor and that HYBRID move is actually written outward. A
+bookkeeping-only HYBRID equal to the anchor is insufficient.
+
+Authority remains fail-closed for stale generation, partial/mixed evidence, failed route or
+resource gates, illegal proposals, explicit stop/revocation, late evidence, hard expiry and
+other unsupported states.
+
+## Timing/resource/lifecycle boundary after PR #39
+
+PR #39 also hardened the causal boundaries needed before whole-game work:
+
+- a closed shadow dispatch permit is a normal typed rejection, not a backend failure;
+- outward publication is atomically fenced against stop/hard-expiry races;
+- client-visible `bestmove` is fenced against post-output `isready`/next-command races;
+- process endpoints freeze before backend reuse;
+- controller CPU remains inside the measured interval through resource-relevant route
+  finalization and reservation settlement;
+- the complete resource interval freezes before post-move protocol readiness;
+- an already-published move cannot later be rewritten as cancelled or replaced by a second
+  terminal move;
+- replay-only backlog is distinct from physical engine quiescence.
+
+These are lifecycle/resource integrity properties, not playing-strength claims.
+
+## Current profile roles
+
+| Profile | Real LC0 | Clock TimePlan | Staged VERIFY/G2 | Hybrid outward authority | Role |
 | --- | --- | --- | --- | --- | --- |
-| `allfather.online-clock.validation.json` | no — random LC0 | yes | no production composition | no | ONLINE-1 timing/lifecycle qualification |
-| `allfather.strength.validation.json` | yes — pinned BLAS/network | no online clock profile | no | no | real-inference reference |
-| `allfather.hybrid.validation.json` | no — random LC0 | no | staged extension forbidden with authority | yes, `movetime_v0` only | M14-C authority mechanism |
-| `allfather.unified-value.validation.json` | no — random LC0 | no | yes | no | G2 routing mechanism |
+| `allfather.online-clock.validation.json` | random | yes | no composed staged authority | no | ONLINE-1 timing regression |
+| `allfather.online.cpu-reference.json` | pinned BLAS/network | yes | no hybrid authority | no | ONLINE-2 real-inference reference |
+| `allfather.hybrid.validation.json` | random | historical movetime-only path | no staged composition | M14-C only | bounded authority regression |
+| `allfather.unified-value.validation.json` | random | no ONLINE composition | yes | no | M14-G2 routing regression |
+| `allfather.online-hybrid.validation.json` | pinned BLAS/network | yes | yes, route-bound staged | **yes, M14-G3** | current integrated authority reference |
 
-Current runtime firewalls are intentional:
+The older profiles remain valuable negative/regression controls. M14-G3 is a new composition,
+not permission to erase their firewalls.
 
-- ONLINE-1 cannot grant `hybrid_authority`;
-- M14-C authority supports only `request_class = movetime_v0`;
-- staged VERIFY cannot coexist with M14-C authority;
-- ONLINE-1 is CPU-only and rejects recursive REFINE;
-- the shipped G2 profile has null production calibration paths and therefore fails
-  closed toward buying more compute.
+## Current critical path
 
-Do **not** remove these guards to create a release. The remaining work is to qualify a
-new composition with explicit evidence semantics.
+### 1. LOCAL-1 — full-game lifecycle qualification — **NEXT**
 
-## Critical path to the first public canary
+Add a pinned established UCI match runner and exercise complete games. Validate legal move
+lifecycle, full history/repetition semantics, castling/en-passant/promotion, low clocks,
+long games, worker failure, restart/cleanup, storage/replay pressure and process/resource
+leakage.
 
-### 1. ONLINE-2 — real-network hardware-bound online profile
+Engineering acceptance is lifecycle correctness, not Elo.
 
-**Merged and qualified on the recorded reference host.**
+### 2. ONLINE-3 — reproducible package + pinned Lichess bridge
 
-The candidate adds an isolated portable CPU-target artifact bundle, the
-`allfather.online.cpu-reference.json` runtime, an explicit host/build policy, bounded
-BLAS child-process environment, and a dedicated end-to-end qualification workflow.
-It deliberately remains Stockfish-anchor authoritative.
+Package the qualified engine, pin a tested `lichess-bot` revision, add deployment manifests,
+operator documentation and bridge smoke tests.
 
-A passing ONLINE-2 workflow proves reproducible operational inference on the recorded
-host, not strength. M14-G3 remains the next behavioral authority milestone.
+### 3. ONLINE-4 — network/restart/reconciliation/rollback qualification
 
-### 2. M14-G3 — compose staged VERIFY with clock-aware hybrid authority
+Exercise disconnects, uncertain move submission, duplicate/out-of-order events, service
+restart, stale output, rate limits, storage pressure and rollback.
 
-**Active candidate work package.**
+### 4. Release qualification
 
-Add a new authorization/evidence version rather than deleting the current firewalls.
-The selected terminal source, base/extension stage identity, candidate order, process
-generation, TimePlan, route recommendation, resource result, and PRE_ANCHOR freeze
-boundary must all be bound.
+Aggregate the required qualification families into one always-present release gate and
+freeze exact source/binary/network/profile/model/bridge identities.
 
-Required real-backend release tests include both:
+### 5. ONLINE-RC
 
-- a genuine authorized `HYBRID` output path; and
-- deterministic exact anchor fallback for budget denial, partial staged work, timeout,
-  stale generation, evidence loss, nonunanimity, illegal proposal, or late publication.
+Run the first restricted unrated bot canary only after the operational gates pass.
 
-No mixture of partial extension and base terminals may silently authorize a move.
+## Parallel work
 
-### 3. LOCAL-1 / M15-B — full-game lifecycle qualification
+**M14-G4 production SKIP calibration** may proceed alongside LOCAL-1/ONLINE-3. It becomes
+mandatory before learned compute suppression is promoted, but a conservative canary may
+continue to BUY/deny/fallback when shortcut evidence is unsupported.
 
-Add a pinned established UCI match runner (Fastchess is the planned reference) and
-exercise complete games, not isolated `go` calls. Cover history-sensitive repetition,
-castling, promotion, en passant, mate/stalemate, long games, low clocks, restarts,
-worker failure, storage pressure, and process/resource leakage.
+**M15-B/C equal-resource strength qualification** remains the separate route to any
+superiority claim. Online operation or rating does not replace that campaign.
 
-The initial engineering gate remains a reproducible full-game campaign with no illegal
-outputs, duplicate outward moves, leaked workers, or controller-attributable time losses.
-Strength statistics are a separate, predeclared campaign.
-
-### 4. ONLINE-3 — package the service and pin the Lichess bridge
-
-Still absent from the repository:
-
-- `deploy/Dockerfile`
-- `deploy/compose.yml` or one equivalent deployment target
-- `deploy/lichess/config.example.yml`
-- `deploy/bin/allfather-online`
-- `scripts/release-manifest.py`
-- `docs/ONLINE_OPERATIONS.md`
-
-Pin a tested `lichess-bot` revision rather than writing a new Bot API client unless a
-specific missing requirement is demonstrated. The first profile stays standard-chess,
-ponder-off, one concurrent game, bots-only allow-list, unrated 10+5, and no bridge-owned
-book/cloud/tablebase move source.
-
-### 5. ONLINE-4 — network/restart/rollback qualification
-
-Qualify disconnects, duplicate/out-of-order observations, uncertain move submission,
-rate limiting, game-end-during-search, service restart, stale output, storage pressure,
-stop-new-games control, and rollback to a previous immutable profile.
-
-### 6. Release qualification and ONLINE-RC
-
-Add an aggregate `.github/workflows/release-qualification.yml` that cannot pass because
-a required path-scoped job was skipped. Freeze exact source, binaries, engine networks,
-controller profile, policy/model identities, bridge revision and operational manifests.
-
-Then cut the first explicitly experimental release and run the restricted canary. The
-planned initial batch is 50 completed unrated bot games after the local/full-lifecycle
-gates pass. This is operational evidence, not an Elo claim.
-
-## Work that may proceed in parallel
-
-**M14-G4 production SKIP calibration** is required before promoting learned compute
-suppression as a production optimization, but it need not block a conservative first
-canary that always BUYs when evidence is unsupported and otherwise falls back safely.
-G4 must bind train/serve identity, intervention identity, independent position-group
-support, untouched qualification data, and an uncertainty-aware shortcut-risk criterion.
-
-M14-H/I native transport experiments and M15-A governed policy evolution remain later
-optimization tracks, not first-canary blockers.
+M14-H/I native transport and M15-A governed policy evolution remain later optimization tracks.
 
 ## Administrative release gates
 
-These are current repository facts, not code TODOs:
-
-- `main` is currently **unprotected** and the repository has **no ruleset**;
-  issues #26 and #27 track the duplicate governance finding. Require the always-present
-  `Merge gate / validate` before release work is promoted.
-- The Allfather-specific controller code still has **no explicit top-level licensing
-  decision**. Upstream Stockfish/LC0/Reckless notices are preserved, but combined
-  distribution requires that decision and a deliberate compliance review.
-- Operator inputs are still required for the actual deployment host/resource class,
-  a fresh Lichess BOT account/token, and the initial opponent allow-list.
+- `main` protection / ruleset remains an operator governance task; issues #26/#27 track it;
+- combined-distribution licensing/compliance still requires an explicit top-level decision;
+- deployment host/resource class, a fresh Lichess BOT account/token and initial opponent
+  allow-list remain operator inputs.
 
 ## Claim boundary
 
-The repository is now a substantial, test-gated hybrid controller research system and
-ONLINE-1 is merged. It is **not yet a deployed bot**, does not yet contain one qualified
-real-network + clock + staged-hybrid production profile, and has not established
-equal-envelope playing-strength superiority.
+The repository now has a **qualified real-network, clock-aware staged hybrid authority
+composition**. It is not yet full-game qualified, packaged/deployed as a bot, or supported
+by an equal-envelope playing-strength campaign.

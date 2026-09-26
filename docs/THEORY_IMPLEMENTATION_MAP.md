@@ -120,3 +120,19 @@ No Weil/CCM theorem, ICW threshold, or cross-domain numeric constant is imported
 as a chess bound. The transfer is architectural: typed evidence, bounded
 conditional compute, explicit authority, and auditable causal interventions.
 
+
+
+## M14-G2 / M14-G3 authority composition transfer
+
+| Research/control idea | Allfather implementation | Boundary |
+| --- | --- | --- |
+| Route recommendation is not authorization | M14-G2 emits BUY/SKIP routing identity; resource authorization remains separate | a BUY recommendation cannot exceed the budget |
+| Warnings/evidence do not grant authority | M14-G3 consumes a frozen proposal only through explicit `DecisionAuthorization` gates | agreement/stability is not move correctness |
+| Conditional compute must be causally typed | staged base/extension evidence retains intervention, generation and candidate identity | base/extension terminals cannot be silently mixed |
+| Hard/soft control boundaries must be explicit | TimePlan separates soft compute cutoff from hard publication deadline | no numeric chess threshold is imported from ICW/RACR |
+| Audit memory follows the action | route, proposal, authorization, final decision and resource identities are replay-bound | audit evidence does not retroactively change a played move |
+| Fail closed under unsupported state | stale/partial/late/invalid evidence returns exact Stockfish fallback or explicit terminal failure | fallback is operational behavior, not a correctness theorem |
+
+PR #39 therefore represents an architectural transfer of bounded, typed, auditable
+metacontrol. It is not evidence that the imported theories prove chess move quality.
+LOCAL-1 and M15-B/C remain empirical lifecycle/strength gates.

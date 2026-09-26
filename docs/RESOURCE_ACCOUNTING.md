@@ -63,6 +63,16 @@ The run-level process baseline is separate from per-stage engine measurements.
 This matters because only summing stage deltas would omit synchronization,
 positioning, telemetry/IPC gaps and other process work between named searches.
 
+PR #39 adds an explicit **two-phase freeze** for ONLINE measured runs:
+
+1. backend process endpoints freeze once engine work/restore is complete, preventing the
+   next UCI generation from contaminating those totals;
+2. controller CPU remains live through resource-relevant route finalization, native-work
+   reconstruction and reservation settlement; only then does the complete interval freeze.
+
+This prevents both cross-generation contamination and undercounting of the controller work
+used to construct the final envelope claim.
+
 `resource.json` therefore contains:
 
 - whole-run process CPU for each live backend;
@@ -115,8 +125,13 @@ sample is taken **after** the frontend has written the anchor `bestmove` to the
 external UCI stream. The shadow worker, not the authority path, waits for that
 sample before sealing the resource certificate.
 
-Thus measurement may fail closed as evidence without withholding the chess
-answer.
+For measured ONLINE runs, publication does not immediately open the next protocol phase:
+post-output readiness waits for the complete resource interval to freeze. This keeps an
+immediate `isready`, next `go`, `position` or `ucinewgame` exchange out of the prior
+move's resource sample.
+
+Thus measurement may fail closed as evidence without delaying the move itself, while state
+reuse remains fenced until the measurement boundary is immutable.
 
 ## resource.json
 
@@ -175,7 +190,7 @@ superiority, or strength-campaign eligibility.
 M14-B establishes the mechanism needed to ask an equal-resource question
 honestly. It does not answer the chess-strength question.
 
-In particular it does not:
+In particular M14-B by itself does not:
 
 - grant a hybrid proposal outward move authority;
 - prove that the current reserve fractions are optimal;
@@ -183,7 +198,9 @@ In particular it does not:
 - measure GPU device time;
 - prove Allfather is stronger than Stockfish, Reckless or LC0.
 
-Those remain later milestones.
+M14-G3 now supplies a separately qualified hybrid authority composition; that does not
+change what M14-B alone proves. Playing-strength and GPU-device-time claims remain later
+milestones.
 
 ## M14-G1 staged VERIFY resource semantics
 M14-G1 adds a second, separately measured VERIFY round only in the explicit

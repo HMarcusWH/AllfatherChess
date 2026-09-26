@@ -1,5 +1,10 @@
 # M14-G2 — Unified value-of-compute decision router
 
+> **Current composition note (26 September 2026):** M14-G2 still has routing authority
+> only. PR #39 / M14-G3 binds the exact G2 route identity as one input to a separate
+> clock-aware move-authorization gate. A BUY/SKIP route decision never grants an outward
+> move by itself. See [CURRENT_STATUS.md](CURRENT_STATUS.md).
+
 ## Status and claim boundary
 
 M14-G2 wires the M14-G1 same-process staged VERIFY calibration and the M14-F

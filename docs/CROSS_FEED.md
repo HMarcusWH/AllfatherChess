@@ -1,5 +1,9 @@
 # Typed cross-feed evidence plane
 
+> **Current composition note (26 September 2026):** this cross-feed layer remains
+> decision-inert evidence. PR #39 / M14-G3 can consume proposal/evidence derived downstream,
+> but the cross-feed object itself never grants outward authority.
+
 ## Status
 
 This milestone introduces a decision-inert cross-feed evidence layer over the

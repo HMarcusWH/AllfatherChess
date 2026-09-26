@@ -1,5 +1,10 @@
 # Global budget and active routing
 
+> **Current composition note (26 September 2026):** this document specifies
+> observation/resource routing. PR #39 / M14-G3 adds a **separate** outward
+> DecisionAuthorization layer; it does not turn RouteProposal/RouteAuthorization into
+> chess move authority. See [DECISION_AUTHORITY.md](DECISION_AUTHORITY.md).
+
 ## Status
 
 Implemented as `mode: "active"`. It allocates **shadow observation compute**

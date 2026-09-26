@@ -211,7 +211,7 @@ class UciFrontendTests(unittest.TestCase):
         frontend._on_search_complete(7, "bestmove d2d4 ponder d7d5")
 
         self.assertEqual(output.getvalue().splitlines(), ["bestmove e2e4"])
-        self.assertEqual(shadow.emitted, [7])
+        self.assertEqual(shadow.emitted, [("sampled", 7)])
         self.assertEqual(frontend.state, ShellState.READY)
 
     def test_anchor_fallback_preserves_original_bestmove_line_byte_for_byte(self):
@@ -233,7 +233,7 @@ class UciFrontendTests(unittest.TestCase):
             output.getvalue().splitlines(),
             ["bestmove d2d4 ponder d7d5"],
         )
-        self.assertEqual(shadow.emitted, [8])
+        self.assertEqual(shadow.emitted, [("sampled", 8)])
 
     def test_anchor_failure_fails_closed_without_backend_fallback(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -159,13 +159,19 @@ class IntervalFreezeTests(unittest.TestCase):
             pid=7,
         )
         run.finish_stage(key)
-        run.freeze_interval()
+        run.freeze_process_endpoints()
         status = run.live_status()
-        self.assertTrue(status['interval_frozen'])
+        self.assertTrue(status['process_endpoints_frozen'])
+        self.assertFalse(status['interval_frozen'])
+
         before = run.controller_cpu_ms()
-        _ = sum(i * i for i in range(50000))
-        after = run.controller_cpu_ms()
-        self.assertEqual(before, after)
+        _ = sum(i * i for i in range(200000))
+        after_process_freeze = run.controller_cpu_ms()
+        self.assertGreater(
+            after_process_freeze,
+            before,
+            'controller CPU froze together with engine endpoints',
+        )
         with self.assertRaises(ResourceMeasurementError):
             run.begin_stage(
                 key='late',
@@ -173,6 +179,13 @@ class IntervalFreezeTests(unittest.TestCase):
                 phase='LATE',
                 pid=7,
             )
+
+        run.freeze_interval()
+        status = run.live_status()
+        self.assertTrue(status['interval_frozen'])
+        frozen = run.controller_cpu_ms()
+        _ = sum(i * i for i in range(50000))
+        self.assertEqual(frozen, run.controller_cpu_ms())
 
 
 if __name__ == "__main__":

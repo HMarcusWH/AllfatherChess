@@ -66,8 +66,11 @@ class _DecisionShadowStub:
     def note_anchor_complete(self, token, line):
         return self.decision
 
+    def note_anchor_published(self, token, final_decision=None):
+        self.emitted.append(("published", token))
+
     def note_anchor_emitted(self, token, final_decision=None):
-        self.emitted.append(token)
+        self.emitted.append(("sampled", token))
 
 
 class UciFrontendTests(unittest.TestCase):

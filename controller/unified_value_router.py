@@ -488,6 +488,14 @@ class UnifiedValueRouter(ConservativeRouter):
             "digest": canonical_digest(payload),
         }
 
+    def on_run_end(self, context: Any) -> None:
+        try:
+            super().on_run_end(context)
+        finally:
+            # Route identity is authority-ephemeral. Keeping one payload per
+            # replay run would grow without bound in a long-lived online bot.
+            self._authority_value_decisions.pop(str(context.run_id), None)
+
     def _build_live_base_state(
         self,
         context: Any,

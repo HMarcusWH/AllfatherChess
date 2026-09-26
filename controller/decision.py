@@ -798,8 +798,14 @@ def authorize_decision(
     else:
         if snapshot.request_class != "online_time_v1" or not snapshot.request_eligible:
             reasons.append(f"unsupported online request class: {snapshot.request_reason}")
-        if not snapshot.time_plan_id:
-            reasons.append("ONLINE authority is missing TimePlan identity")
+        if (
+            not isinstance(snapshot.time_plan_id, str)
+            or not snapshot.time_plan_id.startswith("time-")
+            or len(snapshot.time_plan_id) != 69
+        ):
+            reasons.append("ONLINE authority is missing or malformed TimePlan identity")
+        if snapshot.time_plan_request_class not in ("movetime_deadline_v1", "clock_v1"):
+            reasons.append("unsupported TimePlan request class")
         if snapshot.time_plan_generation != snapshot.generation:
             reasons.append("TimePlan generation mismatch")
         if snapshot.time_plan_position_id != snapshot.position_id:

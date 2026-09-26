@@ -2,43 +2,43 @@
 
 ## Status
 
-PR #22 introduced the first deterministic hybrid **proposal** from typed
-specialist evidence while preserving Stockfish as the sole outward authority.
+PR #22 introduced deterministic hybrid **proposals** while Stockfish remained sole outward
+authority. M14-C later added the deliberately narrow `movetime_v0` live authority gate.
 
-M14-C adds the first deliberately narrow live authority transfer: an
-already-frozen PRE_ANCHOR proposal may replace the Stockfish move only in an
-explicit active hybrid profile and only after a separate bounded
-`DecisionAuthorization` gate passes. Any missing or failed gate returns the
-exact Stockfish anchor line.
+PR #39 / M14-G3 now adds a separate qualified ONLINE authority composition:
+`clocked_staged_preanchor_v1`. It can replace the Stockfish anchor only from complete,
+route-bound staged VERIFY evidence frozen inside the TimePlan authority window. Any failed
+or unsupported gate preserves exact Stockfish fallback; hard clock/anchor failure remains
+an explicit terminal failure.
 
-The authority ladder is therefore:
+The authority ladder remains:
 
 ```text
 Observation
     |
-    v
 DecisionEvidence
     |
-    v
 DecisionProposal
     |
-    v
 DecisionAuthorization
     |
-    v
 Outward Decision
 ```
 
-Current M14-C state:
+Current state:
 
 ```text
-Observation             IMPLEMENTED
-DecisionEvidence        IMPLEMENTED
-DecisionProposal        IMPLEMENTED
-DecisionAuthorization   IMPLEMENTED / BOUNDED GRANT
-Hybrid outward move     IMPLEMENTED FOR QUALIFIED movetime_v0
-Stockfish fallback      DETERMINISTIC DEFAULT ON ANY DENIAL
+Observation                     IMPLEMENTED
+DecisionEvidence                IMPLEMENTED
+DecisionProposal                IMPLEMENTED
+M14-C movetime_v0 authority     IMPLEMENTED / REGRESSION PROFILE
+M14-G3 clocked staged authority QUALIFIED / REAL-NETWORK ONLINE PROFILE
+Stockfish fallback              DETERMINISTIC DEFAULT ON ANY DENIAL
+Full-game lifecycle             OPEN / LOCAL-1
 ```
+
+M14-G3 composes existing mechanisms; it does not grant routing recommendations or raw
+agreement automatic chess authority.
 
 ## Why the decision layer is separate
 
@@ -537,3 +537,41 @@ M14-C establishes a replayable authority mechanism. It does **not** establish
 that `unanimous_verify_v1` chooses a stronger move, that three-way agreement is
 a correctness certificate, or that Allfather is stronger than any constituent
 engine. Those remain strength-campaign questions.
+
+
+## M14-G3 — clock-aware staged authority v1
+
+The G3 path is intentionally distinct from M14-C. Its supported source is the route-bound
+staged terminal plane under an ONLINE TimePlan.
+
+A grant requires, among other checks:
+
+- current run/generation/position and backend health;
+- exact TimePlan/request identity and open hard-deadline authority;
+- G2 route identity for the supported staged BUY path;
+- complete same-process extension evidence on one exact candidate set;
+- a proposal frozen before the soft deadline / anchor boundary as required by policy;
+- legal/searchmoves membership;
+- resource/reservation/settlement state compatible with the declared envelope;
+- proposal move/evidence digest identity preserved through authorization/final decision;
+- no explicit authority revocation or stale/superseded generation.
+
+Replay re-derives the deadline and identity gates from sealed evidence. Stored booleans do
+not get to assert that a late proposal was timely.
+
+### Publication boundary
+
+The terminal line is published through the deadline-safe atomic output path. Publication,
+stop/revocation and hard expiry have a real linearization point. Once bytes have crossed
+stdout, the move is immutable history: later cleanup or runtime failure cannot emit a
+second terminal line or rewrite the run as though the move never happened.
+
+Post-output `isready`, next `go`, `position`, `ucinewgame` and relevant option/state
+traffic are fenced behind the previous run's measurement-freeze boundary when a measured
+ONLINE run owns that interval.
+
+### Claim boundary
+
+M14-G3 proves an authority/lifecycle/resource composition and a real positive HYBRID path.
+It does not prove that the authorized move is stronger. LOCAL-1 is the next lifecycle gate;
+M15-B/C is the later strength gate.

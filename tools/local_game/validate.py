@@ -8,12 +8,13 @@ import json
 from pathlib import Path
 import re
 import statistics
+import sys
 
 from .common import (ARMS, ROOT, QualificationError, contained, file_record, load, policy,
-                     require, source_identity, verify_g3_derivation, verify_record, save)
+                     require, sha, source_identity, verify_g3_derivation, verify_record, save)
 from .runner import schedule, command
 from .integrity import (input_paths, verify_builds, verify_prerequisites, verify_probes,
-                        verify_session_commands, finite_metrics)
+                        verify_resource_claim, verify_session_commands, finite_metrics)
 
 MOVE = re.compile(r"bestmove ([a-h][1-8][a-h][1-8][qrbn]?)(?: ponder [a-h][1-8][a-h][1-8][qrbn]?)?\Z")
 
@@ -46,7 +47,7 @@ def position(command: str) -> tuple[str, list[str]]:
     return canonical, moves
 
 
-def read_games(path: Path) -> list:
+def read_games(path: Path, *, require_completed: bool = False) -> list:
     chess = chess_modules()
     games = []
     with path.open(encoding="utf-8") as stream:
@@ -54,6 +55,9 @@ def read_games(path: Path) -> list:
             require(not game.errors, f"PGN parse/rules errors: {game.errors}")
             require(game.headers.get("Variant", "Standard").lower() in ("standard", "chess"),
                     "non-standard PGN")
+            if require_completed:
+                require(game.headers.get("Result") in ("1-0", "0-1", "1/2-1/2"),
+                        "unfinished/invalid PGN result")
             games.append(game)
     return games
 
@@ -74,26 +78,37 @@ def trace_searches(events: list[dict]) -> dict[int, list[dict]]:
     current_position = ""
     last_ns = -1
     search_ordinal = 0
+    current_game = 0
     for expected, event in enumerate(events, 1):
         require(event["seq"] == expected and type(event["ns"]) is int and event["ns"] >= last_ns,
                 "broken transcript sequence/time")
         last_ns = event["ns"]
         line = event["line"]
         if event["direction"] == "in":
+            if line == "ucinewgame":
+                require(pending is None, "new game while go pending")
+                require(event["game"] == current_game + 1,
+                        "game ordinals must be contiguous and start at one")
+                require(current_game == 0 or bool(games.get(current_game)),
+                        "empty/duplicate game transition")
+                current_game += 1
+                current_position = ""
+                continue
+            require(event.get("game") == current_game,
+                    "event game identity disagrees with session transition")
             if line.startswith("position "):
                 require(pending is None, "new position while go pending")
                 current_position = line
-            elif line == "ucinewgame":
-                require(pending is None, "new game while go pending")
-                current_position = ""
             elif line == "go" or line.startswith("go "):
                 require(pending is None and bool(current_position), "go is overlapping or has no position")
                 search_ordinal += 1
-                require(event["search"] == search_ordinal and event["game"] >= 1,
+                require(event["search"] == search_ordinal and current_game >= 1,
                         "invalid session/game/search identity")
                 pending = {"search": search_ordinal, "game": event["game"],
                            "position": current_position, "command": line, "sent_ns": event["ns"]}
         elif event["direction"] == "out" and line.startswith("bestmove"):
+            require(event.get("game") == current_game,
+                    "terminal output carries stale/unknown game identity")
             require(pending is not None, "duplicate/unsolicited terminal output")
             match = MOVE.fullmatch(line)
             require(match is not None, f"illegal/null/malformed game bestmove: {line}")
@@ -103,10 +118,16 @@ def trace_searches(events: list[dict]) -> dict[int, list[dict]]:
             games[pending["game"]].append(pending)
             pending = None
     require(pending is None, "unfinished go in transcript")
+    require(current_game >= 1, "session contains no game transition")
+    require(sorted(games) == list(range(1, current_game + 1)),
+            "session has skipped/empty game ordinals")
     return dict(games)
 
 
-def session_games(directory: Path, arm: str, source: dict, plan: dict) -> tuple[list[list[dict]], list[dict]]:
+def session_games(directory: Path, arm: str, source: dict, plan: dict,
+                  campaign_run_ids: set[str], campaign_manifest_hashes: set[str]) -> tuple[list[list[dict]], list[dict]]:
+    from .runner import engine_options
+
     groups, summaries = [], []
     session_root = directory / "sessions" / arm
     require(session_root.is_dir(), f"missing sessions for {arm}")
@@ -119,6 +140,20 @@ def session_games(directory: Path, arm: str, source: dict, plan: dict) -> tuple[
         require(not summary["leaked_before_cleanup"] and not summary["remaining_after_cleanup"],
                 "process leakage must not be repaired into a pass")
         require(summary["arm"] == arm and summary["session_id"] == session.name, "wrong session identity")
+        _, expected_environment = engine_options(arm, source)
+        expected_spec = {"schema_version": 1, "arm": arm, "root": str(ROOT),
+                         "sessions": str(directory / "sessions" / arm),
+                         "environment": expected_environment}
+        require(summary.get("spec") == expected_spec,
+                f"{arm}: proxy spec/environment differs from frozen arm")
+        if arm.startswith("allfather-"):
+            expected_command = [sys.executable, "-m", "controller", "--config", str(session / "runtime.json")]
+        else:
+            instance = {"stockfish": "stockfish-anchor", "reckless": "reckless-shadow",
+                        "lc0": "lc0-shadow"}[arm]
+            expected_command = [str(ROOT / source["instances"][instance]["binary"])]
+        require(summary.get("command") == expected_command,
+                f"{arm}: launched command differs from frozen arm")
         trace = verify_record(session, summary["transcript"])
         events = [json.loads(line) for line in trace.read_text().splitlines()]
         require(len(events) == summary["event_count"], "truncated event log")
@@ -138,6 +173,15 @@ def session_games(directory: Path, arm: str, source: dict, plan: dict) -> tuple[
                     continue
                 require((run / "manifest.json").is_file(), f"unfinalized replay: {run.name}")
                 manifest = load(run / "manifest.json")
+                require(manifest.get("run_id") == run.name,
+                        "replay directory does not match sealed run_id")
+                require(run.name not in campaign_run_ids,
+                        "replay run_id reused elsewhere in campaign")
+                manifest_hash = sha(run / "manifest.json")
+                require(manifest_hash not in campaign_manifest_hashes,
+                        "replay manifest content reused elsewhere in campaign")
+                campaign_run_ids.add(run.name)
+                campaign_manifest_hashes.add(manifest_hash)
                 generation = manifest["generation"]
                 require(generation not in replays, "two runs claim one generation")
                 replays[generation] = run
@@ -178,20 +222,19 @@ def validate_g3(item: dict, allow_denial: bool) -> dict:
     require(m["clock_outcome"]["output_within_deadline"] is True, "controller deadline missed")
     require(m["clock_outcome"]["emitted_line"] == item["line"], "published line identity changed")
     resource = load(run / "resource.json")
-    route = load(run / "route.json")
-    require(resource["coverage"]["cpu"]["complete"] is True, "incomplete resource evidence")
-    require(resource.get("interval_error") is None, "cross-generation resource contamination")
-    claimed = (route.get("envelope_claim") or {}).get("claimed") is True
+    derived = verify_resource_claim(run, m)
+    claimed = derived["claimed"]
     if not allow_denial:
-        require(resource["qualified"] is True and claimed, "unexpected physical/envelope failure")
+        require(derived["qualified"] is True and claimed,
+                "unexpected physical/envelope failure")
     authority = final["authority"]
     require(authority in ("HYBRID", "ANCHOR_FALLBACK"), "unsupported outward authority")
     if authority == "HYBRID":
         require(not verify_counterfactual_integrity(run), "HYBRID counterfactual integrity failed")
     return {"authority": authority, "anchor_move": final["anchor_move"],
             "override": authority == "HYBRID" and final["emitted_move"] != final["anchor_move"],
-            "reason": final.get("reason"), "resource_qualified": resource["qualified"],
-            "envelope_claimed": claimed, "physical_cpu_ms": resource["physical_cpu_ms"],
+            "reason": final.get("reason"), "resource_qualified": derived["qualified"],
+            "envelope_claimed": claimed, "physical_cpu_ms": derived["physical_cpu_ms"],
             "route_action": (final.get("authorization_snapshot") or {}).get("route_action"),
             "replay_id": run.name}
 
@@ -233,6 +276,10 @@ def match_game(game, streams: dict[str, list[dict]], allow_denial: bool, opening
         history.append(move.uci())
         board.push(move)
     require(all(counters[a] == len(streams[a]) for a in streams), "extra search/replay not present in PGN")
+    require(game.headers.get("Termination") == "normal",
+            f"non-rule Fastchess termination is not lifecycle success: {game.headers.get('Termination')}")
+    require(game.headers.get("Result") in ("1-0", "0-1", "1/2-1/2"),
+            "unfinished PGN cannot qualify")
     require(rules_result(board) == game.headers["Result"],
             f"non-rules termination or inconsistent PGN result: {game.headers.get('Termination')}")
     return plies
@@ -247,6 +294,8 @@ def qualify(output: Path) -> dict:
     errors = report["errors"]
     try:
         m = load(output / "manifest.json")
+        require(m.get("campaign_id") == output.name,
+                "manifest campaign_id does not match campaign directory")
         if m["status"] != "completed" or m["failures"]:
             errors.append(f"campaign incomplete: {m.get('failures')}")
         require(m["source"] == source_identity(), "campaign does not match this source checkout")
@@ -274,6 +323,10 @@ def qualify(output: Path) -> dict:
             errors.append("prerequisites missing or failed")
         verify_prerequisites(output, m["source"])
         verify_probes(output, m.get("rule_probes", {}))
+        from .faults import verify_faults
+        verify_faults(output, m.get("fault_cases", {}), p)
+        campaign_run_ids: set[str] = set()
+        campaign_manifest_hashes: set[str] = set()
         for job in m["jobs"]:
             plan, execution = job["plan"], job["execution"]
             directory = output / plan["id"]
@@ -282,7 +335,7 @@ def qualify(output: Path) -> dict:
                         "executed match command differs from policy")
                 if execution["returncode"] != 0 or execution["timed_out"]:
                     errors.append(f"{plan['id']}: Fastchess did not finish")
-                games = read_games(directory / "games.pgn")
+                games = read_games(directory / "games.pgn", require_completed=True)
                 rows = []
                 for index, game in enumerate(games):
                     result = game.headers["Result"]
@@ -303,7 +356,10 @@ def qualify(output: Path) -> dict:
                 require(len(games) == 2, "expected exactly two color-reversed games")
                 by_arm = {}
                 for arm in plan["arms"]:
-                    groups, summaries = session_games(directory, arm, source, plan)
+                    groups, summaries = session_games(
+                        directory, arm, source, plan,
+                        campaign_run_ids, campaign_manifest_hashes,
+                    )
                     require(len(groups) == 2, f"{arm}: expected two searched games")
                     require(len(summaries) == (2 if plan["restart"] else 1), "wrong process restart/reuse lifecycle")
                     report["sessions"].extend({"job": plan["id"], "arm": arm,

@@ -10,5 +10,8 @@
   "source_dir": "build/tools/fastchess/src",
   "build_target": "fastchess",
   "test_target": "tests",
-  "claim_boundary": "Pinned tournament-runner provenance only; no chess-strength claim."
+  "claim_boundary": "Pinned tournament-runner provenance only; no chess-strength claim.",
+  "upstream_test_environment": "ubuntu-22.04",
+  "lifecycle_environment": "ubuntu-24.04",
+  "test_contract": "clean -> make tests -> fastchess-tests on upstream-supported Linux host"
 }

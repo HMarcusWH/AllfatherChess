@@ -408,7 +408,8 @@ class _ActiveRun:
     # Linearizes the final physical shadow go write against anchor completion.
     # The lock is held only around a nonblocking <= PIPE_BUF write.
     dispatch_gate: Any = field(default_factory=threading.Lock)
-    # All managed engine/process state for this generation is idle/restored.
+    # All managed engine/process state is idle/restored and the complete
+    # resource interval (including controller claim-finalization CPU) is frozen.
     # Replay/telemetry writers may still be flushing after this point.
     engine_quiesced: threading.Event = field(default_factory=threading.Event)
     started_monotonic: float = 0.0
@@ -1267,12 +1268,12 @@ class ShadowRunCoordinator:
         self,
         generation: int,
         final_decision: FinalDecision | None = None,
-    ) -> None:
+    ) -> bool:
         """Take the post-output resource sample.
 
-        note_anchor_published owns the outward-decision fact. This method is
-        deliberately separable from protocol readiness because procfs/resource
-        evidence may lag after the client has already received bestmove.
+        note_anchor_published owns the outward-decision fact. The boolean return
+        says whether a live replay/resource run owns the post-output barrier;
+        callers may treat False as having no interval left to freeze.
         """
         # Every successfully emitted anchor line closes the publication
         # barrier, including legacy/offline anchor-only profiles whose
@@ -1282,15 +1283,16 @@ class ShadowRunCoordinator:
         with self._lock:
             active = self._run
             if active is None or active.generation != generation:
-                return
+                return False
             if active.anchor_resource_done.is_set():
-                return
+                return True
             stage = active.anchor_stage
         try:
             if stage is not None:
                 self._finish_resource_stage(active, stage.search_id)
         finally:
             active.anchor_resource_done.set()
+        return True
     def _on_shadow_exit(self, instance: str, rc: int | None, token: int | None) -> None:
         with self._lock:
             active = self._run
@@ -2210,6 +2212,7 @@ class ShadowRunCoordinator:
                         )
                         break
 
+                process_endpoints_frozen = True
                 if active.anchor_done.is_set():
                     if (
                         active.refinement is not None
@@ -2218,22 +2221,19 @@ class ShadowRunCoordinator:
                     ):
                         self._restore_all_refinement_positions(active)
 
-                    resource_frozen = True
                     if (
                         active.resources is not None
                         and active.resources.settings.enabled
                     ):
-                        # The anchor's terminal resource sample is taken only
-                        # after stdout publication. State synchronization must
-                        # not begin until that stage is closed and the run-level
-                        # process/controller endpoints are frozen, otherwise the
-                        # next position/new-game commands can contaminate this
-                        # move's resource certificate.
+                        # The terminal anchor stage must close before backend
+                        # process totals are sampled. Controller CPU is *not*
+                        # frozen here: route/native-work reconstruction below is
+                        # resource-relevant and belongs inside the final claim.
                         while not active.anchor_resource_done.is_set():
                             if active.anchor_resource_done.wait(timeout=0.05):
                                 break
                             if not self.runtime.healthy:
-                                resource_frozen = False
+                                process_endpoints_frozen = False
                                 break
                             if self._closed:
                                 clock = active.context.clock
@@ -2243,44 +2243,23 @@ class ShadowRunCoordinator:
                                     and outcome.get("failure") is None
                                     and outcome.get("emitted_line") is not None
                                 ):
-                                    resource_frozen = False
+                                    process_endpoints_frozen = False
                                     break
                         if active.anchor_resource_done.is_set():
                             try:
-                                active.resources.freeze_interval()
-                                if active.context.clock is not None:
-                                    active.context.clock.measurement_frozen.set()
+                                active.resources.freeze_process_endpoints()
                             except Exception as exc:
                                 active.run.note(
-                                    "resource interval could not freeze before engine reuse: "
+                                    "process resource endpoints could not freeze before engine reuse: "
                                     f"{type(exc).__name__}: {exc}"
                                 )
-                                resource_frozen = False
+                                process_endpoints_frozen = False
                         else:
-                            resource_frozen = False
-
-                    if resource_frozen:
-                        if (
-                            active.context.clock is not None
-                            and (
-                                active.resources is None
-                                or not active.resources.settings.enabled
-                            )
-                        ):
-                            active.context.clock.measurement_frozen.set()
-                        # Execution has returned, all temporarily positioned
-                        # workers are restored, and physical measurement
-                        # endpoints are immutable. Only replay serialization may
-                        # remain.
-                        active.engine_quiesced.set()
+                            process_endpoints_frozen = False
 
                 # Selection completion is not outward publication. Keep
-                # the run alive until the frontend has actually written the
-                # chosen line and published the post-output decision/resource
-                # boundary. There is deliberately no fixed one-second timeout:
-                # a legal write may take longer while still preceding the UCI
-                # hard deadline. Runtime failure/controller close are the only
-                # fail-closed escape hatches.
+                # resource/route finalization behind the fact that bytes crossed
+                # stdout, but do not wait for replay-only anchor telemetry.
                 while (
                     active.anchor_done.is_set()
                     and not active.outward_publication_done.is_set()
@@ -2305,16 +2284,62 @@ class ShadowRunCoordinator:
                                 "controller closed before outward publication completed"
                             )
                             break
-                        # A normal quit after bytes crossed stdout must not
-                        # retire the run until note_anchor_emitted() publishes
-                        # the exact outward decision into replay state.
 
-                # ONLINE anchor telemetry is replayed by DeferredObserver after
-                # the authority callback so it cannot delay bestmove. Do not
-                # close the TelemetryStreamWriter until that FIFO has delivered
-                # every queued info line plus the terminal bestmove into the
-                # stream. writer.close() below then drains the stream's own
-                # asynchronous file queue.
+                if (
+                    active.resources is not None
+                    and active.resources.settings.enabled
+                    and active.outward_publication_done.is_set()
+                    and not active.anchor_resource_done.is_set()
+                ):
+                    active.run.note(
+                        "outward publication completed without an anchor resource terminal sample; "
+                        "the measured-resource certificate will fail closed"
+                    )
+
+                # Finalize all resource-relevant routing work *before* the
+                # controller CPU endpoint is frozen. This includes final native
+                # work reconstruction and reservation settlement. The router may
+                # seal resource.json while constructing route.json; a second
+                # freeze below is idempotent and also closes failure/no-router
+                # paths deterministically.
+                if self.router is not None and not active.router_finished:
+                    try:
+                        self._router_start(active)
+                        self._router_end(active)
+                    except Exception as exc:  # pragma: no cover - router isolation
+                        active.run.note(
+                            f"router finalization error: {type(exc).__name__}: {exc}"
+                        )
+
+                resource_interval_frozen = process_endpoints_frozen
+                if active.resources is not None and active.resources.settings.enabled:
+                    try:
+                        active.resources.freeze_interval()
+                    except Exception as exc:
+                        active.run.note(
+                            "resource interval could not freeze after route finalization: "
+                            f"{type(exc).__name__}: {exc}"
+                        )
+                        resource_interval_frozen = False
+                    if self.router is None:
+                        # Active mode seals resource.json inside the router.
+                        # Shadow-only strength runs have no route artifact, so
+                        # finalization owns the seal after the full interval is
+                        # closed.
+                        self._seal_resource_report(active.generation)
+
+                if resource_interval_frozen:
+                    if active.context.clock is not None:
+                        active.context.clock.measurement_frozen.set()
+                    # Engines are idle/restored and both process and controller
+                    # resource endpoints are immutable. Replay-only telemetry may
+                    # continue without blocking the next UCI generation.
+                    active.engine_quiesced.set()
+
+                # ONLINE anchor telemetry is replay-only after the measured
+                # boundary above. It must be drained before the stream/manifest
+                # closes, but it cannot delay engine reuse or contaminate the
+                # resource certificate.
                 if active.context.clock is not None:
                     while not active.anchor_observation_done.is_set():
                         if active.anchor_observation_done.wait(timeout=0.25):
@@ -2337,47 +2362,6 @@ class ShadowRunCoordinator:
                                 break
                             # Normal shutdown after a successful publication
                             # waits for the already-running DeferredObserver.
-
-                if (
-                    active.resources is not None
-                    and active.resources.settings.enabled
-                    and active.outward_publication_done.is_set()
-                    and not active.anchor_resource_done.is_set()
-                ):
-                    active.run.note(
-                        "outward publication completed without an anchor resource terminal sample; "
-                        "the measured-resource certificate will fail closed"
-                    )
-
-                # No engine work may occur after the physical process totals
-                # are sealed. Restore every temporarily positioned REFINE worker
-                # first so its cleanup CPU is included in the run-level process
-                # deltas that route.json will certify.
-                # Now that the anchor has answered (or is never going to), the
-                # router's run can be closed against the whole elapsed time.
-                # Every qualification failure -- a terminal position, a dead
-                # oracle, an external `searchmoves` leaving no shadow root --
-                # returns from `_execute` before the run was ever opened, and
-                # the anchor still spent its compute, so a run that observed
-                # nothing still owes an audit certificate.
-                if self.router is not None and not active.router_finished:
-                    try:
-                        self._router_start(active)
-                        self._router_end(active)
-                    except Exception as exc:  # pragma: no cover - router isolation
-                        active.run.note(
-                            f"router finalization error: {type(exc).__name__}: {exc}"
-                        )
-
-                if (
-                    active.resources is not None
-                    and active.resources.settings.enabled
-                    and self.router is None
-                ):
-                    # Active mode seals resource.json while constructing the
-                    # hash-bound route certificate. Shadow-only strength runs
-                    # have no route artifact, so finalization owns the seal.
-                    self._seal_resource_report(active.generation)
                 if active.ledger is not None:
                     active.run.post_ledger_snapshot = active.ledger.snapshot()
                 active.run.shadow_health = {

@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 import copy
+import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
@@ -16,6 +18,11 @@ from controller.decision import (
     DecisionProposal,
     VerificationTerminalEvidence,
     authorize_decision,
+    select_final_decision,
+)
+from controller.final_decision import (
+    seal_final_decision_artifact,
+    verify_final_decision_integrity,
 )
 from controller.online_hybrid_profile import (
     OnlineHybridProfileError,
@@ -90,6 +97,62 @@ class ProfileTests(unittest.TestCase):
         cfg["hybrid_authority"]["allow_skipped_extension_authority"] = True
         with self.assertRaises(OnlineHybridProfileError):
             validate_online_hybrid_profile(load_json(POLICY), cfg, load_json(ONLINE2))
+
+class FinalDecisionAuditTests(unittest.TestCase):
+    def test_denied_g3_fallback_is_auditable_without_unconsumed_specialist_artifacts(self):
+        ev = evidence()
+        snap = snapshot(
+            terminal_source="verification",
+            staged_complete=False,
+            staged_intervention=None,
+            staged_generation=None,
+            staged_candidate_roots=(),
+            route_action=None,
+            route_buy_extension=None,
+            route_decision_digest=None,
+            authority_evidence_frozen_before_soft_deadline=False,
+        )
+        authorization = authorize_decision(
+            proposal(ev),
+            ev,
+            snap,
+            policy=CLOCKED_AUTHORIZATION_POLICY,
+        )
+        self.assertFalse(authorization.authorized)
+        final = select_final_decision(
+            anchor_move="d2d4",
+            proposal=proposal(ev),
+            authorization=authorization,
+            authorization_snapshot=snap,
+        )
+        self.assertEqual(final.authority, "ANCHOR_FALLBACK")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            run = Path(tmp)
+            (run / "decision").mkdir(parents=True)
+            parent = {
+                "generation": 7,
+                "position": {"position_id": "pos"},
+                "time_plan": {
+                    "plan_id": snap.time_plan_id,
+                    "request_class": snap.time_plan_request_class,
+                    "generation": 7,
+                    "position_id": "pos",
+                    "anchor_go_command": snap.time_plan_anchor_go_command,
+                },
+                "outward_decision": final.as_dict(),
+            }
+            (run / "manifest.json").write_text(
+                json.dumps(parent), encoding="utf-8"
+            )
+            (run / "route.json").write_text("{}", encoding="utf-8")
+            (run / "resource.json").write_text("{}", encoding="utf-8")
+
+            artifact = seal_final_decision_artifact(final, run)
+            self.assertTrue(artifact["audit_complete"])
+            self.assertEqual(artifact["missing_sources"], [])
+            self.assertEqual(verify_final_decision_integrity(run), [])
+
 
 class AuthorityTests(unittest.TestCase):
     def test_clean_staged_buy_authorizes(self):

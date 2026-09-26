@@ -102,6 +102,34 @@ LOCAL-1 full-game lifecycle qualification
 M14-G4 production SKIP calibration and M15-B/C equal-resource strength work proceed on
 separate promotion tracks. ONLINE operation is not a substitute for the strength campaign.
 
+### LOCAL-1 full-game qualification candidate
+
+The next gate is implemented by [docs/FULL_GAME_QUALIFICATION.md](docs/FULL_GAME_QUALIFICATION.md).
+It pins Fastchess, reuses the exact real-network G3 profile, records exact runner↔engine UCI
+transcripts, and links complete-game PGN plies back to replay/decision/resource evidence.
+
+It also runs a **descriptive five-arm same-clock baseline**:
+
+```text
+Stockfish
+Reckless
+LC0
+Allfather-Control   # G3 observation/routing stack, move authorization disabled
+Allfather-Hybrid    # full G3
+```
+
+The control is an authorization ablation, not a pure wrapper-overhead measurement, and the
+same-clock baseline is not an equal-resource Elo campaign.
+
+```bash
+make local-full-game-tests
+make build-fastchess
+make local-full-game-qualification
+
+# optional reliability soak; not a strength sample-size claim
+make local-full-game-soak GAMES=200
+```
+
 ## Run the Generation-1 validation shell
 
 After building the three constituent engines:

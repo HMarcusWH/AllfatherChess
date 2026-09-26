@@ -11,6 +11,18 @@ import tempfile
 from .common import ROOT, file_record, load, require, save, sha
 
 
+def _os_release() -> dict[str, str]:
+    values = {}
+    path = Path("/etc/os-release")
+    if path.is_file():
+        for raw in path.read_text(encoding="utf-8").splitlines():
+            if "=" not in raw:
+                continue
+            key, value = raw.split("=", 1)
+            values[key] = value.strip().strip('"')
+    return values
+
+
 def _compiler() -> str:
     value = os.environ.get("CXX", "g++")
     require(value and not any(c.isspace() for c in value),
@@ -39,6 +51,11 @@ def _checkout(lock: dict, parent: Path):
 
 
 def source_test(attestation: Path) -> int:
+    release = _os_release()
+    require(
+        release.get("ID") == "ubuntu" and release.get("VERSION_ID") == "22.04",
+        "Fastchess source-test attestation must be produced on Ubuntu 22.04",
+    )
     lock_path = ROOT / "qualification/fastchess.lock.json"
     lock = load(lock_path)
     jobs = int(os.environ.get("JOBS", "2"))
@@ -64,6 +81,8 @@ def source_test(attestation: Path) -> int:
             "lock_sha256": sha(lock_path),
             "compiler": subprocess.check_output([compiler, "--version"], text=True),
             "platform": list(os.uname()),
+            "os_release": {"ID": release.get("ID"), "VERSION_ID": release.get("VERSION_ID")},
+            "reference_host": "ubuntu-22.04",
             "contract": "clean -> make tests -> fastchess-tests",
         }
         save(attestation, report)
@@ -88,8 +107,11 @@ def build(attestation: Path) -> int:
     require(tested.get("passed") is True and
             tested.get("commit") == lock["commit"] and
             tested.get("tree") == lock["tree"] and
-            tested.get("lock_sha256") == sha(lock_path),
-            "Fastchess source-test attestation does not match the frozen pin")
+            tested.get("lock_sha256") == sha(lock_path) and
+            tested.get("reference_host") == "ubuntu-22.04" and
+            (tested.get("os_release") or {}).get("ID") == "ubuntu" and
+            (tested.get("os_release") or {}).get("VERSION_ID") == "22.04",
+            "Fastchess source-test attestation does not match the frozen pin/reference host")
 
     jobs = int(os.environ.get("JOBS", "2"))
     require(1 <= jobs <= 32, "JOBS outside build policy")

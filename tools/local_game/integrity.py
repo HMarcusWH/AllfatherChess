@@ -4,16 +4,22 @@ from __future__ import annotations
 from pathlib import Path
 import math
 import re
+import subprocess
 
 from .common import ROOT, load, require, sha, verify_record, contained, runtime_config
 
 
 def input_paths(p: dict) -> list[Path]:
+    fixtures = subprocess.check_output(
+        ["git", "-C", str(ROOT), "ls-files", "tests/fixtures/local_full_game"],
+        text=True,
+    ).splitlines()
+    require(fixtures, "no committed LOCAL-1 fixtures found")
     return [ROOT / path for path in (
         "qualification/local-full-game.json", "qualification/fastchess.lock.json",
         "qualification/local-game-requirements.txt", p["source_runtime"],
         "build/online-cpu-reference/build-manifest.json", "build/tools/fastchess/build-manifest.json",
-    )] + sorted((ROOT / "tests/fixtures/local_full_game").glob("*"))
+    )] + [ROOT / path for path in fixtures]
 
 
 def verify_builds(source: dict) -> Path:

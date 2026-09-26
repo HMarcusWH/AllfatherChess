@@ -75,6 +75,18 @@ class ContractTests(unittest.TestCase):
             x["game"] += 1; x["search"] += 1
         self.assertEqual(set(trace_searches(trace + more)), {1, 2})
 
+    def test_skipped_game_ordinal_is_rejected(self):
+        trace = good_trace()
+        more = events([("in", "ucinewgame"), ("in", "position startpos"),
+                       ("in", "go wtime 30000 btime 30000"), ("out", "bestmove e2e4")])
+        for x in more:
+            x["seq"] += len(trace)
+            x["ns"] += len(trace) * 1000
+            x["game"] += 3
+            x["search"] += 1
+        with self.assertRaises(QualificationError):
+            trace_searches(trace + more)
+
     def test_duplicate_terminal_rejected_even_after_readyok(self):
         trace = good_trace()
         trace.append({**trace[-1], "seq": 7, "ns": 7000, "line": "bestmove e2e4"})

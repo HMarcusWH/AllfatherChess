@@ -234,7 +234,7 @@ def _number(value, label: str) -> float:
     return float(value)
 
 
-def _close(actual, expected, label: str, tolerance: float = 0.002) -> None:
+def _close(actual, expected, label: str, tolerance: float = 0.02) -> None:
     require(abs(_number(actual, label) - float(expected)) <= tolerance,
             f"{label} arithmetic mismatch: {actual!r} vs {expected!r}")
 

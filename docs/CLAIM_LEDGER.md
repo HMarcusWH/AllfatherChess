@@ -27,7 +27,8 @@
 
 ### IMPLEMENTED IN CANDIDATE
 
-- exact Fastchess source commit/tree lock plus build/test manifest;
+- exact Fastchess source commit/tree lock, supported-host upstream source-test job, and
+  separately measured Ubuntu 24.04 lifecycle-runner build manifest;
 - exact external UCI transcript proxy with game/request ordinals and duplicate-terminal detection;
 - G3-derived full-game profile plus an authorization-disabled control profile;
 - frozen history fixtures covering castling, en passant, repetition and promotion;

@@ -2090,11 +2090,27 @@ class ShadowRunCoordinator:
                 ):
                     if active.outward_publication_done.wait(timeout=0.25):
                         break
-                    if self._closed or not self.runtime.healthy:
+                    if not self.runtime.healthy:
                         active.run.note(
-                            "outward publication did not complete before controller/runtime failure"
+                            "outward publication did not complete before runtime failure"
                         )
                         break
+                    if self._closed:
+                        clock = active.context.clock
+                        outcome = None if clock is None else clock.outcome()
+                        published = bool(
+                            isinstance(outcome, dict)
+                            and outcome.get("failure") is None
+                            and outcome.get("emitted_line") is not None
+                        )
+                        if not published:
+                            active.run.note(
+                                "controller closed before outward publication completed"
+                            )
+                            break
+                        # A normal quit after bytes crossed stdout must not
+                        # retire the run until note_anchor_emitted() publishes
+                        # the exact outward decision into replay state.
 
                 # ONLINE anchor telemetry is replayed by DeferredObserver after
                 # the authority callback so it cannot delay bestmove. Do not
@@ -2106,11 +2122,24 @@ class ShadowRunCoordinator:
                     while not active.anchor_observation_done.is_set():
                         if active.anchor_observation_done.wait(timeout=0.25):
                             break
-                        if self._closed or not self.runtime.healthy:
+                        if not self.runtime.healthy:
                             active.run.note(
-                                "deferred anchor observation did not drain before controller/runtime failure"
+                                "deferred anchor observation did not drain before runtime failure"
                             )
                             break
+                        if self._closed:
+                            outcome = active.context.clock.outcome()
+                            published = bool(
+                                outcome.get("failure") is None
+                                and outcome.get("emitted_line") is not None
+                            )
+                            if not published:
+                                active.run.note(
+                                    "controller closed before deferred anchor observation drained"
+                                )
+                                break
+                            # Normal shutdown after a successful publication
+                            # waits for the already-running DeferredObserver.
 
                 if (
                     active.resources is not None

@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "tool": "fastchess",
+  "repository": "https://github.com/Disservin/fastchess.git",
+  "tag": "v1.8.2-alpha",
+  "commit": "f618e34540f94f4719ad3817950618dabe441318",
+  "tree": "7af51c972096164b267d617ea4c32a856a17b586",
+  "license": "MIT",
+  "binary": "build/tools/fastchess/bin/fastchess",
+  "source_dir": "build/tools/fastchess/src",
+  "build_target": "fastchess",
+  "test_target": "tests",
+  "claim_boundary": "Pinned tournament-runner provenance only; no chess-strength claim."
+}

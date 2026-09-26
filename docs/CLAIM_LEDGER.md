@@ -23,6 +23,30 @@
 - **OPEN STRENGTH GATE:** no Elo or equal-envelope superiority claim follows from M14-G3.
   M15-B/C remains the separate comparative campaign.
 
+## LOCAL-1 full-game lifecycle candidate — OPEN until dedicated qualification passes
+
+### IMPLEMENTED IN CANDIDATE
+
+- exact Fastchess source commit/tree lock plus build/test manifest;
+- exact external UCI transcript proxy with game/request ordinals and duplicate-terminal detection;
+- G3-derived full-game profile plus an authorization-disabled control profile;
+- frozen history fixtures covering castling, en passant, repetition and promotion;
+- checkmate/stalemate terminal fixtures;
+- game→ply→request→replay/resource/final-decision integrity validation;
+- bounded process-leak audit across complete games;
+- five-arm descriptive same-clock baseline across Stockfish, Reckless, LC0,
+  Allfather-Control and Allfather-Hybrid.
+
+### OPEN / NOT YET PROMOTED
+
+- LOCAL-1 is not PROVED merely because the harness exists; the dedicated workflow must pass
+  on the merged tree;
+- same-clock W/D/L is not equal-resource evidence and does not establish Elo/superiority;
+- Allfather-Control is an authorization ablation that still pays for observation/routing,
+  not a pure wrapper-overhead measurement;
+- online network/reconnect/restart service qualification remains ONLINE-3/4;
+- M15-B/C remains the separate equal-resource strength campaign.
+
 ## ONLINE-2 real-network online CPU reference
 
 - **IMPLEMENTED / QUALIFICATION-GATED:** an isolated portable CPU-target bundle,

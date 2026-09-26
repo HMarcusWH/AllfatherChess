@@ -1967,6 +1967,7 @@ class BackendManager:
         on_info: Callable[[int, str], None],
         on_complete: Callable[[int, str], None],
         permit: Callable[[], bool] | None = None,
+        dispatch_gate: Any | None = None,
     ) -> bool:
         """Dispatch one restricted observational search.
 
@@ -2007,6 +2008,7 @@ class BackendManager:
                 token=token,
                 on_info=info_cb,
                 on_complete=complete_cb,
+                dispatch_gate=dispatch_gate,
                 **kwargs,
             )
         except UciProcessError as exc:

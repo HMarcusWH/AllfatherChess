@@ -275,9 +275,8 @@
     "baseline": {
       "required_completed_games": 20,
       "illegal_moves": 0,
-      "disconnects": 0,
-      "stalls": 0,
-      "unterminated_games": 0
+      "unterminated_games": 0,
+      "abandoned_games": 0
     }
   },
   "claim_boundary": {

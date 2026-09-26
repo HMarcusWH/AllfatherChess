@@ -708,8 +708,9 @@ class DeadlineTests(unittest.TestCase):
         finally:released.set();worker.abort()
 
     def test_delayed_old_measurement_cannot_qualify_across_new_anchor(self):
+        """The runtime still fails closed if a caller bypasses the frontend barrier."""
         with shell_fixture() as (shell,manager,shadow,out,tmp):
-            release=threading.Event();entered=threading.Event()
+            release=threading.Event();entered=threading.Event();second_done=threading.Event()
             original_sample=shadow.note_anchor_emitted
 
             def blocked_sample(token, final_decision=None):
@@ -729,10 +730,26 @@ class DeadlineTests(unittest.TestCase):
                     wait_for(lambda:len(bestmoves(out))==1)
                     old=shell._clock_search
                     self.assertFalse(old.measurement_frozen.is_set())
-                    shell.handle_command('go movetime 500')
+
+                    # Production UCI commands now wait for measurement_frozen,
+                    # so exercise the lower-level defense directly: if some
+                    # future caller starts a new anchor without that frontend
+                    # barrier, the old unfrozen interval must still be tainted.
+                    newer=standalone_clock(shell,manager,token=2,movetime=500)
+                    def complete_second(token,line):
+                        newer.finish(line=line)
+                        second_done.set()
+                    manager.start_anchor_search(
+                        newer.plan.anchor_go_command,
+                        token=2,
+                        on_info=lambda token,line: None,
+                        on_complete=complete_second,
+                        clock=newer,
+                    )
                     self.assertTrue(old.measurement_superseded.is_set())
+                    self.assertTrue(second_done.wait(1))
+
                     release.set()
-                    wait_for(lambda:len(bestmoves(out))==2)
                     wait_for(lambda:list(tmp.glob('replays/*/route.json')))
                     first=next(tmp.glob('replays/*'))
                     route=json.loads((first/'route.json').read_text())

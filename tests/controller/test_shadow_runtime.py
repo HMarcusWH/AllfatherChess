@@ -154,7 +154,19 @@ def read_only_manifest(replay_root: Path) -> dict:
     runs = sorted(p for p in replay_root.iterdir() if p.is_dir())
     if len(runs) != 1:
         raise AssertionError(f"expected exactly one replay run, found {[p.name for p in runs]}")
-    return json.loads((runs[0] / "manifest.json").read_text(encoding="utf-8"))
+    manifest = runs[0] / "manifest.json"
+    # Replay finalization is intentionally asynchronous with respect to stdout:
+    # authority may answer before an observational worker finishes its bounded
+    # cleanup/publication barriers. Reading the bundle must therefore wait for
+    # the transactional manifest rather than racing that worker.
+    deadline = time.monotonic() + 5.0
+    while not manifest.is_file() and time.monotonic() < deadline:
+        time.sleep(0.01)
+    if not manifest.is_file():
+        raise AssertionError(
+            f"replay manifest was not finalized within 5s: {manifest}"
+        )
+    return json.loads(manifest.read_text(encoding="utf-8"))
 
 
 def run_shell(config: Path, script: list[str], *, timeout: float = 20.0) -> list[str]:

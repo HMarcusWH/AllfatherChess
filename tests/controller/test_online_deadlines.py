@@ -747,9 +747,14 @@ class DeadlineTests(unittest.TestCase):
                         clock=newer,
                     )
                     self.assertTrue(old.measurement_superseded.is_set())
-                    self.assertTrue(second_done.wait(1))
 
+                    # The first terminal callback deliberately remains blocked
+                    # at the resource boundary, so the single UCI reader cannot
+                    # deliver generation 2's terminal line until that callback
+                    # is released. Supersession itself must happen at dispatch,
+                    # before either terminal callback completes.
                     release.set()
+                    self.assertTrue(second_done.wait(1))
                     wait_for(lambda:list(tmp.glob('replays/*/route.json')))
                     first=next(tmp.glob('replays/*'))
                     route=json.loads((first/'route.json').read_text())

@@ -315,6 +315,83 @@ def _verify_clocked_authority(
                 != snapshot.get("terminal_source")
             ):
                 problems.append("G3 counterfactual terminal source mismatch")
+
+            sealed_proposal = counterfactual.get("proposal")
+            if not isinstance(sealed_proposal, dict):
+                problems.append("authorized G3 counterfactual proposal is missing")
+            else:
+                sealed_move = sealed_proposal.get("move")
+                sealed_evidence_digest = sealed_proposal.get("evidence_digest")
+                frozen_observed_ms = sealed_proposal.get("frozen_observed_ms")
+                frozen_before_anchor = sealed_proposal.get("frozen_before_anchor")
+
+                if sealed_move != granted_move:
+                    problems.append(
+                        "authorized G3 granted move differs from sealed proposal"
+                    )
+                if sealed_move != proposal_move:
+                    problems.append(
+                        "authorized G3 final proposal move differs from sealed proposal"
+                    )
+                if sealed_move != emitted_move:
+                    problems.append(
+                        "authorized G3 emitted move differs from sealed proposal"
+                    )
+
+                final_evidence_digest = decision.get("proposal_evidence_digest")
+                if (
+                    not isinstance(sealed_evidence_digest, str)
+                    or len(sealed_evidence_digest) != 64
+                ):
+                    problems.append(
+                        "authorized G3 sealed proposal is missing evidence identity"
+                    )
+                elif final_evidence_digest != sealed_evidence_digest:
+                    problems.append(
+                        "authorized G3 final decision evidence identity differs "
+                        "from sealed proposal"
+                    )
+
+                if frozen_before_anchor is not True:
+                    problems.append(
+                        "authorized G3 sealed proposal is not PRE_ANCHOR"
+                    )
+
+                soft_budget_ms = (
+                    None if not isinstance(plan, dict)
+                    else plan.get("soft_budget_ms")
+                )
+                if (
+                    isinstance(soft_budget_ms, bool)
+                    or not isinstance(soft_budget_ms, (int, float))
+                ):
+                    problems.append(
+                        "authorized G3 TimePlan is missing soft_budget_ms"
+                    )
+                elif (
+                    isinstance(frozen_observed_ms, bool)
+                    or not isinstance(frozen_observed_ms, (int, float))
+                ):
+                    problems.append(
+                        "authorized G3 sealed proposal is missing frozen_observed_ms"
+                    )
+                else:
+                    sealed_before_soft = (
+                        float(frozen_observed_ms) <= float(soft_budget_ms)
+                    )
+                    if not sealed_before_soft:
+                        problems.append(
+                            "authorized G3 sealed proposal crossed the soft deadline"
+                        )
+                    if (
+                        snapshot.get(
+                            "authority_evidence_frozen_before_soft_deadline"
+                        )
+                        is not sealed_before_soft
+                    ):
+                        problems.append(
+                            "G3 soft-deadline snapshot disagrees with sealed evidence"
+                        )
     else:
         # Denied G3 authority is itself a valid outcome. It must preserve the
         # exact anchor and may occur before specialist-derived artifacts exist.

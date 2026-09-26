@@ -417,9 +417,13 @@ class UciFrontend:
                     daemon=True,
                 ).start()
 
-            # If no replay/resource run exists there is no interval to protect.
+            # If no replay/resource run exists there is no interval to protect;
+            # preserve the legacy immediate READY boundary synchronously. When
+            # a measured run exists, only the finalizer may open readiness.
             if not measurement_owned:
                 clock.measurement_frozen.set()
+                self._finish_online_generation_after_measurement(token, clock)
+                return
 
             threading.Thread(
                 target=self._finish_online_generation_after_measurement,

@@ -170,11 +170,18 @@ class CounterfactualSettings:
 
 @dataclass(frozen=True)
 class HybridAuthoritySettings:
-    """Narrow M14-C outward decision authority configuration."""
+    """Versioned outward decision authority configuration.
+
+    bounded_preanchor_v0 is the frozen M14-C movetime-only contract.
+    clocked_staged_preanchor_v1 is M14-G3 and may consume only a complete,
+    route-bound staged VERIFY terminal plane under an ONLINE TimePlan.
+    """
 
     enabled: bool
     policy: str
     request_class: str
+    terminal_source_policy: str = "base_verify_v0"
+    allow_skipped_extension_authority: bool = False
 
 
 @dataclass(frozen=True)
@@ -947,22 +954,63 @@ def _load_hybrid_authority_settings(
         )
 
     policy = raw.get("policy", "bounded_preanchor_v0")
-    if policy != "bounded_preanchor_v0":
+    if policy not in ("bounded_preanchor_v0", "clocked_staged_preanchor_v1"):
         raise RuntimeError(
-            "hybrid_authority.policy currently supports exactly 'bounded_preanchor_v0'"
+            "hybrid_authority.policy must be 'bounded_preanchor_v0' or "
+            "'clocked_staged_preanchor_v1'"
         )
-    request_class = raw.get("request_class", "movetime_v0")
-    if request_class != "movetime_v0":
-        raise RuntimeError(
-            "hybrid_authority.request_class currently supports exactly 'movetime_v0'"
+
+    if policy == "bounded_preanchor_v0":
+        request_class = raw.get("request_class", "movetime_v0")
+        if request_class != "movetime_v0":
+            raise RuntimeError(
+                "bounded_preanchor_v0 request_class supports exactly 'movetime_v0'"
+            )
+        terminal_source_policy = raw.get("terminal_source_policy", "base_verify_v0")
+        allow_skipped = raw.get("allow_skipped_extension_authority", False)
+        if terminal_source_policy != "base_verify_v0" or allow_skipped is not False:
+            raise RuntimeError(
+                "bounded_preanchor_v0 cannot consume staged/skip authority semantics"
+            )
+    else:
+        request_class = raw.get("request_class", "online_time_v1")
+        if request_class != "online_time_v1":
+            raise RuntimeError(
+                "clocked_staged_preanchor_v1 supports exactly request_class='online_time_v1'"
+            )
+        terminal_source_policy = raw.get(
+            "terminal_source_policy", "route_bound_staged_v1"
         )
-    unknown = sorted(set(raw) - {"enabled", "policy", "request_class"})
+        if terminal_source_policy != "route_bound_staged_v1":
+            raise RuntimeError(
+                "clocked_staged_preanchor_v1 requires terminal_source_policy="
+                "'route_bound_staged_v1'"
+            )
+        allow_skipped = raw.get("allow_skipped_extension_authority", False)
+        if allow_skipped is not False:
+            raise RuntimeError(
+                "M14-G3 does not license SKIP-derived move authority; "
+                "allow_skipped_extension_authority must be false"
+            )
+
+    unknown = sorted(
+        set(raw)
+        - {
+            "enabled",
+            "policy",
+            "request_class",
+            "terminal_source_policy",
+            "allow_skipped_extension_authority",
+        }
+    )
     if unknown:
         raise RuntimeError(f"hybrid_authority contains unsupported keys: {unknown}")
     return HybridAuthoritySettings(
         enabled=True,
         policy=str(policy),
         request_class=str(request_class),
+        terminal_source_policy=str(terminal_source_policy),
+        allow_skipped_extension_authority=bool(allow_skipped),
     )
 
 
@@ -1037,13 +1085,23 @@ def load_runtime_config(path: Path) -> RuntimeConfig:
     )
     if (
         hybrid_authority is not None
+        and hybrid_authority.policy == "bounded_preanchor_v0"
         and verification is not None
         and verification.staged_extension is not None
     ):
         raise RuntimeError(
-            "M14-G1 staged VERIFY is research-only and cannot be combined "
-            "with hybrid_authority"
+            "M14-G1 staged VERIFY remains incompatible with frozen "
+            "bounded_preanchor_v0 authority"
         )
+    if hybrid_authority is not None and hybrid_authority.policy == "clocked_staged_preanchor_v1":
+        if verification is None or verification.staged_extension is None:
+            raise RuntimeError(
+                "clocked_staged_preanchor_v1 requires verification.staged_extension"
+            )
+        if crossfeed is None or counterfactual is None:
+            raise RuntimeError(
+                "clocked_staged_preanchor_v1 requires crossfeed and counterfactual evidence"
+            )
     if (
         hybrid_authority is not None
         and refinement is not None
@@ -1092,11 +1150,38 @@ def load_runtime_config(path: Path) -> RuntimeConfig:
         online_time = OnlineTimeSettings.from_config(data.get("online_time"))
     except OnlineTimeError as exc:
         raise RuntimeError(str(exc)) from exc
+    if (
+        hybrid_authority is not None
+        and hybrid_authority.policy == "clocked_staged_preanchor_v1"
+        and online_time is None
+    ):
+        raise RuntimeError(
+            "clocked_staged_preanchor_v1 requires online_time"
+        )
     if online_time is not None:
         if mode != "active":
             raise RuntimeError("ONLINE-1 requires active resource routing")
+        if (
+            hybrid_authority is not None
+            and hybrid_authority.policy != "clocked_staged_preanchor_v1"
+        ):
+            raise RuntimeError(
+                "ONLINE timing may grant hybrid authority only through "
+                "clocked_staged_preanchor_v1"
+            )
         if hybrid_authority is not None:
-            raise RuntimeError("ONLINE-1 cannot grant hybrid_authority; clock-to-movetime is not movetime_v0")
+            if verification is None or verification.staged_extension is None:
+                raise RuntimeError(
+                    "clocked staged authority requires a configured staged VERIFY extension"
+                )
+            if routing is None or routing.get("policy") != "unified_value_v1":
+                raise RuntimeError(
+                    "clocked staged authority requires routing.policy='unified_value_v1'"
+                )
+            if hybrid_authority.allow_skipped_extension_authority:
+                raise RuntimeError(
+                    "M14-G3 cannot authorize a skipped staged extension"
+                )
         if budget is None or budget.get("gpu_ms", 0) != 0:
             raise RuntimeError("ONLINE-1 supports CPU-only envelopes")
         for key in ("wall_ms", "cpu_ms", "gpu_ms", "verification_reserve_fraction",
@@ -1447,9 +1532,11 @@ class BackendManager:
                         except Exception:  # pragma: no cover - best effort
                             pass
             self.ready_all()
-            if self.config.online_time is not None:
-                for process in self.backends.values():
-                    process.timeout = min(process.timeout, self.config.online_time.quiesce_budget_ms / 1000)
+            # ONLINE quiesce deadlines are passed explicitly to stop/search
+            # operations. They must not redefine the process-wide UCI protocol
+            # timeout: real BLAS LC0 can legitimately spend more than the
+            # quiesce grace loading its pinned network on the first
+            # ucinewgame/isready barrier.
         except Exception as exc:
             self.close()
             if isinstance(exc, RuntimeError):
@@ -1802,7 +1889,10 @@ class BackendManager:
         if clock is not None:
             with self._lock:
                 previous = self._online_clock
-                if previous is not None:
+                if (
+                    previous is not None
+                    and not previous.measurement_frozen.is_set()
+                ):
                     previous.measurement_superseded.set()
                 self._online_clock = clock
             # A short-lived tail guard remains active even after the outward
@@ -1879,6 +1969,8 @@ class BackendManager:
         token: int,
         on_info: Callable[[int, str], None],
         on_complete: Callable[[int, str], None],
+        permit: Callable[[], bool] | None = None,
+        dispatch_gate: Any | None = None,
     ) -> bool:
         """Dispatch one restricted observational search.
 
@@ -1891,19 +1983,35 @@ class BackendManager:
         if not self.shadow_available(instance):
             return False
         info_cb, complete_cb = self._observed_callbacks(instance, on_info, on_complete)
-        kwargs = {}
+        clock = None
         if self.config.online_time is not None:
             clock = self._online_clock
-            if clock is None or clock.plan.generation != token or not clock.work_open():
+            if clock is None or clock.plan.generation != token:
                 return False
-            kwargs = {"permit": clock.work_open,
-                      "timeout": max(0.001, clock.plan.hard_deadline - time.monotonic())}
+
+        def dispatch_permitted() -> bool:
+            if permit is not None and not permit():
+                return False
+            if clock is not None and not clock.work_open():
+                return False
+            return True
+
+        if not dispatch_permitted():
+            return False
+
+        kwargs: dict[str, Any] = {"permit": dispatch_permitted}
+        if clock is not None:
+            kwargs["timeout"] = max(
+                0.001,
+                clock.plan.hard_deadline - time.monotonic(),
+            )
         try:
             self.backends[instance].start_search(
                 command,
                 token=token,
                 on_info=info_cb,
                 on_complete=complete_cb,
+                dispatch_gate=dispatch_gate,
                 **kwargs,
             )
         except UciProcessError as exc:

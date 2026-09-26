@@ -58,6 +58,7 @@ from controller.counterfactual import (
 )
 from controller.decision import (
     AUTHORIZATION_POLICY,
+    CLOCKED_AUTHORIZATION_POLICY,
     DecisionAuthorization,
     DecisionAuthorizationSnapshot,
     DecisionError,
@@ -191,6 +192,8 @@ class _OwnerState:
     stage_index: int = 0
     done: threading.Event = field(default_factory=threading.Event)
     dispatched: bool = False
+    # Coordinator-boundary commit made, backend command write still pending.
+    dispatch_pending: bool = False
     failed: bool = False
     stopped_by_policy: bool = False
     stages_dispatched: int = 0
@@ -395,7 +398,19 @@ class _ActiveRun:
     finished: threading.Event = field(default_factory=threading.Event)
     anchor_done: threading.Event = field(default_factory=threading.Event)
     anchor_completed: threading.Event = field(default_factory=threading.Event)
+    # Outward publication and deferred anchor observation are separate causal
+    # boundaries. ONLINE decision selection may finish before stdout is written,
+    # and stdout may be written before the DeferredObserver has replayed the
+    # terminal line into the telemetry stream.
+    outward_publication_done: threading.Event = field(default_factory=threading.Event)
+    anchor_observation_done: threading.Event = field(default_factory=threading.Event)
     anchor_resource_done: threading.Event = field(default_factory=threading.Event)
+    # Linearizes the final physical shadow go write against anchor completion.
+    # The lock is held only around a nonblocking <= PIPE_BUF write.
+    dispatch_gate: Any = field(default_factory=threading.Lock)
+    # All managed engine/process state for this generation is idle/restored.
+    # Replay/telemetry writers may still be flushing after this point.
+    engine_quiesced: threading.Event = field(default_factory=threading.Event)
     started_monotonic: float = 0.0
     #: True while the legal-root oracle request is outstanding. Owner states do
     #: not exist yet at that point, so without this the quiesce barrier sees no
@@ -707,6 +722,23 @@ class ShadowRunCoordinator:
                     "observation for this search"
                 )
                 return False
+            # Engine/process state can be safe for the next move while the
+            # previous bundle still flushes deferred telemetry/replay files.
+            # Never overwrite the current run in that window: old callbacks
+            # still need its generation-scoped state. The outward anchor
+            # proceeds without shadow observation until finalization finishes.
+            with self._lock:
+                replay_only = (
+                    self._run is previous
+                    and not previous.finished.is_set()
+                    and previous.engine_quiesced.is_set()
+                )
+            if replay_only:
+                self._diagnostic(
+                    "previous replay finalization is still pending; this search "
+                    "runs anchor-only rather than replacing its audit state"
+                )
+                return False
 
         # The run clock starts HERE, before any preparation. Capturing it after
         # `_make_run_dir_within_budget` returned put every millisecond of
@@ -897,7 +929,13 @@ class ShadowRunCoordinator:
             if active is None or active.generation != generation:
                 return
             if active.worker is not None:
-                instances = self._cancel_locked(active, reason=reason)
+                # Anchor dispatch failure invalidates this generation
+                # unconditionally. abort_run() has no soft-stop semantics.
+                instances = self._cancel_locked(
+                active,
+                reason=reason,
+                authority_invalidating=True,
+            )
             else:
                 instances = None
                 self._run = None
@@ -935,6 +973,62 @@ class ShadowRunCoordinator:
             return
         stream.submit(line, max(0.0, (observed_monotonic - t0) * 1000.0))
 
+    def _clocked_authority_snapshot_fields(
+        self,
+        active: _ActiveRun,
+        settings: Any,
+    ) -> dict[str, Any]:
+        if settings.policy != CLOCKED_AUTHORIZATION_POLICY:
+            return {}
+        clock = active.context.clock
+        route_snapshot = None
+        if self.router is not None:
+            getter = getattr(self.router, "staged_route_authority_snapshot", None)
+            if getter is not None:
+                route_snapshot = getter(active.run.run_id)
+        staged = active.staged_verification
+        staged_stages = () if staged is None else staged.stages()
+        staged_complete = bool(
+            staged is not None
+            and staged.disposition == "completed"
+            and len(staged_stages) == 3
+            and all(stage.disposition == "completed" for stage in staged_stages)
+        )
+        plan = None if clock is None else clock.plan
+        plan_dict = None if plan is None else plan.as_dict()
+        proposal = active.decision_proposal
+        return {
+            "time_plan_id": None if plan_dict is None else plan_dict.get("plan_id"),
+            "time_plan_request_class": None if plan is None else plan.request_class,
+            "time_plan_generation": None if plan is None else plan.generation,
+            "time_plan_position_id": None if plan is None else plan.position_id,
+            "time_plan_anchor_go_command": None if plan is None else plan.anchor_go_command,
+            "terminal_source": active.decision_terminal_source,
+            "staged_complete": staged_complete,
+            "staged_intervention": None if staged is None else staged.intervention,
+            "staged_generation": None if staged is None else staged.generation,
+            "staged_candidate_roots": (
+                () if staged is None else tuple(staged.candidate_roots)
+            ),
+            "route_action": (
+                None if route_snapshot is None else route_snapshot.get("action")
+            ),
+            "route_buy_extension": (
+                None if route_snapshot is None else route_snapshot.get("buy_extension")
+            ),
+            "route_decision_digest": (
+                None if route_snapshot is None else route_snapshot.get("digest")
+            ),
+            "authority_evidence_frozen_before_soft_deadline": bool(
+                clock is not None
+                and proposal is not None
+                and proposal.frozen_observed_ms <= clock.plan.soft_budget_ms
+            ),
+            "authority_blocked": bool(
+                clock is None or not clock.authority_open()
+            ),
+        }
+
     def _select_final_decision(
         self,
         active: _ActiveRun,
@@ -958,19 +1052,33 @@ class ShadowRunCoordinator:
             request = {"limits": [], "unknown_tokens": [str(exc)]}
         limits = request.get("limits") or []
         root_restriction = tuple(request.get("root_moves") or ())
-        request_eligible = (
-            not request.get("unknown_tokens")
-            and len(limits) == 1
-            and limits[0].get("name") == "movetime"
-            and isinstance(limits[0].get("value"), int)
-            and not isinstance(limits[0].get("value"), bool)
-            and int(limits[0]["value"]) > 0
-        )
-        request_reason = (
-            "single positive go movetime request"
-            if request_eligible
-            else "v0 requires exactly one positive movetime limit"
-        )
+        clock = active.context.clock
+        if settings.policy == CLOCKED_AUTHORIZATION_POLICY:
+            request_eligible = bool(
+                clock is not None
+                and clock.plan.generation == active.generation
+                and clock.plan.position_id == active.context.position.position_id
+                and clock.authority_open()
+            )
+            request_reason = (
+                "ONLINE TimePlan is current and authority-open"
+                if request_eligible
+                else "G3 requires a current authority-open ONLINE TimePlan"
+            )
+        else:
+            request_eligible = (
+                not request.get("unknown_tokens")
+                and len(limits) == 1
+                and limits[0].get("name") == "movetime"
+                and isinstance(limits[0].get("value"), int)
+                and not isinstance(limits[0].get("value"), bool)
+                and int(limits[0]["value"]) > 0
+            )
+            request_reason = (
+                "single positive go movetime request"
+                if request_eligible
+                else "v0 requires exactly one positive movetime limit"
+            )
 
         route: dict[str, object] = {}
         snapshotter = (
@@ -994,8 +1102,13 @@ class ShadowRunCoordinator:
             if active.ledger is None
             else tuple(active.ledger.candidate_roots)
         )
+        authority_cancelled = (
+            active._cancelled
+            if settings.policy == CLOCKED_AUTHORIZATION_POLICY
+            else active.cancelled
+        )
         backend_current = (
-            not active.cancelled
+            not authority_cancelled
             and all(
                 self.runtime.shadow_available(self.settings.instance(owner))
                 for owner in self.settings.owners
@@ -1044,6 +1157,7 @@ class ShadowRunCoordinator:
             controller_fallback_latched=bool(
                 route.get("controller_fallback_latched", True)
             ),
+            **self._clocked_authority_snapshot_fields(active, settings),
         )
 
         proposal = active.decision_proposal
@@ -1069,7 +1183,6 @@ class ShadowRunCoordinator:
             authorization=authorization,
             authorization_snapshot=snapshot,
         )
-        active.final_decision = final
         return final
 
     def note_anchor_complete(self, generation: int, line: str) -> FinalDecision | None:
@@ -1078,61 +1191,106 @@ class ShadowRunCoordinator:
             active = self._run
             if active is None or active.generation != generation:
                 return None
-            stage = active.anchor_stage
-            elapsed = (time.monotonic() - active.started_monotonic) * 1000.0
-            # Publish the decision boundary while holding the exact lock used
-            # by EXPLORE/VERIFY dispatch commits. No new specialist work may
-            # begin after this point.
-            active.anchor_completed.set()
 
-            if stage is not None:
-                bestmove = (
-                    line.split()[1]
-                    if line.startswith("bestmove ") and len(line.split()) > 1
-                    else None
-                )
-                active.run.record_completion(
-                    stage,
-                    completed_ms=elapsed,
-                    disposition="completed",
-                    bestmove=bestmove,
-                )
+        # The same gate is held by UciProcess for the final nonblocking shadow
+        # go write. Therefore either that physical write happened first, or
+        # anchor_completed becomes visible before the adapter can write bytes.
+        with active.dispatch_gate:
+            with self._lock:
+                if self._run is not active or active.generation != generation:
+                    return None
+                stage = active.anchor_stage
+                elapsed = (time.monotonic() - active.started_monotonic) * 1000.0
+                active.anchor_completed.set()
 
-            # The authority choice is intentionally made before anchor_done is
-            # published, so finalization cannot race ahead of the in-memory
-            # M14-C gate. No engine or filesystem work is permitted here.
-            try:
-                final = self._select_final_decision(active, anchor_line=line)
-            except DecisionError as exc:
-                active.run.note(f"hybrid authority failed closed: {exc}")
-                final = None
+                if stage is not None:
+                    bestmove = (
+                        line.split()[1]
+                        if line.startswith("bestmove ") and len(line.split()) > 1
+                        else None
+                    )
+                    active.run.record_completion(
+                        stage,
+                        completed_ms=elapsed,
+                        disposition="completed",
+                        bestmove=bestmove,
+                    )
 
-            # Finalization waits on anchor_done, not merely anchor_completed.
-            active.anchor_done.set()
+                try:
+                    final = self._select_final_decision(active, anchor_line=line)
+                except Exception as exc:
+                    active.run.note(
+                        f"hybrid authority failed closed: {type(exc).__name__}: {exc}"
+                    )
+                    final = None
+                finally:
+                    active.anchor_done.set()
+                    if active.context.clock is None:
+                        active.anchor_observation_done.set()
 
-        # Selection is complete, but stdout emission has not happened yet. No
-        # new observational stage may be opened against the closed boundary.
         if self.settings.on_anchor_complete == "cancel":
             self.cancel(generation, reason="anchor_complete", detach=True)
         return final
-
-    def note_anchor_emitted(self, generation: int) -> None:
-        """Take the terminal anchor sample only after bestmove left stdout.
-
-        Procfs reads are evidence work. Even tiny filesystem reads may not sit
-        in front of the authority write, so the frontend calls this after
-        emitting bestmove. The shadow worker, not the authority thread, waits
-        for this measurement before sealing the resource certificate.
-        """
+    def invalidate_final_decision(self, generation: int, reason: str) -> None:
+        """Withdraw an in-memory choice that never crossed the outward boundary."""
         with self._lock:
             active = self._run
             if active is None or active.generation != generation:
                 return
-            stage = active.anchor_stage
-        if stage is not None:
-            self._finish_resource_stage(active, stage.search_id)
-        active.anchor_resource_done.set()
+            active.final_decision = None
+            active.run.outward_decision = None
+            active.run.note(f"final decision withdrawn before output: {reason}")
 
+    def note_anchor_published(
+        self,
+        generation: int,
+        final_decision: FinalDecision | None = None,
+    ) -> bool:
+        """Persist the exact outward decision immediately after stdout succeeds.
+
+        This boundary is intentionally memory-only and bounded. It must finish
+        before the frontend advertises READY so a concurrent next command or
+        quit can never erase the fact that bytes already crossed stdout.
+        Resource sampling and replay serialization happen later.
+        """
+        with self._lock:
+            active = self._run
+            if active is None or active.generation != generation:
+                return False
+            if final_decision is not None and active.final_decision is None:
+                active.final_decision = final_decision
+                active.run.outward_decision = final_decision.as_dict()
+            active.outward_publication_done.set()
+            return True
+
+    def note_anchor_emitted(
+        self,
+        generation: int,
+        final_decision: FinalDecision | None = None,
+    ) -> None:
+        """Take the post-output resource sample.
+
+        note_anchor_published owns the outward-decision fact. This method is
+        deliberately separable from protocol readiness because procfs/resource
+        evidence may lag after the client has already received bestmove.
+        """
+        # Every successfully emitted anchor line closes the publication
+        # barrier, including legacy/offline anchor-only profiles whose
+        # final_decision is None. ONLINE normally published this fact inside
+        # the clock gate already, making this call idempotent.
+        self.note_anchor_published(generation, final_decision)
+        with self._lock:
+            active = self._run
+            if active is None or active.generation != generation:
+                return
+            if active.anchor_resource_done.is_set():
+                return
+            stage = active.anchor_stage
+        try:
+            if stage is not None:
+                self._finish_resource_stage(active, stage.search_id)
+        finally:
+            active.anchor_resource_done.set()
     def _on_shadow_exit(self, instance: str, rc: int | None, token: int | None) -> None:
         with self._lock:
             active = self._run
@@ -1396,7 +1554,12 @@ class ShadowRunCoordinator:
     # ------------------------------------------------------------------
 
     def cancel(
-        self, generation: int | None = None, *, reason: str, detach: bool = False
+        self,
+        generation: int | None = None,
+        *,
+        reason: str,
+        detach: bool = False,
+        authority_invalidating: bool = True,
     ) -> None:
         """Cancel the active generation and stop its dispatched shadows.
 
@@ -1414,7 +1577,11 @@ class ShadowRunCoordinator:
                 return
             if generation is not None and active.generation != generation:
                 return
-            instances = self._cancel_locked(active, reason=reason)
+            instances = self._cancel_locked(
+                active,
+                reason=reason,
+                authority_invalidating=authority_invalidating,
+            )
         if not instances:
             return
         stop_kwargs = {} if active.context.clock is None else {"generation": active.generation}
@@ -1433,7 +1600,13 @@ class ShadowRunCoordinator:
             self._stop_threads.append(worker)
         worker.start()
 
-    def _cancel_locked(self, active: _ActiveRun, *, reason: str) -> list[str]:
+    def _cancel_locked(
+        self,
+        active: _ActiveRun,
+        *,
+        reason: str,
+        authority_invalidating: bool = True,
+    ) -> list[str]:
         """Mark the run cancelled and report which instances still need `stop`.
 
         The `stop` writes are deliberately NOT done here. Three of this
@@ -1443,13 +1616,17 @@ class ShadowRunCoordinator:
         anchor's own completion. Observation may never hold up authority.
         Callers release the lock and pass this list to `_stop_instances`.
         """
-        if not active._cancelled:
+        if authority_invalidating and not active._cancelled:
             active.cancelled = True
             active.cancel_reason = reason
+        # Non-invalidating teardown may stop residual observational work, but
+        # it must not rewrite the disposition/reason of a move that already
+        # crossed stdout.
         instances = [
             state.instance
             for state in active.owners.values()
-            if state.dispatched and not state.done.is_set()
+            if (state.dispatched or state.dispatch_pending)
+            and not state.done.is_set()
         ]
         if active.verification is not None:
             instances.extend(stage.instance for stage in active.verification.active_stages())
@@ -1686,42 +1863,99 @@ class ShadowRunCoordinator:
         return drained
 
     def _quiesce_clock(self, *, timeout: float | None, reason: str) -> bool:
-        """Bounded online barrier: late observational processes are quarantined.
+        """Bounded ONLINE engine barrier, independent of replay-only backlog.
 
-        No pipe write, resource sample, replay flush or worker finalization is
-        performed on this caller. An old worker retains its own run until it
-        finishes; prepare_run refuses to replace it while that happens.
+        State-changing UCI commands need physical engines to be idle/restored;
+        they do not need JSONL writers or manifest sealing to have completed.
+        Normal shutdown is the exception: it waits for full replay completion so
+        already-emitted authority evidence is not abandoned.
         """
         if timeout is None:
             timeout = self.runtime.config.online_time.quiesce_budget_ms / 1000
         deadline = time.monotonic() + max(0, timeout)
+
         if not self._lock.acquire(timeout=max(0, deadline - time.monotonic())):
             self._quarantine_clock_workers("clock generation lock deadline")
             return False
         try:
             active = self._run
             prior_stops = tuple(self._stop_threads)
-            if active is not None:
+            replay_only = bool(
+                active is not None and active.engine_quiesced.is_set()
+            )
+            published = bool(
+                active is not None
+                and active.outward_publication_done.is_set()
+            )
+            if active is not None and not replay_only and not published:
                 active.cancelled = True
                 active.cancel_reason = active.cancel_reason or reason
         finally:
             self._lock.release()
-        # cancel() can wait for the coordinator lock; keep even that wait off
-        # the outward command loop. Kill on timeout instead of reusing a worker
-        # with a delayed stop queued against its physical process.
-        stopper = threading.Thread(target=lambda: (
-            self.cancel(active.generation, reason=reason, detach=False) if active is not None else None),
-                                   name="allfather-clock-quiesce", daemon=True)
+
+        # A completed process barrier with pending replay is safe for ordinary
+        # position/new-game synchronization. Do not mutate cancellation state or
+        # quarantine healthy idle workers merely because telemetry is flushing.
+        if replay_only and reason != "close":
+            detached = self._join_stop_threads(deadline)
+            if not detached:
+                self._quarantine_clock_workers(
+                    "late stop writer did not drain before synchronization"
+                )
+                return False
+            return True
+
+        stopper = threading.Thread(
+            target=lambda: (
+                self.cancel(
+                    active.generation,
+                    reason=reason,
+                    detach=False,
+                    authority_invalidating=not published,
+                )
+                if active is not None and not replay_only
+                else None
+            ),
+            name="allfather-clock-quiesce",
+            daemon=True,
+        )
         stopper.start()
         stopper.join(max(0, deadline - time.monotonic()))
-        drained = (active is None or active.finished.wait(max(0, deadline - time.monotonic())))
+
+        if active is None:
+            drained = True
+        elif reason == "close":
+            drained = active.finished.wait(
+                max(0, deadline - time.monotonic())
+            )
+        else:
+            drained = active.engine_quiesced.wait(
+                max(0, deadline - time.monotonic())
+            )
+
         for thread in prior_stops:
             thread.join(max(0, deadline - time.monotonic()))
-        if stopper.is_alive() or not drained or any(t.is_alive() for t in prior_stops):
-            self._quarantine_clock_workers("clock generation did not drain before synchronization")
+
+        stop_stuck = stopper.is_alive() or any(
+            thread.is_alive() for thread in prior_stops
+        )
+        if reason == "close" and active is not None and active.engine_quiesced.is_set():
+            if stop_stuck:
+                self._quarantine_clock_workers(
+                    "clock stop writer did not drain during shutdown"
+                )
+                return False
+            # Replay-only backlog is not an engine fault. close() will either
+            # wait for it to finish or explicitly mark the deferred observation
+            # as lost before callbacks are detached.
+            return bool(drained)
+
+        if stop_stuck or not drained:
+            self._quarantine_clock_workers(
+                "clock engine generation did not drain before synchronization"
+            )
             return False
         return True
-
     def _quarantine_clock_workers(self, reason: str) -> None:
         for instance in self.runtime.shadow_instances:
             self.runtime.record_shadow_failure(instance, reason)
@@ -1730,20 +1964,68 @@ class ShadowRunCoordinator:
                 process.kill_now()
 
     def note_clock_observation_end(self, generation: int, line: str, lost: int) -> None:
+        """Publish that deferred ONLINE anchor telemetry has fully drained.
+
+        The frontend owns the physical anchor-completion/decision boundary for
+        every ONLINE search. This callback is observation-only: replay may not
+        race a second decision selection merely because the deferred FIFO
+        happened to drain before the frontend returned from its callback.
+        """
+        del line
         with self._lock:
             active = self._run
             if active is None or active.generation != generation:
                 return
             if lost and active.anchor_stream is not None:
-                active.anchor_stream.note_loss(f"online anchor observation lost {lost} event(s)")
-                active.run.note(f"online anchor observation lost {lost} event(s)")
-        self.note_anchor_complete(generation, line)
-        self.note_anchor_emitted(generation)
+                active.anchor_stream.note_loss(
+                    f"online anchor observation lost {lost} event(s)"
+                )
+                active.run.note(
+                    f"online anchor observation lost {lost} event(s)"
+                )
+            active.anchor_observation_done.set()
+
+    def _force_close_observation_loss(self, active: _ActiveRun) -> None:
+        """Complete a timed-out deferred-observation barrier with explicit loss."""
+        with self._lock:
+            if self._run is not active or active.anchor_observation_done.is_set():
+                return
+            stream = active.anchor_stream
+            message = (
+                "controller close timed out waiting for deferred ONLINE anchor "
+                "telemetry; remaining observation was explicitly marked lost"
+            )
+            active.run.note(message)
+            if stream is not None:
+                stream.note_loss(message)
+            active.anchor_observation_done.set()
 
     def close(self) -> None:
         with self._lock:
             self._closed = True
-        self.quiesce()
+            active = self._run
+
+        timeout = None
+        if self.runtime.config.online_time is not None:
+            timeout = max(
+                self.settings.drain_timeout_s,
+                self.runtime.config.online_time.quiesce_budget_ms / 1000,
+            )
+        drained = self.quiesce(reason="close", timeout=timeout)
+
+        if (
+            not drained
+            and active is not None
+            and active.context.clock is not None
+            and active.engine_quiesced.is_set()
+            and not active.anchor_observation_done.is_set()
+        ):
+            # Normal shutdown may terminate a DeferredObserver only after the
+            # replay records that the remaining observation was lost. Publishing
+            # this barrier lets the worker close the stream deterministically.
+            self._force_close_observation_loss(active)
+            active.finished.wait(timeout=self.settings.drain_timeout_s)
+
         self.runtime.set_instance_observer(None)
         self.runtime.set_shadow_exit_handler(None)
 
@@ -1927,14 +2209,143 @@ class ShadowRunCoordinator:
                             "the authority stream is incomplete"
                         )
                         break
+
+                if active.anchor_done.is_set():
+                    if (
+                        active.refinement is not None
+                        and not active.refinement.active_stages()
+                        and active.refinement_positioned
+                    ):
+                        self._restore_all_refinement_positions(active)
+
+                    resource_frozen = True
+                    if (
+                        active.resources is not None
+                        and active.resources.settings.enabled
+                    ):
+                        # The anchor's terminal resource sample is taken only
+                        # after stdout publication. State synchronization must
+                        # not begin until that stage is closed and the run-level
+                        # process/controller endpoints are frozen, otherwise the
+                        # next position/new-game commands can contaminate this
+                        # move's resource certificate.
+                        while not active.anchor_resource_done.is_set():
+                            if active.anchor_resource_done.wait(timeout=0.05):
+                                break
+                            if not self.runtime.healthy:
+                                resource_frozen = False
+                                break
+                            if self._closed:
+                                clock = active.context.clock
+                                outcome = None if clock is None else clock.outcome()
+                                if not (
+                                    isinstance(outcome, dict)
+                                    and outcome.get("failure") is None
+                                    and outcome.get("emitted_line") is not None
+                                ):
+                                    resource_frozen = False
+                                    break
+                        if active.anchor_resource_done.is_set():
+                            try:
+                                active.resources.freeze_interval()
+                                if active.context.clock is not None:
+                                    active.context.clock.measurement_frozen.set()
+                            except Exception as exc:
+                                active.run.note(
+                                    "resource interval could not freeze before engine reuse: "
+                                    f"{type(exc).__name__}: {exc}"
+                                )
+                                resource_frozen = False
+                        else:
+                            resource_frozen = False
+
+                    if resource_frozen:
+                        if (
+                            active.context.clock is not None
+                            and (
+                                active.resources is None
+                                or not active.resources.settings.enabled
+                            )
+                        ):
+                            active.context.clock.measurement_frozen.set()
+                        # Execution has returned, all temporarily positioned
+                        # workers are restored, and physical measurement
+                        # endpoints are immutable. Only replay serialization may
+                        # remain.
+                        active.engine_quiesced.set()
+
+                # Selection completion is not outward publication. Keep
+                # the run alive until the frontend has actually written the
+                # chosen line and published the post-output decision/resource
+                # boundary. There is deliberately no fixed one-second timeout:
+                # a legal write may take longer while still preceding the UCI
+                # hard deadline. Runtime failure/controller close are the only
+                # fail-closed escape hatches.
+                while (
+                    active.anchor_done.is_set()
+                    and not active.outward_publication_done.is_set()
+                ):
+                    if active.outward_publication_done.wait(timeout=0.25):
+                        break
+                    if not self.runtime.healthy:
+                        active.run.note(
+                            "outward publication did not complete before runtime failure"
+                        )
+                        break
+                    if self._closed:
+                        clock = active.context.clock
+                        outcome = None if clock is None else clock.outcome()
+                        published = bool(
+                            isinstance(outcome, dict)
+                            and outcome.get("failure") is None
+                            and outcome.get("emitted_line") is not None
+                        )
+                        if not published:
+                            active.run.note(
+                                "controller closed before outward publication completed"
+                            )
+                            break
+                        # A normal quit after bytes crossed stdout must not
+                        # retire the run until note_anchor_emitted() publishes
+                        # the exact outward decision into replay state.
+
+                # ONLINE anchor telemetry is replayed by DeferredObserver after
+                # the authority callback so it cannot delay bestmove. Do not
+                # close the TelemetryStreamWriter until that FIFO has delivered
+                # every queued info line plus the terminal bestmove into the
+                # stream. writer.close() below then drains the stream's own
+                # asynchronous file queue.
+                if active.context.clock is not None:
+                    while not active.anchor_observation_done.is_set():
+                        if active.anchor_observation_done.wait(timeout=0.25):
+                            break
+                        if not self.runtime.healthy:
+                            active.run.note(
+                                "deferred anchor observation did not drain before runtime failure"
+                            )
+                            break
+                        if self._closed:
+                            outcome = active.context.clock.outcome()
+                            published = bool(
+                                outcome.get("failure") is None
+                                and outcome.get("emitted_line") is not None
+                            )
+                            if not published:
+                                active.run.note(
+                                    "controller closed before deferred anchor observation drained"
+                                )
+                                break
+                            # Normal shutdown after a successful publication
+                            # waits for the already-running DeferredObserver.
+
                 if (
                     active.resources is not None
                     and active.resources.settings.enabled
-                    and active.anchor_done.is_set()
-                    and not active.anchor_resource_done.wait(timeout=1.0)
+                    and active.outward_publication_done.is_set()
+                    and not active.anchor_resource_done.is_set()
                 ):
                     active.run.note(
-                        "anchor resource terminal sample was not published within 1s; "
+                        "outward publication completed without an anchor resource terminal sample; "
                         "the measured-resource certificate will fail closed"
                     )
 
@@ -1942,13 +2353,6 @@ class ShadowRunCoordinator:
                 # are sealed. Restore every temporarily positioned REFINE worker
                 # first so its cleanup CPU is included in the run-level process
                 # deltas that route.json will certify.
-                if (
-                    active.refinement is not None
-                    and not active.refinement.active_stages()
-                    and active.refinement_positioned
-                ):
-                    self._restore_all_refinement_positions(active)
-
                 # Now that the anchor has answered (or is never going to), the
                 # router's run can be closed against the whole elapsed time.
                 # Every qualification failure -- a terminal position, a dead
@@ -2414,6 +2818,32 @@ class ShadowRunCoordinator:
         started = time.monotonic()
         charged = False
         try:
+            authority = self.runtime.config.hybrid_authority
+            if authority is not None and authority.policy == CLOCKED_AUTHORIZATION_POLICY:
+                route_snapshot = None
+                if self.router is not None:
+                    getter = getattr(self.router, "staged_route_authority_snapshot", None)
+                    if getter is not None:
+                        route_snapshot = getter(active.run.run_id)
+                if (
+                    route_snapshot is None
+                    or route_snapshot.get("action") != "BUY_STAGED_VERIFY"
+                    or route_snapshot.get("buy_extension") is not True
+                ):
+                    active.run.note(
+                        "G3 counterfactual withheld: authority requires BUY_STAGED_VERIFY"
+                    )
+                    active.decision_evidence = None
+                    active.decision_proposal = None
+                    return
+                staged = active.staged_verification
+                if staged is None or staged.disposition != "completed":
+                    active.run.note(
+                        "G3 counterfactual withheld: bought staged VERIFY is incomplete"
+                    )
+                    active.decision_evidence = None
+                    active.decision_proposal = None
+                    return
             staged_terminal = (
                 active.staged_verification
                 if self.router is not None
@@ -2640,19 +3070,22 @@ class ShadowRunCoordinator:
                 command=command,
                 dispatched_ms=(time.monotonic() - active.started_monotonic) * 1000.0,
             )
-            self._begin_resource_stage(
-                active,
-                key=search_id,
-                instance=instance,
-                phase="VERIFY",
-            )
-            dispatched = self.runtime.start_shadow_search(
-                instance,
-                command,
-                token=generation,
-                on_info=on_info,
-                on_complete=on_complete,
-            )
+
+        self._begin_resource_stage(
+            active,
+            key=search_id,
+            instance=instance,
+            phase="VERIFY",
+        )
+        dispatched = self.runtime.start_shadow_search(
+            instance,
+            command,
+            token=generation,
+            on_info=on_info,
+            on_complete=on_complete,
+            permit=lambda: self._shadow_dispatch_permitted(active),
+            dispatch_gate=active.dispatch_gate,
+        )
         if not dispatched:
             self._abandon_resource_stage(
                 active,
@@ -3020,19 +3453,22 @@ class ShadowRunCoordinator:
                 command=command,
                 dispatched_ms=(time.monotonic() - active.started_monotonic) * 1000.0,
             )
-            self._begin_resource_stage(
-                active,
-                key=search_id,
-                instance=instance,
-                phase="VERIFY_EXTENSION",
-            )
-            dispatched = self.runtime.start_shadow_search(
-                instance,
-                command,
-                token=generation,
-                on_info=on_info,
-                on_complete=on_complete,
-            )
+
+        self._begin_resource_stage(
+            active,
+            key=search_id,
+            instance=instance,
+            phase="VERIFY_EXTENSION",
+        )
+        dispatched = self.runtime.start_shadow_search(
+            instance,
+            command,
+            token=generation,
+            on_info=on_info,
+            on_complete=on_complete,
+            permit=lambda: self._shadow_dispatch_permitted(active),
+            dispatch_gate=active.dispatch_gate,
+        )
         if not dispatched:
             self._abandon_resource_stage(
                 active,
@@ -4196,19 +4632,21 @@ class ShadowRunCoordinator:
                 prefixes=prefixes,
                 dispatched_ms=(time.monotonic() - active.started_monotonic) * 1000.0,
             )
-            self._begin_resource_stage(
-                active,
-                key=search_id,
-                instance=instance,
-                phase="REFINE",
-            )
-            dispatched = self.runtime.start_shadow_search(
-                instance,
-                dispatch.go_command,
-                token=generation,
-                on_info=on_info,
-                on_complete=on_complete,
-            )
+        self._begin_resource_stage(
+            active,
+            key=search_id,
+            instance=instance,
+            phase="REFINE",
+        )
+        dispatched = self.runtime.start_shadow_search(
+            instance,
+            dispatch.go_command,
+            token=generation,
+            on_info=on_info,
+            on_complete=on_complete,
+            permit=lambda: self._shadow_dispatch_permitted(active),
+            dispatch_gate=active.dispatch_gate,
+        )
         if not dispatched:
             self._abandon_resource_stage(
                 active,
@@ -4559,19 +4997,21 @@ class ShadowRunCoordinator:
                 prefixes=prefixes,
                 dispatched_ms=(time.monotonic() - active.started_monotonic) * 1000.0,
             )
-            self._begin_resource_stage(
-                active,
-                key=search_id,
-                instance=instance,
-                phase="REFINE",
-            )
-            dispatched = self.runtime.start_shadow_search(
-                instance,
-                dispatch.go_command,
-                token=generation,
-                on_info=on_info,
-                on_complete=on_complete,
-            )
+        self._begin_resource_stage(
+            active,
+            key=search_id,
+            instance=instance,
+            phase="REFINE",
+        )
+        dispatched = self.runtime.start_shadow_search(
+            instance,
+            dispatch.go_command,
+            token=generation,
+            on_info=on_info,
+            on_complete=on_complete,
+            permit=lambda: self._shadow_dispatch_permitted(active),
+            dispatch_gate=active.dispatch_gate,
+        )
         if not dispatched:
             self._abandon_resource_stage(
                 active,
@@ -4842,6 +5282,15 @@ class ShadowRunCoordinator:
                     active.refinement_positioned.discard(instance)
         return ok
 
+    def _shadow_dispatch_permitted(self, active: _ActiveRun) -> bool:
+        """Lock-free final permit checked immediately before backend stdin IO."""
+        return bool(
+            not self._closed
+            and not active.cancelled
+            and not active.anchor_completed.is_set()
+            and not active.finished.is_set()
+        )
+
     def _dispatch_stage(self, active: _ActiveRun, state: _OwnerState, *, limit: dict[str, Any]) -> bool:
         if active.cancelled or self._closed:
             return False
@@ -4954,20 +5403,25 @@ class ShadowRunCoordinator:
             )
             state.stage = stage
             state.done.clear()
-            self._begin_resource_stage(
-                active,
-                key=search_id,
-                instance=state.instance,
-                phase="EXPLORE",
-            )
+            state.dispatch_pending = True
 
-            dispatched = self.runtime.start_shadow_search(
-                state.instance,
-                command,
-                token=generation,
-                on_info=on_info,
-                on_complete=on_complete,
-            )
+        self._begin_resource_stage(
+            active,
+            key=search_id,
+            instance=state.instance,
+            phase="EXPLORE",
+        )
+        dispatched = self.runtime.start_shadow_search(
+            state.instance,
+            command,
+            token=generation,
+            on_info=on_info,
+            on_complete=on_complete,
+            permit=lambda: self._shadow_dispatch_permitted(active),
+            dispatch_gate=active.dispatch_gate,
+        )
+        with self._lock:
+            state.dispatch_pending = False
         if not dispatched:
             self._abandon_resource_stage(
                 active,
@@ -4984,9 +5438,10 @@ class ShadowRunCoordinator:
             state.done.set()
             return False
 
-        state.dispatched = True
-        state.stages_dispatched += 1
-        state.stage_index += 1
+        with self._lock:
+            state.dispatched = True
+            state.stages_dispatched += 1
+            state.stage_index += 1
         return True
 
     def _on_shadow_complete(self, generation: int, owner: str, token: int, line: str) -> None:

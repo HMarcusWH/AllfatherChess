@@ -1,8 +1,8 @@
 # AllfatherChess current build and release status
 
 **Status date:** 26 September 2026  
-**Authoritative source commit:** `64aa8fd13c390b9b37b8825d8f39e73d9bdbdbf8`  
-**Merged milestone:** PR #36 / ONLINE-1 — clock-derived per-move envelopes and deadline-safe UCI execution  
+**Authoritative source commit:** `c499405fd97600546437c1f91b4c0e9e066023cb`  
+**Merged milestone:** PR #38 / ONLINE-2 — real-network online CPU execution profile  
 **Canonical deployment plan:** [ONLINE_RELEASE_PLAN.md](ONLINE_RELEASE_PLAN.md)
 
 This document is the short-form synchronization point for the live repository. Historical
@@ -11,15 +11,16 @@ with this file, the current code/configuration and this record take precedence.
 
 ## Current CI evidence on main
 
-All five main-branch workflow families completed successfully on the authoritative commit:
+All six applicable main-branch workflow families completed successfully on the authoritative commit:
 
 | Workflow | Run | Result |
 | --- | --- | --- |
-| Merge gate | 36193538618 | success |
-| Controller shell validation | 36193538737 | success |
-| Telemetry contract validation | 36193538611 | success |
-| LC0 real-inference qualification | 36193538614 | success |
-| Baseline engine validation | 36193538665 | success |
+| Merge gate | 36198933620 | success |
+| Controller shell validation | 36198933613 | success |
+| Telemetry contract validation | 36198933622 | success |
+| LC0 real-inference qualification | 36198933617 | success |
+| ONLINE-2 real-network online profile | 36198933607 | success |
+| Baseline engine validation | 36198933635 | success |
 
 The baseline job built all three real engine trees and passed the retained golden,
 restricted-root, ShardLedger, recursive REFINE, specialist-budget, measured-resource,
@@ -95,7 +96,7 @@ new composition with explicit evidence semantics.
 
 ### 1. ONLINE-2 — real-network hardware-bound online profile
 
-**Implemented in the current candidate change; qualification is commit-specific.**
+**Merged and qualified on the recorded reference host.**
 
 The candidate adds an isolated portable CPU-target artifact bundle, the
 `allfather.online.cpu-reference.json` runtime, an explicit host/build policy, bounded
@@ -106,6 +107,8 @@ A passing ONLINE-2 workflow proves reproducible operational inference on the rec
 host, not strength. M14-G3 remains the next behavioral authority milestone.
 
 ### 2. M14-G3 — compose staged VERIFY with clock-aware hybrid authority
+
+**Active candidate work package.**
 
 Add a new authorization/evidence version rather than deleting the current firewalls.
 The selected terminal source, base/extension stage identity, candidate order, process

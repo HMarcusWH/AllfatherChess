@@ -11,6 +11,7 @@ sys.path.insert(0, str(ROOT))
 
 from adapters.resource import ProcessSnapshot
 from controller.resource_measurement import (
+    ResourceMeasurementError,
     ResourceMeasurementRun,
     ResourceMeasurementSettings,
 )
@@ -133,6 +134,45 @@ class ResourceMeasurementRunTests(unittest.TestCase):
         self.assertFalse(summary["qualified"])
         self.assertFalse(doc["coverage"]["cpu"]["complete"])
         self.assertFalse(doc["stages"][0]["complete"])
+
+
+class IntervalFreezeTests(unittest.TestCase):
+    def test_freeze_interval_stops_controller_and_process_endpoint_growth(self):
+        settings = ResourceMeasurementSettings(
+            enabled=True,
+            provider='linux-procfs-v1',
+            require_cpu_for_claim=True,
+            require_gpu_for_claim=False,
+            record_memory=True,
+        )
+        run = ResourceMeasurementRun(
+            run_id='freeze-test',
+            settings=settings,
+            provider=_Provider(),
+        )
+        run.register_process(instance='worker', pid=7)
+        key='freeze-stage'
+        run.begin_stage(
+            key=key,
+            instance='worker',
+            phase='TEST',
+            pid=7,
+        )
+        run.finish_stage(key)
+        run.freeze_interval()
+        status = run.live_status()
+        self.assertTrue(status['interval_frozen'])
+        before = run.controller_cpu_ms()
+        _ = sum(i * i for i in range(50000))
+        after = run.controller_cpu_ms()
+        self.assertEqual(before, after)
+        with self.assertRaises(ResourceMeasurementError):
+            run.begin_stage(
+                key='late',
+                instance='worker',
+                phase='LATE',
+                pid=7,
+            )
 
 
 if __name__ == "__main__":

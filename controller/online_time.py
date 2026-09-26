@@ -203,8 +203,17 @@ class ClockSearch:
     def __init__(self, plan: TimePlan) -> None:
         self.plan = plan
         self.work_closed = threading.Event()
+        self.authority_blocked = threading.Event()
+        # Linearizes user-stop/hard-failure revocation against the instant an
+        # authorized HYBRID line is committed for stdout publication.
+        self._authority_gate = threading.Lock()
+        self._authority_committed = False
         self.finished = threading.Event()
         self.dispatched = threading.Event()
+        # Resource endpoints become immutable before replay-only finalization.
+        # A later search may supersede only an interval that has not yet crossed
+        # this freeze boundary.
+        self.measurement_frozen = threading.Event()
         self.measurement_superseded = threading.Event()
         self._lock = threading.Lock()
         self.emitted_ms: float | None = None
@@ -215,15 +224,98 @@ class ClockSearch:
     def work_open(self) -> bool:
         return not self.work_closed.is_set() and time.monotonic() < self.plan.soft_deadline
 
-    def finish(self, *, line: str | None = None, failure: str | None = None) -> None:
+    def authority_open(self) -> bool:
+        """Soft compute expiry closes dispatch, not already-frozen authority evidence."""
+        with self._authority_gate:
+            return (
+                not self.authority_blocked.is_set()
+                and time.monotonic() < self.plan.hard_deadline
+            )
+
+    def block_authority(self) -> bool:
+        """Revoke HYBRID authority until bytes actually cross the output boundary."""
+        with self._authority_gate:
+            if self._authority_committed or self.finished.is_set():
+                return False
+            self.authority_blocked.set()
+            return True
+
+    def try_publish(
+        self,
+        *,
+        line: str,
+        write_once: Callable[[], bool],
+        require_authority: bool,
+    ) -> str:
+        """Atomically couple a nonblocking write attempt to terminal clock state.
+
+        write_once MUST return immediately: True means the complete line was
+        written, False means the sink would block and no bytes were written.
+        Holding the authority gate across that single nonblocking syscall gives
+        stop and the hard watchdog a real linearization point: either
+        revocation/failure wins before bytes cross stdout, or publication wins
+        because the bytes were actually accepted.
+        """
+
+        with self._authority_gate:
+            with self._lock:
+                if self.finished.is_set():
+                    return "finished"
+                if time.monotonic() >= self.plan.hard_deadline:
+                    return "expired"
+                if require_authority and self.authority_blocked.is_set():
+                    return "revoked"
+                written = bool(write_once())
+                if not written:
+                    return "would_block"
+                self.emitted_ms = (
+                    time.monotonic() - self.plan.received_monotonic
+                ) * 1000
+                self.emitted_line = line
+                self.failure = None
+                self.work_closed.set()
+                if require_authority:
+                    self._authority_committed = True
+                self.finished.set()
+                return "published"
+
+    @property
+    def authority_committed(self) -> bool:
+        with self._authority_gate:
+            return self._authority_committed
+
+    def fail(self, *, reason: str, line: str = "bestmove 0000") -> bool:
+        """Atomically revoke authority and seal a terminal clock failure.
+
+        Runtime failure and hard expiry must not expose an intermediate
+        "revoked but still publishable as anchor fallback" state. This method
+        shares the authority gate with try_publish(), so exactly one terminal
+        outcome wins.
+        """
+        with self._authority_gate:
+            with self._lock:
+                if self.finished.is_set():
+                    return False
+                self.authority_blocked.set()
+                self.emitted_ms = (
+                    time.monotonic() - self.plan.received_monotonic
+                ) * 1000
+                self.emitted_line = line
+                self.failure = reason
+                self.work_closed.set()
+                self.finished.set()
+                return True
+
+    def finish(self, *, line: str | None = None, failure: str | None = None) -> bool:
         with self._lock:
             if self.finished.is_set():
-                return
+                return False
             self.emitted_ms = (time.monotonic() - self.plan.received_monotonic) * 1000
             self.emitted_line = line
             self.failure = failure
             self.work_closed.set()
             self.finished.set()
+            return True
 
     def outcome(self) -> dict[str, Any]:
         with self._lock:
@@ -375,8 +467,28 @@ def verify_time_manifest(manifest: dict[str, Any]) -> list[str]:
             raise OnlineTimeError("clock outcome contradicts its deadline")
         if actual:
             words = emitted_line.split()
-            if len(words) < 2 or words[0] != "bestmove" or words[1] != anchors[0].get("bestmove"):
-                raise OnlineTimeError("clock output does not match the recorded anchor bestmove")
+            if len(words) < 2 or words[0] != "bestmove":
+                raise OnlineTimeError("clock output is not a bestmove line")
+            outward = manifest.get("outward_decision")
+            if outward is None:
+                if words[1] != anchors[0].get("bestmove"):
+                    raise OnlineTimeError(
+                        "clock output does not match the recorded anchor bestmove"
+                    )
+            else:
+                if not isinstance(outward, dict):
+                    raise OnlineTimeError("outward_decision must be an object")
+                authority = outward.get("authority")
+                emitted = outward.get("emitted_move")
+                anchor = outward.get("anchor_move")
+                if anchor != anchors[0].get("bestmove"):
+                    raise OnlineTimeError("outward_decision anchor does not match anchor stage")
+                if words[1] != emitted:
+                    raise OnlineTimeError("clock output does not match outward_decision")
+                if authority not in ("HYBRID", "ANCHOR_FALLBACK"):
+                    raise OnlineTimeError("outward_decision authority is invalid")
+                if authority == "ANCHOR_FALLBACK" and emitted != anchor:
+                    raise OnlineTimeError("anchor fallback changed the anchor move")
         return []
     except (KeyError, TypeError, ValueError, OverflowError, AttributeError, BudgetError, SearchRequestError) as exc:
         return [f"online time integrity: {exc}"]

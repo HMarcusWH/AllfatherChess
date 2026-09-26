@@ -17,7 +17,7 @@ import hashlib
 import json
 import math
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from controller.crossfeed import CrossFeedView
@@ -27,6 +27,8 @@ DECISION_SCHEMA_VERSION = 1
 DECISION_EVIDENCE_VERSION = "decision-evidence-v1"
 COUNTERFACTUAL_POLICY = "unanimous_verify_v1"
 AUTHORIZATION_POLICY = "bounded_preanchor_v0"
+CLOCKED_AUTHORIZATION_POLICY = "clocked_staged_preanchor_v1"
+AUTHORIZATION_POLICIES = (AUTHORIZATION_POLICY, CLOCKED_AUTHORIZATION_POLICY)
 HYBRID_AUTHORITY = "HYBRID"
 ANCHOR_FALLBACK = "ANCHOR_FALLBACK"
 OWNER_ORDER = ("stockfish", "reckless", "lc0")
@@ -316,6 +318,21 @@ class DecisionAuthorizationSnapshot:
     measurement_known_failure: bool
     backend_generation_current: bool
     controller_fallback_latched: bool
+    time_plan_id: str | None = None
+    time_plan_request_class: str | None = None
+    time_plan_generation: int | None = None
+    time_plan_position_id: str | None = None
+    time_plan_anchor_go_command: str | None = None
+    terminal_source: str | None = None
+    staged_complete: bool | None = None
+    staged_intervention: str | None = None
+    staged_generation: int | None = None
+    staged_candidate_roots: tuple[str, ...] = ()
+    route_action: str | None = None
+    route_buy_extension: bool | None = None
+    route_decision_digest: str | None = None
+    authority_evidence_frozen_before_soft_deadline: bool | None = None
+    authority_blocked: bool = False
 
     def __post_init__(self) -> None:
         if not isinstance(self.run_id, str) or not self.run_id:
@@ -382,6 +399,23 @@ class DecisionAuthorizationSnapshot:
             "measurement_known_failure": self.measurement_known_failure,
             "backend_generation_current": self.backend_generation_current,
             "controller_fallback_latched": self.controller_fallback_latched,
+            "time_plan_id": self.time_plan_id,
+            "time_plan_request_class": self.time_plan_request_class,
+            "time_plan_generation": self.time_plan_generation,
+            "time_plan_position_id": self.time_plan_position_id,
+            "time_plan_anchor_go_command": self.time_plan_anchor_go_command,
+            "terminal_source": self.terminal_source,
+            "staged_complete": self.staged_complete,
+            "staged_intervention": self.staged_intervention,
+            "staged_generation": self.staged_generation,
+            "staged_candidate_roots": list(self.staged_candidate_roots),
+            "route_action": self.route_action,
+            "route_buy_extension": self.route_buy_extension,
+            "route_decision_digest": self.route_decision_digest,
+            "authority_evidence_frozen_before_soft_deadline": (
+                self.authority_evidence_frozen_before_soft_deadline
+            ),
+            "authority_blocked": self.authority_blocked,
         }
 
     @property
@@ -400,7 +434,7 @@ class DecisionAuthorization:
     snapshot_digest: str
 
     def __post_init__(self) -> None:
-        if self.policy != AUTHORIZATION_POLICY:
+        if self.policy not in AUTHORIZATION_POLICIES:
             raise DecisionError(f"unsupported authorization policy: {self.policy!r}")
         if self.authorized:
             if self.move is None:
@@ -433,12 +467,21 @@ class FinalDecision:
     proposal_move: str | None
     authorization: DecisionAuthorization
     authorization_snapshot: DecisionAuthorizationSnapshot
+    proposal_evidence_digest: str | None = None
 
     def __post_init__(self) -> None:
         _canonical_move(self.emitted_move, "final emitted move")
         _canonical_move(self.anchor_move, "final anchor move")
         if self.proposal_move is not None:
             _canonical_move(self.proposal_move, "final proposal move")
+        if self.proposal_evidence_digest is not None:
+            if (
+                not isinstance(self.proposal_evidence_digest, str)
+                or len(self.proposal_evidence_digest) != 64
+            ):
+                raise DecisionError(
+                    "final proposal evidence identity must be a SHA-256 digest"
+                )
         if self.authority not in (HYBRID_AUTHORITY, ANCHOR_FALLBACK):
             raise DecisionError(f"unknown final-decision authority: {self.authority!r}")
         if self.authorization.snapshot_digest != self.authorization_snapshot.digest:
@@ -466,6 +509,7 @@ class FinalDecision:
             "emitted_move": self.emitted_move,
             "anchor_move": self.anchor_move,
             "proposal_move": self.proposal_move,
+            "proposal_evidence_digest": self.proposal_evidence_digest,
             "authorization": self.authorization.as_dict(),
             "authorization_snapshot": self.authorization_snapshot.as_dict(),
         }
@@ -725,7 +769,7 @@ def authorize_decision(
     work, filesystem access, waiting, calibration loading, or resource sampling.
     """
 
-    if policy != AUTHORIZATION_POLICY:
+    if policy not in AUTHORIZATION_POLICIES:
         raise DecisionError(f"unsupported authorization policy: {policy!r}")
 
     reasons: list[str] = []
@@ -758,8 +802,49 @@ def authorize_decision(
         ):
             reasons.append("proposal move is outside external searchmoves")
 
-    if snapshot.request_class != "movetime_v0" or not snapshot.request_eligible:
-        reasons.append(f"unsupported request class: {snapshot.request_reason}")
+    if policy == AUTHORIZATION_POLICY:
+        if snapshot.request_class != "movetime_v0" or not snapshot.request_eligible:
+            reasons.append(f"unsupported request class: {snapshot.request_reason}")
+    else:
+        if snapshot.request_class != "online_time_v1" or not snapshot.request_eligible:
+            reasons.append(f"unsupported online request class: {snapshot.request_reason}")
+        if (
+            not isinstance(snapshot.time_plan_id, str)
+            or not snapshot.time_plan_id.startswith("time-")
+            or len(snapshot.time_plan_id) != 69
+        ):
+            reasons.append("ONLINE authority is missing or malformed TimePlan identity")
+        if snapshot.time_plan_request_class not in ("movetime_deadline_v1", "clock_v1"):
+            reasons.append("unsupported TimePlan request class")
+        if snapshot.time_plan_generation != snapshot.generation:
+            reasons.append("TimePlan generation mismatch")
+        if snapshot.time_plan_position_id != snapshot.position_id:
+            reasons.append("TimePlan position mismatch")
+        if not snapshot.time_plan_anchor_go_command:
+            reasons.append("TimePlan anchor command is missing")
+        if snapshot.terminal_source != "staged_verification":
+            reasons.append("G3 authority requires staged_verification terminal source")
+        if snapshot.staged_complete is not True:
+            reasons.append("staged VERIFY is not completely settled")
+        if snapshot.staged_intervention != "same_process_staged_verify_v1":
+            reasons.append("staged VERIFY intervention identity mismatch")
+        if snapshot.staged_generation != snapshot.generation:
+            reasons.append("staged VERIFY generation mismatch")
+        if tuple(snapshot.staged_candidate_roots) != tuple(
+            evidence.verification_terminal.candidate_roots
+        ):
+            reasons.append("staged VERIFY candidate order differs from decision evidence")
+        if snapshot.route_action != "BUY_STAGED_VERIFY" or snapshot.route_buy_extension is not True:
+            reasons.append("G3 authority requires a BUY_STAGED_VERIFY route")
+        if (
+            not isinstance(snapshot.route_decision_digest, str)
+            or len(snapshot.route_decision_digest) != 64
+        ):
+            reasons.append("G3 route decision identity is missing")
+        if snapshot.authority_evidence_frozen_before_soft_deadline is not True:
+            reasons.append("proposal was not frozen before the soft compute deadline")
+        if snapshot.authority_blocked:
+            reasons.append("clock authority was explicitly invalidated")
     if not snapshot.anchor_request_bounded:
         reasons.append("anchor request is not bounded by the declared wall envelope")
     if not snapshot.anchor_reserved:
@@ -808,6 +893,47 @@ def authorize_decision(
     )
 
 
+def revoke_final_decision_to_anchor(
+    decision: FinalDecision,
+    *,
+    reason: str,
+) -> FinalDecision:
+    """Fail a selected HYBRID choice closed after clock authority is revoked.
+
+    The anchor move may still be emitted after an explicit user stop.  In that
+    case replay must record what actually crossed stdout rather than dropping
+    the decision artifact entirely.  An already-denied fallback is preserved;
+    a previously granted HYBRID decision is rebound to an authority-blocked
+    snapshot and a denied authorization before it can be published.
+    """
+
+    if not isinstance(reason, str) or not reason:
+        raise DecisionError("revocation reason must be non-empty")
+    if decision.authority == ANCHOR_FALLBACK:
+        return decision
+
+    snapshot = replace(
+        decision.authorization_snapshot,
+        authority_blocked=True,
+    )
+    authorization = DecisionAuthorization(
+        policy=decision.authorization.policy,
+        authorized=False,
+        move=None,
+        reason=reason,
+        snapshot_digest=snapshot.digest,
+    )
+    return FinalDecision(
+        authority=ANCHOR_FALLBACK,
+        emitted_move=decision.anchor_move,
+        anchor_move=decision.anchor_move,
+        proposal_move=decision.proposal_move,
+        authorization=authorization,
+        authorization_snapshot=snapshot,
+        proposal_evidence_digest=decision.proposal_evidence_digest,
+    )
+
+
 def select_final_decision(
     *,
     anchor_move: str,
@@ -825,6 +951,9 @@ def select_final_decision(
             proposal_move=proposal_move,
             authorization=authorization,
             authorization_snapshot=authorization_snapshot,
+            proposal_evidence_digest=(
+                None if proposal is None else proposal.evidence_digest
+            ),
         )
     return FinalDecision(
         authority=ANCHOR_FALLBACK,
@@ -833,6 +962,9 @@ def select_final_decision(
         proposal_move=proposal_move,
         authorization=authorization,
         authorization_snapshot=authorization_snapshot,
+        proposal_evidence_digest=(
+            None if proposal is None else proposal.evidence_digest
+        ),
     )
 
 

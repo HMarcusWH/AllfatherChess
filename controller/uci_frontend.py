@@ -2,16 +2,21 @@
 
 from __future__ import annotations
 
+import io
+import os
+import queue
 import re
+import select
+import stat
 import sys
 import threading
 import time
-import queue
 from enum import Enum
 from typing import TYPE_CHECKING, TextIO
 
 from .runtime import BackendManager, RuntimeError
 from .online_time import ClockSearch, OnlineTimeError, make_time_plan
+from .decision import revoke_final_decision_to_anchor
 from .budget import ResourceEnvelope
 from common.search_request import parse_position_command, SearchRequestError
 
@@ -55,6 +60,16 @@ class UciFrontend:
         self._generation = 0
         self._active_generation: int | None = None
         self.online_time = getattr(getattr(runtime, "config", None), "online_time", None)
+        self._online_atomic_write_limit: int | None = None
+        if self.online_time is not None and not isinstance(self.output, io.StringIO):
+            fd = self._output_fd()
+            limit = None if fd is None else self._atomic_pipe_write_limit(fd)
+            if limit is None:
+                raise RuntimeError(
+                    "ONLINE mode requires StringIO for in-process tests or a "
+                    "POSIX pipe/FIFO output with PIPE_BUF atomic-write semantics"
+                )
+            self._online_atomic_write_limit = limit
         self._clock_search: ClockSearch | None = None
         self._receipt_monotonic: float | None = None
         self._receipt_cpu_ns: int | None = None
@@ -69,6 +84,142 @@ class UciFrontend:
         with self._write_lock:
             self.output.write(line + "\n")
             self.output.flush()
+
+    def _clocked_hybrid_authority_enabled(self) -> bool:
+        authority = getattr(getattr(self.runtime, "config", None), "hybrid_authority", None)
+        return bool(
+            self.online_time is not None
+            and authority is not None
+            and authority.policy == "clocked_staged_preanchor_v1"
+        )
+
+    def _output_fd(self) -> int | None:
+        try:
+            fd = self.output.fileno()
+        except (AttributeError, io.UnsupportedOperation, OSError, ValueError):
+            return None
+        return fd if isinstance(fd, int) and fd >= 0 else None
+
+    @staticmethod
+    def _atomic_pipe_write_limit(fd: int) -> int | None:
+        """Return the atomic write bound only for POSIX pipe/FIFO descriptors."""
+        try:
+            mode = os.fstat(fd).st_mode
+            if not stat.S_ISFIFO(mode):
+                return None
+            bound = int(os.fpathconf(fd, "PC_PIPE_BUF"))
+        except (OSError, ValueError, TypeError):
+            return None
+        return bound if bound > 0 else None
+
+    def _try_write_online_line_once(self, line: str) -> bool:
+        """Attempt one complete ONLINE line without ever blocking."""
+        if not self._write_lock.acquire(blocking=False):
+            return False
+        try:
+            if isinstance(self.output, io.StringIO):
+                self.output.write(line + "\n")
+                self.output.flush()
+                return True
+
+            fd = self._output_fd()
+            limit = self._online_atomic_write_limit
+            if fd is None or limit is None:
+                return False
+
+            payload = (line + "\n").encode("ascii", errors="strict")
+            if len(payload) > limit:
+                raise RuntimeError(
+                    "deadline-safe UCI line exceeds the output pipe atomic-write bound"
+                )
+            was_blocking = os.get_blocking(fd)
+            if was_blocking:
+                os.set_blocking(fd, False)
+            try:
+                try:
+                    written = os.write(fd, payload)
+                except BlockingIOError:
+                    return False
+            finally:
+                if was_blocking:
+                    os.set_blocking(fd, True)
+
+            if written != len(payload):
+                # POSIX requires writes <= PIPE_BUF to a pipe/FIFO to be
+                # all-or-nothing. Treat violation as a transport invariant
+                # failure; unsupported short-write descriptors are rejected at
+                # construction and never reach this path.
+                raise RuntimeError(
+                    "atomic pipe contract produced an impossible partial UCI line"
+                )
+            return True
+        finally:
+            self._write_lock.release()
+
+    def _wait_online_output_capacity(self, clock: ClockSearch) -> None:
+        remaining = max(0.0, clock.plan.hard_deadline - time.monotonic())
+        if remaining <= 0:
+            return
+        fd = self._output_fd()
+        timeout = min(0.01, remaining)
+        if fd is None:
+            time.sleep(min(0.002, timeout))
+            return
+        try:
+            select.select([], [fd], [], timeout)
+        except (OSError, ValueError):
+            time.sleep(min(0.002, timeout))
+
+    def _publish_online_bestmove(
+        self,
+        *,
+        token: int,
+        clock: ClockSearch,
+        anchor_line: str,
+        final_decision,
+    ) -> tuple[str | None, object | None, str]:
+        """Publish one terminal line without blocking stop or hard expiry."""
+        while True:
+            hybrid = (
+                final_decision is not None
+                and final_decision.authority == "HYBRID"
+            )
+            outward_line = anchor_line
+            if (
+                hybrid
+                and final_decision.emitted_move != final_decision.anchor_move
+            ):
+                outward_line = f"bestmove {final_decision.emitted_move}"
+
+            def write_and_retain() -> bool:
+                written = self._try_write_online_line_once(outward_line)
+                if written and self.shadow is not None:
+                    # Bytes have crossed stdout. Retain the exact decision
+                    # before the clock publication gate opens to quit/next-turn
+                    # handling; this operation is bounded and memory-only.
+                    self.shadow.note_anchor_published(
+                        token,
+                        final_decision=final_decision,
+                    )
+                return written
+
+            status = clock.try_publish(
+                line=outward_line,
+                require_authority=hybrid,
+                write_once=write_and_retain,
+            )
+            if status == "published":
+                return outward_line, final_decision, status
+            if status == "revoked":
+                final_decision = revoke_final_decision_to_anchor(
+                    final_decision,
+                    reason="clock authority revoked before bytes crossed stdout",
+                )
+                continue
+            if status == "would_block":
+                self._wait_online_output_capacity(clock)
+                continue
+            return None, final_decision, status
 
     def _diagnostic(self, message: str) -> None:
         sanitized = " ".join(str(message).splitlines())
@@ -108,25 +259,102 @@ class UciFrontend:
         with self._state_lock:
             if self._state != ShellState.SEARCHING or self._active_generation != token:
                 return
-            self._write(line)
+            suppress = self._clocked_hybrid_authority_enabled()
+        # G3 may emit a move the Stockfish anchor did not select. Do not attach
+        # the anchor's score/PV to a different outward move.
+        if suppress:
+            return
+        self._write(line)
 
     def _on_search_complete(self, token: int, line: str) -> None:
         if self.online_time is not None:
             with self._state_lock:
                 clock = self._clock_search
-                if self._state != ShellState.SEARCHING or self._active_generation != token or clock is None:
+                if (
+                    self._state != ShellState.SEARCHING
+                    or self._active_generation != token
+                    or clock is None
+                ):
                     return
-                if time.monotonic() >= clock.plan.hard_deadline:
-                    self._clock_fail(token, "anchor answered after the clock deadline")
+                expired = time.monotonic() >= clock.plan.hard_deadline
+            if expired:
+                self._clock_fail(token, "anchor answered after the clock deadline")
+                return
+
+            final_decision = None
+            if self.shadow is not None:
+                try:
+                    # Publish the physical anchor-completion boundary for every
+                    # ONLINE profile immediately. Hybrid-enabled profiles may
+                    # also return a bounded decision here; anchor-only profiles
+                    # return None. Deferred telemetry completion is a separate
+                    # replay barrier and must never be the only signal that the
+                    # engine process itself is idle.
+                    final_decision = self.shadow.note_anchor_complete(token, line)
+                except Exception as exc:
+                    self._diagnostic(
+                        f"clocked decision boundary failed: {exc}"
+                    )
+
+            with self._state_lock:
+                clock = self._clock_search
+                if (
+                    self._state != ShellState.SEARCHING
+                    or self._active_generation != token
+                    or clock is None
+                ):
                     return
                 clock.work_closed.set()
-                self._write(line)  # ONLINE-1: exact anchor, never a hybrid proposal.
-                clock.finish(line=line)
-                self._active_generation = None
-                self._state = ShellState.READY if self.runtime.healthy else ShellState.UNHEALTHY
+
+            outward_line, final_decision, publish_status = (
+                self._publish_online_bestmove(
+                    token=token,
+                    clock=clock,
+                    anchor_line=line,
+                    final_decision=final_decision,
+                )
+            )
+            if publish_status == "expired":
+                self._clock_fail(
+                    token,
+                    "outward publication reached the clock hard deadline",
+                )
+                return
+            if publish_status != "published" or outward_line is None:
+                return
+
+            # The successful write callback already retained the exact outward
+            # decision under the clock publication gate.
+            # UCI readiness follows successful stdout publication. Slower
+            # procfs/resource/replay evidence work may continue independently.
+            with self._state_lock:
+                if (
+                    self._state == ShellState.SEARCHING
+                    and self._active_generation == token
+                ):
+                    self._active_generation = None
+                    self._state = (
+                        ShellState.READY
+                        if self.runtime.healthy
+                        else ShellState.UNHEALTHY
+                    )
+
             if self.shadow is not None:
-                threading.Thread(target=lambda: self._shadow_cancel("clock_anchor_complete", token),
-                                 name=f"allfather-clock-complete-{token}", daemon=True).start()
+                try:
+                    self.shadow.note_anchor_emitted(token)
+                except Exception as exc:
+                    self._diagnostic(
+                        f"post-output resource sample failed: {exc}"
+                    )
+                threading.Thread(
+                    target=lambda: self._shadow_cancel(
+                        "clock_anchor_complete",
+                        token,
+                        authority_invalidating=False,
+                    ),
+                    name=f"allfather-clock-complete-{token}",
+                    daemon=True,
+                ).start()
             return
         final_decision = None
         if self.shadow is not None:
@@ -155,11 +383,20 @@ class UciFrontend:
 
         if self.shadow is not None:
             try:
-                self.shadow.note_anchor_emitted(token)
+                self.shadow.note_anchor_emitted(
+                    token,
+                    final_decision=final_decision,
+                )
             except Exception as exc:  # pragma: no cover - measurement is non-authoritative
                 self._diagnostic(f"anchor terminal resource sample failed: {exc}")
 
-    def _shadow_cancel(self, reason: str, generation: int | None = None) -> None:
+    def _shadow_cancel(
+        self,
+        reason: str,
+        generation: int | None = None,
+        *,
+        authority_invalidating: bool = True,
+    ) -> None:
         """Cancel shadow observation without ever waiting on it.
 
         Every call here is on an authority path -- the command loop or a
@@ -172,7 +409,12 @@ class UciFrontend:
         if self.shadow is None:
             return
         try:
-            self.shadow.cancel(generation, reason=reason, detach=True)
+            self.shadow.cancel(
+                generation,
+                reason=reason,
+                detach=True,
+                authority_invalidating=authority_invalidating,
+            )
         except Exception as exc:  # pragma: no cover - shadow control is non-authoritative
             self._diagnostic(f"shadow cancel failed: {exc}")
 
@@ -360,36 +602,59 @@ class UciFrontend:
                 # already answered; all dispatch sites consume work_open().
                 self.shadow.start_shadow_work(token)
 
-    def _clock_stop(self, token: int) -> None:
+    def _clock_stop(self, token: int, *, authority_invalidating: bool = False) -> None:
         with self._state_lock:
             clock = self._clock_search
-            if self._active_generation != token or self._state != ShellState.SEARCHING or clock is None:
+            if (
+                self._active_generation != token
+                or self._state != ShellState.SEARCHING
+                or clock is None
+                or clock.finished.is_set()
+            ):
                 return
             clock.work_closed.set()
+            if authority_invalidating and not clock.block_authority():
+                # Publication already won the terminal race.
+                return
         remaining = max(0, clock.plan.hard_deadline - time.monotonic())
         if remaining > 0 and clock.dispatched.is_set():
             self.runtime.stop_anchor_for(token, timeout=remaining)
-        # This is already an independent writer thread, never the deadline
-        # watcher or command loop. The shared work fence closed before IO.
-        self._shadow_cancel("clock_soft_stop", token)
+        self._shadow_cancel(
+            "clock_user_stop" if authority_invalidating else "clock_soft_stop",
+            token,
+            authority_invalidating=authority_invalidating,
+        )
 
     def _clock_fail(self, token: int, reason: str) -> None:
         with self._state_lock:
             clock = self._clock_search
-            if self._state != ShellState.SEARCHING or self._active_generation != token or clock is None:
+            if (
+                self._state != ShellState.SEARCHING
+                or self._active_generation != token
+                or clock is None
+            ):
                 return
-            self._active_generation = None
-            self._state = ShellState.UNHEALTHY
+
+        # Runtime failure / hard expiry is one atomic terminal clock operation.
+        # There is never an intermediate revoked-but-publishable fallback state.
+        if not clock.fail(reason=reason, line="bestmove 0000"):
+            return
+
+        with self._state_lock:
+            if self._active_generation == token:
+                self._active_generation = None
+                self._state = ShellState.UNHEALTHY
             clock.work_closed.set()
-            self._diagnostic(reason)
-            self._write("bestmove 0000")
-            clock.finish(line="bestmove 0000", failure=reason)
-        # No inference of a legal move from an incomplete PV. A dead/stuck
-        # anchor is an explicit failed game; supervisor recovery is ONLINE-2/4.
+
         self.runtime.fail_clock_search(token, reason)
+        self._diagnostic(reason)
+        self._write("bestmove 0000")
         if self.shadow is not None:
-            threading.Thread(target=lambda: self._shadow_cancel(reason, token),
-                             name=f"allfather-clock-failure-{token}", daemon=True).start()
+            threading.Thread(
+                target=lambda: self._shadow_cancel(reason, token),
+                name=f"allfather-clock-failure-{token}",
+                daemon=True,
+            ).start()
 
     def _on_clock_observation_end(self, token: int, line: str, lost: int) -> None:
         if self.shadow is not None:
@@ -452,14 +717,36 @@ class UciFrontend:
 
         if command == "stop":
             if self.online_time is not None:
+                # Revoke before waiting for frontend state. Only launch an
+                # invalidating stop if revocation actually wins; a stop that
+                # arrives after terminal publication must not rewrite replay.
+                clock_hint = self._clock_search
+                revoked = False
+                if clock_hint is not None:
+                    clock_hint.work_closed.set()
+                    revoked = clock_hint.block_authority()
+
                 with self._state_lock:
-                    token = self._active_generation
                     clock = self._clock_search
-                    if clock is not None:
+                    if clock is not None and clock is not clock_hint:
                         clock.work_closed.set()
+                        revoked = clock.block_authority()
+                    token = (
+                        self._active_generation
+                        if revoked
+                        and clock is not None
+                        and not clock.finished.is_set()
+                        else None
+                    )
+
                 if token is not None:
-                    threading.Thread(target=lambda: self._clock_stop(token),
-                                     name=f"allfather-clock-user-stop-{token}", daemon=True).start()
+                    threading.Thread(
+                        target=lambda: self._clock_stop(
+                            token, authority_invalidating=True
+                        ),
+                        name=f"allfather-clock-user-stop-{token}",
+                        daemon=True,
+                    ).start()
                 return True
             if self.state == ShellState.SEARCHING:
                 # AUTHORITY FIRST. Cancelling shadows ahead of this sent `stop`

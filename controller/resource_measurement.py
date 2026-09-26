@@ -184,6 +184,8 @@ class ResourceMeasurementRun:
             if controller_cpu_started_ns is None
             else int(controller_cpu_started_ns)
         )
+        self._controller_cpu_ended_ns: int | None = None
+        self._interval_frozen = False
         self._sealed: dict[str, object] | None = None
 
     @property
@@ -219,6 +221,7 @@ class ResourceMeasurementRun:
                 "active_stage_keys": tuple(sorted(self._active)),
                 "completed_stage_count": len(completed),
                 "known_failure": bool(known_failure),
+                "interval_frozen": self._interval_frozen,
             }
 
     def register_process(self, *, instance: str, pid: int | None) -> None:
@@ -226,6 +229,10 @@ class ResourceMeasurementRun:
         if not self.settings.enabled:
             return
         with self._lock:
+            if self._interval_frozen:
+                raise ResourceMeasurementError(
+                    "cannot register a process after measurement interval freeze"
+                )
             if instance in self._process_starts or instance in self._process_totals:
                 return
             if self._provider is None or pid is None:
@@ -298,6 +305,10 @@ class ResourceMeasurementRun:
         with self._lock:
             if self._sealed is not None:
                 raise ResourceMeasurementError("cannot begin a stage after resource report sealing")
+            if self._interval_frozen:
+                raise ResourceMeasurementError(
+                    "cannot begin a stage after measurement interval freeze"
+                )
             if key in self._active or key in self._measurements:
                 raise ResourceMeasurementError(f"resource stage key already exists: {key}")
             other = self._active_instance.get(instance)
@@ -448,8 +459,33 @@ class ResourceMeasurementRun:
         measured = self.measurement(key)
         return measured if measured is not None else self.finish_stage(key)
 
+    def freeze_interval(self) -> None:
+        """Freeze physical process/controller endpoints before next UCI state.
+
+        Replay serialization may continue afterward, but position/new-game
+        synchronization cannot contaminate the previous move's resource
+        certificate once this method returns.
+        """
+        if not self.settings.enabled:
+            return
+        with self._lock:
+            if self._interval_frozen:
+                return
+            if self._active:
+                raise ResourceMeasurementError(
+                    "cannot freeze measurement interval with active resource stages"
+                )
+            self._finalize_process_totals()
+            self._controller_cpu_ended_ns = time.process_time_ns()
+            self._interval_frozen = True
+
     def controller_cpu_ms(self) -> float:
-        delta = time.process_time_ns() - self._controller_cpu_started_ns
+        end_ns = (
+            time.process_time_ns()
+            if self._controller_cpu_ended_ns is None
+            else self._controller_cpu_ended_ns
+        )
+        delta = end_ns - self._controller_cpu_started_ns
         return max(0.0, delta / 1_000_000.0)
 
     def _coverage(self) -> dict[str, object]:
@@ -524,8 +560,8 @@ class ResourceMeasurementRun:
                 "cpu_ms": round(controller_cpu, 3),
                 "scope": (
                     "controller process CPU from replay-run creation through the "
-                    "resource-certificate sampling boundary; artifact serialization "
-                    "after the terminal sample is outside the sample by construction"
+                    "engine-quiescence measurement freeze; replay/artifact serialization "
+                    "after the frozen endpoint is outside the sample by construction"
                 ),
             },
             "engine_cpu_ms": round(measured_engine_cpu, 3),
@@ -581,7 +617,7 @@ class ResourceMeasurementRun:
                     key,
                     reason="resource report sealed before a terminal stage sample was observed",
                 )
-            self._finalize_process_totals()
+            self.freeze_interval()
             if validity_check is not None and not validity_check():
                 self._interval_error = "measurement interval crossed an online anchor generation"
             payload = self._report_payload()

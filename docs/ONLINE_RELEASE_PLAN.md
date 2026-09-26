@@ -1,6 +1,6 @@
 > Repository integration: originally frozen as the 25 September 2026 post-#35 deployment audit;
 > synchronized on 26 September 2026 after merged PR #36 / ONLINE-1.
-> ONLINE-1 is complete. ONLINE-2, M14-G3, LOCAL-1, packaging, lifecycle qualification,
+> ONLINE-1 and ONLINE-2 are complete. M14-G3, LOCAL-1, packaging, lifecycle qualification,
 > release qualification, account setup and the canary remain open. Hardware, licensing and
 > branch-protection items remain explicit release gates.
 
@@ -9,8 +9,8 @@
 **Original review date:** 25 September 2026  
 **Status synchronization:** 26 September 2026  
 **Repository:** `HMarcusWH/AllfatherChess`  
-**Current main commit:** `64aa8fd13c390b9b37b8825d8f39e73d9bdbdbf8`  
-**Current milestone:** PR #36 / ONLINE-1 merged and main-branch qualification green.  
+**Current main commit:** `c499405fd97600546437c1f91b4c0e9e066023cb`  
+**Current milestone:** PR #38 / ONLINE-2 merged and main-branch qualification green.  
 **Current status authority:** [CURRENT_STATUS.md](CURRENT_STATUS.md)  
 **Delivery:** source-backed audit plus synchronized implementation/deployment plan. The repository is not yet a deployed bot and makes no playing-strength claim.
 
@@ -21,8 +21,7 @@ Build a bounded online release, rather than continue an open-ended sequence of r
 The critical path is:
 
 ```text
-PR #36 / ONLINE-1 merged
-    -> ONLINE-2 real-network, hardware-bound online profile
+PR #38 / ONLINE-2 merged
     -> M14-G3 clock-aware staged hybrid authority
     -> LOCAL-1 full-game lifecycle / controlled baseline matches
     -> ONLINE-3 reproducible package + pinned lichess-bot bridge

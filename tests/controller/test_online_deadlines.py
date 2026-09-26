@@ -12,8 +12,21 @@ from unittest.mock import patch
 ROOT=Path(__file__).resolve().parents[2]
 sys.path.insert(0,str(ROOT))
 from controller.uci_frontend import ShellState
+from controller.online_time import ClockSearch, make_time_plan
+from controller.budget import ResourceEnvelope
+from controller.decision import (
+    CLOCKED_AUTHORIZATION_POLICY,
+    authorize_decision,
+    select_final_decision,
+)
+from common.search_request import parse_position_command
 from controller.replay import verify_bundle_integrity
 from tests.controller.online_helpers import shell_fixture,wait_for
+from tests.controller.test_online_hybrid_authority import (
+    evidence as g3_evidence,
+    proposal as g3_proposal,
+    snapshot as g3_snapshot,
+)
 
 ANCHOR='stockfish-anchor'
 SHADOWS=('stockfish-shadow','reckless-shadow','lc0-shadow')
@@ -21,6 +34,36 @@ SHADOWS=('stockfish-shadow','reckless-shadow','lc0-shadow')
 
 def bestmoves(output):
     return [x for x in output.getvalue().splitlines() if x.startswith('bestmove ')]
+
+
+def g3_hybrid_final_decision():
+    ev=g3_evidence()
+    prop=g3_proposal(ev)
+    snap=g3_snapshot()
+    authorization=authorize_decision(
+        prop,ev,snap,policy=CLOCKED_AUTHORIZATION_POLICY
+    )
+    if not authorization.authorized:
+        raise AssertionError(authorization.reason)
+    return select_final_decision(
+        anchor_move='d2d4',
+        proposal=prop,
+        authorization=authorization,
+        authorization_snapshot=snap,
+    )
+
+
+def standalone_clock(shell, manager, *, token=1, movetime=500):
+    position=parse_position_command('position startpos')
+    return ClockSearch(make_time_plan(
+        command=f'go movetime {movetime}',
+        position=position,
+        generation=token,
+        settings=shell.online_time,
+        envelope=ResourceEnvelope.from_config(manager.config.budget),
+        received_monotonic=time.monotonic(),
+        controller_cpu_started_ns=time.process_time_ns(),
+    ))
 
 
 class DeadlineTests(unittest.TestCase):
@@ -43,6 +86,28 @@ class DeadlineTests(unittest.TestCase):
             self.assertEqual(route['time_plan']['plan_id'],manifest['time_plan']['plan_id'])
             self.assertTrue(route['envelope_claim']['clock_output_complete'])
             self.assertTrue(route['envelope_claim']['claimed'])
+
+    def test_quiesce_grace_does_not_shrink_protocol_readiness_timeout(self):
+        with shell_fixture(settings={"quiesce_budget_ms": 200}) as (
+            shell,
+            manager,
+            shadow,
+            out,
+            tmp,
+        ):
+            self.assertEqual(manager.config.online_time.quiesce_budget_ms, 200)
+            for name, process in manager.backends.items():
+                with self.subTest(instance=name):
+                    self.assertGreater(
+                        process.timeout,
+                        0.2,
+                        "online stop grace must not become the UCI readiness timeout",
+                    )
+            # A state barrier remains legal after ONLINE startup and does not
+            # quarantine a healthy observational worker merely for exceeding
+            # the stop grace.
+            manager.new_game()
+            self.assertTrue(manager.shadow_available("lc0-shadow"))
 
     def test_soft_stop_actual_engine_ignoring_movetime(self):
         with shell_fixture(args={ANCHOR:['--info-lines','200','--info-delay-ms','10']},observe=False) as (shell,manager,shadow,out,tmp):
@@ -84,7 +149,7 @@ class DeadlineTests(unittest.TestCase):
             entered=threading.Event();release=threading.Event();original=manager._observer
             def observe(instance,*args):
                 if instance==ANCHOR:
-                    entered.set();release.wait(2)
+                    entered.set();release.wait(3)
                 original(instance,*args)
             manager.set_instance_observer(observe)
             try:
@@ -94,9 +159,371 @@ class DeadlineTests(unittest.TestCase):
                 self.assertEqual(bestmoves(out),['bestmove e2e4'])
                 self.assertFalse(release.is_set())
                 self.assertTrue(shell._clock_search.outcome()['output_within_deadline'])
+
+                # The move may leave stdout immediately, but the replay must
+                # remain open until DeferredObserver has delivered the terminal
+                # anchor line. The old fixed 1s resource wait finalized and
+                # closed this stream while the observer was still blocked.
+                time.sleep(1.1)
+                runs=list(tmp.glob('replays/*'))
+                self.assertEqual(len(runs),1)
+                self.assertFalse((runs[0]/'manifest.json').exists())
+                self.assertIsNotNone(shadow._run)
             finally:release.set()
             wait_for(lambda:list(tmp.glob('replays/*/route.json')))
+            run=next(tmp.glob('replays/*'))
+            wait_for(lambda:(run/'manifest.json').is_file())
+            manifest=json.loads((run/'manifest.json').read_text())
+            anchor_stream=next(
+                item for item in manifest['streams'] if item['instance']==ANCHOR
+            )
+            self.assertTrue(anchor_stream['complete'])
+            self.assertTrue(anchor_stream['contract_validatable'])
 
+    def test_replay_only_backlog_does_not_quarantine_or_block_next_anchor(self):
+        with shell_fixture() as (shell,manager,shadow,out,tmp):
+            entered=threading.Event();release=threading.Event();original=manager._observer
+
+            def observe(instance,token,*args):
+                if instance==ANCHOR and token==1:
+                    entered.set()
+                    release.wait(10)
+                original(instance,token,*args)
+
+            manager.set_instance_observer(observe)
+            try:
+                shell.handle_command('go movetime 500')
+                self.assertTrue(entered.wait(1))
+                wait_for(lambda:len(bestmoves(out))==1,1)
+                old_clock = shell._clock_search
+                self.assertIsNotNone(shadow._run)
+                wait_for(lambda:shadow._run.engine_quiesced.is_set(),3)
+                self.assertTrue(old_clock.measurement_frozen.is_set())
+                self.assertFalse(
+                    release.is_set(),
+                    "deferred telemetry drained before replay-only barrier was exercised",
+                )
+
+                # Deferred telemetry is still blocked, but every physical
+                # engine is already idle/restored. Synchronization must not
+                # quarantine healthy workers for replay-only backlog.
+                shell.handle_command('position startpos moves e2e4')
+                for name in SHADOWS:
+                    self.assertTrue(
+                        manager.shadow_available(name),
+                        f"{name} was quarantined for replay-only backlog",
+                    )
+
+                # A new anchor can run immediately. Until generation 1 replay
+                # finalizes, the coordinator deliberately declines a new shadow
+                # bundle rather than overwriting its callback state.
+                shell.handle_command('go movetime 500')
+                self.assertFalse(
+                    old_clock.measurement_superseded.is_set(),
+                    "a new anchor invalidated already-frozen resource evidence",
+                )
+                wait_for(lambda:len(bestmoves(out))==2,1)
+                self.assertEqual(bestmoves(out)[-1],'bestmove e2e4')
+                for name in SHADOWS:
+                    self.assertTrue(manager.shadow_available(name))
+            finally:
+                release.set()
+
+            wait_for(lambda:list(tmp.glob('replays/*/manifest.json')),3)
+
+    def test_slow_stdout_write_keeps_run_alive_until_decision_publication(self):
+        with shell_fixture(
+            settings={"max_move_ms": 3000},
+        ) as (shell,manager,shadow,out,tmp):
+            entered=threading.Event();release=threading.Event()
+
+            def would_block_then_write(line):
+                entered.set()
+                if not release.is_set():
+                    return False
+                out.write(line+'\n')
+                out.flush()
+                return True
+
+            with patch.object(
+                shell,
+                '_try_write_online_line_once',
+                side_effect=would_block_then_write,
+            ):
+                try:
+                    shell.handle_command('go movetime 2500')
+                    self.assertTrue(entered.wait(1))
+                    time.sleep(1.1)
+                    runs=list(tmp.glob('replays/*'))
+                    self.assertEqual(len(runs),1)
+                    self.assertFalse((runs[0]/'manifest.json').exists())
+                    self.assertIsNotNone(shadow._run)
+                    self.assertFalse(shadow._run.outward_publication_done.is_set())
+                finally:
+                    release.set()
+
+                wait_for(lambda:len(bestmoves(out))==1,1)
+                run=next(tmp.glob('replays/*'))
+                wait_for(lambda:(run/'manifest.json').is_file(),3)
+                manifest=json.loads((run/'manifest.json').read_text())
+                self.assertEqual(
+                    manifest['clock_outcome']['emitted_line'],
+                    bestmoves(out)[0],
+                )
+                wait_for(
+                lambda: shadow._run is None or shadow._run.finished.is_set(),
+                timeout=3,
+            )
+
+    def test_stop_revokes_real_hybrid_while_publication_would_block(self):
+        with shell_fixture(observe=False) as (shell,manager,shadow,out,tmp):
+            token=41
+            clock=standalone_clock(shell,manager,token=token,movetime=500)
+            shell._clock_search=clock
+            shell._active_generation=token
+            shell._state=ShellState.SEARCHING
+            final=g3_hybrid_final_decision()
+            entered=threading.Event();release=threading.Event();written=[]
+            result=[]
+
+            def try_write(line):
+                entered.set()
+                if not release.is_set():
+                    return False
+                written.append(line)
+                return True
+
+            with patch.object(
+                shell,
+                '_try_write_online_line_once',
+                side_effect=try_write,
+            ), patch.object(manager,'stop_anchor_for',return_value=False):
+                publisher=threading.Thread(
+                    target=lambda: result.append(
+                        shell._publish_online_bestmove(
+                            token=token,
+                            clock=clock,
+                            anchor_line='bestmove d2d4 ponder d7d5',
+                            final_decision=final,
+                        )
+                    ),
+                    daemon=True,
+                )
+                publisher.start()
+                self.assertTrue(entered.wait(1))
+                shell.handle_command('stop')
+                wait_for(lambda:clock.authority_blocked.is_set(),1)
+                release.set()
+                publisher.join(timeout=1)
+
+            self.assertFalse(publisher.is_alive())
+            self.assertEqual(written,['bestmove d2d4 ponder d7d5'])
+            self.assertEqual(result[0][0],'bestmove d2d4 ponder d7d5')
+            self.assertEqual(result[0][1].authority,'ANCHOR_FALLBACK')
+            self.assertFalse(clock.authority_committed)
+
+    def test_hard_expiry_wins_while_publication_sink_is_unwritable(self):
+        with shell_fixture(observe=False) as (shell,manager,shadow,out,tmp):
+            token=42
+            clock=standalone_clock(shell,manager,token=token,movetime=150)
+            shell._clock_search=clock
+            shell._active_generation=token
+            shell._state=ShellState.SEARCHING
+            attempted=threading.Event();result=[]
+
+            with patch.object(
+                shell,
+                '_try_write_online_line_once',
+                side_effect=lambda line: attempted.set() or False,
+            ), patch.object(manager,'fail_clock_search',return_value=None):
+                clock.start(
+                    lambda: None,
+                    lambda: shell._clock_fail(token,'clock hard deadline exceeded'),
+                )
+                publisher=threading.Thread(
+                    target=lambda: result.append(
+                        shell._publish_online_bestmove(
+                            token=token,
+                            clock=clock,
+                            anchor_line='bestmove d2d4',
+                            final_decision=g3_hybrid_final_decision(),
+                        )
+                    ),
+                    daemon=True,
+                )
+                publisher.start()
+                self.assertTrue(attempted.wait(1))
+                self.assertTrue(clock.finished.wait(1))
+                publisher.join(timeout=1)
+
+            self.assertFalse(publisher.is_alive())
+            self.assertEqual(clock.failure,'clock hard deadline exceeded')
+            self.assertEqual(clock.emitted_line,'bestmove 0000')
+            self.assertEqual(shell.state,ShellState.UNHEALTHY)
+            self.assertFalse(clock.authority_committed)
+
+    def test_stop_after_terminal_publication_does_not_cancel_shadow_run(self):
+        with shell_fixture(observe=False) as (shell,manager,shadow,out,tmp):
+            token=43
+            clock=standalone_clock(shell,manager,token=token,movetime=500)
+            shell._clock_search=clock
+            shell._active_generation=token
+            shell._state=ShellState.SEARCHING
+            self.assertEqual(
+                clock.try_publish(
+                    line='bestmove d2d4',
+                    write_once=lambda: True,
+                    require_authority=False,
+                ),
+                'published',
+            )
+            with patch.object(shell,'_clock_stop') as clock_stop:
+                shell.handle_command('stop')
+                time.sleep(.05)
+                clock_stop.assert_not_called()
+            self.assertTrue(clock.finished.is_set())
+            self.assertFalse(clock.authority_blocked.is_set())
+
+    def test_close_records_loss_before_aborting_blocked_deferred_observation(self):
+        with shell_fixture() as (shell,manager,shadow,out,tmp):
+            entered=threading.Event();release=threading.Event();original=manager._observer
+
+            def observe(instance,token,*args):
+                if instance==ANCHOR and token==1:
+                    entered.set()
+                    release.wait(10)
+                original(instance,token,*args)
+
+            manager.set_instance_observer(observe)
+            shell.handle_command('go movetime 500')
+            self.assertTrue(entered.wait(1))
+            wait_for(lambda:len(bestmoves(out))==1,1)
+            wait_for(lambda:shadow._run.engine_quiesced.is_set(),3)
+            active=shadow._run
+            self.assertFalse(active.anchor_observation_done.is_set())
+
+            # Exercise the close-time fallback directly with a short synthetic
+            # timeout instead of making the suite sleep for drain_timeout_s.
+            with patch.object(shadow,'quiesce',return_value=False):
+                shadow.close()
+            self.assertTrue(active.anchor_observation_done.is_set())
+            self.assertTrue(
+                any(
+                    'explicitly marked lost' in note
+                    for note in active.run.notes
+                )
+            )
+            release.set()
+            wait_for(lambda:active.finished.is_set(),3)
+
+    def test_quiesce_after_published_move_does_not_mark_run_cancelled(self):
+        with shell_fixture() as (shell,manager,shadow,out,tmp):
+            entered=threading.Event();release=threading.Event()
+            original_sample=shadow.note_anchor_emitted
+
+            def blocked_sample(token, final_decision=None):
+                entered.set()
+                release.wait(3)
+                return original_sample(token, final_decision=final_decision)
+
+            with patch.object(
+                shadow,
+                'note_anchor_emitted',
+                side_effect=blocked_sample,
+            ):
+                try:
+                    shell.handle_command('go movetime 500')
+                    self.assertTrue(entered.wait(1))
+                    wait_for(lambda:len(bestmoves(out))==1,1)
+                    active=shadow._run
+                    self.assertIsNotNone(active)
+                    self.assertTrue(active.outward_publication_done.is_set())
+                    self.assertFalse(active.engine_quiesced.is_set())
+
+                    # A state barrier may have to wait/fail while the physical
+                    # resource endpoint is still being frozen, but a move that
+                    # already crossed stdout is no longer cancellable history.
+                    with patch.object(
+                        shadow,
+                        '_quarantine_clock_workers',
+                        return_value=None,
+                    ):
+                        self.assertFalse(
+                            shadow.quiesce(timeout=.05,reason='quiesce')
+                        )
+                    self.assertFalse(active._cancelled)
+                    self.assertNotEqual(active.cancel_reason,'quiesce')
+                finally:
+                    release.set()
+
+            wait_for(lambda:active.finished.is_set(),3)
+            manifest=json.loads((active.run.run_dir/'manifest.json').read_text())
+            self.assertNotEqual(
+                (manifest.get('disposition') or {}).get('run'),
+                'cancelled',
+            )
+            self.assertNotEqual(
+                (manifest.get('disposition') or {}).get('stop_reason'),
+                'quiesce',
+            )
+
+    def test_ready_precedes_slow_resource_sample_and_quit_keeps_published_decision(self):
+        with shell_fixture() as (shell,manager,shadow,out,tmp):
+            entered = threading.Event()
+            release = threading.Event()
+            original_sample = shadow.note_anchor_emitted
+            original_complete = shadow.note_anchor_complete
+            synthetic = g3_hybrid_final_decision()
+
+            def complete_with_hybrid(token, line):
+                original_complete(token, line)
+                return synthetic
+
+            def blocked_sample(token, final_decision=None):
+                entered.set()
+                release.wait(5)
+                return original_sample(token, final_decision=final_decision)
+
+            with patch.object(
+                shadow,
+                'note_anchor_complete',
+                side_effect=complete_with_hybrid,
+            ), patch.object(
+                shadow,
+                'note_anchor_emitted',
+                side_effect=blocked_sample,
+            ):
+                shell.handle_command('go movetime 500')
+                self.assertTrue(entered.wait(1))
+                wait_for(lambda: len(bestmoves(out)) == 1, 1)
+                self.assertEqual(shell.state, ShellState.READY)
+                self.assertIsNotNone(shadow._run)
+                self.assertTrue(shadow._run.outward_publication_done.is_set())
+                self.assertEqual(
+                    shadow._run.run.outward_decision,
+                    synthetic.as_dict(),
+                    'published bestmove was not retained before slow sampling',
+                )
+
+                quitter = threading.Thread(
+                    target=lambda: shell.handle_command('quit'),
+                    daemon=True,
+                )
+                quitter.start()
+                time.sleep(.15)
+                self.assertEqual(
+                    shadow._run.run.outward_decision,
+                    synthetic.as_dict(),
+                )
+                release.set()
+                quitter.join(timeout=4)
+                self.assertFalse(quitter.is_alive())
+
+            run = next(tmp.glob('replays/*'))
+            wait_for(lambda: (run/'manifest.json').is_file(), timeout=3)
+            manifest = json.loads((run/'manifest.json').read_text())
+            self.assertEqual(manifest.get('outward_decision'), synthetic.as_dict())
+            wait_for(lambda: (run/'decision'/'final.json').is_file(), timeout=3)
     def test_blocked_replay_setup_uses_same_preparation_deadline(self):
         with shell_fixture() as (shell,manager,shadow,out,tmp):
             original_mkdir=Path.mkdir
@@ -201,29 +628,39 @@ class DeadlineTests(unittest.TestCase):
 
     def test_delayed_old_measurement_cannot_qualify_across_new_anchor(self):
         with shell_fixture() as (shell,manager,shadow,out,tmp):
-            release=threading.Event();entered=threading.Event();original=manager._observer
-            def observe(instance,token,*args):
-                if instance==ANCHOR and token==1:
-                    entered.set();release.wait(3)
-                original(instance,token,*args)
-            manager.set_instance_observer(observe)
-            try:
-                shell.handle_command('go movetime 500')
-                self.assertTrue(entered.wait(1))
-                wait_for(lambda:len(bestmoves(out))==1)
-                old=shell._clock_search
-                shell.handle_command('go movetime 500')
-                self.assertTrue(old.measurement_superseded.is_set())
-                release.set()
-                wait_for(lambda:len(bestmoves(out))==2)
-                wait_for(lambda:list(tmp.glob('replays/*/route.json')))
-                first=next(tmp.glob('replays/*'))
-                route=json.loads((first/'route.json').read_text())
-                resource=json.loads((first/'resource.json').read_text())
-                self.assertFalse(route['envelope_claim']['claimed'])
-                self.assertFalse(resource['qualified'])
-                self.assertIn('generation',resource['interval_error'])
-            finally:release.set()
+            release=threading.Event();entered=threading.Event()
+            original_sample=shadow.note_anchor_emitted
+
+            def blocked_sample(token, final_decision=None):
+                if token==1:
+                    entered.set()
+                    release.wait(3)
+                return original_sample(token, final_decision=final_decision)
+
+            with patch.object(
+                shadow,
+                'note_anchor_emitted',
+                side_effect=blocked_sample,
+            ):
+                try:
+                    shell.handle_command('go movetime 500')
+                    self.assertTrue(entered.wait(1))
+                    wait_for(lambda:len(bestmoves(out))==1)
+                    old=shell._clock_search
+                    self.assertFalse(old.measurement_frozen.is_set())
+                    shell.handle_command('go movetime 500')
+                    self.assertTrue(old.measurement_superseded.is_set())
+                    release.set()
+                    wait_for(lambda:len(bestmoves(out))==2)
+                    wait_for(lambda:list(tmp.glob('replays/*/route.json')))
+                    first=next(tmp.glob('replays/*'))
+                    route=json.loads((first/'route.json').read_text())
+                    resource=json.loads((first/'resource.json').read_text())
+                    self.assertFalse(route['envelope_claim']['claimed'])
+                    self.assertFalse(resource['qualified'])
+                    self.assertIn('generation',resource['interval_error'])
+                finally:
+                    release.set()
 
     def test_dispatch_permit_is_rechecked_after_slow_stage_preparation(self):
         args={ANCHOR:['--info-lines','200','--info-delay-ms','10']}
@@ -242,6 +679,10 @@ class DeadlineTests(unittest.TestCase):
                 for name in SHADOWS:
                     transcript=manager.process(name)._transcript
                     self.assertFalse(any(line.startswith('>> go nodes') for line in transcript))
+                wait_for(
+                    lambda: shadow._run is None or shadow._run.finished.is_set(),
+                    timeout=3,
+                )
 
 
 if __name__=='__main__':unittest.main()

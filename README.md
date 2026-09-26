@@ -1,6 +1,6 @@
 # AllfatherChess
 
-> **Current synchronized build state:** post-PR #36 / ONLINE-1 at `64aa8fd13c390b9b37b8825d8f39e73d9bdbdbf8`.  
+> **Current synchronized build state:** PR #38 / ONLINE-2 is merged at `c499405fd97600546437c1f91b4c0e9e066023cb`; M14-G3 is the active candidate.  
 > See [docs/CURRENT_STATUS.md](docs/CURRENT_STATUS.md) for the exact implemented surface,
 > current CI evidence, profile incompatibilities, and remaining release gates.
 
@@ -84,7 +84,7 @@ The new profile uses caller-supplied clocks to derive a per-move CPU/wall envelo
 retains the original and actual anchor requests, and applies independent soft/hard
 deadlines. It never grants hybrid move authority. Legacy profiles are unchanged.
 A stuck anchor produces an explicit failed request (`bestmove 0000`), not an invented
-legal move. Real inference already exists as a separate pinned LC0 BLAS qualification, but it has not yet been composed with ONLINE-1 into a deployment profile. The remaining first-canary critical path is ONLINE-2 real deployment qualification -> M14-G3 clock-aware staged hybrid authority -> LOCAL-1 full-game qualification -> ONLINE-3 packaging -> ONLINE-4 lifecycle/recovery -> release qualification / ONLINE-RC. Production learned SKIP calibration may proceed in parallel; no strength claim is introduced.
+legal move. ONLINE-2 now composes the real-network LC0 BLAS path with ONLINE timing under one portable CPU profile. The remaining first-canary critical path is M14-G3 clock-aware staged hybrid authority -> LOCAL-1 full-game qualification -> ONLINE-3 packaging -> ONLINE-4 lifecycle/recovery -> release qualification / ONLINE-RC. Production learned SKIP calibration may proceed in parallel; no strength claim is introduced.
 
 ## Run the Generation-1 validation shell
 

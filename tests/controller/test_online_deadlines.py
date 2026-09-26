@@ -138,42 +138,49 @@ class DeadlineTests(unittest.TestCase):
             self.assertTrue(anchor_stream['contract_validatable'])
 
     def test_slow_stdout_write_keeps_run_alive_until_decision_publication(self):
+        class BlockingProxy:
+            def __init__(self, target):
+                self.target = target
+                self.entered = threading.Event()
+                self.release = threading.Event()
+
+            def write(self, value):
+                if value.startswith('bestmove '):
+                    self.entered.set()
+                    self.release.wait(3)
+                return self.target.write(value)
+
+            def flush(self):
+                return self.target.flush()
+
         with shell_fixture(
             settings={"max_move_ms": 3000},
         ) as (shell,manager,shadow,out,tmp):
-            entered=threading.Event();release=threading.Event()
-            original_write=shell._write
+            blocked=BlockingProxy(out)
+            shell.output=blocked
+            try:
+                shell.handle_command('go movetime 2500')
+                self.assertTrue(blocked.entered.wait(1))
+                # Reproduce the old fixed one-second finalization race while
+                # stdout is still blocked but the hard deadline remains open.
+                time.sleep(1.1)
+                runs=list(tmp.glob('replays/*'))
+                self.assertEqual(len(runs),1)
+                self.assertFalse((runs[0]/'manifest.json').exists())
+                self.assertIsNotNone(shadow._run)
+                self.assertFalse(shadow._run.outward_publication_done.is_set())
+            finally:
+                blocked.release.set()
 
-            def slow_write(line):
-                if line.startswith('bestmove '):
-                    entered.set()
-                    release.wait(3)
-                original_write(line)
-
-            with patch.object(shell,'_write',side_effect=slow_write):
-                try:
-                    shell.handle_command('go movetime 2500')
-                    self.assertTrue(entered.wait(1))
-                    # Reproduce the old fixed one-second finalization race while
-                    # stdout is still blocked but the hard deadline remains open.
-                    time.sleep(1.1)
-                    runs=list(tmp.glob('replays/*'))
-                    self.assertEqual(len(runs),1)
-                    self.assertFalse((runs[0]/'manifest.json').exists())
-                    self.assertIsNotNone(shadow._run)
-                    self.assertFalse(shadow._run.outward_publication_done.is_set())
-                finally:
-                    release.set()
-
-                wait_for(lambda:len(bestmoves(out))==1,1)
-                run=next(tmp.glob('replays/*'))
-                wait_for(lambda:(run/'manifest.json').is_file(),3)
-                manifest=json.loads((run/'manifest.json').read_text())
-                self.assertEqual(
-                    manifest['clock_outcome']['emitted_line'],
-                    bestmoves(out)[0],
-                )
-                self.assertTrue(shadow._run is None or shadow._run.finished.is_set())
+            wait_for(lambda:len(bestmoves(out))==1,1)
+            run=next(tmp.glob('replays/*'))
+            wait_for(lambda:(run/'manifest.json').is_file(),3)
+            manifest=json.loads((run/'manifest.json').read_text())
+            self.assertEqual(
+                manifest['clock_outcome']['emitted_line'],
+                bestmoves(out)[0],
+            )
+            self.assertTrue(shadow._run is None or shadow._run.finished.is_set())
 
     def test_stop_revokes_authority_while_bestmove_stdout_is_backpressured(self):
         class BlockingOutput(io.StringIO):

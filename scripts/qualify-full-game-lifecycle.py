@@ -129,7 +129,7 @@ def validate_allfather_replays(
         except Exception as exc:
             problems.append(f"{case['case']}:{arm}: invalid external go: {exc}")
             parsed_go={}
-        names={item.get("kind") for item in parsed_go.get("limits",[]) if isinstance(item,dict)}
+        names={item.get("name") for item in parsed_go.get("limits",[]) if isinstance(item,dict)}
         if not {"wtime","btime"} <= names:
             problems.append(
                 f"{case['case']}:{arm}:{run.name}: Fastchess request did not carry both clocks"

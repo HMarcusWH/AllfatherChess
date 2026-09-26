@@ -18,7 +18,7 @@
     "intervention": "same_process_staged_verify_v1"
   },
   "positive_case": {
-    "command": "go movetime 1800 searchmoves e2e4 d2d4 g1f3",
+    "command": "go movetime 4000 searchmoves e2e4 d2d4 g1f3",
     "position": "position startpos",
     "require_authority": "HYBRID",
     "require_terminal_source": "staged_verification"
@@ -29,5 +29,9 @@
     "elo": false,
     "equal_envelope_superiority": false,
     "deployed_bot": false
+  },
+  "clock": {
+    "max_move_ms": 4000,
+    "reason": "G3 may use the full frozen ONLINE-2 outer wall envelope so real BLAS specialist stages can complete before the soft cutoff"
   }
 }

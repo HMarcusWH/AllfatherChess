@@ -187,7 +187,7 @@ class DeadlineTests(unittest.TestCase):
             def observe(instance,token,*args):
                 if instance==ANCHOR and token==1:
                     entered.set()
-                    release.wait(3)
+                    release.wait(10)
                 original(instance,token,*args)
 
             manager.set_instance_observer(observe)
@@ -196,7 +196,11 @@ class DeadlineTests(unittest.TestCase):
                 self.assertTrue(entered.wait(1))
                 wait_for(lambda:len(bestmoves(out))==1,1)
                 self.assertIsNotNone(shadow._run)
-                wait_for(lambda:shadow._run.engine_quiesced.is_set(),1)
+                wait_for(lambda:shadow._run.engine_quiesced.is_set(),3)
+                self.assertFalse(
+                    release.is_set(),
+                    "deferred telemetry drained before replay-only barrier was exercised",
+                )
 
                 # Deferred telemetry is still blocked, but every physical
                 # engine is already idle/restored. Synchronization must not

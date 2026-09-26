@@ -280,6 +280,28 @@ class ClockSearch:
         with self._authority_gate:
             return self._authority_committed
 
+    def fail(self, *, reason: str, line: str = "bestmove 0000") -> bool:
+        """Atomically revoke authority and seal a terminal clock failure.
+
+        Runtime failure and hard expiry must not expose an intermediate
+        "revoked but still publishable as anchor fallback" state. This method
+        shares the authority gate with try_publish(), so exactly one terminal
+        outcome wins.
+        """
+        with self._authority_gate:
+            with self._lock:
+                if self.finished.is_set():
+                    return False
+                self.authority_blocked.set()
+                self.emitted_ms = (
+                    time.monotonic() - self.plan.received_monotonic
+                ) * 1000
+                self.emitted_line = line
+                self.failure = reason
+                self.work_closed.set()
+                self.finished.set()
+                return True
+
     def finish(self, *, line: str | None = None, failure: str | None = None) -> bool:
         with self._lock:
             if self.finished.is_set():

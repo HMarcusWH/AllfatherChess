@@ -18,6 +18,12 @@ Authority is fail-closed. A hybrid move is eligible only when:
 Any failed gate emits the exact Stockfish anchor move. A hard clock/anchor failure
 remains an explicit bestmove 0000.
 
+The reference qualification does not accept a bookkeeping-only HYBRID where the
+proposal happens to equal the anchor. It runs a fixed, predeclared opening-position
+set and requires at least one real Stockfish/Reckless/BLAS-LC0 case where the
+authorized staged proposal is different from the Stockfish anchor and is the move
+actually written outward.
+
 The G3 reference profile may use the full 4000 ms outer ONLINE-2 wall envelope (rather than ONLINE-2's 2000 ms anchor-only reference cap) so real BLAS EXPLORE + staged VERIFY can finish inside one declared envelope. All other TimePlan semantics remain pinned.\n\nThe soft deadline closes new computation. It does not revoke a proposal already\nfrozen legally before that cutoff. Explicit user stop, generation supersession, or
 hard deadline failure does revoke authority.
 

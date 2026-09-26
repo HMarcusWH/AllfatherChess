@@ -108,6 +108,7 @@ class ProfileTests(unittest.TestCase):
             "scripts/fetch-*.py",
             "scripts/fetch-*.sh",
             "scripts/lc0-*.py",
+            "adapters/crossfeed/**",
             "tests/controller/test_online_profile.py",
             "engines/**",
             "vendor.lock.json",

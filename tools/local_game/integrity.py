@@ -60,14 +60,32 @@ def verify_prerequisites(output: Path, source: dict) -> None:
     require(online["contracts"]["build_manifest_sha256"] == sha(ROOT / "build/online-cpu-reference/build-manifest.json"),
             "ONLINE-2 prerequisite bundle mismatch")
     require(online["contracts"]["lc0_reference_report_sha256"] == sha(root / "lc0.json"), "LC0 report binding mismatch")
+    online_replays = root / "online2-replays"
+    require(online_replays.is_dir(), "ONLINE-2 prerequisite replay evidence missing")
+    online_run_ids = [row["run_id"] for row in online.get("cases", [])]
+    require(online_run_ids and len(online_run_ids) == len(set(online_run_ids)),
+            "ONLINE-2 prerequisite run identities missing/duplicated")
+    for run_id in online_run_ids:
+        run_path = contained(online_replays, run_id)
+        require(run_path.is_dir(), f"ONLINE-2 replay missing: {run_id}")
+        problems = verify_bundle_integrity(run_path)
+        require(not problems, f"ONLINE-2 prerequisite replay rejected: {problems}")
+        require(load(run_path / "manifest.json").get("run_id") == run_id,
+                "ONLINE-2 replay directory/run_id mismatch")
+
     positive = g3["positive_case"]
     require(positive["authority"] == "HYBRID" and positive["emitted_move"] != positive["anchor_move"],
             "G3 positive prerequisite is not an actual override")
+    g3_replays = root / "g3-replays"
+    require(g3_replays.is_dir() and (g3_replays / positive["run_id"]).is_dir(),
+            "G3 prerequisite replay root/positive run missing")
     run = root / "g3-positive-replay"
     for verifier in (verify_bundle_integrity, verify_final_decision_integrity, verify_counterfactual_integrity):
         problems = verifier(run)
         require(not problems, f"G3 prerequisite replay rejected: {problems}")
     manifest = load(run / "manifest.json")
+    require(sha(run / "manifest.json") == sha(g3_replays / positive["run_id"] / "manifest.json"),
+            "copied G3 positive replay differs from retained replay root")
     final = load(run / "decision/final.json")["decision"]
     require(manifest["run_id"] == positive["run_id"] == run.name,
             "G3 prerequisite run identity mismatch")

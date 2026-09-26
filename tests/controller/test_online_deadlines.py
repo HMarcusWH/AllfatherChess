@@ -106,7 +106,7 @@ class DeadlineTests(unittest.TestCase):
             entered=threading.Event();release=threading.Event();original=manager._observer
             def observe(instance,*args):
                 if instance==ANCHOR:
-                    entered.set();release.wait(2)
+                    entered.set();release.wait(3)
                 original(instance,*args)
             manager.set_instance_observer(observe)
             try:
@@ -116,8 +116,64 @@ class DeadlineTests(unittest.TestCase):
                 self.assertEqual(bestmoves(out),['bestmove e2e4'])
                 self.assertFalse(release.is_set())
                 self.assertTrue(shell._clock_search.outcome()['output_within_deadline'])
+
+                # The move may leave stdout immediately, but the replay must
+                # remain open until DeferredObserver has delivered the terminal
+                # anchor line. The old fixed 1s resource wait finalized and
+                # closed this stream while the observer was still blocked.
+                time.sleep(1.1)
+                runs=list(tmp.glob('replays/*'))
+                self.assertEqual(len(runs),1)
+                self.assertFalse((runs[0]/'manifest.json').exists())
+                self.assertIsNotNone(shadow._run)
             finally:release.set()
             wait_for(lambda:list(tmp.glob('replays/*/route.json')))
+            run=next(tmp.glob('replays/*'))
+            wait_for(lambda:(run/'manifest.json').is_file())
+            manifest=json.loads((run/'manifest.json').read_text())
+            anchor_stream=next(
+                item for item in manifest['streams'] if item['instance']==ANCHOR
+            )
+            self.assertTrue(anchor_stream['complete'])
+            self.assertTrue(anchor_stream['contract_validatable'])
+
+    def test_slow_stdout_write_keeps_run_alive_until_decision_publication(self):
+        with shell_fixture(
+            settings={"max_move_ms": 3000},
+        ) as (shell,manager,shadow,out,tmp):
+            entered=threading.Event();release=threading.Event()
+            original_write=shell._write
+
+            def slow_write(line):
+                if line.startswith('bestmove '):
+                    entered.set()
+                    release.wait(3)
+                original_write(line)
+
+            with patch.object(shell,'_write',side_effect=slow_write):
+                try:
+                    shell.handle_command('go movetime 2500')
+                    self.assertTrue(entered.wait(1))
+                    # Reproduce the old fixed one-second finalization race while
+                    # stdout is still blocked but the hard deadline remains open.
+                    time.sleep(1.1)
+                    runs=list(tmp.glob('replays/*'))
+                    self.assertEqual(len(runs),1)
+                    self.assertFalse((runs[0]/'manifest.json').exists())
+                    self.assertIsNotNone(shadow._run)
+                    self.assertFalse(shadow._run.outward_publication_done.is_set())
+                finally:
+                    release.set()
+
+                wait_for(lambda:len(bestmoves(out))==1,1)
+                run=next(tmp.glob('replays/*'))
+                wait_for(lambda:(run/'manifest.json').is_file(),3)
+                manifest=json.loads((run/'manifest.json').read_text())
+                self.assertEqual(
+                    manifest['clock_outcome']['emitted_line'],
+                    bestmoves(out)[0],
+                )
+                self.assertTrue(shadow._run is None or shadow._run.finished.is_set())
 
     def test_blocked_replay_setup_uses_same_preparation_deadline(self):
         with shell_fixture() as (shell,manager,shadow,out,tmp):

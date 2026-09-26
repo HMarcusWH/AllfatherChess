@@ -11,7 +11,7 @@
   conservative `BUY_STAGED_VERIFY` route; the current real M14-C integration run
   sealed `ANCHOR_FALLBACK`; and the active-routing validation authorized zero stops.
   These outcomes are not promoted into strength claims.
-- **OPEN RELEASE GATES:** ONLINE-2 real online profile, M14-G3 clock-aware staged
+- **OPEN RELEASE GATES:** M14-G3 clock-aware staged
   authority composition, a real-backend positive HYBRID override test, full-game
   LOCAL-1 qualification, packaging/bridge integration, network/restart/rollback
   qualification, one aggregate release gate, main-branch protection, and the explicit

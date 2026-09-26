@@ -144,6 +144,54 @@ class UciProcessTests(unittest.TestCase):
         self.assertTrue(stub.killed)
         self.assertLess(elapsed, 1.0)
 
+    def test_search_dispatch_gate_rechecks_permit_before_atomic_go_write(self):
+        process = self.make_process()
+        gate = threading.Lock()
+        gate.acquire()
+        allowed = {"value": True}
+        failures: list[BaseException] = []
+
+        def run_search():
+            try:
+                process.start_search(
+                    "go nodes 1",
+                    token=77,
+                    on_info=lambda token, line: None,
+                    on_complete=lambda token, line: None,
+                    permit=lambda: allowed["value"],
+                    dispatch_gate=gate,
+                    timeout=1.0,
+                )
+            except BaseException as exc:
+                failures.append(exc)
+
+        try:
+            process.start()
+            process.configure({"UCI_Chess960": False})
+            worker = threading.Thread(target=run_search, daemon=True)
+            worker.start()
+
+            # The subscription may be staged while the physical go write is
+            # waiting at the coordinator's final dispatch boundary.
+            time.sleep(0.05)
+            allowed["value"] = False
+            gate.release()
+            worker.join(timeout=1.0)
+
+            self.assertFalse(worker.is_alive())
+            self.assertTrue(failures)
+            self.assertIsInstance(failures[0], UciProcessError)
+            self.assertIn("window closed", str(failures[0]))
+            self.assertFalse(
+                any(line == ">> go nodes 1" for line in process.transcript),
+                "go crossed the pipe after the final permit was revoked",
+            )
+            self.assertFalse(process.active_search)
+        finally:
+            if gate.locked():
+                gate.release()
+            process.close()
+
     def test_unexpected_exit_reports_active_token(self):
         exit_seen = threading.Event()
         exits: list[tuple[str, int | None, int | None]] = []

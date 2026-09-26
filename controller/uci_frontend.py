@@ -179,7 +179,6 @@ class UciFrontend:
         final_decision,
     ) -> tuple[str | None, object | None, str]:
         """Publish one terminal line without blocking stop or hard expiry."""
-        del token  # token is carried by the caller's terminal-state checks.
         while True:
             hybrid = (
                 final_decision is not None
@@ -192,10 +191,22 @@ class UciFrontend:
             ):
                 outward_line = f"bestmove {final_decision.emitted_move}"
 
+            def write_and_retain() -> bool:
+                written = self._try_write_online_line_once(outward_line)
+                if written and self.shadow is not None:
+                    # Bytes have crossed stdout. Retain the exact decision
+                    # before the clock publication gate opens to quit/next-turn
+                    # handling; this operation is bounded and memory-only.
+                    self.shadow.note_anchor_published(
+                        token,
+                        final_decision=final_decision,
+                    )
+                return written
+
             status = clock.try_publish(
                 line=outward_line,
                 require_authority=hybrid,
-                write_once=lambda: self._try_write_online_line_once(outward_line),
+                write_once=write_and_retain,
             )
             if status == "published":
                 return outward_line, final_decision, status
@@ -312,20 +323,8 @@ class UciFrontend:
             if publish_status != "published" or outward_line is None:
                 return
 
-            # Retain the exact outward decision in bounded in-memory replay
-            # state before advertising READY. This is the durable publication
-            # handshake for bytes that have already crossed stdout.
-            if self.shadow is not None:
-                try:
-                    self.shadow.note_anchor_published(
-                        token,
-                        final_decision=final_decision,
-                    )
-                except Exception as exc:
-                    self._diagnostic(
-                        f"post-output decision publication failed: {exc}"
-                    )
-
+            # The successful write callback already retained the exact outward
+            # decision under the clock publication gate.
             # UCI readiness follows successful stdout publication. Slower
             # procfs/resource/replay evidence work may continue independently.
             with self._state_lock:

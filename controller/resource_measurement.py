@@ -185,6 +185,7 @@ class ResourceMeasurementRun:
             else int(controller_cpu_started_ns)
         )
         self._controller_cpu_ended_ns: int | None = None
+        self._process_endpoints_frozen = False
         self._interval_frozen = False
         self._sealed: dict[str, object] | None = None
 
@@ -221,6 +222,7 @@ class ResourceMeasurementRun:
                 "active_stage_keys": tuple(sorted(self._active)),
                 "completed_stage_count": len(completed),
                 "known_failure": bool(known_failure),
+                "process_endpoints_frozen": self._process_endpoints_frozen,
                 "interval_frozen": self._interval_frozen,
             }
 
@@ -229,9 +231,9 @@ class ResourceMeasurementRun:
         if not self.settings.enabled:
             return
         with self._lock:
-            if self._interval_frozen:
+            if self._process_endpoints_frozen or self._interval_frozen:
                 raise ResourceMeasurementError(
-                    "cannot register a process after measurement interval freeze"
+                    "cannot register a process after process endpoint freeze"
                 )
             if instance in self._process_starts or instance in self._process_totals:
                 return
@@ -305,9 +307,9 @@ class ResourceMeasurementRun:
         with self._lock:
             if self._sealed is not None:
                 raise ResourceMeasurementError("cannot begin a stage after resource report sealing")
-            if self._interval_frozen:
+            if self._process_endpoints_frozen or self._interval_frozen:
                 raise ResourceMeasurementError(
-                    "cannot begin a stage after measurement interval freeze"
+                    "cannot begin a stage after process endpoint freeze"
                 )
             if key in self._active or key in self._measurements:
                 raise ResourceMeasurementError(f"resource stage key already exists: {key}")
@@ -459,23 +461,40 @@ class ResourceMeasurementRun:
         measured = self.measurement(key)
         return measured if measured is not None else self.finish_stage(key)
 
-    def freeze_interval(self) -> None:
-        """Freeze physical process/controller endpoints before next UCI state.
+    def freeze_process_endpoints(self) -> None:
+        """Freeze backend-process totals while controller finalization may continue.
 
-        Replay serialization may continue afterward, but position/new-game
-        synchronization cannot contaminate the previous move's resource
-        certificate once this method returns.
+        No engine work or state synchronization may be admitted after this
+        boundary. Controller CPU intentionally remains live so route/native-work
+        reconstruction and reservation settlement are charged before the final
+        physical envelope claim is sealed.
+        """
+        if not self.settings.enabled:
+            return
+        with self._lock:
+            if self._process_endpoints_frozen:
+                return
+            if self._active:
+                raise ResourceMeasurementError(
+                    "cannot freeze process endpoints with active resource stages"
+                )
+            self._finalize_process_totals()
+            self._process_endpoints_frozen = True
+
+    def freeze_interval(self) -> None:
+        """Freeze the complete process/controller resource interval.
+
+        Process totals are frozen first so later backend reuse cannot contaminate
+        them. Controller CPU remains live until this full boundary, which is
+        intentionally reached only after resource-relevant route finalization.
+        Replay/artifact serialization may continue afterward.
         """
         if not self.settings.enabled:
             return
         with self._lock:
             if self._interval_frozen:
                 return
-            if self._active:
-                raise ResourceMeasurementError(
-                    "cannot freeze measurement interval with active resource stages"
-                )
-            self._finalize_process_totals()
+            self.freeze_process_endpoints()
             self._controller_cpu_ended_ns = time.process_time_ns()
             self._interval_frozen = True
 
@@ -560,7 +579,7 @@ class ResourceMeasurementRun:
                 "cpu_ms": round(controller_cpu, 3),
                 "scope": (
                     "controller process CPU from replay-run creation through the "
-                    "engine-quiescence measurement freeze; replay/artifact serialization "
+                    "resource-claim finalization freeze; replay/artifact serialization "
                     "after the frozen endpoint is outside the sample by construction"
                 ),
             },

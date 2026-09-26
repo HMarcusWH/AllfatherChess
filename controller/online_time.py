@@ -204,6 +204,10 @@ class ClockSearch:
         self.plan = plan
         self.work_closed = threading.Event()
         self.authority_blocked = threading.Event()
+        # Linearizes user-stop/hard-failure revocation against the instant an
+        # authorized HYBRID line is committed for stdout publication.
+        self._authority_gate = threading.Lock()
+        self._authority_committed = False
         self.finished = threading.Event()
         self.dispatched = threading.Event()
         self.measurement_superseded = threading.Event()
@@ -218,10 +222,41 @@ class ClockSearch:
 
     def authority_open(self) -> bool:
         """Soft compute expiry closes dispatch, not already-frozen authority evidence."""
-        return not self.authority_blocked.is_set() and time.monotonic() < self.plan.hard_deadline
+        with self._authority_gate:
+            return (
+                not self.authority_blocked.is_set()
+                and time.monotonic() < self.plan.hard_deadline
+            )
 
-    def block_authority(self) -> None:
-        self.authority_blocked.set()
+    def block_authority(self) -> bool:
+        """Revoke uncommitted hybrid authority.
+
+        Once commit_authority() wins, the line is already linearized for
+        stdout publication and a later stop cannot retroactively change it.
+        """
+        with self._authority_gate:
+            if self._authority_committed:
+                return False
+            self.authority_blocked.set()
+            return True
+
+    def commit_authority(self) -> bool:
+        """Atomically commit HYBRID authority at the stdout publication boundary."""
+        with self._authority_gate:
+            if self._authority_committed:
+                return True
+            if (
+                self.authority_blocked.is_set()
+                or time.monotonic() >= self.plan.hard_deadline
+            ):
+                return False
+            self._authority_committed = True
+            return True
+
+    @property
+    def authority_committed(self) -> bool:
+        with self._authority_gate:
+            return self._authority_committed
 
     def finish(self, *, line: str | None = None, failure: str | None = None) -> None:
         with self._lock:

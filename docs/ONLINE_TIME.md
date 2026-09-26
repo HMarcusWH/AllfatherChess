@@ -1,11 +1,13 @@
 # ONLINE-1: clock-derived envelopes and deadline-safe UCI execution
 
 This opt-in timing/lifecycle milestone was implemented and merged in **PR #36** on top
-of the PR #35 / M14-G2 baseline. The synchronized main commit is
-`64aa8fd13c390b9b37b8825d8f39e73d9bdbdbf8`. It implements the first behavior-changing work package of
-[ONLINE_RELEASE_PLAN.md](ONLINE_RELEASE_PLAN.md); it does not implement a deployed bot
-or widen M14-C move authority. See [CURRENT_STATUS.md](CURRENT_STATUS.md) for the live
-release state.
+of the PR #35 / M14-G2 baseline. Its historical synchronized commit is
+`64aa8fd13c390b9b37b8825d8f39e73d9bdbdbf8`.
+
+> **Current composition note:** PR #39 / M14-G3 now reuses the ONLINE TimePlan/deadline
+> machinery in a separately qualified real-network staged hybrid authority profile.
+> This document remains the ONLINE-1 timing contract. See
+> [CURRENT_STATUS.md](CURRENT_STATUS.md) and [ROADMAP.md](ROADMAP.md) for the live state.
 
 ## Supported surface
 
@@ -136,9 +138,11 @@ per-move envelopes plus a separate zero-clock rejection control. This qualifies 
 clock/lifecycle mechanism only: the shipped ONLINE-1 profile still uses random LC0 and
 remains anchor-authoritative.
 
-## Next milestone
+## Current handoff
 
-ONLINE-2 freezes a real-network hardware-bound online profile. M14-G3 then qualifies a
-new clock-aware staged hybrid decision boundary. Full games, network recovery,
-packaging, account configuration, aggregate release qualification and the canary remain
-release gates.
+ONLINE-2 and M14-G3 are now merged. LOCAL-1 full-game lifecycle qualification is the next
+release gate, followed by ONLINE-3 packaging/bridge integration, ONLINE-4 recovery,
+aggregate release qualification and the canary.
+
+The original ONLINE-1 contract remains useful as an anchor-authoritative timing regression
+and negative/control profile; it is not rewritten into G3 by documentation.

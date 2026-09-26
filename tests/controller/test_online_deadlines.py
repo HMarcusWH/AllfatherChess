@@ -12,8 +12,21 @@ from unittest.mock import patch
 ROOT=Path(__file__).resolve().parents[2]
 sys.path.insert(0,str(ROOT))
 from controller.uci_frontend import ShellState
+from controller.online_time import ClockSearch, make_time_plan
+from controller.budget import ResourceEnvelope
+from controller.decision import (
+    CLOCKED_AUTHORIZATION_POLICY,
+    authorize_decision,
+    select_final_decision,
+)
+from common.search_request import parse_position_command
 from controller.replay import verify_bundle_integrity
 from tests.controller.online_helpers import shell_fixture,wait_for
+from tests.controller.test_online_hybrid_authority import (
+    evidence as g3_evidence,
+    proposal as g3_proposal,
+    snapshot as g3_snapshot,
+)
 
 ANCHOR='stockfish-anchor'
 SHADOWS=('stockfish-shadow','reckless-shadow','lc0-shadow')
@@ -21,6 +34,36 @@ SHADOWS=('stockfish-shadow','reckless-shadow','lc0-shadow')
 
 def bestmoves(output):
     return [x for x in output.getvalue().splitlines() if x.startswith('bestmove ')]
+
+
+def g3_hybrid_final_decision():
+    ev=g3_evidence()
+    prop=g3_proposal(ev)
+    snap=g3_snapshot()
+    authorization=authorize_decision(
+        prop,ev,snap,policy=CLOCKED_AUTHORIZATION_POLICY
+    )
+    if not authorization.authorized:
+        raise AssertionError(authorization.reason)
+    return select_final_decision(
+        anchor_move='d2d4',
+        proposal=prop,
+        authorization=authorization,
+        authorization_snapshot=snap,
+    )
+
+
+def standalone_clock(shell, manager, *, token=1, movetime=500):
+    position=parse_position_command('position startpos')
+    return ClockSearch(make_time_plan(
+        command=f'go movetime {movetime}',
+        position=position,
+        generation=token,
+        settings=shell.online_time,
+        envelope=ResourceEnvelope.from_config(manager.config.budget),
+        received_monotonic=time.monotonic(),
+        controller_cpu_started_ns=time.process_time_ns(),
+    ))
 
 
 class DeadlineTests(unittest.TestCase):
@@ -138,90 +181,132 @@ class DeadlineTests(unittest.TestCase):
             self.assertTrue(anchor_stream['contract_validatable'])
 
     def test_slow_stdout_write_keeps_run_alive_until_decision_publication(self):
-        class BlockingProxy:
-            def __init__(self, target):
-                self.target = target
-                self.entered = threading.Event()
-                self.release = threading.Event()
-
-            def write(self, value):
-                if value.startswith('bestmove '):
-                    self.entered.set()
-                    self.release.wait(3)
-                return self.target.write(value)
-
-            def flush(self):
-                return self.target.flush()
-
         with shell_fixture(
             settings={"max_move_ms": 3000},
         ) as (shell,manager,shadow,out,tmp):
-            blocked=BlockingProxy(out)
-            shell.output=blocked
-            try:
-                shell.handle_command('go movetime 2500')
-                self.assertTrue(blocked.entered.wait(1))
-                # Reproduce the old fixed one-second finalization race while
-                # stdout is still blocked but the hard deadline remains open.
-                time.sleep(1.1)
-                runs=list(tmp.glob('replays/*'))
-                self.assertEqual(len(runs),1)
-                self.assertFalse((runs[0]/'manifest.json').exists())
-                self.assertIsNotNone(shadow._run)
-                self.assertFalse(shadow._run.outward_publication_done.is_set())
-            finally:
-                blocked.release.set()
+            entered=threading.Event();release=threading.Event()
 
-            wait_for(lambda:len(bestmoves(out))==1,1)
-            run=next(tmp.glob('replays/*'))
-            wait_for(lambda:(run/'manifest.json').is_file(),3)
-            manifest=json.loads((run/'manifest.json').read_text())
-            self.assertEqual(
-                manifest['clock_outcome']['emitted_line'],
-                bestmoves(out)[0],
-            )
-            self.assertTrue(shadow._run is None or shadow._run.finished.is_set())
+            def would_block_then_write(line):
+                entered.set()
+                if not release.is_set():
+                    return False
+                out.write(line+'\n')
+                out.flush()
+                return True
 
-    def test_stop_revokes_authority_while_bestmove_stdout_is_backpressured(self):
-        class BlockingOutput(io.StringIO):
-            def __init__(self):
-                super().__init__()
-                self.entered = threading.Event()
-                self.release = threading.Event()
+            with patch.object(
+                shell,
+                '_try_write_online_line_once',
+                side_effect=would_block_then_write,
+            ):
+                try:
+                    shell.handle_command('go movetime 2500')
+                    self.assertTrue(entered.wait(1))
+                    time.sleep(1.1)
+                    runs=list(tmp.glob('replays/*'))
+                    self.assertEqual(len(runs),1)
+                    self.assertFalse((runs[0]/'manifest.json').exists())
+                    self.assertIsNotNone(shadow._run)
+                    self.assertFalse(shadow._run.outward_publication_done.is_set())
+                finally:
+                    release.set()
 
-            def write(self, value):
-                if value.startswith('bestmove '):
-                    self.entered.set()
-                    self.release.wait(3)
-                return super().write(value)
+                wait_for(lambda:len(bestmoves(out))==1,1)
+                run=next(tmp.glob('replays/*'))
+                wait_for(lambda:(run/'manifest.json').is_file(),3)
+                manifest=json.loads((run/'manifest.json').read_text())
+                self.assertEqual(
+                    manifest['clock_outcome']['emitted_line'],
+                    bestmoves(out)[0],
+                )
+                self.assertTrue(shadow._run is None or shadow._run.finished.is_set())
 
+    def test_stop_revokes_real_hybrid_while_publication_would_block(self):
         with shell_fixture(observe=False) as (shell,manager,shadow,out,tmp):
-            blocked = BlockingOutput()
-            shell.output = blocked
-            shell.handle_command('go movetime 500')
-            self.assertTrue(blocked.entered.wait(1))
-            clock = shell._clock_search
-            self.assertIsNotNone(clock)
+            token=41
+            clock=standalone_clock(shell,manager,token=token,movetime=500)
+            shell._clock_search=clock
+            shell._active_generation=token
+            shell._state=ShellState.SEARCHING
+            final=g3_hybrid_final_decision()
+            entered=threading.Event();release=threading.Event();written=[]
+            result=[]
 
-            stopper = threading.Thread(
-                target=lambda: shell.handle_command('stop'),
-                daemon=True,
-            )
-            stopper.start()
-            wait_for(lambda: clock.authority_blocked.is_set(), timeout=1)
-            self.assertFalse(
-                blocked.release.is_set(),
-                "stop only revoked after the blocked stdout write returned",
-            )
-            blocked.release.set()
-            stopper.join(timeout=1)
-            wait_for(
-                lambda: any(
-                    line.startswith('bestmove ')
-                    for line in blocked.getvalue().splitlines()
-                ),
-                timeout=1,
-            )
+            def try_write(line):
+                entered.set()
+                if not release.is_set():
+                    return False
+                written.append(line)
+                return True
+
+            with patch.object(
+                shell,
+                '_try_write_online_line_once',
+                side_effect=try_write,
+            ), patch.object(manager,'stop_anchor_for',return_value=False):
+                publisher=threading.Thread(
+                    target=lambda: result.append(
+                        shell._publish_online_bestmove(
+                            token=token,
+                            clock=clock,
+                            anchor_line='bestmove d2d4 ponder d7d5',
+                            final_decision=final,
+                        )
+                    ),
+                    daemon=True,
+                )
+                publisher.start()
+                self.assertTrue(entered.wait(1))
+                shell.handle_command('stop')
+                wait_for(lambda:clock.authority_blocked.is_set(),1)
+                release.set()
+                publisher.join(timeout=1)
+
+            self.assertFalse(publisher.is_alive())
+            self.assertEqual(written,['bestmove d2d4 ponder d7d5'])
+            self.assertEqual(result[0][0],'bestmove d2d4 ponder d7d5')
+            self.assertEqual(result[0][1].authority,'ANCHOR_FALLBACK')
+            self.assertFalse(clock.authority_committed)
+
+    def test_hard_expiry_wins_while_publication_sink_is_unwritable(self):
+        with shell_fixture(observe=False) as (shell,manager,shadow,out,tmp):
+            token=42
+            clock=standalone_clock(shell,manager,token=token,movetime=150)
+            shell._clock_search=clock
+            shell._active_generation=token
+            shell._state=ShellState.SEARCHING
+            attempted=threading.Event();result=[]
+
+            with patch.object(
+                shell,
+                '_try_write_online_line_once',
+                side_effect=lambda line: attempted.set() or False,
+            ), patch.object(manager,'fail_clock_search',return_value=None):
+                clock.start(
+                    lambda: None,
+                    lambda: shell._clock_fail(token,'clock hard deadline exceeded'),
+                )
+                publisher=threading.Thread(
+                    target=lambda: result.append(
+                        shell._publish_online_bestmove(
+                            token=token,
+                            clock=clock,
+                            anchor_line='bestmove d2d4',
+                            final_decision=g3_hybrid_final_decision(),
+                        )
+                    ),
+                    daemon=True,
+                )
+                publisher.start()
+                self.assertTrue(attempted.wait(1))
+                self.assertTrue(clock.finished.wait(1))
+                publisher.join(timeout=1)
+
+            self.assertFalse(publisher.is_alive())
+            self.assertEqual(clock.failure,'clock hard deadline exceeded')
+            self.assertEqual(clock.emitted_line,'bestmove 0000')
+            self.assertEqual(shell.state,ShellState.UNHEALTHY)
+            self.assertFalse(clock.authority_committed)
 
     def test_quit_waits_for_post_output_publication_handshake(self):
         with shell_fixture() as (shell,manager,shadow,out,tmp):

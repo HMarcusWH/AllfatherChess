@@ -19,6 +19,14 @@ class UciProcessError(RuntimeError):
     """Raised when a backend process violates the process/handshake contract."""
 
 
+class UciDispatchRejected(UciProcessError):
+    """Raised when a search permit closes before any command bytes are written.
+
+    This is a normal controller boundary outcome, not evidence that the engine
+    process or its I/O channel is unhealthy.
+    """
+
+
 _OPTION_RE = re.compile(r"^option name (.+?) type ")
 
 
@@ -291,7 +299,9 @@ class UciProcess:
                             f"{self.name}: engine exited before command: {command}"
                         )
                     if permit is not None and not permit():
-                        raise UciProcessError(f"{self.name}: command window closed before write")
+                        raise UciDispatchRejected(
+                            f"{self.name}: command window closed before write"
+                        )
                     self._transcript.append(f">> {command}")
                     proc.stdin.write(command + "\n")
                     proc.stdin.flush()
@@ -507,7 +517,7 @@ class UciProcess:
                             f"{self.name}: engine exited before command: {command}"
                         )
                     if permit is not None and not permit():
-                        raise UciProcessError(
+                        raise UciDispatchRejected(
                             f"{self.name}: command window closed before write"
                         )
 
@@ -561,7 +571,7 @@ class UciProcess:
         try:
             with self._state_lock:
                 if permit is not None and not permit():
-                    raise UciProcessError(f"{self.name}: search window closed")
+                    raise UciDispatchRejected(f"{self.name}: search window closed")
                 if self._search is not None:
                     raise UciProcessError(f"{self.name}: search already active")
                 self._search = _SearchSubscription(

@@ -229,44 +229,67 @@ class ClockSearch:
             )
 
     def block_authority(self) -> bool:
-        """Revoke uncommitted hybrid authority.
-
-        Once commit_authority() wins, the line is already linearized for
-        stdout publication and a later stop cannot retroactively change it.
-        """
+        """Revoke HYBRID authority until bytes actually cross the output boundary."""
         with self._authority_gate:
-            if self._authority_committed:
+            if self._authority_committed or self.finished.is_set():
                 return False
             self.authority_blocked.set()
             return True
 
-    def commit_authority(self) -> bool:
-        """Atomically commit HYBRID authority at the stdout publication boundary."""
+    def try_publish(
+        self,
+        *,
+        line: str,
+        write_once: Callable[[], bool],
+        require_authority: bool,
+    ) -> str:
+        """Atomically couple a nonblocking write attempt to terminal clock state.
+
+        write_once MUST return immediately: True means the complete line was
+        written, False means the sink would block and no bytes were written.
+        Holding the authority gate across that single nonblocking syscall gives
+        stop and the hard watchdog a real linearization point: either
+        revocation/failure wins before bytes cross stdout, or publication wins
+        because the bytes were actually accepted.
+        """
+
         with self._authority_gate:
-            if self._authority_committed:
-                return True
-            if (
-                self.authority_blocked.is_set()
-                or time.monotonic() >= self.plan.hard_deadline
-            ):
-                return False
-            self._authority_committed = True
-            return True
+            with self._lock:
+                if self.finished.is_set():
+                    return "finished"
+                if time.monotonic() >= self.plan.hard_deadline:
+                    return "expired"
+                if require_authority and self.authority_blocked.is_set():
+                    return "revoked"
+                written = bool(write_once())
+                if not written:
+                    return "would_block"
+                self.emitted_ms = (
+                    time.monotonic() - self.plan.received_monotonic
+                ) * 1000
+                self.emitted_line = line
+                self.failure = None
+                self.work_closed.set()
+                if require_authority:
+                    self._authority_committed = True
+                self.finished.set()
+                return "published"
 
     @property
     def authority_committed(self) -> bool:
         with self._authority_gate:
             return self._authority_committed
 
-    def finish(self, *, line: str | None = None, failure: str | None = None) -> None:
+    def finish(self, *, line: str | None = None, failure: str | None = None) -> bool:
         with self._lock:
             if self.finished.is_set():
-                return
+                return False
             self.emitted_ms = (time.monotonic() - self.plan.received_monotonic) * 1000
             self.emitted_line = line
             self.failure = failure
             self.work_closed.set()
             self.finished.set()
+            return True
 
     def outcome(self) -> dict[str, Any]:
         with self._lock:

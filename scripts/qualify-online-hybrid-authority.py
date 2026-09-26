@@ -43,53 +43,130 @@ def main() -> int:
     validate_online_hybrid_profile(policy, config_doc, online2)
     replay_root = ROOT / config_doc["shadow"]["replay_root"]
     known = {p.name for p in discover_replay_bundles(replay_root).bundles}
-    command = policy["positive_case"]["command"]
-    with UciSession(Path(sys.executable), cwd=ROOT, timeout=45,
-                    args=["-m", "controller", "--config", str(CONFIG)]) as shell:
+    cases = policy.get("positive_cases")
+    require(isinstance(cases, list) and cases, "positive_cases must be non-empty")
+    requirement = policy["positive_requirement"]
+
+    records = []
+    winner = None
+    with UciSession(
+        Path(sys.executable),
+        cwd=ROOT,
+        timeout=45,
+        args=["-m", "controller", "--config", str(CONFIG)],
+    ) as shell:
         shell.configure({"UCI_Chess960": False})
-        shell.new_game()
-        shell.set_position({"startpos_moves": []})
-        shell.ready()
-        started = time.monotonic()
-        shell.send(command)
-        lines = shell.read_until(lambda line: line.startswith("bestmove "), label="G3 bestmove", timeout=8)
-        elapsed = (time.monotonic() - started) * 1000
-        moves = [line.split()[1] for line in lines if line.startswith("bestmove ")]
-        require(len(moves) == 1 and MOVE_RE.fullmatch(moves[0]) is not None, f"invalid outward move: {moves!r}")
-    run = wait_bundle(replay_root, known)
-    problems = verify_bundle_integrity(run)
-    require(not problems, f"replay integrity failed: {problems}")
-    manifest = load_manifest(run)
-    decision = load_final_decision_artifact(run)["decision"]
+        for case in cases:
+            label = str(case["id"])
+            position_moves = list(case["moves"])
+            command = str(case["command"])
+            shell.new_game()
+            shell.set_position({"startpos_moves": position_moves})
+            shell.ready()
+            started = time.monotonic()
+            shell.send(command)
+            lines = shell.read_until(
+                lambda line: line.startswith("bestmove "),
+                label=f"G3 bestmove {label}",
+                timeout=8,
+            )
+            elapsed = (time.monotonic() - started) * 1000
+            moves_out = [
+                line.split()[1]
+                for line in lines
+                if line.startswith("bestmove ")
+            ]
+            require(
+                len(moves_out) == 1
+                and MOVE_RE.fullmatch(moves_out[0]) is not None,
+                f"{label}: invalid outward move: {moves_out!r}",
+            )
+
+            run = wait_bundle(replay_root, known)
+            known.add(run.name)
+            problems = verify_bundle_integrity(run)
+            require(not problems, f"{label}: replay integrity failed: {problems}")
+            manifest = load_manifest(run)
+            decision = load_final_decision_artifact(run)["decision"]
+            snap = decision["authorization_snapshot"]
+            final_problems = verify_final_decision_integrity(run)
+            require(
+                not final_problems,
+                f"{label}: final decision integrity failed: {final_problems}",
+            )
+
+            record = {
+                "case": label,
+                "run_id": run.name,
+                "authority": decision["authority"],
+                "anchor_move": decision["anchor_move"],
+                "proposal_move": decision["proposal_move"],
+                "emitted_move": decision["emitted_move"],
+                "terminal_source": snap.get("terminal_source"),
+                "route_action": snap.get("route_action"),
+                "staged_complete": snap.get("staged_complete"),
+                "driver_observed_ms": elapsed,
+                "clock_outcome": manifest.get("clock_outcome"),
+            }
+            records.append(record)
+
+            qualifies = (
+                decision["authority"] == requirement["require_authority"]
+                and snap.get("terminal_source")
+                == requirement["require_terminal_source"]
+                and snap.get("route_action") == "BUY_STAGED_VERIFY"
+                and snap.get("route_buy_extension") is True
+                and snap.get("staged_complete") is True
+                and decision["proposal_move"] is not None
+                and (
+                    not requirement.get("require_non_anchor_move")
+                    or decision["proposal_move"] != decision["anchor_move"]
+                )
+            )
+            if not qualifies:
+                continue
+
+            counterfactual_problems = verify_counterfactual_integrity(run)
+            require(
+                not counterfactual_problems,
+                f"{label}: counterfactual integrity failed: "
+                f"{counterfactual_problems}",
+            )
+            outcome = manifest.get("clock_outcome") or {}
+            require(
+                outcome.get("output_within_deadline") is True,
+                f"{label}: outward move missed hard deadline",
+            )
+            require(
+                (manifest.get("outward_decision") or {}).get("emitted_move")
+                == moves_out[0],
+                f"{label}: manifest outward decision differs from UCI output",
+            )
+            winner = record
+            break
+
     require(
-        decision["authority"] == policy["positive_case"]["require_authority"],
-        "positive case did not authorize HYBRID; "
-        + json.dumps(decision, sort_keys=True),
+        winner is not None,
+        "no predeclared real-backend case demonstrated non-anchor HYBRID "
+        + json.dumps(records, sort_keys=True),
     )
-    problems = verify_counterfactual_integrity(run)
-    require(not problems, f"counterfactual integrity failed: {problems}")
-    problems = verify_final_decision_integrity(run)
-    require(not problems, f"final decision integrity failed: {problems}")
-    snap = decision["authorization_snapshot"]
-    require(snap["terminal_source"] == policy["positive_case"]["require_terminal_source"],
-            f"wrong terminal source: {snap.get('terminal_source')!r}")
-    require(snap["route_action"] == "BUY_STAGED_VERIFY" and snap["route_buy_extension"] is True,
-            "authority was not bound to a BUY_STAGED_VERIFY route")
-    require(snap["staged_complete"] is True, "staged VERIFY did not complete")
-    outcome = manifest.get("clock_outcome") or {}
-    require(outcome.get("output_within_deadline") is True, "outward move missed hard deadline")
-    require((manifest.get("outward_decision") or {}).get("emitted_move") == moves[0],
-            "manifest outward decision differs from UCI output")
+
     RESULT.mkdir(parents=True, exist_ok=True)
     report = {
-        "schema_version": 1, "profile_id": policy["profile_id"], "run_id": run.name,
-        "authority": decision["authority"], "anchor_move": decision["anchor_move"],
-        "proposal_move": decision["proposal_move"], "emitted_move": decision["emitted_move"],
-        "terminal_source": snap["terminal_source"], "route_action": snap["route_action"],
-        "driver_observed_ms": elapsed, "clock_outcome": outcome,
-        "claim": "M14-G3 clocked staged authority integration only; no learned-SKIP, Elo, superiority, or deployment claim.",
+        "schema_version": 1,
+        "profile_id": policy["profile_id"],
+        "positive_case": winner,
+        "cases": records,
+        "claim": (
+            "M14-G3 clocked staged authority integration only; one "
+            "predeclared real-backend case emitted a non-anchor HYBRID move. "
+            "No learned-SKIP, Elo, superiority, or deployment claim."
+        ),
     }
-    (RESULT / "report.json").write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    (RESULT / "report.json").write_text(
+        json.dumps(report, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
     print("M14-G3 qualification passed:", json.dumps(report, sort_keys=True))
     return 0
 

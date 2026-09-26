@@ -11,6 +11,7 @@ sys.path.insert(0, str(ROOT))
 
 from adapters.resource import ProcessSnapshot
 from controller.resource_measurement import (
+    ResourceMeasurementError,
     ResourceMeasurementRun,
     ResourceMeasurementSettings,
 )
@@ -147,17 +148,16 @@ class IntervalFreezeTests(unittest.TestCase):
         run = ResourceMeasurementRun(
             run_id='freeze-test',
             settings=settings,
+            provider=_Provider(),
         )
-        run.register_process(instance='self', pid=os.getpid())
+        run.register_process(instance='worker', pid=7)
         key='freeze-stage'
         run.begin_stage(
             key=key,
-            instance='self',
+            instance='worker',
             phase='TEST',
-            pid=os.getpid(),
+            pid=7,
         )
-        # Burn a tiny amount of CPU before the stage endpoint.
-        _ = sum(i * i for i in range(20000))
         run.finish_stage(key)
         run.freeze_interval()
         status = run.live_status()
@@ -169,9 +169,9 @@ class IntervalFreezeTests(unittest.TestCase):
         with self.assertRaises(ResourceMeasurementError):
             run.begin_stage(
                 key='late',
-                instance='self',
+                instance='worker',
                 phase='LATE',
-                pid=os.getpid(),
+                pid=7,
             )
 
 

@@ -135,6 +135,30 @@ class UciFrontendTests(unittest.TestCase):
                 )
                 self.assertEqual(stop_lines[-1], "bestmove e2e4")
 
+    def test_clocked_hybrid_authority_suppresses_anchor_score_and_pv_info(self):
+        runtime = _RuntimeStub()
+        runtime.config = SimpleNamespace(
+            online_time=object(),
+            hybrid_authority=SimpleNamespace(
+                policy="clocked_staged_preanchor_v1"
+            ),
+        )
+        output = io.StringIO()
+        frontend = UciFrontend(runtime, output=output)
+        frontend._state = ShellState.SEARCHING
+        frontend._active_generation = 7
+
+        frontend._on_search_info(
+            7,
+            "info depth 12 score cp 31 pv d2d4 d7d5 c2c4",
+        )
+
+        self.assertEqual(
+            output.getvalue(),
+            "",
+            "Stockfish anchor evaluation leaked onto a potentially overridden move",
+        )
+
     def test_different_hybrid_root_drops_anchor_ponder_and_emits_once(self):
         runtime = _RuntimeStub()
         output = io.StringIO()

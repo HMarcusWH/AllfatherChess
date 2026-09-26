@@ -495,6 +495,10 @@ class DeadlineTests(unittest.TestCase):
                 for name in SHADOWS:
                     transcript=manager.process(name)._transcript
                     self.assertFalse(any(line.startswith('>> go nodes') for line in transcript))
+                wait_for(
+                    lambda: shadow._run is None or shadow._run.finished.is_set(),
+                    timeout=3,
+                )
 
 
 if __name__=='__main__':unittest.main()

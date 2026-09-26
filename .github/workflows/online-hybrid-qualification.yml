@@ -6,7 +6,8 @@ on:
     paths:
       - qualification/online-hybrid-authority.json
       - qualification/online-cpu-reference.json
-      - qualification/lc0-strength.lock.json\n      - qualification/lc0-strength-profile.json
+      - qualification/lc0-strength.lock.json
+      - qualification/lc0-strength-profile.json
       - config/allfather.online-hybrid.validation.json
       - config/allfather.online.cpu-reference.json
       - controller/**
@@ -35,7 +36,8 @@ on:
     paths:
       - qualification/online-hybrid-authority.json
       - qualification/online-cpu-reference.json
-      - qualification/lc0-strength.lock.json\n      - qualification/lc0-strength-profile.json
+      - qualification/lc0-strength.lock.json
+      - qualification/lc0-strength-profile.json
       - config/allfather.online-hybrid.validation.json
       - config/allfather.online.cpu-reference.json
       - controller/**

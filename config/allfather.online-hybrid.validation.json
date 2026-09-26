@@ -129,7 +129,7 @@
     "policy": "clock_envelope_v1",
     "moves_horizon": 30,
     "increment_fraction": 0.75,
-    "max_move_ms": 2000,
+    "max_move_ms": 4000,
     "network_reserve_ms": 100,
     "stop_grace_ms": 300,
     "output_margin_ms": 50,

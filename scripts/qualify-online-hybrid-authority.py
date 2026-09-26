@@ -49,17 +49,21 @@ def main() -> int:
 
     records = []
     winner = None
-    with UciSession(
-        Path(sys.executable),
-        cwd=ROOT,
-        timeout=45,
-        args=["-m", "controller", "--config", str(CONFIG)],
-    ) as shell:
-        shell.configure({"UCI_Chess960": False})
-        for case in cases:
-            label = str(case["id"])
-            position_moves = list(case["moves"])
-            command = str(case["command"])
+    for case in cases:
+        label = str(case["id"])
+        position_moves = list(case["moves"])
+        command = str(case["command"])
+
+        # Fresh four-process runtime per case. A failed observational process
+        # cannot poison later cases, and no TT/history state leaks across the
+        # frozen discovery/qualification corpus.
+        with UciSession(
+            Path(sys.executable),
+            cwd=ROOT,
+            timeout=45,
+            args=["-m", "controller", "--config", str(CONFIG)],
+        ) as shell:
+            shell.configure({"UCI_Chess960": False})
             shell.new_game()
             shell.set_position({"startpos_moves": position_moves})
             shell.ready()
@@ -82,68 +86,68 @@ def main() -> int:
                 f"{label}: invalid outward move: {moves_out!r}",
             )
 
-            run = wait_bundle(replay_root, known)
-            known.add(run.name)
-            problems = verify_bundle_integrity(run)
-            require(not problems, f"{label}: replay integrity failed: {problems}")
-            manifest = load_manifest(run)
-            decision = load_final_decision_artifact(run)["decision"]
-            snap = decision["authorization_snapshot"]
-            final_problems = verify_final_decision_integrity(run)
-            require(
-                not final_problems,
-                f"{label}: final decision integrity failed: {final_problems}",
-            )
+        run = wait_bundle(replay_root, known)
+        known.add(run.name)
+        problems = verify_bundle_integrity(run)
+        require(not problems, f"{label}: replay integrity failed: {problems}")
+        manifest = load_manifest(run)
+        decision = load_final_decision_artifact(run)["decision"]
+        snap = decision["authorization_snapshot"]
+        final_problems = verify_final_decision_integrity(run)
+        require(
+            not final_problems,
+            f"{label}: final decision integrity failed: {final_problems}",
+        )
 
-            record = {
-                "case": label,
-                "run_id": run.name,
-                "authority": decision["authority"],
-                "anchor_move": decision["anchor_move"],
-                "proposal_move": decision["proposal_move"],
-                "emitted_move": decision["emitted_move"],
-                "terminal_source": snap.get("terminal_source"),
-                "route_action": snap.get("route_action"),
-                "staged_complete": snap.get("staged_complete"),
-                "driver_observed_ms": elapsed,
-                "clock_outcome": manifest.get("clock_outcome"),
-            }
-            records.append(record)
+        record = {
+            "case": label,
+            "run_id": run.name,
+            "authority": decision["authority"],
+            "anchor_move": decision["anchor_move"],
+            "proposal_move": decision["proposal_move"],
+            "emitted_move": decision["emitted_move"],
+            "terminal_source": snap.get("terminal_source"),
+            "route_action": snap.get("route_action"),
+            "staged_complete": snap.get("staged_complete"),
+            "driver_observed_ms": elapsed,
+            "clock_outcome": manifest.get("clock_outcome"),
+        }
+        records.append(record)
 
-            qualifies = (
-                decision["authority"] == requirement["require_authority"]
-                and snap.get("terminal_source")
-                == requirement["require_terminal_source"]
-                and snap.get("route_action") == "BUY_STAGED_VERIFY"
-                and snap.get("route_buy_extension") is True
-                and snap.get("staged_complete") is True
-                and decision["proposal_move"] is not None
-                and (
-                    not requirement.get("require_non_anchor_move")
-                    or decision["proposal_move"] != decision["anchor_move"]
-                )
+        qualifies = (
+            decision["authority"] == requirement["require_authority"]
+            and snap.get("terminal_source")
+            == requirement["require_terminal_source"]
+            and snap.get("route_action") == "BUY_STAGED_VERIFY"
+            and snap.get("route_buy_extension") is True
+            and snap.get("staged_complete") is True
+            and decision["proposal_move"] is not None
+            and (
+                not requirement.get("require_non_anchor_move")
+                or decision["proposal_move"] != decision["anchor_move"]
             )
-            if not qualifies:
-                continue
+        )
+        if not qualifies:
+            continue
 
-            counterfactual_problems = verify_counterfactual_integrity(run)
-            require(
-                not counterfactual_problems,
-                f"{label}: counterfactual integrity failed: "
-                f"{counterfactual_problems}",
-            )
-            outcome = manifest.get("clock_outcome") or {}
-            require(
-                outcome.get("output_within_deadline") is True,
-                f"{label}: outward move missed hard deadline",
-            )
-            require(
-                (manifest.get("outward_decision") or {}).get("emitted_move")
-                == moves_out[0],
-                f"{label}: manifest outward decision differs from UCI output",
-            )
-            winner = record
-            break
+        counterfactual_problems = verify_counterfactual_integrity(run)
+        require(
+            not counterfactual_problems,
+            f"{label}: counterfactual integrity failed: "
+            f"{counterfactual_problems}",
+        )
+        outcome = manifest.get("clock_outcome") or {}
+        require(
+            outcome.get("output_within_deadline") is True,
+            f"{label}: outward move missed hard deadline",
+        )
+        require(
+            (manifest.get("outward_decision") or {}).get("emitted_move")
+            == moves_out[0],
+            f"{label}: manifest outward decision differs from UCI output",
+        )
+        winner = record
+        break
 
     require(
         winner is not None,

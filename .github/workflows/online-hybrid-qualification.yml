@@ -13,6 +13,7 @@ on:
       - adapters/process/**
       - adapters/resource/**
       - adapters/telemetry/**
+      - adapters/crossfeed/**
       - common/**
       - scripts/build-online-cpu-reference.sh
       - scripts/build-lc0-strength.sh
@@ -41,6 +42,7 @@ on:
       - adapters/process/**
       - adapters/resource/**
       - adapters/telemetry/**
+      - adapters/crossfeed/**
       - common/**
       - scripts/build-online-cpu-reference.sh
       - scripts/build-lc0-strength.sh

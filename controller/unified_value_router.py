@@ -460,6 +460,41 @@ class UnifiedValueRouter(ConservativeRouter):
         self.regime_support_model = regime_support_model
         self.regime_support_source = regime_support_source
         self.skip_max_change_probability = float(skip_max_change_probability)
+        self._authority_value_decisions: dict[str, UnifiedValueDecision] = {}
+
+    def on_run_start(self, context: Any) -> None:
+        self._authority_value_decisions.clear()
+        super().on_run_start(context)
+
+    def _record_value_decision(
+        self,
+        run_id: str,
+        decision: UnifiedValueDecision,
+    ) -> None:
+        if self.audit is not None:
+            self.audit.record_value_decision(decision.as_dict())
+        self._authority_value_decisions[str(run_id)] = decision
+
+    def staged_route_authority_snapshot(self, run_id: str) -> dict[str, Any] | None:
+        """Return the in-memory G2 route identity consumed by G3 authority."""
+        decision = self._authority_value_decisions.get(str(run_id))
+        if decision is None:
+            return None
+        payload = decision.as_dict()
+        return {
+            "action": decision.action,
+            "buy_extension": decision.buy_extension,
+            "decision": payload,
+            "digest": canonical_digest(payload),
+        }
+
+    def on_run_end(self, context: Any) -> None:
+        try:
+            super().on_run_end(context)
+        finally:
+            # Route identity is authority-ephemeral. Keeping one payload per
+            # replay run would grow without bound in a long-lived online bot.
+            self._authority_value_decisions.pop(str(context.run_id), None)
 
     def _build_live_base_state(
         self,
@@ -623,7 +658,7 @@ class UnifiedValueRouter(ConservativeRouter):
                 fallback_latched=bool(self._fallback),
                 wall_exhausted=self.ledger.wall_exhausted(),
             )
-            audit.record_value_decision(decision.as_dict())
+            self._record_value_decision(context.run_id, decision)
             return decision.buy_extension
         try:
             with self.ledger.controller_overhead("unified_value_route"):
@@ -669,7 +704,7 @@ class UnifiedValueRouter(ConservativeRouter):
                     else self.regime_support_model.model_id
                 ),
             )
-        audit.record_value_decision(decision.as_dict())
+        self._record_value_decision(context.run_id, decision)
         return decision.buy_extension
 
 

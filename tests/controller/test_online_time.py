@@ -6,12 +6,13 @@ import json
 from pathlib import Path
 import sys
 import tempfile
+import time
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from common.search_request import parse_position_command
-from controller.online_time import OnlineTimeSettings, OnlineTimeError, make_time_plan, verify_time_manifest
+from controller.online_time import ClockSearch, OnlineTimeSettings, OnlineTimeError, make_time_plan, verify_time_manifest
 from controller.budget import ResourceEnvelope
 from controller.runtime import load_runtime_config, RuntimeError
 from tests.controller.online_helpers import online_config
@@ -99,6 +100,78 @@ class TimeTests(unittest.TestCase):
         self.assertEqual(q.envelope.controller_overhead_reserve_ms,40)
         with self.assertRaises((ValueError, RuntimeError)):
             self.plan(envelope=ResourceEnvelope(wall_ms=2000,cpu_ms=2000,gpu_ms=100))
+
+    def test_authority_publication_linearizes_on_actual_nonblocking_write(self):
+        blocked_plan = self.plan(
+            'go movetime 500',
+            received_monotonic=time.monotonic(),
+        )
+        blocked = ClockSearch(blocked_plan)
+        self.assertEqual(
+            blocked.try_publish(
+                line='bestmove e2e4',
+                write_once=lambda: False,
+                require_authority=True,
+            ),
+            'would_block',
+        )
+        self.assertTrue(blocked.block_authority())
+        self.assertEqual(
+            blocked.try_publish(
+                line='bestmove e2e4',
+                write_once=lambda: True,
+                require_authority=True,
+            ),
+            'revoked',
+        )
+        self.assertFalse(blocked.authority_committed)
+
+        committed_plan = self.plan(
+            'go movetime 500',
+            received_monotonic=time.monotonic(),
+        )
+        committed = ClockSearch(committed_plan)
+        writes = []
+        self.assertEqual(
+            committed.try_publish(
+                line='bestmove e2e4',
+                write_once=lambda: writes.append('written') or True,
+                require_authority=True,
+            ),
+            'published',
+        )
+        self.assertEqual(writes, ['written'])
+        self.assertTrue(committed.authority_committed)
+        self.assertFalse(
+            committed.block_authority(),
+            "a stop after bytes cross stdout must not retroactively rewrite output",
+        )
+
+    def test_terminal_failure_is_atomic_with_authority_revocation(self):
+        plan = self.plan(
+            'go movetime 500',
+            received_monotonic=time.monotonic(),
+        )
+        clock = ClockSearch(plan)
+        self.assertTrue(
+            clock.fail(
+                reason='runtime failure',
+                line='bestmove 0000',
+            )
+        )
+        writes = []
+        self.assertEqual(
+            clock.try_publish(
+                line='bestmove e2e4',
+                write_once=lambda: writes.append('late') or True,
+                require_authority=False,
+            ),
+            'finished',
+        )
+        self.assertEqual(writes, [])
+        self.assertTrue(clock.authority_blocked.is_set())
+        self.assertEqual(clock.failure, 'runtime failure')
+        self.assertEqual(clock.emitted_line, 'bestmove 0000')
 
     def test_manifest_reconstructs_policy_not_only_hash(self):
         p = self.plan('go movetime 500')

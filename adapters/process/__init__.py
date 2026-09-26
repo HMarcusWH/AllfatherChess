@@ -1,5 +1,5 @@
 """Process-isolated backend adapters for Generation 1 Allfather control."""
 
-from .uci_process import UciProcess, UciProcessError
+from .uci_process import UciDispatchRejected, UciProcess, UciProcessError
 
-__all__ = ["UciProcess", "UciProcessError"]
+__all__ = ["UciDispatchRejected", "UciProcess", "UciProcessError"]

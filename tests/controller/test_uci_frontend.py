@@ -66,11 +66,47 @@ class _DecisionShadowStub:
     def note_anchor_complete(self, token, line):
         return self.decision
 
-    def note_anchor_emitted(self, token):
-        self.emitted.append(token)
+    def note_anchor_published(self, token, final_decision=None):
+        self.emitted.append(("published", token))
+
+    def note_anchor_emitted(self, token, final_decision=None):
+        self.emitted.append(("sampled", token))
 
 
 class UciFrontendTests(unittest.TestCase):
+    def test_online_mode_rejects_output_without_deadline_safe_fileno(self):
+        class WrappedWriter:
+            def __init__(self):
+                self.lines = []
+
+            def write(self, value):
+                self.lines.append(value)
+                return len(value)
+
+            def flush(self):
+                return None
+
+        runtime = _RuntimeStub()
+        runtime.config = SimpleNamespace(online_time=object())
+        with self.assertRaisesRegex(
+            Exception,
+            "POSIX pipe/FIFO",
+        ):
+            UciFrontend(runtime, output=WrappedWriter())
+
+        # A usable descriptor alone is not enough: regular files, sockets and
+        # PTYs do not provide the PIPE_BUF all-or-nothing contract required by
+        # the deadline-safe publication path.
+        with tempfile.TemporaryFile(mode="w+") as regular:
+            with self.assertRaisesRegex(Exception, "POSIX pipe/FIFO"):
+                UciFrontend(runtime, output=regular)
+
+        # Offline mode keeps ordinary TextIO-like embedding compatibility.
+        runtime_offline = _RuntimeStub()
+        runtime_offline.config = SimpleNamespace(online_time=None)
+        frontend = UciFrontend(runtime_offline, output=WrappedWriter())
+        self.assertIsNone(frontend.online_time)
+
     def test_external_identity_anchor_search_and_isready_during_infinite(self):
         with tempfile.TemporaryDirectory() as tmp:
             config = write_config(Path(tmp))
@@ -135,6 +171,30 @@ class UciFrontendTests(unittest.TestCase):
                 )
                 self.assertEqual(stop_lines[-1], "bestmove e2e4")
 
+    def test_clocked_hybrid_authority_suppresses_anchor_score_and_pv_info(self):
+        runtime = _RuntimeStub()
+        runtime.config = SimpleNamespace(
+            online_time=object(),
+            hybrid_authority=SimpleNamespace(
+                policy="clocked_staged_preanchor_v1"
+            ),
+        )
+        output = io.StringIO()
+        frontend = UciFrontend(runtime, output=output)
+        frontend._state = ShellState.SEARCHING
+        frontend._active_generation = 7
+
+        frontend._on_search_info(
+            7,
+            "info depth 12 score cp 31 pv d2d4 d7d5 c2c4",
+        )
+
+        self.assertEqual(
+            output.getvalue(),
+            "",
+            "Stockfish anchor evaluation leaked onto a potentially overridden move",
+        )
+
     def test_different_hybrid_root_drops_anchor_ponder_and_emits_once(self):
         runtime = _RuntimeStub()
         output = io.StringIO()
@@ -151,7 +211,7 @@ class UciFrontendTests(unittest.TestCase):
         frontend._on_search_complete(7, "bestmove d2d4 ponder d7d5")
 
         self.assertEqual(output.getvalue().splitlines(), ["bestmove e2e4"])
-        self.assertEqual(shadow.emitted, [7])
+        self.assertEqual(shadow.emitted, [("sampled", 7)])
         self.assertEqual(frontend.state, ShellState.READY)
 
     def test_anchor_fallback_preserves_original_bestmove_line_byte_for_byte(self):
@@ -173,7 +233,7 @@ class UciFrontendTests(unittest.TestCase):
             output.getvalue().splitlines(),
             ["bestmove d2d4 ponder d7d5"],
         )
-        self.assertEqual(shadow.emitted, [8])
+        self.assertEqual(shadow.emitted, [("sampled", 8)])
 
     def test_anchor_failure_fails_closed_without_backend_fallback(self):
         with tempfile.TemporaryDirectory() as tmp:

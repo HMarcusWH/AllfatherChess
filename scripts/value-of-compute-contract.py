@@ -59,17 +59,24 @@ def _wait_run(known: set[str]) -> Path:
             candidate = fresh[-1]
             if (candidate / "decision" / "counterfactual.json").is_file():
                 return candidate
-            # A finalized parent manifest with no decision artifact is terminal
-            # for this arm: VERIFY/counterfactual work was never launched or was
-            # cut off. Fail immediately with the actual lifecycle boundary
-            # instead of waiting 30 seconds for an artifact that cannot appear.
-            manifest = load_manifest(candidate)
-            raise ContractError(
-                "paired arm sealed without counterfactual evidence; "
-                f"disposition={manifest.get('disposition')}, "
-                f"notes={manifest.get('notes')}"
-            )
+            # Parent replay finalization intentionally precedes derived
+            # verification/cross-feed/counterfactual sealing. A visible
+            # manifest is therefore not a terminal "no decision" condition:
+            # on a fast filesystem the parent can be discovered in the small
+            # transactional gap before decision/counterfactual.json appears.
+            # Keep the UCI session alive and wait for the derived artifact.
         time.sleep(0.05)
+
+    discovery = discover_replay_bundles(REPLAY_ROOT)
+    fresh = [path for path in discovery.bundles if path.name not in known]
+    if fresh:
+        candidate = fresh[-1]
+        manifest = load_manifest(candidate)
+        raise ContractError(
+            "timed out waiting for paired counterfactual evidence; "
+            f"disposition={manifest.get('disposition')}, "
+            f"notes={manifest.get('notes')}"
+        )
     raise ContractError("timed out waiting for paired counterfactual run")
 
 

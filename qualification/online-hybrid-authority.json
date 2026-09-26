@@ -1,0 +1,94 @@
+{
+  "schema_version": 1,
+  "profile_id": "online-hybrid-authority-v1",
+  "qualification_tier": "online-hybrid-authority",
+  "source_profile": "online-cpu-reference-v1",
+  "runtime_config": "config/allfather.online-hybrid.validation.json",
+  "bundle_root": "build/online-cpu-reference",
+  "authority_policy": "clocked_staged_preanchor_v1",
+  "terminal_source_policy": "route_bound_staged_v1",
+  "allow_skipped_extension_authority": false,
+  "verification": {
+    "base": {
+      "nodes": 16
+    },
+    "extension": {
+      "nodes": 32
+    },
+    "intervention": "same_process_staged_verify_v1",
+    "reservation_cpu_ms_per_stage": 750
+  },
+  "claim_boundary": {
+    "hybrid_authority": true,
+    "learned_skip": false,
+    "elo": false,
+    "equal_envelope_superiority": false,
+    "deployed_bot": false
+  },
+  "clock": {
+    "max_move_ms": 4000,
+    "reason": "G3 may use the full frozen ONLINE-2 outer wall envelope so real BLAS specialist stages can complete before the soft cutoff"
+  },
+  "positive_cases": [
+    {
+      "id": "startpos",
+      "moves": [],
+      "command": "go movetime 4000 searchmoves e2e4 d2d4 g1f3"
+    },
+    {
+      "id": "after-e4",
+      "moves": [
+        "e2e4"
+      ],
+      "command": "go movetime 4000 searchmoves e7e5 c7c5 e7e6"
+    },
+    {
+      "id": "after-d4",
+      "moves": [
+        "d2d4"
+      ],
+      "command": "go movetime 4000 searchmoves d7d5 g8f6 e7e6"
+    },
+    {
+      "id": "open-game-white",
+      "moves": [
+        "e2e4",
+        "e7e5"
+      ],
+      "command": "go movetime 4000 searchmoves g1f3 f1c4 d2d4"
+    },
+    {
+      "id": "queen-pawn-white",
+      "moves": [
+        "d2d4",
+        "d7d5"
+      ],
+      "command": "go movetime 4000 searchmoves c2c4 g1f3 e2e3"
+    },
+    {
+      "id": "sicilian-white",
+      "moves": [
+        "e2e4",
+        "c7c5"
+      ],
+      "command": "go movetime 4000 searchmoves g1f3 d2d4 c2c3"
+    },
+    {
+      "id": "english-black",
+      "moves": [
+        "c2c4"
+      ],
+      "command": "go movetime 4000 searchmoves e7e5 g8f6 c7c5"
+    }
+  ],
+  "positive_requirement": {
+    "require_authority": "HYBRID",
+    "require_terminal_source": "staged_verification",
+    "require_non_anchor_move": true,
+    "semantics": "At least one predeclared real-backend case must actually emit a specialist-selected move different from the Stockfish anchor."
+  },
+  "explore": {
+    "nodes": 16,
+    "reason": "Measured real-BLAS LC0 256-visit EXPLORE saturated the 3650 ms soft window under concurrent reference load; G3 integration therefore uses a bounded low-visit authority fixture rather than laundering a larger clock."
+  }
+}

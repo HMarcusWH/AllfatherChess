@@ -462,6 +462,10 @@ class UnifiedValueRouter(ConservativeRouter):
         self.skip_max_change_probability = float(skip_max_change_probability)
         self._authority_value_decisions: dict[str, UnifiedValueDecision] = {}
 
+    def on_run_start(self, context: Any) -> None:
+        self._authority_value_decisions.clear()
+        super().on_run_start(context)
+
     def _record_value_decision(
         self,
         run_id: str,

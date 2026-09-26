@@ -2,7 +2,13 @@
   "schema_version": 1,
   "profile_id": "local-full-game-v1",
   "source_runtime": "config/allfather.online-hybrid.validation.json",
-  "arms": ["stockfish", "reckless", "lc0", "allfather-anchor", "allfather-g3"],
+  "arms": [
+    "stockfish",
+    "reckless",
+    "lc0",
+    "allfather-anchor",
+    "allfather-g3"
+  ],
   "concurrency": 1,
   "games_per_pair": 2,
   "same_compute_claim": false,
@@ -17,10 +23,30 @@
   "reference_driver_nodes": 1,
   "opening": "tests/fixtures/local_full_game/history.pgn",
   "lifecycle_cases": [
-    {"id": "startpos-reuse", "opening": null, "restart": false, "clock": "lifecycle_clock"},
-    {"id": "history-reuse", "opening": "history.pgn", "restart": false, "clock": "lifecycle_clock"},
-    {"id": "restart", "opening": "endgame.pgn", "restart": true, "clock": "lifecycle_clock"},
-    {"id": "low-clock", "opening": "endgame.pgn", "restart": false, "clock": "low_clock"}
+    {
+      "id": "startpos-reuse",
+      "opening": null,
+      "restart": false,
+      "clock": "lifecycle_clock"
+    },
+    {
+      "id": "history-reuse",
+      "opening": "history.pgn",
+      "restart": false,
+      "clock": "lifecycle_clock"
+    },
+    {
+      "id": "restart",
+      "opening": "endgame.pgn",
+      "restart": true,
+      "clock": "lifecycle_clock"
+    },
+    {
+      "id": "low-clock",
+      "opening": "endgame.pgn",
+      "restart": false,
+      "clock": "low_clock"
+    }
   ],
   "qualification": {
     "natural_rules_termination": true,
@@ -31,5 +57,27 @@
     "missing_evidence_is_failure": true,
     "unexpected_resource_failure_is_failure": true,
     "low_clock_resource_denial_is_reported_not_hidden": true
-  }
+  },
+  "fault_cases": [
+    {
+      "id": "shadow-worker-crash",
+      "kind": "controller-failure-injection"
+    },
+    {
+      "id": "slow-shadow-shutdown",
+      "kind": "controller-failure-injection"
+    },
+    {
+      "id": "replay-storage-failure",
+      "kind": "replay-failure-injection"
+    },
+    {
+      "id": "active-game-termination",
+      "kind": "controller-lifecycle-injection"
+    },
+    {
+      "id": "long-generation-reuse",
+      "kind": "controller-lifecycle-reuse"
+    }
+  ]
 }

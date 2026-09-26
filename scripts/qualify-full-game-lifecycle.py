@@ -281,8 +281,7 @@ def validate_case(
         if marker:
             metric_key={
                 "illegal move":"illegal_moves",
-                "disconnect":"disconnects",
-                "stall":"stalls",
+                "abandoned":"abandoned_games",
                 "unterminated":"unterminated_games",
             }[marker]
             metrics[metric_key]+=1
@@ -476,7 +475,7 @@ def main()->int:
             problems.append(
                 f"baseline completed games {len(baseline_rows)} != frozen expectation {expected}"
             )
-        for key in ("illegal_moves","disconnects","stalls","unterminated_games"):
+        for key in ("illegal_moves","abandoned_games","unterminated_games"):
             if int(metrics[key])!=int(policy["acceptance"]["baseline"][key]):
                 problems.append(
                     f"baseline acceptance {key}={metrics[key]} "

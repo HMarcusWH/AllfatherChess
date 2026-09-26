@@ -1619,8 +1619,9 @@ class ShadowRunCoordinator:
         if authority_invalidating and not active._cancelled:
             active.cancelled = True
             active.cancel_reason = reason
-        elif not authority_invalidating and active.cancel_reason is None:
-            active.cancel_reason = reason
+        # Non-invalidating teardown may stop residual observational work, but
+        # it must not rewrite the disposition/reason of a move that already
+        # crossed stdout.
         instances = [
             state.instance
             for state in active.owners.values()
@@ -1882,7 +1883,11 @@ class ShadowRunCoordinator:
             replay_only = bool(
                 active is not None and active.engine_quiesced.is_set()
             )
-            if active is not None and not replay_only:
+            published = bool(
+                active is not None
+                and active.outward_publication_done.is_set()
+            )
+            if active is not None and not replay_only and not published:
                 active.cancelled = True
                 active.cancel_reason = active.cancel_reason or reason
         finally:
@@ -1906,6 +1911,7 @@ class ShadowRunCoordinator:
                     active.generation,
                     reason=reason,
                     detach=False,
+                    authority_invalidating=not published,
                 )
                 if active is not None and not replay_only
                 else None
@@ -2242,6 +2248,8 @@ class ShadowRunCoordinator:
                         if active.anchor_resource_done.is_set():
                             try:
                                 active.resources.freeze_interval()
+                                if active.context.clock is not None:
+                                    active.context.clock.measurement_frozen.set()
                             except Exception as exc:
                                 active.run.note(
                                     "resource interval could not freeze before engine reuse: "
@@ -2252,6 +2260,14 @@ class ShadowRunCoordinator:
                             resource_frozen = False
 
                     if resource_frozen:
+                        if (
+                            active.context.clock is not None
+                            and (
+                                active.resources is None
+                                or not active.resources.settings.enabled
+                            )
+                        ):
+                            active.context.clock.measurement_frozen.set()
                         # Execution has returned, all temporarily positioned
                         # workers are restored, and physical measurement
                         # endpoints are immutable. Only replay serialization may

@@ -1,11 +1,12 @@
 # AllfatherChess Extended Build Plan
 
-> **Current-state overlay:** synchronized after PR #36 / ONLINE-1 at `64aa8fd13c390b9b37b8825d8f39e73d9bdbdbf8`.
-> [CURRENT_STATUS.md](CURRENT_STATUS.md) is the authoritative short-form build/release state.
+> **Current-state overlay:** synchronized after PR #39 / M14-G3 at `c301e9986566febfbb7978d55c5a3d3429423cff`.
+> [CURRENT_STATUS.md](CURRENT_STATUS.md) is the authoritative short-form build/release state and
+> [ROADMAP.md](ROADMAP.md) is the canonical forward execution roadmap.
 > Historical sections below are retained as design lineage and must not be read as current blockers
 > when the status overlay says the milestone has already merged.
 
-**Status:** Historical architecture roadmap with post-#36 / ONLINE-1 deployment overlay
+**Status:** Historical architecture roadmap with post-#39 / M14-G3 execution overlay
 **Date:** 2026-09-25
 **Scope:** Expand the existing `docs/BUILD_PLAN.md` from the current M12 control/resource milestone through typed cross-feed evidence, counterfactual and active hybrid decision authority, backend/resource qualification, recursive refinement, native integration, governed policy evolution, and the final equal-resource strength campaign.
 
@@ -13,9 +14,10 @@ This document is intentionally more detailed than `docs/BUILD_PLAN.md`. It does 
 
 ## Current execution authority
 
-[ONLINE_RELEASE_PLAN.md](ONLINE_RELEASE_PLAN.md) supersedes this document's
-remaining implementation ordering for the path to the first online canary.
-[ONLINE_TIME.md](ONLINE_TIME.md) specifies ONLINE-1. The older post-#24 baseline
+[ROADMAP.md](ROADMAP.md) supersedes this document's remaining implementation ordering for
+the path to the first online canary. [ONLINE_RELEASE_PLAN.md](ONLINE_RELEASE_PLAN.md)
+retains the deeper deployment audit. [ONLINE_HYBRID_AUTHORITY.md](ONLINE_HYBRID_AUTHORITY.md)
+specifies the merged M14-G3 composition. The older post-#24 baseline
 section below is historical: measured process CPU (PR #28), bounded `movetime_v0`
 authority (PR #29), recursive evidence and G1/G2 routing (#30–35) now exist.
 They are not automatically one qualified deployment profile. Staged VERIFY and
@@ -2130,29 +2132,23 @@ These shortcuts would destroy the causal information the current architecture ha
 
 # 19. Current deployment critical path
 
-PR #36 / ONLINE-1 is merged and green. The immediate implementation is now
-**ONLINE-2 — a real-network hardware-bound online CPU reference profile**. It must
-compose the already-qualified LC0 BLAS/network identity with ONLINE-1 timing and
-measured aggregate resource constraints without claiming strength.
+PR #39 / M14-G3 is merged and green. The immediate implementation is now
+**LOCAL-1 — full-game lifecycle qualification**.
 
-After ONLINE-2, the first-canary path is:
+The first-canary path is:
 
 ```text
-ONLINE-2
-real-network online CPU profile
+MERGED THROUGH PR #39
+ONLINE-2 + M14-G3
         ↓
-M14-G3
-new clock-aware staged terminal evidence + DecisionAuthorization version
-(require real HYBRID positive path and exact fallback paths)
-        ↓
-LOCAL-1 / M15-B
-full-game Fastchess lifecycle/legality/resource campaign
+LOCAL-1 / M15-B lifecycle substrate
+pinned Fastchess + complete-game legality/history/resource/process qualification
         ↓
 ONLINE-3
 immutable package + pinned lichess-bot bridge
         ↓
 ONLINE-4
-network/restart/rollback/observability qualification
+network/restart/reconciliation/rollback/observability qualification
         ↓
 release qualification
 one aggregate gate over exact source/binaries/networks/config/bridge/tests
@@ -2161,16 +2157,16 @@ ONLINE-RC
 restricted one-game-at-a-time unrated canary, then the planned 50-game batch
 ```
 
-M14-G4 production SKIP calibration may run in parallel. It blocks promotion of a
-learned compute-skipping shortcut, but it does not have to block an explicitly
-conservative canary that BUYs when unsupported and falls back when the resource or
-authority gate cannot complete. M14-H/I and M15-A remain later optimization tracks.
+M14-G4 production SKIP calibration may run in parallel. It blocks promotion of a learned
+compute-skipping shortcut, but it does not block an explicitly conservative canary that
+BUYs when unsupported and falls back when resource/authority gates cannot complete.
 
-Current administrative release gates are also explicit: `main` is unprotected with no
-ruleset, issues #26/#27 track that governance gap, and the top-level Allfather controller
-licensing decision remains outstanding.
+M15-B/C remains the separate strength-claim path. M14-H/I and M15-A remain later
+optimization tracks.
 
----
+Current administrative release gates are also explicit: main protection/ruleset,
+issues #26/#27 governance cleanup, combined-distribution licensing, deployment-host
+selection, and operator bot-account/token/opponent inputs.
 
 # 20. End-state promotion gate
 
@@ -2196,11 +2192,11 @@ AllfatherChess is ready for a genuine equal-resource strength claim only when al
 The current separation between first-canary deployment and the stronger equal-resource research claim is:
 
 ```text
-MERGED THROUGH PR #36
-M14-B/C/D/E/F/G1/G2 + ONLINE-1
+MERGED THROUGH PR #39
+M14-B/C/D/E/F/G1/G2 + ONLINE-1 + ONLINE-2 + M14-G3
         ↓
 FIRST-CANARY RELEASE TRACK
-ONLINE-2 -> M14-G3 -> LOCAL-1 -> ONLINE-3/4 -> release qualification -> ONLINE-RC
+LOCAL-1 -> ONLINE-3/4 -> release qualification -> ONLINE-RC
         ↓
 OPTIMIZATION / STRENGTH TRACK
 M14-G4 production SKIP + M14-H/I + M15-A

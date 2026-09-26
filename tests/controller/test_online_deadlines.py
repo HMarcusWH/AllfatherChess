@@ -589,6 +589,42 @@ class DeadlineTests(unittest.TestCase):
             wait_for(lambda:len(bestmoves(out))==2)
             self.assertEqual(bestmoves(out)[-1],'bestmove e2e4')
 
+    def test_runtime_failure_after_bestmove_does_not_emit_a_second_terminal_line(self):
+        with shell_fixture() as (shell,manager,shadow,out,tmp):
+            entered = threading.Event()
+            release = threading.Event()
+            original_sample = shadow.note_anchor_emitted
+
+            def blocked_sample(token, final_decision=None):
+                entered.set()
+                release.wait(5)
+                return original_sample(token, final_decision=final_decision)
+
+            with patch.object(
+                shadow,
+                'note_anchor_emitted',
+                side_effect=blocked_sample,
+            ):
+                shell.handle_command('go movetime 500')
+                self.assertTrue(entered.wait(1))
+                wait_for(lambda: len(bestmoves(out)) == 1, 1)
+                token = shell._active_generation
+                self.assertIsNotNone(token)
+
+                shell._runtime_failed('synthetic post-output failure', token)
+                self.assertEqual(shell.state, ShellState.UNHEALTHY)
+                self.assertIsNone(shell._active_generation)
+                self.assertEqual(
+                    bestmoves(out),
+                    ['bestmove e2e4'],
+                    'a failure after stdout rewrote immutable terminal history',
+                )
+                self.assertIn(
+                    'runtime failure after published bestmove',
+                    out.getvalue(),
+                )
+                release.set()
+
     def test_router_finalization_cpu_is_inside_resource_interval(self):
         with shell_fixture() as (shell,manager,shadow,out,tmp):
             observed = {}

@@ -436,6 +436,11 @@ def qualify(output: Path) -> dict:
     report["validated_games"] = sum(g["valid"] for g in report["games"])
     shard = (locals().get("m") or {}).get("shard") or {"index": 0, "count": 1}
     mode = (locals().get("m") or {}).get("mode")
+    apply_scope_flags(report, mode=mode, shard=shard, errors=errors)
+    return report
+
+
+def apply_scope_flags(report: dict, *, mode: str | None, shard: dict, errors: list[str]) -> None:
     partial_soak = mode == "soak" and shard.get("count", 1) > 1
     report["execution_scope"] = (
         "partial_soak_shard" if partial_soak
@@ -451,7 +456,6 @@ def qualify(output: Path) -> dict:
     report["claim_boundary"]["full_game_lifecycle"] = bool(
         not errors and not partial_soak
     )
-    return report
 
 
 def main() -> int:

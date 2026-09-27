@@ -53,7 +53,6 @@
 - M15-B/C remains the separate equal-resource strength campaign.
 
 ## ONLINE-2 real-network online CPU reference
-## ONLINE-2 real-network online CPU reference
 
 - **IMPLEMENTED / QUALIFICATION-GATED:** an isolated portable CPU-target bundle,
   real LC0 BLAS/network runtime, explicit BLAS thread environment, ONLINE-1 TimePlan,

@@ -154,7 +154,6 @@ freeze exact source/binary/network/profile/model/bridge/package identities.
 Run the first restricted unrated bot canary only after the operational gates pass.
 
 ## Parallel work
-## Parallel work
 
 **M14-G4 production SKIP calibration** may proceed alongside ONLINE-3/ONLINE-4. It becomes
 mandatory before learned compute suppression is promoted, but a conservative canary may

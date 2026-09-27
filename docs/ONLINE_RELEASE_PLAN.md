@@ -528,7 +528,6 @@ M14-G4 production SKIP qualification may proceed alongside ONLINE-3/ONLINE-4. It
 hard gate before learned SKIP is promoted.
 
 ## 10. Final acceptance checklist
-## 10. Final acceptance checklist
 
 A first online release is ready when the source/binaries/networks/config/model identities are pinned; a real inference profile is qualified; all work follows the same clock-derived envelope; staged routing and move authority have explicit compatible semantics; both positive authority and fallback paths are tested; no unqualified shortcut is admitted; whole games finish legally without controller lifecycle failures; the bridge contributes no hidden move source; credentials remain secret; the account is a disclosed bot; game-to-replay linkage works; and rollback is tested.
 

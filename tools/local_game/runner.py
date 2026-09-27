@@ -167,6 +167,27 @@ def bounded(argv: list[str], cwd: Path, log: Path, timeout: int) -> dict:
     return result
 
 
+def referenced_run_ids(report: dict, label: str) -> list[str]:
+    rows = report.get("cases")
+    require(isinstance(rows, list) and rows, f"{label}: report has no cases")
+    ids = [row.get("run_id") for row in rows]
+    require(all(isinstance(run_id, str) and run_id for run_id in ids),
+            f"{label}: report contains missing run_id")
+    require(len(ids) == len(set(ids)), f"{label}: duplicate run_id in report")
+    return ids
+
+
+def retain_report_runs(source_root: Path, destination: Path, run_ids: list[str],
+                       prior: set[str], label: str) -> None:
+    require(source_root.is_dir(), f"{label}: replay root missing")
+    current = {path.name for path in source_root.iterdir() if path.is_dir()}
+    require(set(run_ids) <= (current - prior),
+            f"{label}: report referenced a replay that was not freshly created")
+    destination.mkdir()
+    for run_id in run_ids:
+        shutil.copytree(contained(source_root, run_id), destination / run_id)
+
+
 def prerequisites(output: Path) -> list[dict]:
     online_runtime = load(ROOT / "config/allfather.online.cpu-reference.json")
     g3_runtime = load(ROOT / "config/allfather.online-hybrid.validation.json")
@@ -201,24 +222,6 @@ def prerequisites(output: Path) -> list[dict]:
     require(g3["authority"] == "HYBRID" and g3["emitted_move"] != g3["anchor_move"],
             "G3 prerequisite did not exercise actual non-anchor authority")
 
-    def referenced_run_ids(report: dict, label: str) -> list[str]:
-        rows = report.get("cases")
-        require(isinstance(rows, list) and rows, f"{label}: report has no cases")
-        ids = [row.get("run_id") for row in rows]
-        require(all(isinstance(run_id, str) and run_id for run_id in ids),
-                f"{label}: report contains missing run_id")
-        require(len(ids) == len(set(ids)), f"{label}: duplicate run_id in report")
-        return ids
-
-    def retain_runs(source_root: Path, destination: Path, run_ids: list[str],
-                    prior: set[str], label: str) -> None:
-        current = {path.name for path in source_root.iterdir() if path.is_dir()}
-        require(set(run_ids) <= (current - prior),
-                f"{label}: report referenced a replay that was not freshly created")
-        destination.mkdir()
-        for run_id in run_ids:
-            shutil.copytree(contained(source_root, run_id), destination / run_id)
-
     online_runtime = load(ROOT / "config/allfather.online.cpu-reference.json")
     online_root = ROOT / online_runtime["shadow"]["replay_root"]
     runtime = load(ROOT / "config/allfather.online-hybrid.validation.json")
@@ -228,10 +231,10 @@ def prerequisites(output: Path) -> list[dict]:
 
     online_ids = referenced_run_ids(online, "ONLINE-2")
     g3_ids = referenced_run_ids(g3_report, "G3")
-    retain_runs(online_root, output / "online2-replays", online_ids,
-                replay_snapshots["online2"], "ONLINE-2")
-    retain_runs(g3_root, output / "g3-replays", g3_ids,
-                replay_snapshots["g3"], "G3")
+    retain_report_runs(online_root, output / "online2-replays", online_ids,
+                       replay_snapshots["online2"], "ONLINE-2")
+    retain_report_runs(g3_root, output / "g3-replays", g3_ids,
+                       replay_snapshots["g3"], "G3")
     require(g3["run_id"] in set(g3_ids), "positive G3 run is absent from current report")
     return records
 

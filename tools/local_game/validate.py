@@ -62,6 +62,28 @@ def read_games(path: Path, *, require_completed: bool = False) -> list:
     return games
 
 
+def verify_runner_log(path: Path, plan: dict) -> None:
+    """Fastchess may warn that wrapper profiles do not emit score-bearing info lines.
+
+    That warning is expected because Allfather's qualified outward UCI contract is
+    move-authority/clock focused rather than a Fastchess score-reporting contract.
+    Every other Fastchess warning/fatal/error remains qualification-fatal.
+    """
+    allowed = re.compile(
+        r"^Warning; No info line available to extract score from engine "
+        r"allfather-(?:g3|anchor)$"
+    )
+    for raw in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        if line.startswith("Warning"):
+            require(allowed.fullmatch(line) is not None,
+                    f"{plan['id']}: unexpected Fastchess warning: {line}")
+        if line.startswith("Fatal;") or line.startswith("Error"):
+            raise QualificationError(f"{plan['id']}: Fastchess error: {line}")
+
+
 def rules_result(board) -> str | None:
     if board.is_checkmate():
         return "0-1" if board.turn else "1-0"
@@ -344,9 +366,11 @@ def qualify(output: Path) -> dict:
             try:
                 require(execution["argv"] == command(plan, directory, p, source, fastchess, write_specs=False),
                         "executed match command differs from policy")
-                if (execution["returncode"] != 0 or execution["timed_out"] or
-                        execution.get("detached_groups_after_cleanup")):
+                if (execution["returncode"] != 0 or execution["timed_out"]
+                        or execution.get("detached_groups_before_cleanup")
+                        or execution.get("detached_groups_after_cleanup")):
                     errors.append(f"{plan['id']}: Fastchess/lifecycle cleanup did not finish")
+                verify_runner_log(directory / "runner.log", plan)
                 games = read_games(directory / "games.pgn", require_completed=True)
                 rows = []
                 for index, game in enumerate(games):
@@ -410,9 +434,23 @@ def qualify(output: Path) -> dict:
         row["proxy_cpu_ms"] = sum(s["proxy_cpu_ms"] for s in session_resources) if session_resources else None
     report["observed_games"] = len(report["games"])
     report["validated_games"] = sum(g["valid"] for g in report["games"])
-    report["baseline_is_complete"] = not errors
+    shard = (locals().get("m") or {}).get("shard") or {"index": 0, "count": 1}
+    mode = (locals().get("m") or {}).get("mode")
+    partial_soak = mode == "soak" and shard.get("count", 1) > 1
+    report["execution_scope"] = (
+        "partial_soak_shard" if partial_soak
+        else "complete_soak" if mode == "soak"
+        else "required_local1"
+    )
+    report["shard_passed"] = not errors
     report["passed"] = not errors
-    report["claim_boundary"]["full_game_lifecycle"] = report["passed"]
+    report["baseline_is_complete"] = bool(not errors and not partial_soak)
+    report["aggregate_soak_complete"] = bool(
+        not errors and mode == "soak" and not partial_soak
+    )
+    report["claim_boundary"]["full_game_lifecycle"] = bool(
+        not errors and not partial_soak
+    )
     return report
 
 

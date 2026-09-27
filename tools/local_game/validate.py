@@ -162,7 +162,16 @@ def session_games(directory: Path, arm: str, source: dict, plan: dict,
                 f"{arm} session failed: {summary.get('errors')}")
         require(not summary["leaked_before_cleanup"] and not summary["remaining_after_cleanup"],
                 "process leakage must not be repaired into a pass")
-        require(summary["arm"] == arm and summary["session_id"] == session.name, "wrong session identity")
+        require(summary["arm"] == arm and summary["session_id"] == session.name,
+                "wrong session identity")
+        identity = summary.get("process_identity") or {}
+        require(
+            identity.get("pid") == summary.get("pid")
+            and identity.get("pgid") == summary.get("pgid")
+            and type(identity.get("start_ticks")) is int
+            and identity["start_ticks"] > 0,
+            "session process identity is missing or inconsistent",
+        )
         _, expected_environment = engine_options(arm, source)
         expected_spec = {"schema_version": 1, "arm": arm, "root": str(ROOT),
                          "sessions": str(directory / "sessions" / arm),

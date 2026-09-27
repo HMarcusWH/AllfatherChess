@@ -18,7 +18,7 @@ from .integrity import (_clock_ms, finite_metrics, input_paths, parse_go_limits,
                         verify_resource_claim, verify_session_commands)
 
 MOVE = re.compile(r"bestmove ([a-h][1-8][a-h][1-8][qrbn]?)(?: ponder [a-h][1-8][a-h][1-8][qrbn]?)?\Z")
-TIMELEFT = re.compile(r"(?<![A-Za-z0-9_])tl=(\\d+)\\.(\\d{3})s(?![A-Za-z0-9_])")
+TIMELEFT = re.compile(r"(?<![A-Za-z0-9_])tl=(\d+)\.(\d{3})s(?![A-Za-z0-9_])")
 
 
 def chess_modules():

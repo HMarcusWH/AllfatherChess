@@ -108,6 +108,8 @@ class StageRecord:
     owner: str | None
     search_id: str
     command: str
+    phase: str
+    effective_options: dict[str, object]
     dispatched_roots: tuple[str, ...]
     dispatch_order: int
     dispatched_ms: float
@@ -128,6 +130,11 @@ class StageRecord:
             "search_id": self.search_id,
             "command": self.command,
             "request": parse_go_request(self.command),
+            "phase": self.phase,
+            "effective_options": dict(self.effective_options),
+            "effective_options_sha256": hashlib.sha256(
+                json.dumps(self.effective_options, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
+            ).hexdigest(),
             "dispatched_roots": list(self.dispatched_roots),
             "dispatch_order": self.dispatch_order,
             "dispatched_ms": round(self.dispatched_ms, 3),
@@ -556,6 +563,8 @@ class ReplayRun:
         owner: str | None,
         search_id: str,
         command: str,
+        phase: str,
+        effective_options: dict[str, object],
         dispatched_roots: tuple[str, ...],
         dispatched_ms: float,
         stage_index: int,
@@ -570,6 +579,8 @@ class ReplayRun:
                 owner=owner,
                 search_id=search_id,
                 command=command,
+                phase=phase,
+                effective_options=dict(effective_options),
                 dispatched_roots=tuple(dispatched_roots),
                 dispatch_order=self._dispatch_counter,
                 dispatched_ms=dispatched_ms,

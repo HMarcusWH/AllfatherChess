@@ -440,6 +440,31 @@ class UciProcess:
             self.set_option(name, value)
         self.ready()
 
+    def configure_idle(
+        self, options: dict[str, object], *, timeout: float | None = None
+    ) -> None:
+        """Reconfigure options under the same command gate used by start_search."""
+        bound = self.timeout if timeout is None else float(timeout)
+        deadline = time.monotonic() + bound
+        if not self._command_gate.acquire(timeout=bound):
+            raise UciProcessError(f"{self.name}: idle option command gate timed out")
+        try:
+            with self._state_lock:
+                if self._search is not None:
+                    raise UciProcessError(
+                        f"{self.name}: option reconfiguration is forbidden during active search"
+                    )
+            missing = sorted(name for name in options if name not in self.options)
+            if missing:
+                raise UciProcessError(
+                    f"{self.name}: required UCI options not exposed: {', '.join(missing)}"
+                )
+            for name, value in options.items():
+                self.set_option(name, value)
+            self.ready(timeout=max(0.001, deadline - time.monotonic()))
+        finally:
+            self._command_gate.release()
+
     def send_position(self, command: str) -> None:
         if not command.startswith("position "):
             raise UciProcessError(f"{self.name}: invalid position command: {command!r}")

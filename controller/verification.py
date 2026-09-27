@@ -51,6 +51,8 @@ class VerificationStage:
     family: str
     search_id: str
     command: str
+    phase: str
+    effective_options: dict[str, object]
     candidate_roots: tuple[str, ...]
     dispatch_order: int
     dispatched_ms: float
@@ -69,6 +71,11 @@ class VerificationStage:
             "family": self.family,
             "search_id": self.search_id,
             "command": self.command,
+            "phase": self.phase,
+            "effective_options": dict(self.effective_options),
+            "effective_options_sha256": __import__("hashlib").sha256(
+                json.dumps(self.effective_options, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
+            ).hexdigest(),
             "candidate_roots": list(self.candidate_roots),
             "dispatch_order": self.dispatch_order,
             "dispatched_ms": round(self.dispatched_ms, 3),
@@ -201,6 +208,8 @@ class VerificationRun:
         family: str,
         search_id: str,
         command: str,
+        phase: str,
+        effective_options: dict[str, object],
         dispatched_ms: float,
     ) -> VerificationStage:
         with self._lock:
@@ -213,6 +222,8 @@ class VerificationRun:
                 family=family,
                 search_id=search_id,
                 command=command,
+                phase=phase,
+                effective_options=dict(effective_options),
                 candidate_roots=self.plan.candidate_roots,
                 dispatch_order=self._dispatch_counter,
                 dispatched_ms=dispatched_ms,

@@ -3091,6 +3091,11 @@ class ShadowRunCoordinator:
             )
         except SearchRequestError:
             return False
+        try:
+            effective_options = self.runtime.configure_shadow_phase(instance, "VERIFY")
+        except ControllerRuntimeError as exc:
+            verification.set_disposition("incomplete", f"VERIFY phase configuration failed for {instance}: {exc}")
+            return False
         search_id = f"{active.run.run_id}:verify:{instance}:0"
         generation = active.generation
 
@@ -3140,6 +3145,8 @@ class ShadowRunCoordinator:
                 family=spec.family,
                 search_id=search_id,
                 command=command,
+                phase="VERIFY",
+                effective_options=effective_options,
                 dispatched_ms=(time.monotonic() - active.started_monotonic) * 1000.0,
             )
 
@@ -3489,6 +3496,11 @@ class ShadowRunCoordinator:
             )
         except SearchRequestError:
             return False
+        try:
+            effective_options = self.runtime.configure_shadow_phase(instance, "STAGED_VERIFY")
+        except ControllerRuntimeError as exc:
+            staged.set_disposition("incomplete", f"staged VERIFY phase configuration failed for {instance}: {exc}")
+            return False
         search_id = f"{active.run.run_id}:verify-extension:{instance}:0"
         generation = active.generation
 
@@ -3541,6 +3553,8 @@ class ShadowRunCoordinator:
                 family=spec.family,
                 search_id=search_id,
                 command=command,
+                phase="STAGED_VERIFY",
+                effective_options=effective_options,
                 dispatched_ms=(time.monotonic() - active.started_monotonic) * 1000.0,
             )
 
@@ -5495,6 +5509,13 @@ class ShadowRunCoordinator:
             run.note(f"owner {state.owner} dispatch rejected: {exc}")
             state.done.set()
             return False
+        try:
+            effective_options = self.runtime.configure_shadow_phase(state.instance, "EXPLORE")
+        except ControllerRuntimeError as exc:
+            run.note(f"owner {state.owner} EXPLORE phase configuration failed: {exc}")
+            state.failed = True
+            state.done.set()
+            return False
 
         generation = active.generation
 
@@ -5539,6 +5560,8 @@ class ShadowRunCoordinator:
                 owner=state.owner,
                 search_id=search_id,
                 command=command,
+                phase="EXPLORE",
+                effective_options=effective_options,
                 dispatched_roots=state.roots,
                 dispatched_ms=elapsed,
                 stage_index=state.stage_index,

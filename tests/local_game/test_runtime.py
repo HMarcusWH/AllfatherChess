@@ -3,6 +3,9 @@
 These are NOT chess-strength or real rule-transition evidence. Real legality is
 checked by the independent PGN verifier and explicit rules probes in the campaign.
 """
+import json
+import os
+import tempfile
 import threading
 from pathlib import Path
 import sys
@@ -13,6 +16,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from tests.controller.online_helpers import shell_fixture, wait_for
 from controller.replay import discover_replay_bundles, load_manifest, verify_bundle_integrity
+from tools.local_game.runner import bounded
 
 
 def terminals(output):
@@ -51,6 +55,25 @@ class GenerationLifecycleTests(unittest.TestCase):
             self.assertEqual(terminals(out), ["bestmove e2e4"] * 12)
             for run in bundles.bundles:
                 self.assertFalse(verify_bundle_integrity(run), run)
+
+    def test_normal_runner_exit_cleans_detached_child_but_retains_failure_evidence(self):
+        (ROOT / "build").mkdir(exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=ROOT / "build") as tmp:
+            cwd = Path(tmp)
+            script = (
+                "import json,pathlib,subprocess; "
+                "child=subprocess.Popen(['sleep','60'],start_new_session=True); "
+                "session=pathlib.Path('sessions')/'x'/'y'; session.mkdir(parents=True); "
+                "(session/'session.json').write_text(json.dumps({'pgid':child.pid}),encoding='utf-8')"
+            )
+            result = bounded([sys.executable, "-c", script], cwd, cwd / "runner.log", 10)
+            self.assertEqual(result["returncode"], 0)
+            self.assertFalse(result["timed_out"])
+            self.assertTrue(result["detached_groups_before_cleanup"])
+            self.assertFalse(result["detached_groups_after_cleanup"])
+            for pgid in result["detached_groups_before_cleanup"]:
+                with self.assertRaises(ProcessLookupError):
+                    os.killpg(pgid, 0)
 
     def test_later_shadow_crash_does_not_elect_new_authority(self):
         args = {"stockfish-anchor": ["--info-lines", "5", "--info-delay-ms", "20"],

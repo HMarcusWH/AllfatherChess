@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import argparse
 from collections import Counter, defaultdict
-from decimal import Decimal, InvalidOperation
 import io
 import json
 from pathlib import Path
@@ -272,38 +271,25 @@ def validate_g3(item: dict, allow_denial: bool) -> dict:
             "replay_id": run.name}
 
 
-def _pgn_timeleft_ms(comment: str) -> int:
-    match = re.search(r"(?:^|[, ])tl=([0-9]+(?:\\.[0-9]+)?)s(?:[, ]|$)", comment or "")
-    require(match is not None,
-            f"searched move is missing Fastchess timeleft evidence: {comment!r}")
-    try:
-        value = Decimal(match.group(1)) * Decimal(1000)
-    except InvalidOperation as exc:
-        raise QualificationError(f"malformed Fastchess timeleft: {comment!r}") from exc
-    require(value == value.to_integral_value(),
-            f"Fastchess timeleft is not millisecond-exact: {comment!r}")
-    millis = int(value)
-    require(millis >= 0, "negative Fastchess timeleft")
-    return millis
-
-
 def verify_game_clocks(game, streams: dict[str, list[dict]], plan: dict,
                        opening_length: int) -> None:
-    """Reconstruct pinned Fastchess TimeControl state from go + PGN timeleft.
+    """Reconstruct pinned Fastchess clock transitions from the actual go stream.
 
-    The pinned runner initializes each side to base+increment. Every searched
-    move's PGN tl= value is the runner's post-move clock after subtracting
-    measured elapsed time and adding the increment. The next UCI go must carry
-    exactly that state; book plies do not consume the clock.
+    Pinned Fastchess initializes both sides to base+increment. Between two
+    searched plies the side that did not move must retain exactly the same
+    clock, while the mover may gain at most one increment because elapsed
+    search time is non-negative. This uses the combined game stream rather
+    than an engine session's first go, which may occur after its opponent has
+    already consumed time.
     """
     base_ms, increment_ms = _clock_ms(plan["clock"])
-    state = {"wtime": base_ms + increment_ms, "btime": base_ms + increment_ms}
+    initial = base_ms + increment_ms
     board = game.board()
     counters = {name: 0 for name in streams}
+    previous: dict[str, int] | None = None
+    previous_mover: str | None = None
 
-    for index, node in enumerate(game.mainline()):
-        move = node.move
-        require(move is not None, "PGN mainline node is missing a move")
+    for index, move in enumerate(game.mainline_moves()):
         arm = game.headers["White" if board.turn else "Black"]
         if index >= opening_length:
             require(arm in streams, "clock reconstruction saw unexpected engine")
@@ -316,10 +302,21 @@ def verify_game_clocks(game, streams: dict[str, list[dict]], plan: dict,
             require(int(limits["winc"]) == int(limits["binc"]) == increment_ms,
                     "transmitted increment differs from frozen control")
             current = {"wtime": int(limits["wtime"]), "btime": int(limits["btime"])}
-            require(current == state,
-                    f"Fastchess transmitted clock state {current} != reconstructed {state}")
-            mover_key = "wtime" if board.turn else "btime"
-            state[mover_key] = _pgn_timeleft_ms(node.comment)
+            require(current["wtime"] >= 0 and current["btime"] >= 0,
+                    "negative transmitted Fastchess clock")
+            if previous is None:
+                require(current == {"wtime": initial, "btime": initial},
+                        f"initial Fastchess clocks must equal base+increment ({initial} ms)")
+            else:
+                require(previous_mover in ("wtime", "btime"),
+                        "missing previous mover clock identity")
+                idle = "btime" if previous_mover == "wtime" else "wtime"
+                require(current[idle] == previous[idle],
+                        "non-moving Fastchess clock changed between searched plies")
+                require(current[previous_mover] <= previous[previous_mover] + increment_ms,
+                        "mover Fastchess clock grew by more than one increment")
+            previous = current
+            previous_mover = "wtime" if board.turn else "btime"
             counters[arm] += 1
         board.push(move)
 

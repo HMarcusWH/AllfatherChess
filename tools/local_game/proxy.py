@@ -46,6 +46,13 @@ def _cleanup_private_group(process: subprocess.Popen, pgid: int) -> None:
             os.killpg(pgid, signal.SIGKILL)
         except ProcessLookupError:
             pass
+    for handle in (process.stdin, process.stdout, process.stderr):
+        if handle is None:
+            continue
+        try:
+            handle.close()
+        except OSError:
+            pass
 
 
 def _spawn_registered_child(command: list[str], *, cwd: Path, environment: dict,

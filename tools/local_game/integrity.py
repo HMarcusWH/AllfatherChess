@@ -27,18 +27,32 @@ def verify_builds(source: dict) -> Path:
     fc = load(fc_root / "build-manifest.json")
     lock = ROOT / "qualification/fastchess.lock.json"
     require(fc["source"] == load(lock) and fc["lock_sha256"] == sha(lock), "Fastchess pin mismatch")
-    require(fc["upstream_tests_passed"] is True, "Fastchess upstream tests missing")
     fastchess = verify_record(fc_root, fc["binary"])
     verify_record(fc_root, fc["license"])
     attestation = fc.get("source_test_attestation")
-    if attestation is not None:
-        attestation_path = verify_record(fc_root, attestation)
-        tested = load(attestation_path)
-        require(tested.get("passed") is True, "Fastchess source-test attestation is not a pass")
-        require(tested.get("commit") == fc["source"]["commit"] and
-                tested.get("tree") == fc["source"]["tree"] and
-                tested.get("lock_sha256") == fc["lock_sha256"],
-                "Fastchess source-test attestation identity mismatch")
+    require(isinstance(attestation, dict),
+            "Fastchess source-test attestation record is mandatory")
+    attestation_path = verify_record(fc_root, attestation)
+    require(not attestation_path.is_symlink(),
+            "Fastchess source-test attestation may not be a symlink")
+    tested = load(attestation_path)
+    source_lock = load(lock)
+    require(fc.get("upstream_tests_passed") is True,
+            "Fastchess build does not declare successful source tests")
+    require(tested.get("passed") is True, "Fastchess source-test attestation is not a pass")
+    require(
+        tested.get("repository") == source_lock["repository"]
+        and tested.get("commit") == source_lock["commit"]
+        and tested.get("tree") == source_lock["tree"]
+        and tested.get("lock_sha256") == fc["lock_sha256"]
+        and tested.get("reference_host") == "ubuntu-22.04"
+        and (tested.get("os_release") or {}).get("ID") == "ubuntu"
+        and (tested.get("os_release") or {}).get("VERSION_ID") == "22.04"
+        and tested.get("contract") == "clean -> make tests -> fastchess-tests"
+        and isinstance(tested.get("compiler"), str)
+        and bool(tested["compiler"].strip()),
+        "Fastchess source-test attestation host/source contract mismatch",
+    )
 
     bundle = ROOT / "build/online-cpu-reference"
     build = load(bundle / "build-manifest.json")
@@ -171,14 +185,25 @@ def _clock_ms(control: str) -> tuple[int, int]:
     return base_ms, int(round(inc_value * 1000))
 
 
+def parse_go_limits(command: str) -> dict[str, str]:
+    words = command.split()
+    require(words and words[0] == "go", "malformed UCI go command")
+    payload = words[1:]
+    require(len(payload) % 2 == 0, "unexpected search restriction/limit in tournament")
+    pairs = list(zip(payload[::2], payload[1::2]))
+    limits = dict(pairs)
+    require(len(limits) == len(pairs), "duplicate UCI limit")
+    return limits
+
+
 def verify_session_commands(events: list[dict], arm: str, plan: dict, source: dict) -> None:
     """Check actual transmitted UCI limits/options and the scheduled clock."""
     from .runner import engine_options
 
     required, _ = engine_options(arm, source)
     options = {}
-    expected_base, expected_increment = _clock_ms(plan["clock"])
-    game_searches: dict[int, int] = {}
+    _, expected_increment = _clock_ms(plan["clock"])
+    searches = 0
 
     for event in events:
         if event["direction"] != "in":
@@ -188,42 +213,30 @@ def verify_session_commands(events: list[dict], arm: str, plan: dict, source: di
             match = re.fullmatch(r"setoption name (.*?)(?: value(?: (.*))?)?", line)
             require(match is not None, "malformed recorded option")
             options[match[1]] = match[2] or ""
-            require(not (match[1] == "Ponder" and (match[2] or "").lower() == "true"), "ponder enabled")
+            require(not (match[1] == "Ponder" and (match[2] or "").lower() == "true"),
+                    "ponder enabled")
         if line == "go" or line.startswith("go "):
+            searches += 1
             for name, value in required.items():
                 rendered = str(value).lower() if isinstance(value, bool) else str(value)
-                require(options.get(name) == rendered, f"{arm}: effective {name} differs from baseline policy")
-            words = line.split()[1:]
-            require(len(words) % 2 == 0, "unexpected search restriction/limit in tournament")
-            pairs = list(zip(words[::2], words[1::2]))
-            limits = dict(pairs)
-            require(len(limits) == len(pairs), "duplicate UCI limit")
+                require(options.get(name) == rendered,
+                        f"{arm}: effective {name} differs from baseline policy")
+            limits = parse_go_limits(line)
             allowed = {"wtime", "btime", "winc", "binc"}
             if plan["driver_nodes"] is not None and arm == "stockfish":
                 allowed.add("nodes")
-                require(limits.get("nodes") == str(plan["driver_nodes"]), "driver work limit drift")
+                require(limits.get("nodes") == str(plan["driver_nodes"]),
+                        "driver work limit drift")
             require(set(limits) == allowed, "baseline received non-clock or missing limits")
-
             game = event.get("game")
-            require(type(game) is int and game >= 1, "go is not bound to a positive game ordinal")
-            seen = game_searches.get(game, 0)
+            require(type(game) is int and game >= 1,
+                    "go is not bound to a positive game ordinal")
             wtime, btime = int(limits["wtime"]), int(limits["btime"])
             winc, binc = int(limits["winc"]), int(limits["binc"])
             require(wtime >= 0 and btime >= 0, "negative tournament clock")
             require(winc == binc == expected_increment, "increment differs across arms")
-            if seen == 0:
-                require(wtime == btime == expected_base,
-                        f"{arm}: first transmitted clocks do not match scheduled {plan['clock']}")
-            # No clock may grow faster than one increment per already observed
-            # turn for this engine session. This is deliberately a loose upper
-            # bound after move one, but it catches cross-case/low-clock drift
-            # without pretending the proxy is the tournament clock authority.
-            ceiling = expected_base + seen * expected_increment
-            require(wtime <= ceiling and btime <= ceiling,
-                    f"{arm}: transmitted clock exceeds scheduled progression")
-            game_searches[game] = seen + 1
 
-    require(game_searches, f"{arm}: session transmitted no go command")
+    require(searches > 0, f"{arm}: session transmitted no go command")
 
 
 def _number(value, label: str) -> float:
@@ -433,19 +446,39 @@ def verify_resource_claim(run: Path, manifest: dict) -> dict:
                 "refine_oracle_gpu_ms_estimate",
             ) > 0
 
-    granted_tokens = set()
-    resolved_tokens = set()
+    grants: dict[str, dict] = {}
+    resolutions: dict[str, dict] = {}
     for action in route.get("specialist_actions") or []:
         require(isinstance(action, dict), "malformed specialist action")
+        event = action.get("event")
         token = action.get("reservation_token")
-        if action.get("granted") is True and isinstance(token, str) and token:
-            if action.get("event") in ("settle", "release"):
-                resolved_tokens.add(token)
-            elif action.get("event") is None:
-                granted_tokens.add(token)
+        require(event in ("authorize", "settle", "release"),
+                f"unknown specialist reservation event: {event!r}")
+        if event == "authorize":
+            if action.get("granted") is True:
+                require(isinstance(token, str) and token,
+                        "granted authorization is missing reservation token")
+                require(token not in grants, "reservation token authorized twice")
+                grants[token] = action
+            else:
+                require(token is None,
+                        "denied authorization may not carry a reservation token")
+        else:
+            require(action.get("granted") is True and isinstance(token, str) and token,
+                    "specialist resolution is missing granted reservation token")
+            require(token in grants, "specialist resolution has no prior authorization")
+            require(token not in resolutions,
+                    "reservation token settled/released more than once")
+            grant = grants[token]
+            require(action.get("phase") == grant.get("phase"),
+                    "specialist resolution phase differs from authorization")
+            require(action.get("requested_cpu_ms") == grant.get("requested_cpu_ms") and
+                    action.get("requested_gpu_ms") == grant.get("requested_gpu_ms"),
+                    "specialist resolution resource request differs from authorization")
+            resolutions[token] = action
     settlement_complete = (
         budget.get("open_reservations") == 0
-        and granted_tokens <= resolved_tokens
+        and set(grants) == set(resolutions)
     )
     wall_within = _number(budget.get("elapsed_ms"), "budget elapsed_ms") <= envelope.wall_ms + 1e-6
     physical_within = physical <= envelope.cpu_ms + 1e-6

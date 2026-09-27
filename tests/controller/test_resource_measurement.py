@@ -120,6 +120,34 @@ class ResourceMeasurementRunTests(unittest.TestCase):
         with self.assertRaises(Exception):
             run.begin_stage(key="two", instance="lc0-shadow", phase="VERIFY", pid=22)
 
+    def test_prewrite_rejection_discards_only_provisional_stage(self):
+        provider = _Provider()
+        run = ResourceMeasurementRun(
+            run_id="prewrite-rejection",
+            settings=self.settings(),
+            provider=provider,
+        )
+        run.register_process(instance="worker", pid=44)
+        run.begin_stage(key="actual", instance="worker", phase="ANCHOR", pid=44)
+        run.finish_stage("actual")
+
+        run.begin_stage(
+            key="never-written",
+            instance="worker",
+            phase="VERIFY",
+            pid=44,
+        )
+        self.assertTrue(run.discard_stage_before_dispatch("never-written"))
+        self.assertIsNone(run.measurement("never-written"))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            summary = run.seal(Path(tmp) / "resource.json")
+            doc = json.loads((Path(tmp) / "resource.json").read_text())
+
+        self.assertTrue(summary["qualified"])
+        self.assertTrue(doc["coverage"]["cpu"]["complete"])
+        self.assertEqual([row["key"] for row in doc["stages"]], ["actual"])
+
     def test_unfinished_stage_fails_cpu_coverage(self):
         run = ResourceMeasurementRun(
             run_id="r3",

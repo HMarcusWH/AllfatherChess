@@ -422,6 +422,42 @@ class ResourceMeasurementRun:
             self._measurements[key] = measurement
             return measurement
 
+    def discard_stage_before_dispatch(self, key: str) -> bool:
+        """Remove a provisional sample when no engine command was written.
+
+        begin_stage samples before the guarded UCI write so successful work
+        is measured from its true boundary. If the final permit closes before
+        any bytes cross stdin, there is no engine stage to measure. Removing
+        only that provisional row prevents a normal safety race from becoming
+        a false incomplete-resource certificate. Run-level process totals and
+        controller CPU remain measured.
+        """
+        if not self.settings.enabled:
+            return False
+        with self._lock:
+            if self._sealed is not None or self._process_endpoints_frozen or self._interval_frozen:
+                raise ResourceMeasurementError(
+                    "cannot discard a provisional stage after resource freeze/seal"
+                )
+            active = self._active.pop(key, None)
+            if active is not None:
+                if self._active_instance.get(active.instance) == key:
+                    self._active_instance.pop(active.instance, None)
+                return True
+
+            # begin_stage can immediately materialize an incomplete row when
+            # its start sample is unavailable. If dispatch still never occurs,
+            # that row also describes no physical engine stage.
+            existing = self._measurements.get(key)
+            if existing is None:
+                return False
+            if existing.complete:
+                raise ResourceMeasurementError(
+                    "cannot discard an already-completed resource stage"
+                )
+            self._measurements.pop(key, None)
+            return True
+
     def abandon_stage(self, key: str, *, reason: str) -> StageResourceMeasurement | None:
         if not self.settings.enabled:
             return None

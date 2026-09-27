@@ -1426,6 +1426,8 @@ class ReviewRegressionRoundTenTests(unittest.TestCase):
                     on_complete=lambda token, line: None,
                 )
                 self.assertFalse(dispatched)
+                self.assertTrue(dispatched.rejected_before_write)
+                self.assertIn("closed before write", dispatched.reason)
                 self.assertTrue(
                     manager.shadow_available(instance),
                     "normal dispatch rejection permanently quarantined a live worker",

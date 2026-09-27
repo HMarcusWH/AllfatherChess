@@ -54,6 +54,24 @@ TELEMETRY_EXECUTION_MODE = {
 
 
 @dataclass(frozen=True)
+class ShadowDispatchResult:
+    """Outcome of one observational search dispatch attempt.
+
+    rejected_before_write is true only when the authority/clock permit
+    closed before any UCI command bytes crossed the child stdin boundary.
+    That is a normal causal race: no engine work was admitted and the worker
+    remains healthy. Other false outcomes represent unavailable/failed
+    observational execution and remain qualification evidence.
+    """
+
+    started: bool
+    rejected_before_write: bool = False
+    reason: str | None = None
+
+    def __bool__(self) -> bool:
+        return self.started
+
+@dataclass(frozen=True)
 class BackendSpec:
     """One managed engine instance.
 
@@ -1971,23 +1989,31 @@ class BackendManager:
         on_complete: Callable[[int, str], None],
         permit: Callable[[], bool] | None = None,
         dispatch_gate: Any | None = None,
-    ) -> bool:
+    ) -> ShadowDispatchResult:
         """Dispatch one restricted observational search.
 
-        Returns ``False`` and records a shadow failure instead of raising: a
-        shadow dispatch problem is evidence, never an authority failure.
+        The result remains truthy only for a started search, but preserves
+        whether a false outcome was the expected pre-write authority race.
+        Only that outcome proves that no engine work occurred. Process/health
+        failures remain distinct evidence and still quarantine the worker.
         """
         spec = self.spec(instance)
         if spec.role != "shadow":
             raise RuntimeError(f"instance {instance!r} is not a shadow worker")
         if not self.shadow_available(instance):
-            return False
+            return ShadowDispatchResult(
+                started=False,
+                reason=f"shadow instance unavailable: {instance}",
+            )
         info_cb, complete_cb = self._observed_callbacks(instance, on_info, on_complete)
         clock = None
         if self.config.online_time is not None:
             clock = self._online_clock
             if clock is None or clock.plan.generation != token:
-                return False
+                return ShadowDispatchResult(
+                    started=False,
+                    reason="online clock generation does not match shadow dispatch",
+                )
 
         def dispatch_permitted() -> bool:
             if permit is not None and not permit():
@@ -1997,7 +2023,11 @@ class BackendManager:
             return True
 
         if not dispatch_permitted():
-            return False
+            return ShadowDispatchResult(
+                started=False,
+                rejected_before_write=True,
+                reason="shadow dispatch window closed before process write",
+            )
 
         kwargs: dict[str, Any] = {"permit": dispatch_permitted}
         if clock is not None:
@@ -2014,16 +2044,20 @@ class BackendManager:
                 dispatch_gate=dispatch_gate,
                 **kwargs,
             )
-        except UciDispatchRejected:
-            # Anchor completion / budget closure winning the final dispatch
-            # linearization point is an expected rejected dispatch. No bytes
-            # crossed the worker pipe, so the still-live worker remains healthy
-            # and reusable by later generations.
-            return False
+        except UciDispatchRejected as exc:
+            # Authority/budget closure won the final write gate. No bytes
+            # crossed the worker pipe, so this is not engine-health evidence.
+            return ShadowDispatchResult(
+                started=False,
+                rejected_before_write=True,
+                reason=str(exc),
+            )
         except UciProcessError as exc:
-            self.record_shadow_failure(instance, f"shadow dispatch failed: {exc}", generation=token)
-            return False
-        return True
+            self.record_shadow_failure(
+                instance, f"shadow dispatch failed: {exc}", generation=token
+            )
+            return ShadowDispatchResult(started=False, reason=str(exc))
+        return ShadowDispatchResult(started=True)
 
     def stop_instance_for(self, instance: str, token: int, *, timeout: float) -> None:
         process = self.backends.get(instance)

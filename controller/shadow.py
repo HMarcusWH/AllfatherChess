@@ -1473,6 +1473,26 @@ class ShadowRunCoordinator:
             )
             return None
 
+    def _discard_resource_stage_before_dispatch(
+        self,
+        active: _ActiveRun,
+        key: str,
+    ) -> None:
+        resources = active.resources
+        if resources is None:
+            return
+        try:
+            resources.discard_stage_before_dispatch(key)
+        except Exception as exc:
+            active.run.note(
+                f"resource measurement could not discard pre-write stage {key}: "
+                f"{type(exc).__name__}: {exc}"
+            )
+
+    @staticmethod
+    def _dispatch_rejected_before_write(result: object) -> bool:
+        return bool(getattr(result, "rejected_before_write", False))
+
     def _abandon_resource_stage(
         self,
         active: _ActiveRun,
@@ -3129,10 +3149,28 @@ class ShadowRunCoordinator:
             dispatch_gate=active.dispatch_gate,
         )
         if not dispatched:
+            if self._dispatch_rejected_before_write(dispatched):
+                self._discard_resource_stage_before_dispatch(active, search_id)
+                self._release_specialist(
+                    active,
+                    key=reservation_key,
+                    reason="VERIFY reservation released because dispatch window closed before write",
+                )
+                verification.record_completion(
+                    stage,
+                    completed_ms=(time.monotonic() - active.started_monotonic) * 1000.0,
+                    disposition="stopped",
+                    stop_reason="dispatch_window_closed_before_write",
+                )
+                verification.set_disposition(
+                    "incomplete",
+                    f"verification dispatch window closed before write for {instance}",
+                )
+                return False
             self._abandon_resource_stage(
                 active,
                 search_id,
-                reason="VERIFY backend dispatch was rejected",
+                reason="VERIFY backend dispatch failed",
             )
             self._release_specialist(
                 active,
@@ -3143,10 +3181,10 @@ class ShadowRunCoordinator:
                 stage,
                 completed_ms=(time.monotonic() - active.started_monotonic) * 1000.0,
                 disposition="failed",
-                failure="verification dispatch rejected; instance unavailable",
+                failure="verification dispatch failed; instance unavailable or unhealthy",
             )
             verification.set_disposition(
-                "incomplete", f"verification dispatch rejected for {instance}"
+                "incomplete", f"verification dispatch failed for {instance}"
             )
             return False
         return True
@@ -3512,10 +3550,31 @@ class ShadowRunCoordinator:
             dispatch_gate=active.dispatch_gate,
         )
         if not dispatched:
+            if self._dispatch_rejected_before_write(dispatched):
+                self._discard_resource_stage_before_dispatch(active, search_id)
+                self._release_specialist(
+                    active,
+                    key=reservation_key,
+                    reason=(
+                        "staged VERIFY reservation released because dispatch "
+                        "window closed before write"
+                    ),
+                )
+                staged.record_completion(
+                    stage,
+                    completed_ms=(time.monotonic() - active.started_monotonic) * 1000.0,
+                    disposition="stopped",
+                    stop_reason="dispatch_window_closed_before_write",
+                )
+                staged.set_disposition(
+                    "incomplete",
+                    f"staged VERIFY dispatch window closed before write for {instance}",
+                )
+                return False
             self._abandon_resource_stage(
                 active,
                 search_id,
-                reason="staged VERIFY backend dispatch was rejected",
+                reason="staged VERIFY backend dispatch failed",
             )
             self._release_specialist(
                 active,
@@ -3528,11 +3587,11 @@ class ShadowRunCoordinator:
                 stage,
                 completed_ms=(time.monotonic() - active.started_monotonic) * 1000.0,
                 disposition="failed",
-                failure="staged VERIFY dispatch rejected; instance unavailable",
+                failure="staged VERIFY dispatch failed; instance unavailable or unhealthy",
             )
             staged.set_disposition(
                 "incomplete",
-                f"staged VERIFY dispatch rejected for {instance}",
+                f"staged VERIFY dispatch failed for {instance}",
             )
             return False
         return True
@@ -4690,10 +4749,27 @@ class ShadowRunCoordinator:
             dispatch_gate=active.dispatch_gate,
         )
         if not dispatched:
+            if self._dispatch_rejected_before_write(dispatched):
+                self._discard_resource_stage_before_dispatch(active, search_id)
+                self._release_specialist(
+                    active,
+                    key=reservation_key,
+                    reason=(
+                        "recursive REFINE reservation released because dispatch "
+                        "window closed before write"
+                    ),
+                )
+                refinement.record_completion(
+                    stage,
+                    completed_ms=(time.monotonic() - active.started_monotonic) * 1000.0,
+                    disposition="stopped",
+                    stop_reason="dispatch_window_closed_before_write",
+                )
+                return False
             self._abandon_resource_stage(
                 active,
                 search_id,
-                reason="recursive REFINE backend dispatch was rejected",
+                reason="recursive REFINE backend dispatch failed",
             )
             self._release_specialist(
                 active,
@@ -4704,7 +4780,7 @@ class ShadowRunCoordinator:
                 stage,
                 completed_ms=(time.monotonic() - active.started_monotonic) * 1000.0,
                 disposition="failed",
-                failure="recursive REFINE dispatch rejected",
+                failure="recursive REFINE dispatch failed",
             )
             return False
         return True
@@ -5055,10 +5131,24 @@ class ShadowRunCoordinator:
             dispatch_gate=active.dispatch_gate,
         )
         if not dispatched:
+            if self._dispatch_rejected_before_write(dispatched):
+                self._discard_resource_stage_before_dispatch(active, search_id)
+                self._release_specialist(
+                    active,
+                    key=reservation_key,
+                    reason="REFINE reservation released because dispatch window closed before write",
+                )
+                refinement.record_completion(
+                    stage,
+                    completed_ms=(time.monotonic() - active.started_monotonic) * 1000.0,
+                    disposition="stopped",
+                    stop_reason="dispatch_window_closed_before_write",
+                )
+                return False
             self._abandon_resource_stage(
                 active,
                 search_id,
-                reason="REFINE backend dispatch was rejected",
+                reason="REFINE backend dispatch failed",
             )
             self._release_specialist(
                 active,
@@ -5069,7 +5159,7 @@ class ShadowRunCoordinator:
                 stage,
                 completed_ms=(time.monotonic() - active.started_monotonic) * 1000.0,
                 disposition="failed",
-                failure="REFINE dispatch rejected; instance unavailable",
+                failure="REFINE dispatch failed; instance unavailable or unhealthy",
             )
             return False
         return True
@@ -5465,17 +5555,31 @@ class ShadowRunCoordinator:
         with self._lock:
             state.dispatch_pending = False
         if not dispatched:
+            if self._dispatch_rejected_before_write(dispatched):
+                self._discard_resource_stage_before_dispatch(active, search_id)
+                run.note(
+                    f"owner {state.owner} dispatch window closed before write; "
+                    "no shadow engine work was admitted"
+                )
+                run.record_completion(
+                    stage,
+                    completed_ms=(time.monotonic() - active.started_monotonic) * 1000.0,
+                    disposition="stopped",
+                    stop_reason="dispatch_window_closed_before_write",
+                )
+                state.done.set()
+                return False
             self._abandon_resource_stage(
                 active,
                 search_id,
-                reason="EXPLORE backend dispatch was rejected",
+                reason="EXPLORE backend dispatch failed",
             )
             state.failed = True
             run.record_completion(
                 stage,
                 completed_ms=(time.monotonic() - active.started_monotonic) * 1000.0,
                 disposition="failed",
-                failure="shadow dispatch rejected; instance unavailable",
+                failure="shadow dispatch failed; instance unavailable or unhealthy",
             )
             state.done.set()
             return False

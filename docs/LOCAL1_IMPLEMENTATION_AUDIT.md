@@ -164,3 +164,25 @@ deferred telemetry and artifact sealing. New searches therefore receive their ow
 bundle immediately; shutdown waits all pending finalizers before callbacks are detached.
 Deterministic backlog and rapid multi-game regressions exercise this overlap without adding
 an artificial replay wait or weakening the replay requirement.
+
+## Eighth hardening pass — pre-write dispatch accounting
+
+Exact-head LOCAL-1 run 98 completed the 43-test negative/control suite and all ten
+five-arm pairings, then failed only two G3 games on unexpected physical/envelope
+failure. Retained evidence showed no physical overrun: in both cases the anchor/clock
+boundary won the final shadow dispatch race, so UciDispatchRejected proved that no
+shadow command bytes crossed the engine stdin boundary. The worker remained healthy
+and was reused later.
+
+The runtime now returns a typed shadow-dispatch outcome that distinguishes this certified
+pre-write rejection from unavailable/process-failure outcomes. A resource sample opened
+immediately before the guarded write is discarded only for that certified no-write case;
+run-level process totals and controller CPU remain measured. The corresponding EXPLORE,
+VERIFY, staged-VERIFY, or REFINE record is marked stopped with
+dispatch_window_closed_before_write, reservations are released exactly once, and actual
+backend failures still create incomplete physical evidence and fail closed.
+
+Regression coverage binds both sides of the contract: the runtime exposes the pre-write
+classification without quarantining the worker, and the resource meter proves that
+removing a never-dispatched provisional stage does not hide or weaken measurements for
+work that actually ran.

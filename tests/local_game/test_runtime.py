@@ -5,6 +5,7 @@ checked by the independent PGN verifier and explicit rules probes in the campaig
 """
 import json
 import os
+import subprocess
 import tempfile
 import threading
 from pathlib import Path
@@ -16,6 +17,9 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from tests.controller.online_helpers import shell_fixture, wait_for
 from controller.replay import discover_replay_bundles, load_manifest, verify_bundle_integrity
+from tests.harness.uci_session import UciSession
+from tools.local_game.common import process_identity
+from tools.local_game.proxy import _spawn_registered_child
 from tools.local_game.runner import bounded
 
 

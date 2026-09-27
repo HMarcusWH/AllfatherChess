@@ -84,3 +84,25 @@ five-arm matrix may do that.
 
 A same-clock W/D/L table remains descriptive only. M15-B/C is the separate equal-resource
 strength campaign.
+
+
+## Third exact-head review and first complete campaign findings
+
+The first run that reached the full tournament exposed two runner-integration defects in
+addition to the four Codex evidence findings:
+
+- Fastchess `-strict` makes its benign "No info line available to extract score" warning
+  fatal for Allfather, whose qualified UCI contract does not require score-bearing `info`
+  lines. The harness now rejects all warnings except that exact wrapper-specific warning
+  instead of asking the chess engine to invent a score channel.
+- Fastchess rejects `option.BackendOptions=` because its CLI requires a nonempty value.
+  The direct LC0 arm now omits empty-valued options and leaves the pinned engine default in
+  force; actual transmitted options remain validated.
+
+The same run confirmed that mandatory injected lifecycle faults all passed and that every
+pre-existing engine/controller qualification family remained green.
+
+Codex's four new findings are repaired by removing the aliased positive-G3 replay copy,
+retaining only freshly report-referenced prerequisite replays, performing unconditional
+post-run detached-process cleanup while retaining pre-cleanup leak evidence, and separating
+partial soak-shard success from the aggregate 10-shard/208-game soak claim.

@@ -186,3 +186,35 @@ jobs:
             build/online-cpu-reference/build-manifest.json
           if-no-files-found: warn
           retention-days: 14
+
+
+  soak-aggregate:
+    needs: [fastchess-source-tests, soak]
+    if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.mode == 'soak' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      ALLFATHER_SOURCE_SHA: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.ALLFATHER_SOURCE_SHA }}
+      - name: Verify checkout identity
+        run: test "$(git rev-parse HEAD)" = "$ALLFATHER_SOURCE_SHA"
+      - name: Download all soak shard artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: local-full-game-soak-${{ github.run_id }}-*
+          path: build/soak-shards
+          merge-multiple: false
+      - name: Aggregate all ten soak shards
+        run: |
+          python3 -m tools.local_game.aggregate_soak             build/soak-shards             --output build/test-results/local-full-game-soak-aggregate/report.json
+      - name: Retain aggregate soak report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: local-full-game-soak-aggregate-${{ github.run_id }}
+          path: build/test-results/local-full-game-soak-aggregate
+          if-no-files-found: warn
+          retention-days: 14

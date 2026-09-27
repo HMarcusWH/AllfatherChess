@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import importlib.util
 import json
+import os
 import shutil
 from pathlib import Path
 import tempfile
@@ -12,11 +13,11 @@ import sys
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from tools.local_game.common import (ARMS, QualificationError, contained, cpu_delta, load,
-                                    policy, runtime_config, verify_g3_derivation)
+                                    policy, regular_tree_digest, runtime_config, verify_g3_derivation)
 from tools.local_game.runner import command, engine_options, retain_report_runs, schedule
 from tools.local_game.validate import position, trace_searches, match_game, rules_result
 from tools.local_game.probes import check_transition
-from tools.local_game.build_fastchess import reset_build_target
+from tools.local_game.build_fastchess import reset_attestation_target, reset_build_target
 
 HAS_CHESS = importlib.util.find_spec("chess") is not None
 
@@ -69,9 +70,11 @@ class ContractTests(unittest.TestCase):
             for name in ("old", "fresh"):
                 (source / name).mkdir()
                 (source / name / "manifest.json").write_text("{}", encoding="utf-8")
+            (source/"fresh"/"nested").mkdir(); (source/"fresh"/"nested"/"evidence.txt").write_text("evidence",encoding="utf-8")
             destination = root / "retained"
             retain_report_runs(source, destination, ["fresh"], {"old"}, "test")
             self.assertEqual({p.name for p in destination.iterdir()}, {"fresh"})
+            self.assertEqual(regular_tree_digest(source/"fresh"),regular_tree_digest(destination/"fresh"))
             with self.assertRaises(QualificationError):
                 retain_report_runs(source, root / "bad", ["old"], {"old"}, "test")
 
@@ -86,6 +89,14 @@ class ContractTests(unittest.TestCase):
             (run / "escape").symlink_to(outside)
             with self.assertRaises(QualificationError):
                 retain_report_runs(source, root / "retained", ["fresh"], set(), "test")
+
+    def test_replay_retention_rejects_nested_symlinked_directory_and_fifo(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp); outside=root/"outside"; outside.mkdir(); (outside/"secret.txt").write_text("secret")
+            source=root/"source-dirlink"; run=source/"fresh"; run.mkdir(parents=True); (run/"escape-dir").symlink_to(outside,target_is_directory=True)
+            with self.assertRaises(QualificationError): retain_report_runs(source,root/"retained-dirlink",["fresh"],set(),"test")
+            source=root/"source-fifo"; run=source/"fresh"; run.mkdir(parents=True); os.mkfifo(run/"evidence.fifo")
+            with self.assertRaises(QualificationError): retain_report_runs(source,root/"retained-fifo",["fresh"],set(),"test")
 
     def test_replay_retention_rejects_top_level_symlink(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -112,6 +123,18 @@ class ContractTests(unittest.TestCase):
             self.assertEqual(list(target.iterdir()), [])
             self.assertEqual(sentinel.read_text(encoding="utf-8"), "keep")
         shutil.rmtree(target, ignore_errors=True)
+
+    def test_fastchess_attestation_target_rejects_symlinked_destination(self):
+        target=ROOT/"build"/"local1-attestation-target-test"
+        if target.is_symlink(): target.unlink()
+        else: shutil.rmtree(target,ignore_errors=True)
+        with tempfile.TemporaryDirectory() as tmp:
+            outside=Path(tmp); sentinel=outside/"sentinel.txt"; sentinel.write_text("keep"); target.parent.mkdir(parents=True,exist_ok=True); target.symlink_to(outside,target_is_directory=True)
+            try:
+                with self.assertRaises(QualificationError): reset_attestation_target(target/"attestation.json")
+                self.assertEqual(sentinel.read_text(),"keep")
+            finally:
+                if target.is_symlink(): target.unlink()
 
     def test_profile_is_only_output_relocation_and_not_a_new_policy(self):
         source = {"schema_version": 2, "online_time": {"max_move_ms": 4000},

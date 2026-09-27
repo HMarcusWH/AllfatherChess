@@ -57,6 +57,31 @@ def sha(path: Path) -> str:
     return h.hexdigest()
 
 
+def regular_tree_digest(root: Path) -> str:
+    """Digest a regular-file tree by sorted relative path, byte size and file SHA."""
+    root = Path(root)
+    require(root.is_dir() and not root.is_symlink(), f"unsafe evidence root: {root}")
+    digest = hashlib.sha256()
+    for current_raw, directories, filenames in os.walk(root, topdown=True, followlinks=False):
+        current = Path(current_raw)
+        directories.sort()
+        filenames.sort()
+        for name in directories:
+            path = current / name
+            mode = path.lstat().st_mode
+            require(stat.S_ISDIR(mode) and not stat.S_ISLNK(mode),
+                    f"non-directory/symlink in evidence tree: {path}")
+            relative = path.relative_to(root).as_posix()
+            digest.update(f"D\\0{relative}\\0".encode("utf-8"))
+        for name in filenames:
+            path = current / name
+            mode = path.lstat().st_mode
+            require(stat.S_ISREG(mode), f"special file in evidence tree: {path}")
+            relative = path.relative_to(root).as_posix()
+            digest.update(f"F\\0{relative}\\0{path.stat().st_size}\\0{sha(path)}\\0".encode("utf-8"))
+    return digest.hexdigest()
+
+
 def file_record(path: Path, root: Path = ROOT) -> dict:
     return {"path": str(path.resolve().relative_to(root.resolve())),
             "sha256": sha(path), "bytes": path.stat().st_size}
@@ -268,6 +293,7 @@ def safe_copy_regular_tree(source: Path, destination: Path) -> None:
     require(not destination.exists() and not destination.is_symlink(),
             f"evidence destination already exists: {destination}")
     destination.mkdir(parents=True)
+    source_digest = regular_tree_digest(source)
 
     def copy_dir(src: Path, dst: Path) -> None:
         with os.scandir(src) as entries:
@@ -289,3 +315,7 @@ def safe_copy_regular_tree(source: Path, destination: Path) -> None:
                     raise QualificationError(f"special file in evidence tree: {src_path}")
 
     copy_dir(source, destination)
+    require(regular_tree_digest(source) == source_digest,
+            "evidence source changed while it was being retained")
+    require(regular_tree_digest(destination) == source_digest,
+            "retained evidence tree digest differs from source")

@@ -76,41 +76,37 @@ class EffectiveCommandTests(unittest.TestCase):
                                           "reaped_subtree_cpu_ms": 1,
                                           "proxy_cpu_ms": 1}})
 
-    def test_fastchess_clock_state_starts_at_base_plus_increment_and_preserves_opponent(self):
+    def test_fastchess_clock_state_is_exactly_reconstructed_from_retained_timeleft(self):
         import chess
         import chess.pgn
+        game = chess.pgn.Game(); game.headers["White"]="stockfish"; game.headers["Black"]="reckless"
+        n1=game.add_variation(chess.Move.from_uci("e2e4")); n1.comment="0.100s tl=31.900s"
+        n2=n1.add_variation(chess.Move.from_uci("e7e5")); n2.comment="0.200s tl=31.800s"
+        n3=n2.add_variation(chess.Move.from_uci("g1f3")); n3.comment="0.400s tl=32.500s"
+        n4=n3.add_variation(chess.Move.from_uci("b8c6")); n4.comment="0.200s tl=32.600s"
+        streams={"stockfish":[{"command":"go wtime 31000 btime 31000 winc 1000 binc 1000"},{"command":"go wtime 31900 btime 31800 winc 1000 binc 1000"}],"reckless":[{"command":"go wtime 31900 btime 31000 winc 1000 binc 1000"},{"command":"go wtime 32500 btime 31800 winc 1000 binc 1000"}]}
+        plan={"clock":"0:30+1","driver_nodes":None}; verify_game_clocks(game,streams,plan,0)
+        bad=copy.deepcopy(streams); bad["reckless"][0]["command"]="go wtime 1000 btime 31000 winc 1000 binc 1000"
+        with self.assertRaises(QualificationError): verify_game_clocks(game,bad,plan,0)
+        n1.comment="0.100s tl=1.000s"
+        with self.assertRaises(QualificationError): verify_game_clocks(game,streams,plan,0)
+        for malformed in ("0.100s","0.100s tl=31.90s","0.100s tl=31.900s tl=31.900s"):
+            n1.comment=malformed
+            with self.assertRaises(QualificationError): verify_game_clocks(game,streams,plan,0)
 
-        game = chess.pgn.Game()
-        game.headers["White"] = "stockfish"
-        game.headers["Black"] = "reckless"
-        node = game.add_variation(chess.Move.from_uci("e2e4"))
-        node.comment = "0.100s, tl=31.900s"
-        node2 = node.add_variation(chess.Move.from_uci("e7e5"))
-        node2.comment = "0.200s, tl=31.800s"
-        streams = {
-            "stockfish": [{
-                "command": "go wtime 31000 btime 31000 winc 1000 binc 1000",
-            }],
-            "reckless": [{
-                "command": "go wtime 31900 btime 31000 winc 1000 binc 1000",
-            }],
-        }
-        plan = {"clock": "0:30+1", "driver_nodes": None}
-        verify_game_clocks(game, streams, plan, 0)
+    def test_fastchess_clock_10_plus_1_starts_at_11000(self):
+        import chess
+        import chess.pgn
+        game=chess.pgn.Game(); game.headers["White"]="stockfish"; game.headers["Black"]="reckless"
+        n=game.add_variation(chess.Move.from_uci("e2e4")); n.comment="0.100s tl=11.900s"
+        verify_game_clocks(game,{"stockfish":[{"command":"go wtime 11000 btime 11000 winc 1000 binc 1000"}],"reckless":[]},{"clock":"0:10+1","driver_nodes":None},0)
 
-        bad_initial = copy.deepcopy(streams)
-        bad_initial["stockfish"][0]["command"] = (
-            "go wtime 30000 btime 30000 winc 1000 binc 1000"
-        )
-        with self.assertRaises(QualificationError):
-            verify_game_clocks(game, bad_initial, plan, 0)
-
-        bad_opponent = copy.deepcopy(streams)
-        bad_opponent["reckless"][0]["command"] = (
-            "go wtime 31900 btime 30999 winc 1000 binc 1000"
-        )
-        with self.assertRaises(QualificationError):
-            verify_game_clocks(game, bad_opponent, plan, 0)
+    def test_opening_book_plies_leave_fastchess_clock_state_untouched(self):
+        import chess
+        import chess.pgn
+        game=chess.pgn.Game(); game.headers["White"]="stockfish"; game.headers["Black"]="reckless"
+        book=game.add_variation(chess.Move.from_uci("e2e4")); searched=book.add_variation(chess.Move.from_uci("e7e5")); searched.comment="0.200s tl=31.800s"
+        verify_game_clocks(game,{"stockfish":[],"reckless":[{"command":"go wtime 31000 btime 31000 winc 1000 binc 1000"}]},{"clock":"0:30+1","driver_nodes":None},1)
 
     def test_specialist_authorize_must_resolve_exactly_once(self):
         authorize = {
@@ -123,12 +119,16 @@ class EffectiveCommandTests(unittest.TestCase):
             "granted": True, "phase": "verify",
             "requested_cpu_ms": 10, "requested_gpu_ms": 0,
         }
-        self.assertTrue(verify_specialist_settlements([authorize, settle], 0))
-        self.assertFalse(verify_specialist_settlements([authorize], 1))
-        with self.assertRaises(QualificationError):
-            verify_specialist_settlements([authorize, settle, settle], 0)
-        with self.assertRaises(QualificationError):
-            verify_specialist_settlements([settle], 0)
+        release={**settle,"event":"release"}
+        denied={**authorize,"granted":False,"reservation_token":None}
+        self.assertTrue(verify_specialist_settlements([authorize,settle],0))
+        self.assertTrue(verify_specialist_settlements([denied],0))
+        self.assertFalse(verify_specialist_settlements([authorize],1))
+        with self.assertRaises(QualificationError): verify_specialist_settlements([authorize,settle,settle],0)
+        with self.assertRaises(QualificationError): verify_specialist_settlements([authorize,settle,release],0)
+        with self.assertRaises(QualificationError): verify_specialist_settlements([settle],0)
+        with self.assertRaises(QualificationError): verify_specialist_settlements([{**denied,"reservation_token":"denied-token"}],0)
+        with self.assertRaises(QualificationError): verify_specialist_settlements([{**authorize,"granted":1}],0)
 
     def test_fastchess_attestation_is_mandatory_and_host_bound(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -170,6 +170,12 @@ class EffectiveCommandTests(unittest.TestCase):
             fc["source_test_attestation"] = file_record(attestation_path, fc_root)
             with self.assertRaises(QualificationError):
                 verify_fastchess_attestation(fc_root, fc, lock_path)
+            attestation["reference_host"]="ubuntu-22.04"; attestation["tree"]="c"*40
+            save(attestation_path,attestation); fc["source_test_attestation"]=file_record(attestation_path,fc_root)
+            with self.assertRaises(QualificationError): verify_fastchess_attestation(fc_root,fc,lock_path)
+            attestation["tree"]=lock["tree"]; attestation["lock_sha256"]="0"*64
+            save(attestation_path,attestation); fc["source_test_attestation"]=file_record(attestation_path,fc_root)
+            with self.assertRaises(QualificationError): verify_fastchess_attestation(fc_root,fc,lock_path)
 
 
 if __name__ == "__main__":

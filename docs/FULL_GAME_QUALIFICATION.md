@@ -34,8 +34,11 @@ reliability workload, not a strength-study sample size.
 
 ## Pinned Fastchess provenance
 
-Fastchess is pinned by repository, commit **and Git tree**. It is the C++ tournament runner
-from `Disservin/fastchess`, not an unpinned package with a similar name.
+Fastchess is pinned by repository, commit **and Git tree**. LOCAL-1 currently pins upstream
+`ccb85325b1db322658687b8be8cfe9f54c495840` / tree
+`fd43662006af6419242d4f9093344df3520c0660`, the upstream crash-safe snapshot that
+ignores SIGPIPE from a crashed child so normal EPIPE/error handling can record the failure.
+It is the C++ tournament runner from `Disservin/fastchess`, not an unpinned package with a similar name.
 
 Upstream tests and lifecycle execution use separate hosts deliberately:
 
@@ -70,11 +73,11 @@ MultiPV=1; G3 specialists retain the already-qualified MultiPV=3 profile.
 
 All actual `setoption` and `go` commands are recorded. The validator mirrors the pinned
 Fastchess time-control state machine rather than assuming UCI starts at the nominal base:
-Fastchess initializes each side to **base + one increment**. The first searched ply must
-therefore carry that exact state; thereafter the side that did not just move must retain its
-exact prior clock, while the side that moved may increase by at most one increment because
-elapsed time is non-negative. Exact increments and allowed work limits are checked on every
-`go` command.
+Fastchess initializes each side to **base + one increment** and `timeleft=true` retains the
+post-move clock as an exact three-decimal `tl=<seconds>s` PGN field. Opening-book plies leave
+that state untouched. Before every searched ply, both transmitted clocks and both increments
+must equal the independently reconstructed state exactly; after the move, the mover's state is
+replaced by the retained `tl=` value while the opponent's clock remains unchanged.
 
 The baseline is therefore **same recorded tournament clock on one host**, not M15-B/C
 equal-resource superiority. Native Stockfish nodes and LC0 visits are never treated as one
@@ -216,7 +219,8 @@ Prerequisite replay roots are snapshotted before the fresh ONLINE-2/G3 qualifica
 Only run IDs explicitly named by the new reports and absent from the pre-run snapshot are
 retained. Evidence-tree copying walks with non-following stat semantics and accepts only
 ordinary directories/regular files; symlinks, FIFOs, devices, sockets and path escapes are
-qualification failures. Copied file bytes are rehashed.
+qualification failures. Copied file bytes are rehashed and a sorted whole-tree digest must
+remain identical before and after retention.
 
 Fastchess build output is similarly recreated from a clean generated directory. Its
 source-test attestation is mandatory during independent validation and is rechecked for

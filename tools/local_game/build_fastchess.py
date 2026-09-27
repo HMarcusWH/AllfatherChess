@@ -70,6 +70,21 @@ def reset_build_target(target: Path) -> None:
     target.mkdir()
 
 
+def reset_attestation_target(attestation: Path) -> None:
+    """Create the source-test destination without following stale build symlinks."""
+    attestation = Path(attestation)
+    _require_safe_build_path(attestation)
+    parent = attestation.parent
+    require(parent != ROOT / "build", "Fastchess attestation needs a dedicated build directory")
+    require(not parent.is_symlink(), "Fastchess attestation directory cannot be a symlink")
+    if parent.exists():
+        require(parent.is_dir(), "Fastchess attestation parent must be a directory")
+        shutil.rmtree(parent)
+    parent.mkdir(parents=True)
+    _require_safe_build_path(attestation)
+    require(not attestation.exists(), "stale Fastchess source-test attestation survived reset")
+
+
 def source_test(attestation: Path) -> int:
     release = _os_release()
     require(
@@ -81,6 +96,7 @@ def source_test(attestation: Path) -> int:
     jobs = int(os.environ.get("JOBS", "2"))
     require(1 <= jobs <= 32, "JOBS outside build policy")
     compiler = _compiler()
+    reset_attestation_target(attestation)
     parent = ROOT / "build"
     parent.mkdir(exist_ok=True)
     temporary, source = _checkout(lock, parent)
@@ -182,9 +198,12 @@ def main() -> int:
         default=ROOT / "build/fastchess-source-test/attestation.json",
     )
     args = parser.parse_args()
-    attestation = args.attestation.resolve()
+    attestation = args.attestation
+    if not attestation.is_absolute():
+        attestation = (Path.cwd() / attestation).absolute()
     require(attestation.is_relative_to(ROOT / "build"),
             "Fastchess attestation must live under build/")
+    _require_safe_build_path(attestation)
     return source_test(attestation) if args.source_test_only else build(attestation)
 
 

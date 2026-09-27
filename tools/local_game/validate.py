@@ -18,6 +18,7 @@ from .integrity import (_clock_ms, finite_metrics, input_paths, parse_go_limits,
                         verify_resource_claim, verify_session_commands)
 
 MOVE = re.compile(r"bestmove ([a-h][1-8][a-h][1-8][qrbn]?)(?: ponder [a-h][1-8][a-h][1-8][qrbn]?)?\Z")
+TIMELEFT = re.compile(r"(?<![A-Za-z0-9_])tl=(\\d+)\\.(\\d{3})s(?![A-Za-z0-9_])")
 
 
 def chess_modules():
@@ -268,60 +269,46 @@ def validate_g3(item: dict, allow_denial: bool) -> dict:
             "reason": final.get("reason"), "resource_qualified": derived["qualified"],
             "envelope_claimed": claimed, "physical_cpu_ms": derived["physical_cpu_ms"],
             "route_action": (final.get("authorization_snapshot") or {}).get("route_action"),
-            "replay_id": run.name}
+            "replay_id": run.name,
+            "replay_manifest_sha256": sha(run / "manifest.json")}
+
+
+def _fastchess_timeleft_ms(node) -> int:
+    """Read the exact millisecond clock retained by Fastchess's timeleft=true PGN."""
+    matches = TIMELEFT.findall(node.comment or "")
+    require(len(matches) == 1,
+            f"searched PGN ply must contain exactly one Fastchess tl= value: {node.comment!r}")
+    seconds, milliseconds = matches[0]
+    return int(seconds) * 1000 + int(milliseconds)
 
 
 def verify_game_clocks(game, streams: dict[str, list[dict]], plan: dict,
                        opening_length: int) -> None:
-    """Reconstruct pinned Fastchess clock transitions from the actual go stream.
-
-    Pinned Fastchess initializes both sides to base+increment. Between two
-    searched plies the side that did not move must retain exactly the same
-    clock, while the mover may gain at most one increment because elapsed
-    search time is non-negative. This uses the combined game stream rather
-    than an engine session's first go, which may occur after its opponent has
-    already consumed time.
-    """
+    """Reconstruct exact pinned Fastchess clock state from PGN and UCI evidence."""
     base_ms, increment_ms = _clock_ms(plan["clock"])
     initial = base_ms + increment_ms
+    state = {"wtime": initial, "btime": initial}
     board = game.board()
     counters = {name: 0 for name in streams}
-    previous: dict[str, int] | None = None
-    previous_mover: str | None = None
-
-    for index, move in enumerate(game.mainline_moves()):
+    for index, node in enumerate(game.mainline()):
+        move = node.move
         arm = game.headers["White" if board.turn else "Black"]
         if index >= opening_length:
             require(arm in streams, "clock reconstruction saw unexpected engine")
             cursor = counters[arm]
-            require(cursor < len(streams[arm]),
-                    f"clock reconstruction missing search for {arm} ply {index}")
+            require(cursor < len(streams[arm]), f"clock reconstruction missing search for {arm} ply {index}")
             limits = parse_go_limits(streams[arm][cursor]["command"])
-            require({"wtime", "btime", "winc", "binc"} <= set(limits),
-                    "clocked search omitted a required UCI clock field")
-            require(int(limits["winc"]) == int(limits["binc"]) == increment_ms,
-                    "transmitted increment differs from frozen control")
+            require({"wtime", "btime", "winc", "binc"} <= set(limits), "clocked search omitted a required UCI clock field")
+            require(int(limits["winc"]) == int(limits["binc"]) == increment_ms, "transmitted increment differs from frozen control")
             current = {"wtime": int(limits["wtime"]), "btime": int(limits["btime"])}
-            require(current["wtime"] >= 0 and current["btime"] >= 0,
-                    "negative transmitted Fastchess clock")
-            if previous is None:
-                require(current == {"wtime": initial, "btime": initial},
-                        f"initial Fastchess clocks must equal base+increment ({initial} ms)")
-            else:
-                require(previous_mover in ("wtime", "btime"),
-                        "missing previous mover clock identity")
-                idle = "btime" if previous_mover == "wtime" else "wtime"
-                require(current[idle] == previous[idle],
-                        "non-moving Fastchess clock changed between searched plies")
-                require(current[previous_mover] <= previous[previous_mover] + increment_ms,
-                        "mover Fastchess clock grew by more than one increment")
-            previous = current
-            previous_mover = "wtime" if board.turn else "btime"
+            require(current["wtime"] >= 0 and current["btime"] >= 0, "negative transmitted Fastchess clock")
+            require(current == state, f"transmitted Fastchess clock differs from exact reconstructed state: {current!r} vs {state!r}")
+            mover = "wtime" if board.turn else "btime"
+            state[mover] = _fastchess_timeleft_ms(node)
             counters[arm] += 1
         board.push(move)
+    require(all(counters[name] == len(streams[name]) for name in streams), "clock reconstruction did not consume every searched ply")
 
-    require(all(counters[name] == len(streams[name]) for name in streams),
-            "clock reconstruction did not consume every searched ply")
 
 def match_game(game, streams: dict[str, list[dict]], allow_denial: bool,
                opening=None, plan: dict | None = None) -> list[dict]:

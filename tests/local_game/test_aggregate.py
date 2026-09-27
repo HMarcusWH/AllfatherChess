@@ -39,6 +39,7 @@ class SoakAggregateTests(unittest.TestCase):
                 "aggregate_soak_complete":False,
                 "observed_games":2*len(assigned),
                 "validated_games":2*len(assigned),
+                "plies":[],
                 "claim_boundary":{"full_game_lifecycle":False},
             })
 
@@ -70,6 +71,23 @@ class SoakAggregateTests(unittest.TestCase):
             self.assertTrue(report["baseline_is_complete"])
             self.assertTrue(report["claim_boundary"]["full_game_lifecycle"])
             self.assertEqual(report["validated_games"],208)
+
+    def test_duplicate_campaign_identity_fails_aggregate(self):
+        (ROOT/"build").mkdir(exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=ROOT/"build") as tmp:
+            root=Path(tmp); self._write_shards(root); campaign=root/"artifact-1"/"test-results"/"local-full-game"/"campaign-1"
+            manifest=load(campaign/"manifest.json"); report_doc=load(campaign/"report.json"); manifest["campaign_id"]="campaign-0"; report_doc["campaign_id"]="campaign-0"; save(campaign/"manifest.json",manifest); save(campaign/"report.json",report_doc)
+            with patch("tools.local_game.aggregate_soak.qualify",side_effect=lambda p:load(Path(p)/"report.json")): report=aggregate(root)
+            self.assertFalse(report["passed"]); self.assertTrue(any("duplicate soak campaign_id" in e for e in report["errors"]))
+
+    def test_duplicate_replay_identity_across_shards_fails_aggregate(self):
+        (ROOT/"build").mkdir(exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=ROOT/"build") as tmp:
+            root=Path(tmp); self._write_shards(root)
+            for shard in (0,1):
+                campaign=root/f"artifact-{shard}"/"test-results"/"local-full-game"/f"campaign-{shard}"; d=load(campaign/"report.json"); d["plies"]=[{"arm":"allfather-g3","replay_id":"duplicate-replay","replay_manifest_sha256":"a"*64}]; save(campaign/"report.json",d)
+            with patch("tools.local_game.aggregate_soak.qualify",side_effect=lambda p:load(Path(p)/"report.json")): report=aggregate(root)
+            self.assertFalse(report["passed"]); self.assertTrue(any("duplicate replay run_id" in e for e in report["errors"]))
 
     def test_missing_shard_fails_aggregate(self):
         (ROOT/"build").mkdir(exist_ok=True)

@@ -135,3 +135,9 @@ The same pass closes the next Codex evidence/security findings:
 
 None of these changes weakens G3 policy, match clocks, pairing structure, or lifecycle
 acceptance criteria.
+
+## Fifth hardening pass — crash-safe Fastchess pin and exact retained-clock state
+
+The source-test job at exact Allfather head `a97f106cfc421f4e8082588d544097010da357c9` exposed the previously frozen Fastchess SIGPIPE crash. LOCAL-1 now pins upstream commit `ccb85325b1db322658687b8be8cfe9f54c495840` / tree `fd43662006af6419242d4f9093344df3520c0660`, which handles that crashed-engine pipe as an ordinary error instead of masking the signal in our harness.
+
+Clock validation now consumes one exact Fastchess `tl=<seconds.millis>s` field per searched PGN ply and reconstructs both UCI clocks from `base + increment`, the frozen opening prefix, and every retained post-move clock. The same pass extends cleanup across all post-Popen proxy initialization, adds whole-tree replay-copy digests, hardens specialist reservation terminal states, and rejects duplicate campaign/replay identities across independently requalified soak shards. No engine, G3 policy, clocks, pairings, envelopes or acceptance thresholds are weakened.

@@ -19,7 +19,7 @@ from tests.controller.online_helpers import shell_fixture, wait_for
 from controller.replay import discover_replay_bundles, load_manifest, verify_bundle_integrity
 from tests.harness.uci_session import UciSession
 from tools.local_game.common import process_identity
-from tools.local_game.proxy import _spawn_registered_child
+from tools.local_game.proxy import _registered_child_scope, _spawn_registered_child
 from tools.local_game.runner import bounded
 
 
@@ -99,6 +99,14 @@ class GenerationLifecycleTests(unittest.TestCase):
                 environment=os.environ.copy(),
                 register=fail_registration,
             )
+        self.assertIsNone(process_identity(captured["identity"]["pid"]))
+
+    def test_proxy_post_registration_setup_failure_cleans_child(self):
+        captured={}
+        def register(process,pgid,identity): captured["identity"]=identity
+        with self.assertRaises(OSError):
+            with _registered_child_scope(["sleep","60"],cwd=ROOT,environment=os.environ.copy(),register=register):
+                raise OSError("LOCAL-1 injected logger/reader initialization failure")
         self.assertIsNone(process_identity(captured["identity"]["pid"]))
 
     def test_managed_uci_session_cleans_controller_group_and_records_leak(self):

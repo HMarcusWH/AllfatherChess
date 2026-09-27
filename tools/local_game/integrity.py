@@ -256,40 +256,34 @@ def _close(actual, expected, label: str, tolerance: float = 0.02) -> None:
 
 
 def verify_specialist_settlements(actions: list, open_reservations: int) -> bool:
-    require(type(open_reservations) is int and open_reservations >= 0,
-            "budget open_reservations must be a non-negative integer")
+    require(type(open_reservations) is int and open_reservations >= 0, "budget open_reservations must be a non-negative integer")
     grants: dict[str, dict] = {}
     resolutions: dict[str, dict] = {}
     for action in actions:
         require(isinstance(action, dict), "malformed specialist action")
         event = action.get("event")
         token = action.get("reservation_token")
-        require(event in ("authorize", "settle", "release"),
-                f"unknown specialist reservation event: {event!r}")
+        require(event in ("authorize", "settle", "release"), f"unknown specialist reservation event: {event!r}")
+        require(type(action.get("granted")) is bool, "specialist action granted flag must be boolean")
+        require(isinstance(action.get("phase"), str) and action["phase"], "specialist action phase is missing")
+        _number(action.get("requested_cpu_ms"), "specialist requested_cpu_ms")
+        _number(action.get("requested_gpu_ms"), "specialist requested_gpu_ms")
         if event == "authorize":
-            if action.get("granted") is True:
-                require(isinstance(token, str) and token,
-                        "granted authorization is missing reservation token")
+            if action["granted"]:
+                require(isinstance(token, str) and token, "granted authorization is missing reservation token")
                 require(token not in grants, "reservation token authorized twice")
                 grants[token] = action
             else:
-                require(token is None,
-                        "denied authorization may not carry a reservation token")
+                require(token is None, "denied authorization may not carry a reservation token")
         else:
-            require(action.get("granted") is True and isinstance(token, str) and token,
-                    "specialist resolution is missing granted reservation token")
+            require(action["granted"] is True and isinstance(token, str) and token, "specialist resolution is missing granted reservation token")
             require(token in grants, "specialist resolution has no prior authorization")
-            require(token not in resolutions,
-                    "reservation token settled/released more than once")
+            require(token not in resolutions, "reservation token settled/released more than once")
             grant = grants[token]
-            require(action.get("phase") == grant.get("phase"),
-                    "specialist resolution phase differs from authorization")
-            require(action.get("requested_cpu_ms") == grant.get("requested_cpu_ms") and
-                    action.get("requested_gpu_ms") == grant.get("requested_gpu_ms"),
-                    "specialist resolution resource request differs from authorization")
+            require(action.get("phase") == grant.get("phase"), "specialist resolution phase differs from authorization")
+            require(action.get("requested_cpu_ms") == grant.get("requested_cpu_ms") and action.get("requested_gpu_ms") == grant.get("requested_gpu_ms"), "specialist resolution resource request differs from authorization")
             resolutions[token] = action
     return open_reservations == 0 and set(grants) == set(resolutions)
-
 
 def verify_resource_claim(run: Path, manifest: dict) -> dict:
     """Reconstruct physical/resource-envelope qualification from primitive rows.

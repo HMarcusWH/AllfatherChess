@@ -43,13 +43,18 @@ def engine_options(arm: str, source: dict) -> tuple[dict, dict]:
     spec = source["instances"][name]
     options = dict(spec["options"])
     options["MultiPV"] = 1  # standalone role, not the multi-candidate specialist role
+    # Fastchess's engine CLI rejects key=value pairs whose value is empty.
+    # An omitted empty option means "leave the engine's declared default in
+    # force"; LOCAL-1 binds that omission through the frozen source profile and
+    # still validates every option actually transmitted.
+    options = {name: value for name, value in options.items() if value != ""}
     return options, dict(spec.get("environment", {}))
 
 
 def command(job: dict, directory: Path, p: dict, source: dict, fastchess: Path, *, write_specs: bool = True) -> list[str]:
     argv = [str(fastchess), "-concurrency", "1", "-rounds", "1", "-games", "2", "-repeat",
             "-variant", "standard", "-ratinginterval", "0", "-autosaveinterval", "0",
-            "-strict", "-startup-ms", str(p["startup_ms"]), "-ping-ms", str(p["ping_ms"]),
+            "-startup-ms", str(p["startup_ms"]), "-ping-ms", str(p["ping_ms"]),
             "-ucinewgame-ms", str(p["ping_ms"]), "-event", job["id"], "-site", "LOCAL-1",
             "-pgnout", f"file={directory / 'games.pgn'}", "notation=san", "append=false",
             "timeleft=true", "pv=false", "-log", f"file={directory / 'fastchess.log'}",
@@ -96,12 +101,34 @@ def _campaign_child_groups(cwd: Path) -> list[int]:
     return sorted(groups)
 
 
-def _signal_campaign_groups(cwd: Path, signum: int) -> None:
-    for pgid in _campaign_child_groups(cwd):
+def _signal_groups(groups: list[int], signum: int) -> None:
+    for pgid in groups:
         try:
             os.killpg(pgid, signum)
         except ProcessLookupError:
             pass
+
+
+def _wait_groups_gone(cwd: Path, timeout: float) -> list[int]:
+    deadline = time.monotonic() + timeout
+    remaining = _campaign_child_groups(cwd)
+    while remaining and time.monotonic() < deadline:
+        time.sleep(0.05)
+        remaining = _campaign_child_groups(cwd)
+    return remaining
+
+
+def _cleanup_detached_groups(cwd: Path) -> tuple[list[int], list[int]]:
+    """Observe leaks, then clean them without laundering the failure evidence."""
+    before = _campaign_child_groups(cwd)
+    if not before:
+        return [], []
+    _signal_groups(before, signal.SIGTERM)
+    remaining = _wait_groups_gone(cwd, 5.0)
+    if remaining:
+        _signal_groups(remaining, signal.SIGKILL)
+        remaining = _wait_groups_gone(cwd, 5.0)
+    return before, remaining
 
 
 def bounded(argv: list[str], cwd: Path, log: Path, timeout: int) -> dict:
@@ -119,10 +146,6 @@ def bounded(argv: list[str], cwd: Path, log: Path, timeout: int) -> dict:
                 os.killpg(process.pid, signal.SIGTERM)
             except ProcessLookupError:
                 pass
-            # Proxies deliberately put their engine/controller children in
-            # independent sessions. Signal those campaign-owned groups too;
-            # killing only Fastchess/proxies can otherwise strand engines.
-            _signal_campaign_groups(cwd, signal.SIGTERM)
             try:
                 process.wait(timeout=45)
             except subprocess.TimeoutExpired:
@@ -130,19 +153,32 @@ def bounded(argv: list[str], cwd: Path, log: Path, timeout: int) -> dict:
                     os.killpg(process.pid, signal.SIGKILL)
                 except ProcessLookupError:
                     pass
-                _signal_campaign_groups(cwd, signal.SIGKILL)
                 process.wait(timeout=5)
-            # A proxy may have exited before its child; one final kill/poll is
-            # evidence-preserving cleanup, never something converted into pass.
-            _signal_campaign_groups(cwd, signal.SIGKILL)
             result["returncode"] = process.returncode
         finally:
+            # Detached controller/engine children live in their own process
+            # groups. Observe them *before* emergency cleanup so a leak can
+            # never be rewritten into success, then clean them before the next
+            # tournament job is admitted so they cannot contaminate evidence.
+            before_cleanup, after_cleanup = _cleanup_detached_groups(cwd)
+            result["detached_groups_before_cleanup"] = before_cleanup
+            result["detached_groups_after_cleanup"] = after_cleanup
             result["ended_ns"] = time.monotonic_ns()
-            result["detached_groups_after_cleanup"] = _campaign_child_groups(cwd)
     return result
 
 
 def prerequisites(output: Path) -> list[dict]:
+    online_runtime = load(ROOT / "config/allfather.online.cpu-reference.json")
+    g3_runtime = load(ROOT / "config/allfather.online-hybrid.validation.json")
+    replay_roots = {
+        "online2": ROOT / online_runtime["shadow"]["replay_root"],
+        "g3": ROOT / g3_runtime["shadow"]["replay_root"],
+    }
+    replay_snapshots = {
+        label: ({path.name for path in root.iterdir() if path.is_dir()}
+                if root.is_dir() else set())
+        for label, root in replay_roots.items()
+    }
     steps = [
         ("lc0", "scripts/lc0-strength-profile-contract.py", "build/test-results/lc0-strength/report.json"),
         ("online2", "scripts/qualify-online-profile.py", "build/test-results/online-profile/report.json"),
@@ -159,22 +195,44 @@ def prerequisites(output: Path) -> list[dict]:
         require(run["returncode"] == 0 and not run["timed_out"], f"{label} prerequisite failed")
         require(report.is_file(), f"{label}: expected qualification report not produced: {report}")
         shutil.copy2(report, output / f"{label}.json")
+    online = load(output / "online2.json")
     g3_report = load(output / "g3.json")
     g3 = g3_report["positive_case"]
     require(g3["authority"] == "HYBRID" and g3["emitted_move"] != g3["anchor_move"],
             "G3 prerequisite did not exercise actual non-anchor authority")
 
+    def referenced_run_ids(report: dict, label: str) -> list[str]:
+        rows = report.get("cases")
+        require(isinstance(rows, list) and rows, f"{label}: report has no cases")
+        ids = [row.get("run_id") for row in rows]
+        require(all(isinstance(run_id, str) and run_id for run_id in ids),
+                f"{label}: report contains missing run_id")
+        require(len(ids) == len(set(ids)), f"{label}: duplicate run_id in report")
+        return ids
+
+    def retain_runs(source_root: Path, destination: Path, run_ids: list[str],
+                    prior: set[str], label: str) -> None:
+        current = {path.name for path in source_root.iterdir() if path.is_dir()}
+        require(set(run_ids) <= (current - prior),
+                f"{label}: report referenced a replay that was not freshly created")
+        destination.mkdir()
+        for run_id in run_ids:
+            shutil.copytree(contained(source_root, run_id), destination / run_id)
+
     online_runtime = load(ROOT / "config/allfather.online.cpu-reference.json")
     online_root = ROOT / online_runtime["shadow"]["replay_root"]
-    require(online_root.is_dir(), "ONLINE-2 prerequisite replay root missing")
-    shutil.copytree(online_root, output / "online2-replays")
-
     runtime = load(ROOT / "config/allfather.online-hybrid.validation.json")
     g3_root = ROOT / runtime["shadow"]["replay_root"]
-    require(g3_root.is_dir(), "G3 prerequisite replay root missing")
-    shutil.copytree(g3_root, output / "g3-replays")
-    source_run = contained(g3_root, g3["run_id"])
-    shutil.copytree(source_run, output / "g3-positive-replay")
+    require(online_root.is_dir() and g3_root.is_dir(),
+            "prerequisite replay root missing")
+
+    online_ids = referenced_run_ids(online, "ONLINE-2")
+    g3_ids = referenced_run_ids(g3_report, "G3")
+    retain_runs(online_root, output / "online2-replays", online_ids,
+                replay_snapshots["online2"], "ONLINE-2")
+    retain_runs(g3_root, output / "g3-replays", g3_ids,
+                replay_snapshots["g3"], "G3")
+    require(g3["run_id"] in set(g3_ids), "positive G3 run is absent from current report")
     return records
 
 
@@ -226,7 +284,9 @@ def run(mode: str, output: Path, *, shard_index: int = 0, shard_count: int = 1) 
             entry = {"plan": job, "execution": result}
             manifest["jobs"].append(entry)
             save(output / "manifest.json", manifest)
-            if result["returncode"] != 0 or result["timed_out"] or result.get("detached_groups_after_cleanup"):
+            if (result["returncode"] != 0 or result["timed_out"]
+                    or result.get("detached_groups_before_cleanup")
+                    or result.get("detached_groups_after_cleanup")):
                 manifest["failures"].append(
                     f"{job['id']}: runner/lifecycle cleanup failed; retained without retry"
                 )

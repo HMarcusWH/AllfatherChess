@@ -2,12 +2,14 @@
 import copy
 from pathlib import Path
 import sys
+import tempfile
 import unittest
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from tests.local_game.test_contracts import events
 from tools.local_game.common import QualificationError
 from tools.local_game.integrity import verify_session_commands, finite_metrics
+from tools.local_game.validate import apply_scope_flags, verify_runner_log
 
 
 class EffectiveCommandTests(unittest.TestCase):
@@ -27,6 +29,34 @@ class EffectiveCommandTests(unittest.TestCase):
         changed[-1]["line"] = changed[-1]["line"].replace("binc 1000", "binc 2000")
         with self.assertRaises(QualificationError):
             verify_session_commands(changed, "allfather-g3", plan, {})
+
+
+    def test_known_scoreless_wrapper_warning_is_scoped_but_other_warnings_fail(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "runner.log"
+            path.write_text(
+                "Warning; No info line available to extract score from engine allfather-g3\n",
+                encoding="utf-8",
+            )
+            verify_runner_log(path, {"id": "known"})
+            path.write_text("Warning; unexpected thing\n", encoding="utf-8")
+            with self.assertRaises(QualificationError):
+                verify_runner_log(path, {"id": "bad"})
+
+    def test_partial_soak_shard_cannot_claim_full_campaign(self):
+        report = {"claim_boundary": {"full_game_lifecycle": False}}
+        apply_scope_flags(
+            report,
+            mode="soak",
+            shard={"index": 4, "count": 10},
+            errors=[],
+        )
+        self.assertTrue(report["passed"])
+        self.assertTrue(report["shard_passed"])
+        self.assertEqual(report["execution_scope"], "partial_soak_shard")
+        self.assertFalse(report["baseline_is_complete"])
+        self.assertFalse(report["aggregate_soak_complete"])
+        self.assertFalse(report["claim_boundary"]["full_game_lifecycle"])
 
     def test_nonfinite_or_missing_measurement_cannot_be_presented_as_cost(self):
         for value in (None, float("nan"), float("inf"), -1, True):

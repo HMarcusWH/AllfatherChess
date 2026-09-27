@@ -12,8 +12,9 @@ import sys
 import time
 import uuid
 
-from .common import (ARMS, ROOT, contained, file_record, load, policy, require, save,
-                     sha, source_identity, verify_record)
+from .common import (ARMS, ROOT, contained, file_record, load, policy, require,
+                     safe_copy_regular_tree, save, sha, source_identity,
+                     terminate_token_processes, verify_record)
 from .integrity import input_paths, verify_builds
 
 
@@ -81,62 +82,33 @@ def command(job: dict, directory: Path, p: dict, source: dict, fastchess: Path, 
     return argv
 
 
-def _campaign_child_groups(cwd: Path) -> list[int]:
-    groups = set()
-    sessions = cwd / "sessions"
-    if not sessions.exists():
-        return []
-    for record in sessions.glob("*/*/session.json"):
-        try:
-            summary = load(record)
-            pgid = summary.get("pgid")
-            if type(pgid) is int and pgid > 1:
-                try:
-                    os.killpg(pgid, 0)
-                except ProcessLookupError:
-                    continue
-                groups.add(pgid)
-        except FileNotFoundError:
-            continue
-    return sorted(groups)
-
-
-def _signal_groups(groups: list[int], signum: int) -> None:
-    for pgid in groups:
-        try:
-            os.killpg(pgid, signum)
-        except ProcessLookupError:
-            pass
-
-
-def _wait_groups_gone(cwd: Path, timeout: float) -> list[int]:
-    deadline = time.monotonic() + timeout
-    remaining = _campaign_child_groups(cwd)
-    while remaining and time.monotonic() < deadline:
-        time.sleep(0.05)
-        remaining = _campaign_child_groups(cwd)
-    return remaining
-
-
-def _cleanup_detached_groups(cwd: Path) -> tuple[list[int], list[int]]:
-    """Observe leaks, then clean them without laundering the failure evidence."""
-    before = _campaign_child_groups(cwd)
-    if not before:
-        return [], []
-    _signal_groups(before, signal.SIGTERM)
-    remaining = _wait_groups_gone(cwd, 5.0)
-    if remaining:
-        _signal_groups(remaining, signal.SIGKILL)
-        remaining = _wait_groups_gone(cwd, 5.0)
-    return before, remaining
-
-
 def bounded(argv: list[str], cwd: Path, log: Path, timeout: int) -> dict:
+    """Run one bounded command and clean every live descendant it spawned.
+
+    Ownership is inherited through an environment token rather than inferred
+    from a reusable PID/PGID or from evidence files that might fail to persist.
+    Any live child observed after the bounded parent exits is permanent failure
+    evidence even when emergency cleanup succeeds.
+    """
     started = time.monotonic_ns()
-    result = {"argv": argv, "started_ns": started, "timed_out": False}
+    token = uuid.uuid4().hex
+    environment = os.environ.copy()
+    environment["ALLFATHER_LOCAL1_PROCESS_TOKEN"] = token
+    result = {
+        "argv": argv,
+        "started_ns": started,
+        "timed_out": False,
+        "process_token": token,
+    }
     with log.open("wb") as output:
-        process = subprocess.Popen(argv, cwd=cwd, stdout=output, stderr=subprocess.STDOUT,
-                                   start_new_session=True)
+        process = subprocess.Popen(
+            argv,
+            cwd=cwd,
+            stdout=output,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+            env=environment,
+        )
         try:
             result["returncode"] = process.wait(timeout=timeout)
         except (subprocess.TimeoutExpired, KeyboardInterrupt) as exc:
@@ -156,13 +128,9 @@ def bounded(argv: list[str], cwd: Path, log: Path, timeout: int) -> dict:
                 process.wait(timeout=5)
             result["returncode"] = process.returncode
         finally:
-            # Detached controller/engine children live in their own process
-            # groups. Observe them *before* emergency cleanup so a leak can
-            # never be rewritten into success, then clean them before the next
-            # tournament job is admitted so they cannot contaminate evidence.
-            before_cleanup, after_cleanup = _cleanup_detached_groups(cwd)
-            result["detached_groups_before_cleanup"] = before_cleanup
-            result["detached_groups_after_cleanup"] = after_cleanup
+            before_cleanup, after_cleanup = terminate_token_processes(token)
+            result["descendants_before_cleanup"] = before_cleanup
+            result["descendants_after_cleanup"] = after_cleanup
             result["ended_ns"] = time.monotonic_ns()
     return result
 
@@ -185,7 +153,8 @@ def retain_report_runs(source_root: Path, destination: Path, run_ids: list[str],
             f"{label}: report referenced a replay that was not freshly created")
     destination.mkdir()
     for run_id in run_ids:
-        shutil.copytree(contained(source_root, run_id), destination / run_id)
+        source = contained(source_root, run_id)
+        safe_copy_regular_tree(source, destination / run_id)
 
 
 def prerequisites(output: Path) -> list[dict]:
@@ -288,8 +257,8 @@ def run(mode: str, output: Path, *, shard_index: int = 0, shard_count: int = 1) 
             manifest["jobs"].append(entry)
             save(output / "manifest.json", manifest)
             if (result["returncode"] != 0 or result["timed_out"]
-                    or result.get("detached_groups_before_cleanup")
-                    or result.get("detached_groups_after_cleanup")):
+                    or result.get("descendants_before_cleanup")
+                    or result.get("descendants_after_cleanup")):
                 manifest["failures"].append(
                     f"{job['id']}: runner/lifecycle cleanup failed; retained without retry"
                 )

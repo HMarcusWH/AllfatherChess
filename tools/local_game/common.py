@@ -228,43 +228,37 @@ def processes_with_token(token: str) -> list[dict]:
 
 def terminate_token_processes(token: str, *, term_s: float = 5.0, kill_s: float = 5.0
                               ) -> tuple[list[dict], list[dict]]:
-    """Observe token-owned live work, clean it, and preserve the pre-cleanup evidence."""
+    """Observe exact token-owned live work, then clean it without PID reuse risk."""
     before = processes_with_token(token)
     if not before:
         return [], []
 
-    def signal_owned(rows: list[dict], signum: int) -> None:
-        # Signal exact token-owned process identities, not a bare numeric PGID.
-        # This prevents PID/PGID reuse from turning stale evidence into an
-        # unrelated process kill. Re-scan after every signal phase catches
-        # descendants spawned concurrently with cleanup.
-        live = {
-            (row["pid"], row["start_ticks"]): row
-            for row in processes_with_token(token)
-        }
+    def signal_current(signum: int) -> list[dict]:
+        rows = processes_with_token(token)
         for row in rows:
-            key = (row["pid"], row["start_ticks"])
-            if key not in live:
+            identity = process_identity(row["pid"])
+            if identity is None or identity["start_ticks"] != row["start_ticks"]:
                 continue
             try:
                 os.kill(row["pid"], signum)
             except ProcessLookupError:
                 pass
+        return rows
 
-    signal_owned(before, signal.SIGTERM)
+    signal_current(signal.SIGTERM)
     deadline = time.monotonic() + term_s
     remaining = processes_with_token(token)
     while remaining and time.monotonic() < deadline:
         time.sleep(0.05)
         remaining = processes_with_token(token)
+
     if remaining:
-        signal_owned(remaining, signal.SIGKILL)
         deadline = time.monotonic() + kill_s
         while remaining and time.monotonic() < deadline:
+            signal_current(signal.SIGKILL)
             time.sleep(0.05)
             remaining = processes_with_token(token)
     return before, remaining
-
 
 def safe_copy_regular_tree(source: Path, destination: Path) -> None:
     """Copy one evidence tree without following links or accepting special files."""

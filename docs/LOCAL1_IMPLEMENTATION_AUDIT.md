@@ -106,3 +106,32 @@ Codex's four new findings are repaired by removing the aliased positive-G3 repla
 retaining only freshly report-referenced prerequisite replays, performing unconditional
 post-run detached-process cleanup while retaining pre-cleanup leak evidence, and separating
 partial soak-shard success from the aggregate 10-shard/208-game soak claim.
+
+## Fourth hardening pass — process identity, raw-shard authentication, and exact Fastchess clocks
+
+The first complete 28-game campaign reached every lifecycle and baseline pairing, then failed
+only because the validator incorrectly expected UCI clocks to begin at the nominal base.
+Pinned Fastchess initializes `time_left = base + increment`; LOCAL-1 now mirrors that source
+semantics. The first searched ply must carry base+increment for both sides, the non-moving
+clock must remain exact between consecutive searched plies, and the previous mover may gain
+at most one increment after non-negative elapsed time.
+
+The same pass closes the next Codex evidence/security findings:
+
+- subprocess ownership is inherited through a unique LOCAL-1 environment token and bound to
+  live non-zombie PID/start identities instead of reusable PGIDs;
+- cleanup runs after every bounded subprocess exit and detects both same-group and detached
+  descendants before emergency TERM/KILL cleanup;
+- proxy child registration is cleanup-safe even if its first evidence write fails;
+- rule probes use isolated managed process groups and fail if cleanup was needed;
+- replay retention rejects symlinks and special files and copies only fresh report-selected runs;
+- Fastchess output is rebuilt into a clean target and its Ubuntu 22.04 source-test attestation
+  is mandatory during independent validation;
+- specialist reservation closure is reconstructed from real `authorize -> settle|release`
+  token transitions rather than trusting `open_reservations`;
+- all required/soak jobs consume one exact shared Fastchess + ONLINE-2 binary bundle;
+- soak aggregation independently reruns the raw shard validator before allowing the ten-shard,
+  208-game aggregate report to promote any full-campaign claim.
+
+None of these changes weakens G3 policy, match clocks, pairing structure, or lifecycle
+acceptance criteria.

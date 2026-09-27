@@ -23,6 +23,16 @@ def _os_release() -> dict[str, str]:
     return values
 
 
+def _require_safe_build_path(path: Path) -> None:
+    build_root = (ROOT / "build").resolve()
+    require(path.resolve().is_relative_to(build_root),
+            f"build output escapes build/: {path}")
+    current = path if path.exists() else path.parent
+    while current != ROOT / "build":
+        require(not current.is_symlink(), f"symlinked build path component: {current}")
+        current = current.parent
+
+
 def _compiler() -> str:
     value = os.environ.get("CXX", "g++")
     require(value and not any(c.isspace() for c in value),
@@ -96,13 +106,20 @@ def build(attestation: Path) -> int:
     lock = load(lock_path)
     target = ROOT / "build/tools/fastchess"
     target.parent.mkdir(parents=True, exist_ok=True)
+    _require_safe_build_path(target)
     require(not target.is_symlink(), "Fastchess target cannot be a symlink")
-    target.mkdir(exist_ok=True)
+    if target.exists():
+        require(target.is_dir(), "Fastchess target must be a directory")
+        shutil.rmtree(target)
+    target.mkdir()
 
+    _require_safe_build_path(attestation)
     if not attestation.is_file():
         # Local reproduction may run source tests in the same host. CI supplies
         # the attestation from the upstream-supported Ubuntu 22.04 job.
         source_test(attestation)
+    require(attestation.is_file() and not attestation.is_symlink(),
+            "Fastchess source-test attestation must be a regular file")
     tested = load(attestation)
     require(tested.get("passed") is True and
             tested.get("commit") == lock["commit"] and

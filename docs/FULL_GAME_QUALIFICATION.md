@@ -68,10 +68,13 @@ Native alpha-beta constituent arms use one thread and 16 MiB Hash. LC0 uses the 
 CPU/BLAS/network settings with its declared one-searcher environment. Standalone roles use
 MultiPV=1; G3 specialists retain the already-qualified MultiPV=3 profile.
 
-All actual `setoption` and `go` commands are recorded. Validation requires the first
-transmitted `wtime` and `btime` of every game to equal the frozen base control exactly,
-requires exact increments, rejects unauthorized work limits, and bounds later clock
-progression against that same control.
+All actual `setoption` and `go` commands are recorded. The validator mirrors the pinned
+Fastchess time-control state machine rather than assuming UCI starts at the nominal base:
+Fastchess initializes each side to **base + one increment**. The first searched ply must
+therefore carry that exact state; thereafter the side that did not just move must retain its
+exact prior clock, while the side that moved may increase by at most one increment because
+elapsed time is non-negative. Exact increments and allowed work limits are checked on every
+`go` command.
 
 The baseline is therefore **same recorded tournament clock on one host**, not M15-B/C
 equal-resource superiority. Native Stockfish nodes and LC0 visits are never treated as one
@@ -171,11 +174,13 @@ Fastchess communicates through a transparent Python recorder for every arm. The 
 - places the child engine/controller in its own process group;
 - enables Linux subreaping and records descendant CPU/cleanup.
 
-The outer campaign runner also discovers campaign-owned detached process groups on **every**
-runner exit, not just timeout. It records surviving groups before emergency cleanup, treats
-their presence as permanent failure evidence, then SIGTERM/SIGKILL-cleans them before any
-later pairing is admitted. Cleanup therefore prevents cross-job contamination without
-laundering a lifecycle leak into success.
+The outer campaign runner assigns each bounded subprocess tree a unique inherited ownership
+token. On **every** runner exit, not just timeout, it scans Linux procfs for live non-zombie
+processes carrying that token and binds them by PID + start ticks + PGID. Surviving work is
+recorded before emergency cleanup and permanently fails the job; exact token-owned process
+identities are then TERM/KILL-cleaned before any later pairing is admitted. Numeric PID/PGID
+reuse and zombies therefore cannot be mistaken for owned live work, and cleanup cannot
+launder a lifecycle leak into success.
 
 Per-search procfs endpoints are fail-closed: a missing/replaced process identity produces no
 valid CPU observation. Every searched ply requires a finite non-negative observation.
@@ -204,6 +209,19 @@ The producer-written qualification/claim flags must exactly match those derived 
 Ordinary cases require a positive reconstructed claim. A declared low-clock denial may be
 reported, but it cannot hide missing measurement coverage, crossed generations, or an
 illegal/late move.
+
+## Evidence retention is non-following and report-directed
+
+Prerequisite replay roots are snapshotted before the fresh ONLINE-2/G3 qualification runs.
+Only run IDs explicitly named by the new reports and absent from the pre-run snapshot are
+retained. Evidence-tree copying walks with non-following stat semantics and accepts only
+ordinary directories/regular files; symlinks, FIFOs, devices, sockets and path escapes are
+qualification failures. Copied file bytes are rehashed.
+
+Fastchess build output is similarly recreated from a clean generated directory. Its
+source-test attestation is mandatory during independent validation and is rechecked for
+repository, commit, tree, lock hash, Ubuntu 22.04 host identity, compiler record and exact
+upstream test contract.
 
 ## Positive G3 authority and natural-game coverage are separate
 
@@ -260,8 +278,10 @@ filesystem glob.
 The required PR/main gate is intentionally bounded. The optional 200-game soak is separate.
 
 Fastchess source tests are executed first on Ubuntu 22.04 and uploaded as an attestation.
-The Ubuntu 24.04 required/soak jobs consume only an attestation matching the exact frozen
-commit/tree/lock.
+A separate Ubuntu 24.04 build job then consumes that mandatory host/source-bound attestation,
+builds one exact Fastchess + ONLINE-2 qualification bundle, and uploads it once. Required
+games, every soak shard, and the soak aggregator consume that **same binary bundle** rather
+than rebuilding independently.
 
 The soak no longer attempts roughly 104 serial Fastchess jobs inside one 330-minute workflow
 job. A manual soak dispatch uses **10 parallel bounded shards**, each receiving a

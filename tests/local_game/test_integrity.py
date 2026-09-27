@@ -84,7 +84,9 @@ class EffectiveCommandTests(unittest.TestCase):
         game.headers["White"] = "stockfish"
         game.headers["Black"] = "reckless"
         node = game.add_variation(chess.Move.from_uci("e2e4"))
-        node.add_variation(chess.Move.from_uci("e7e5"))
+        node.comment = "0.100s, tl=31.900s"
+        node2 = node.add_variation(chess.Move.from_uci("e7e5"))
+        node2.comment = "0.200s, tl=31.800s"
         streams = {
             "stockfish": [{
                 "command": "go wtime 31000 btime 31000 winc 1000 binc 1000",

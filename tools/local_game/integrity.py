@@ -22,13 +22,8 @@ def input_paths(p: dict) -> list[Path]:
     )] + [ROOT / path for path in fixtures]
 
 
-def verify_builds(source: dict) -> Path:
-    fc_root = ROOT / "build/tools/fastchess"
-    fc = load(fc_root / "build-manifest.json")
-    lock = ROOT / "qualification/fastchess.lock.json"
-    require(fc["source"] == load(lock) and fc["lock_sha256"] == sha(lock), "Fastchess pin mismatch")
-    fastchess = verify_record(fc_root, fc["binary"])
-    verify_record(fc_root, fc["license"])
+def verify_fastchess_attestation(fc_root: Path, fc: dict, lock_path: Path) -> Path:
+    source_lock = load(lock_path)
     attestation = fc.get("source_test_attestation")
     require(isinstance(attestation, dict),
             "Fastchess source-test attestation record is mandatory")
@@ -36,12 +31,11 @@ def verify_builds(source: dict) -> Path:
     require(not attestation_path.is_symlink(),
             "Fastchess source-test attestation may not be a symlink")
     tested = load(attestation_path)
-    source_lock = load(lock)
     require(fc.get("upstream_tests_passed") is True,
             "Fastchess build does not declare successful source tests")
-    require(tested.get("passed") is True, "Fastchess source-test attestation is not a pass")
     require(
-        tested.get("repository") == source_lock["repository"]
+        tested.get("passed") is True
+        and tested.get("repository") == source_lock["repository"]
         and tested.get("commit") == source_lock["commit"]
         and tested.get("tree") == source_lock["tree"]
         and tested.get("lock_sha256") == fc["lock_sha256"]
@@ -53,6 +47,17 @@ def verify_builds(source: dict) -> Path:
         and bool(tested["compiler"].strip()),
         "Fastchess source-test attestation host/source contract mismatch",
     )
+    return attestation_path
+
+
+def verify_builds(source: dict) -> Path:
+    fc_root = ROOT / "build/tools/fastchess"
+    fc = load(fc_root / "build-manifest.json")
+    lock = ROOT / "qualification/fastchess.lock.json"
+    require(fc["source"] == load(lock) and fc["lock_sha256"] == sha(lock), "Fastchess pin mismatch")
+    fastchess = verify_record(fc_root, fc["binary"])
+    verify_record(fc_root, fc["license"])
+    verify_fastchess_attestation(fc_root, fc, lock)
 
     bundle = ROOT / "build/online-cpu-reference"
     build = load(bundle / "build-manifest.json")
@@ -248,6 +253,42 @@ def _number(value, label: str) -> float:
 def _close(actual, expected, label: str, tolerance: float = 0.02) -> None:
     require(abs(_number(actual, label) - float(expected)) <= tolerance,
             f"{label} arithmetic mismatch: {actual!r} vs {expected!r}")
+
+
+def verify_specialist_settlements(actions: list, open_reservations: int) -> bool:
+    require(type(open_reservations) is int and open_reservations >= 0,
+            "budget open_reservations must be a non-negative integer")
+    grants: dict[str, dict] = {}
+    resolutions: dict[str, dict] = {}
+    for action in actions:
+        require(isinstance(action, dict), "malformed specialist action")
+        event = action.get("event")
+        token = action.get("reservation_token")
+        require(event in ("authorize", "settle", "release"),
+                f"unknown specialist reservation event: {event!r}")
+        if event == "authorize":
+            if action.get("granted") is True:
+                require(isinstance(token, str) and token,
+                        "granted authorization is missing reservation token")
+                require(token not in grants, "reservation token authorized twice")
+                grants[token] = action
+            else:
+                require(token is None,
+                        "denied authorization may not carry a reservation token")
+        else:
+            require(action.get("granted") is True and isinstance(token, str) and token,
+                    "specialist resolution is missing granted reservation token")
+            require(token in grants, "specialist resolution has no prior authorization")
+            require(token not in resolutions,
+                    "reservation token settled/released more than once")
+            grant = grants[token]
+            require(action.get("phase") == grant.get("phase"),
+                    "specialist resolution phase differs from authorization")
+            require(action.get("requested_cpu_ms") == grant.get("requested_cpu_ms") and
+                    action.get("requested_gpu_ms") == grant.get("requested_gpu_ms"),
+                    "specialist resolution resource request differs from authorization")
+            resolutions[token] = action
+    return open_reservations == 0 and set(grants) == set(resolutions)
 
 
 def verify_resource_claim(run: Path, manifest: dict) -> dict:
@@ -446,39 +487,9 @@ def verify_resource_claim(run: Path, manifest: dict) -> dict:
                 "refine_oracle_gpu_ms_estimate",
             ) > 0
 
-    grants: dict[str, dict] = {}
-    resolutions: dict[str, dict] = {}
-    for action in route.get("specialist_actions") or []:
-        require(isinstance(action, dict), "malformed specialist action")
-        event = action.get("event")
-        token = action.get("reservation_token")
-        require(event in ("authorize", "settle", "release"),
-                f"unknown specialist reservation event: {event!r}")
-        if event == "authorize":
-            if action.get("granted") is True:
-                require(isinstance(token, str) and token,
-                        "granted authorization is missing reservation token")
-                require(token not in grants, "reservation token authorized twice")
-                grants[token] = action
-            else:
-                require(token is None,
-                        "denied authorization may not carry a reservation token")
-        else:
-            require(action.get("granted") is True and isinstance(token, str) and token,
-                    "specialist resolution is missing granted reservation token")
-            require(token in grants, "specialist resolution has no prior authorization")
-            require(token not in resolutions,
-                    "reservation token settled/released more than once")
-            grant = grants[token]
-            require(action.get("phase") == grant.get("phase"),
-                    "specialist resolution phase differs from authorization")
-            require(action.get("requested_cpu_ms") == grant.get("requested_cpu_ms") and
-                    action.get("requested_gpu_ms") == grant.get("requested_gpu_ms"),
-                    "specialist resolution resource request differs from authorization")
-            resolutions[token] = action
-    settlement_complete = (
-        budget.get("open_reservations") == 0
-        and set(grants) == set(resolutions)
+    settlement_complete = verify_specialist_settlements(
+        route.get("specialist_actions") or [],
+        budget.get("open_reservations"),
     )
     wall_within = _number(budget.get("elapsed_ms"), "budget elapsed_ms") <= envelope.wall_ms + 1e-6
     physical_within = physical <= envelope.cpu_ms + 1e-6

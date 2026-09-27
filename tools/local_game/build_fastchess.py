@@ -60,6 +60,16 @@ def _checkout(lock: dict, parent: Path):
     return temporary, source
 
 
+def reset_build_target(target: Path) -> None:
+    target.parent.mkdir(parents=True, exist_ok=True)
+    _require_safe_build_path(target)
+    require(not target.is_symlink(), "Fastchess target cannot be a symlink")
+    if target.exists():
+        require(target.is_dir(), "Fastchess target must be a directory")
+        shutil.rmtree(target)
+    target.mkdir()
+
+
 def source_test(attestation: Path) -> int:
     release = _os_release()
     require(
@@ -105,13 +115,7 @@ def build(attestation: Path) -> int:
     lock_path = ROOT / "qualification/fastchess.lock.json"
     lock = load(lock_path)
     target = ROOT / "build/tools/fastchess"
-    target.parent.mkdir(parents=True, exist_ok=True)
-    _require_safe_build_path(target)
-    require(not target.is_symlink(), "Fastchess target cannot be a symlink")
-    if target.exists():
-        require(target.is_dir(), "Fastchess target must be a directory")
-        shutil.rmtree(target)
-    target.mkdir()
+    reset_build_target(target)
 
     _require_safe_build_path(attestation)
     if not attestation.is_file():

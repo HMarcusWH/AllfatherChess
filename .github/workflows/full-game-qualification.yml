@@ -146,7 +146,7 @@ jobs:
         run: |
           chmod +x             build/tools/fastchess/bin/fastchess             build/online-cpu-reference/bin/stockfish             build/online-cpu-reference/bin/reckless             build/online-cpu-reference/bin/lc0             engines/lc0/build/release/lc0
           sudo apt-get update
-          sudo apt-get install -y libopenblas-dev python3-pip python3-setuptools python3-wheel
+          sudo apt-get install -y             meson ninja-build pkg-config libprotobuf-dev protobuf-compiler zlib1g-dev             libopenblas-dev python3-pip python3-setuptools python3-wheel
           python3 -m pip install --break-system-packages --no-build-isolation --no-deps             --require-hashes -r qualification/local-game-requirements.txt
       - name: Run LOCAL-1 negative controls and cross-generation regressions
         run: make -f Makefile.local-game test
@@ -191,7 +191,7 @@ jobs:
         run: |
           chmod +x             build/tools/fastchess/bin/fastchess             build/online-cpu-reference/bin/stockfish             build/online-cpu-reference/bin/reckless             build/online-cpu-reference/bin/lc0             engines/lc0/build/release/lc0
           sudo apt-get update
-          sudo apt-get install -y libopenblas-dev python3-pip python3-setuptools python3-wheel
+          sudo apt-get install -y             meson ninja-build pkg-config libprotobuf-dev protobuf-compiler zlib1g-dev             libopenblas-dev python3-pip python3-setuptools python3-wheel
           python3 -m pip install --break-system-packages --no-build-isolation --no-deps             --require-hashes -r qualification/local-game-requirements.txt
       - name: Run LOCAL-1 test contracts
         run: make -f Makefile.local-game test

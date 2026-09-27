@@ -126,6 +126,13 @@ failure can be injected reproducibly. They do not claim real-engine chess streng
 No score resign/draw, tablebase adjudication, `-maxmoves`, SPRT, recovery retry or hidden
 move source is enabled in the required natural-game gate.
 
+Fastchess itself is run without `-strict` because Allfather intentionally does not promise
+score-bearing `info` lines; upstream Fastchess turns that benign warning into a fatal exit
+under `-strict`. LOCAL-1 instead parses `runner.log` and permits only the exact known
+"no info score" warning for the two Allfather wrapper arms; every other warning/fatal/error
+is qualification-fatal. Empty-valued LC0 options are left at their frozen engine defaults
+rather than serialized into Fastchess's key=value CLI, which rejects empty values.
+
 A natural-game pass requires:
 
 - completed PGN result;
@@ -164,10 +171,11 @@ Fastchess communicates through a transparent Python recorder for every arm. The 
 - places the child engine/controller in its own process group;
 - enables Linux subreaping and records descendant CPU/cleanup.
 
-The outer campaign runner also discovers campaign-owned detached process groups. On timeout
-it signals both the Fastchess group and those detached child groups, escalates to SIGKILL if
-needed, and records any remaining group. Emergency cleanup can prevent resource leakage, but
-it cannot convert the timed-out job into a pass.
+The outer campaign runner also discovers campaign-owned detached process groups on **every**
+runner exit, not just timeout. It records surviving groups before emergency cleanup, treats
+their presence as permanent failure evidence, then SIGTERM/SIGKILL-cleans them before any
+later pairing is admitted. Cleanup therefore prevents cross-job contamination without
+laundering a lifecycle leak into success.
 
 Per-search procfs endpoints are fail-closed: a missing/replaced process identity produces no
 valid CPU observation. Every searched ply requires a finite non-negative observation.
@@ -200,8 +208,11 @@ illegal/late move.
 ## Positive G3 authority and natural-game coverage are separate
 
 The existing G3 prerequisite is freshly executed and must emit an actual non-anchor HYBRID
-move. Its report is not trusted alone: LOCAL-1 retains the ONLINE-2 and G3 prerequisite
-replay roots and independently checks the referenced replay bundles.
+move. Reports are not trusted alone: LOCAL-1 snapshots the pre-existing replay roots,
+requires every report-referenced run ID to have been freshly created by this prerequisite
+execution, and retains **only** those referenced ONLINE-2/G3 bundles. The positive G3 case is
+validated directly under its real run-ID directory; there is no alias copy whose directory
+name can disagree with the sealed run identity.
 
 Natural-game HYBRID/override counts are recorded, not manufactured by loosening policy or
 choosing positions after results. A zero-override tournament is reported as a coverage
@@ -254,9 +265,15 @@ commit/tree/lock.
 
 The soak no longer attempts roughly 104 serial Fastchess jobs inside one 330-minute workflow
 job. A manual soak dispatch uses **10 parallel bounded shards**, each receiving a
-deterministic subset of the same frozen schedule. Each shard retains an independent
-manifest/report/artifact bundle. The soak remains engineering reliability evidence; it is
-not an Elo sample-size calculation.
+deterministic subset of the same frozen schedule. Each shard is explicitly labeled
+`partial_soak_shard` and may report only shard execution success; it must keep
+`baseline_is_complete=false` and `full_game_lifecycle=false`.
+
+A separate aggregate job downloads all ten shard artifacts and requires exact source
+identity, shard indices 0..9, unique/non-overlapping job IDs, union equality with the frozen
+104-job soak schedule, and 208 validated games before emitting the only
+`aggregate_soak_complete=true` report. The soak remains engineering reliability evidence;
+it is not an Elo sample-size calculation.
 
 ## Reproduction
 

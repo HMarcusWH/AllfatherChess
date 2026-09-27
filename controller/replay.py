@@ -108,11 +108,11 @@ class StageRecord:
     owner: str | None
     search_id: str
     command: str
-    phase: str
-    effective_options: dict[str, object]
     dispatched_roots: tuple[str, ...]
     dispatch_order: int
     dispatched_ms: float
+    phase: str = "EXPLORE"
+    effective_options: dict[str, object] = field(default_factory=dict)
     completed_ms: float | None = None
     completion_order: int | None = None
     disposition: str = "running"

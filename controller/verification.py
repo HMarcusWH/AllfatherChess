@@ -10,6 +10,7 @@ VERIFY v1 is instrumentation only. It never chooses or changes the outward move.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import threading
@@ -51,11 +52,11 @@ class VerificationStage:
     family: str
     search_id: str
     command: str
-    phase: str
-    effective_options: dict[str, object]
     candidate_roots: tuple[str, ...]
     dispatch_order: int
     dispatched_ms: float
+    phase: str = "VERIFY"
+    effective_options: dict[str, object] = field(default_factory=dict)
     completed_ms: float | None = None
     completion_order: int | None = None
     disposition: str = "running"
@@ -73,7 +74,7 @@ class VerificationStage:
             "command": self.command,
             "phase": self.phase,
             "effective_options": dict(self.effective_options),
-            "effective_options_sha256": __import__("hashlib").sha256(
+            "effective_options_sha256": hashlib.sha256(
                 json.dumps(self.effective_options, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
             ).hexdigest(),
             "candidate_roots": list(self.candidate_roots),

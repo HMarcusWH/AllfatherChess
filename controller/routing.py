@@ -433,7 +433,7 @@ class RoutingPolicy:
         return None
 
     def as_dict(self) -> dict[str, Any]:
-        return {
+        payload = {
             "policy": self.policy_name,
             "min_observation_nodes": self.min_observation_nodes,
             "checkpoint_interval_ms": self.checkpoint_interval_ms,
@@ -445,8 +445,6 @@ class RoutingPolicy:
             "stage_cpu_ms_estimate": self.stage_cpu_ms_estimate,
             "anchor_cpu_ms_estimate": self.anchor_cpu_ms_estimate,
             "stage_gpu_ms_estimate": self.stage_gpu_ms_estimate,
-            "stage_cpu_ms_estimate_by_owner": dict(self.stage_cpu_ms_estimate_by_owner),
-            "verify_stage_cpu_ms_estimate_by_owner": dict(self.verify_stage_cpu_ms_estimate_by_owner),
             "verify_stage_cpu_ms_estimate": self.verify_stage_cpu_ms_estimate,
             "verify_stage_gpu_ms_estimate": self.verify_stage_gpu_ms_estimate,
             "refine_stage_cpu_ms_estimate": self.refine_stage_cpu_ms_estimate,
@@ -455,6 +453,15 @@ class RoutingPolicy:
             "refine_oracle_gpu_ms_estimate": self.refine_oracle_gpu_ms_estimate,
             "observation_floors": dict(self.observation_floors),
         }
+        if self.stage_cpu_ms_estimate_by_owner:
+            payload["stage_cpu_ms_estimate_by_owner"] = dict(
+                self.stage_cpu_ms_estimate_by_owner
+            )
+        if self.verify_stage_cpu_ms_estimate_by_owner:
+            payload["verify_stage_cpu_ms_estimate_by_owner"] = dict(
+                self.verify_stage_cpu_ms_estimate_by_owner
+            )
+        return payload
 
 
 def observe_owner(

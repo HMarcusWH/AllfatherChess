@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from tools.local_game.common import (ARMS, QualificationError, contained, cpu_delta, load,
                                     policy, runtime_config, verify_g3_derivation)
-from tools.local_game.runner import schedule
+from tools.local_game.runner import command, engine_options, retain_report_runs, schedule
 from tools.local_game.validate import position, trace_searches, match_game, rules_result
 from tools.local_game.probes import check_transition
 
@@ -46,6 +46,32 @@ class ContractTests(unittest.TestCase):
         self.assertTrue(all(j["driver_nodes"] is None for j in baseline))
         self.assertEqual(len({j["clock"] for j in baseline}), 1)
         self.assertEqual(len([j for j in schedule(policy(ROOT), "soak") if j["kind"] == "baseline"]), 100)
+
+
+    def test_lc0_empty_default_option_is_not_serialized_into_fastchess_cli(self):
+        source = load(ROOT / "config/allfather.online-hybrid.validation.json")
+        options, _ = engine_options("lc0", source)
+        self.assertNotIn("BackendOptions", options)
+        job = {"id": "x", "kind": "baseline", "arms": ["lc0", "stockfish"],
+               "clock": "0:30+1", "opening": "history.pgn", "restart": False,
+               "driver_nodes": None, "allow_resource_denial": False}
+        argv = command(job, ROOT / "build" / "dummy-local1", policy(ROOT), source,
+                       Path("/tmp/fastchess"), write_specs=False)
+        self.assertFalse(any(arg.startswith("option.BackendOptions=") for arg in argv))
+
+    def test_prerequisite_replay_retention_uses_only_fresh_reported_ids(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "source"
+            source.mkdir()
+            for name in ("old", "fresh"):
+                (source / name).mkdir()
+                (source / name / "manifest.json").write_text("{}", encoding="utf-8")
+            destination = root / "retained"
+            retain_report_runs(source, destination, ["fresh"], {"old"}, "test")
+            self.assertEqual({p.name for p in destination.iterdir()}, {"fresh"})
+            with self.assertRaises(QualificationError):
+                retain_report_runs(source, root / "bad", ["old"], {"old"}, "test")
 
     def test_profile_is_only_output_relocation_and_not_a_new_policy(self):
         source = {"schema_version": 2, "online_time": {"max_move_ms": 4000},

@@ -117,6 +117,8 @@ jobs:
             build/tools/fastchess
             build/online-cpu-reference
             build/fastchess-source-test/attestation.json
+            build/artifacts/lc0/791556.pb.gz
+            engines/lc0/build/release/lc0
           if-no-files-found: error
           retention-days: 14
 
@@ -139,10 +141,10 @@ jobs:
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: local1-qualification-build
-          path: build
+          path: .
       - name: Restore executable bits and install runtime/test dependencies
         run: |
-          chmod +x             build/tools/fastchess/bin/fastchess             build/online-cpu-reference/bin/stockfish             build/online-cpu-reference/bin/reckless             build/online-cpu-reference/bin/lc0
+          chmod +x             build/tools/fastchess/bin/fastchess             build/online-cpu-reference/bin/stockfish             build/online-cpu-reference/bin/reckless             build/online-cpu-reference/bin/lc0             engines/lc0/build/release/lc0
           sudo apt-get update
           sudo apt-get install -y libopenblas-dev python3-pip python3-setuptools python3-wheel
           python3 -m pip install --break-system-packages --no-build-isolation --no-deps             --require-hashes -r qualification/local-game-requirements.txt
@@ -187,7 +189,7 @@ jobs:
           path: build
       - name: Restore executable bits and install dependencies
         run: |
-          chmod +x             build/tools/fastchess/bin/fastchess             build/online-cpu-reference/bin/stockfish             build/online-cpu-reference/bin/reckless             build/online-cpu-reference/bin/lc0
+          chmod +x             build/tools/fastchess/bin/fastchess             build/online-cpu-reference/bin/stockfish             build/online-cpu-reference/bin/reckless             build/online-cpu-reference/bin/lc0             engines/lc0/build/release/lc0
           sudo apt-get update
           sudo apt-get install -y libopenblas-dev python3-pip python3-setuptools python3-wheel
           python3 -m pip install --break-system-packages --no-build-isolation --no-deps             --require-hashes -r qualification/local-game-requirements.txt

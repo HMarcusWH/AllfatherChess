@@ -230,6 +230,16 @@ class RulesTests(unittest.TestCase):
             history.append(uci); board.push_uci(uci)
         game = chess.pgn.Game.from_board(board)
         game.headers.update(White="stockfish", Black="reckless", Result="1-0", Termination="normal")
+        comment_board = chess.Board()
+        comment_wtime = comment_btime = 31000
+        for node in game.mainline():
+            if comment_board.turn:
+                comment_wtime += 1000
+                node.comment = f"tl={comment_wtime / 1000:.3f}s"
+            else:
+                comment_btime += 1000
+                node.comment = f"tl={comment_btime / 1000:.3f}s"
+            comment_board.push(node.move)
         plan = {"clock": "0:30+1", "driver_nodes": None}
         self.assertEqual(len(match_game(game, streams, False, None, plan)), 7)
         streams["stockfish"][1]["position"] = "position startpos"

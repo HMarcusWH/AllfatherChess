@@ -20,7 +20,8 @@ import time
 import uuid
 import json
 
-from .common import ROOT, cpu_delta, file_record, load, process_group, require, runtime_config, save
+from .common import (ROOT, cpu_delta, file_record, load, process_group,
+                     process_identity, require, runtime_config, save)
 
 
 def run(spec: dict) -> int:
@@ -52,15 +53,63 @@ def run(spec: dict) -> int:
     started_ns = time.monotonic_ns()
     children_before = resource.getrusage(resource.RUSAGE_CHILDREN)
     own_before = time.process_time_ns()
-    process = subprocess.Popen(command, cwd=root, env=environment, stdin=subprocess.PIPE,
-                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True,
-                               bufsize=0)
+    process = subprocess.Popen(
+        command,
+        cwd=root,
+        env=environment,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        start_new_session=True,
+        bufsize=0,
+    )
     pgid = process.pid
-    os.set_blocking(process.stdin.fileno(), False)
-    os.set_blocking(sys.stdout.fileno(), False)
-    save(session / "session.json", {"schema_version": 1, "status": "running", "arm": arm,
-        "session_id": session.name, "pid": process.pid, "pgid": pgid,
-        "started_ns": started_ns, "command": command, "spec": spec})
+    child_identity = process_identity(process.pid)
+    require(child_identity is not None and child_identity["pgid"] == pgid,
+            "could not establish detached child process identity")
+
+    def emergency_cleanup_spawned_child() -> None:
+        """Cleanup must not depend on session evidence reaching disk."""
+        if process.poll() is None or process_group(pgid):
+            try:
+                os.killpg(pgid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                try:
+                    os.killpg(pgid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                try:
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    pass
+        if process_group(pgid):
+            try:
+                os.killpg(pgid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+
+    try:
+        os.set_blocking(process.stdin.fileno(), False)
+        os.set_blocking(sys.stdout.fileno(), False)
+        save(session / "session.json", {
+            "schema_version": 1,
+            "status": "running",
+            "arm": arm,
+            "session_id": session.name,
+            "pid": process.pid,
+            "pgid": pgid,
+            "process_identity": child_identity,
+            "started_ns": started_ns,
+            "command": command,
+            "spec": spec,
+        })
+    except BaseException:
+        emergency_cleanup_spawned_child()
+        raise
 
     def pipe_write(fd: int, raw: bytes, timeout: float = 3.0) -> None:
         view = memoryview(raw)
@@ -231,6 +280,7 @@ def run(spec: dict) -> int:
         report = {"schema_version": 1, "status": "failed" if errors else "completed",
             "arm": arm, "session_id": session.name, "started_ns": started_ns,
             "ended_ns": time.monotonic_ns(), "pid": process.pid, "pgid": pgid,
+            "process_identity": child_identity,
             "returncode": process.returncode, "errors": errors, "leaked_before_cleanup": leaked,
             "remaining_after_cleanup": process_group(pgid), "command": command, "spec": spec,
             "search_metrics": metrics, "event_count": seq,

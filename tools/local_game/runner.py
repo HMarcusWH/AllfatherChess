@@ -148,11 +148,17 @@ def referenced_run_ids(report: dict, label: str) -> list[str]:
 def retain_report_runs(source_root: Path, destination: Path, run_ids: list[str],
                        prior: set[str], label: str) -> None:
     require(source_root.is_dir(), f"{label}: replay root missing")
-    current = {path.name for path in source_root.iterdir() if path.is_dir()}
+    current = {
+        path.name for path in source_root.iterdir()
+        if path.is_dir() and not path.is_symlink()
+    }
     require(set(run_ids) <= (current - prior),
             f"{label}: report referenced a replay that was not freshly created")
     destination.mkdir()
     for run_id in run_ids:
+        raw_source = source_root / run_id
+        require(raw_source.is_dir() and not raw_source.is_symlink(),
+                f"{label}: top-level replay run is not a real directory: {run_id}")
         source = contained(source_root, run_id)
         safe_copy_regular_tree(source, destination / run_id)
 

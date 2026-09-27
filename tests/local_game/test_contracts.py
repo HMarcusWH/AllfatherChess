@@ -258,10 +258,10 @@ class RulesTests(unittest.TestCase):
         for node in game.mainline():
             if comment_board.turn:
                 comment_wtime += 1000
-                node.comment = f"tl={comment_wtime / 1000:.3f}s"
+                node.comment = f"0.000s, tl={comment_wtime / 1000:.3f}s"
             else:
                 comment_btime += 1000
-                node.comment = f"tl={comment_btime / 1000:.3f}s"
+                node.comment = f"0.000s, tl={comment_btime / 1000:.3f}s"
             comment_board.push(node.move)
         plan = {"clock": "0:30+1", "driver_nodes": None}
         self.assertEqual(len(match_game(game, streams, False, None, plan)), 7)

@@ -168,7 +168,14 @@ class DeadlineTests(unittest.TestCase):
                 runs=list(tmp.glob('replays/*'))
                 self.assertEqual(len(runs),1)
                 self.assertFalse((runs[0]/'manifest.json').exists())
-                self.assertIsNotNone(shadow._run)
+                wait_for(lambda:1 in shadow._finalizing,3)
+                active=shadow._finalizing[1]
+                self.assertTrue(active.engine_quiesced.is_set())
+                self.assertFalse(active.finished.is_set())
+                self.assertIsNone(
+                    shadow._run,
+                    "replay-only generation retained the engine-owned slot",
+                )
             finally:release.set()
             wait_for(lambda:list(tmp.glob('replays/*/route.json')))
             run=next(tmp.glob('replays/*'))
@@ -407,13 +414,22 @@ class DeadlineTests(unittest.TestCase):
             shell.handle_command('go movetime 500')
             self.assertTrue(entered.wait(1))
             wait_for(lambda:len(bestmoves(out))==1,1)
-            wait_for(lambda:shadow._run.engine_quiesced.is_set(),3)
-            active=shadow._run
+            wait_for(lambda:1 in shadow._finalizing,3)
+            active=shadow._finalizing[1]
+            self.assertTrue(active.engine_quiesced.is_set())
+            self.assertIsNone(
+                shadow._run,
+                "engine-quiesced replay state must no longer own the engine slot",
+            )
             self.assertFalse(active.anchor_observation_done.is_set())
 
-            # Exercise the close-time fallback directly with a short synthetic
-            # timeout instead of making the suite sleep for drain_timeout_s.
-            with patch.object(shadow,'quiesce',return_value=False):
+            # Exercise the close-time fallback directly without making the
+            # suite sleep for drain_timeout_s. The retained generation must
+            # remain addressable after engine ownership has moved on.
+            with (
+                patch.object(shadow,'quiesce',return_value=False),
+                patch.object(active.finished,'wait',return_value=False),
+            ):
                 shadow.close()
             self.assertTrue(active.anchor_observation_done.is_set())
             self.assertTrue(

@@ -1,11 +1,11 @@
 # AllfatherChess current build and release status
 
-**Status date:** 26 September 2026  
-**Authoritative main commit:** `c301e9986566febfbb7978d55c5a3d3429423cff`  
-**Merged milestone:** PR #39 / M14-G3 — clock-aware staged hybrid authority  
-**Qualified PR head:** `9ea858eed4133ea1bc8e89137176b4e5cf2eb316`  
-**Tree identity:** both the qualified PR head and merge commit use tree `397c004a90adf7e1d666ebd10c2fd81617906b23`  
-**Current execution milestone:** LOCAL-1 — full-game lifecycle qualification  
+**Status date:** 27 September 2026  
+**Authoritative main commit:** `524ec9b25c7f08d981ba7c88318d106e22586295`  
+**Merged milestone:** PR #41 / LOCAL-1 — full-game lifecycle qualification  
+**Qualified PR head:** `6fc6522f863e2a15c6d4c230fa558cbb993f867e`  
+**Tree identity:** both the qualified PR head and merge commit use tree `0a2095ba5dde83292a348cff2495d02bd4e05299`  
+**Current execution milestone:** ONLINE-3 — reproducible service package + pinned lichess-bot bridge  
 **Forward roadmap:** [ROADMAP.md](ROADMAP.md)  
 **Detailed deployment plan:** [ONLINE_RELEASE_PLAN.md](ONLINE_RELEASE_PLAN.md)
 
@@ -15,22 +15,37 @@ for current status and forward ordering.
 
 ## Current qualification evidence
 
-PR #39 merged as a normal two-parent merge. Its final qualified head and the merge commit
+PR #41 merged as a normal two-parent merge. Its final qualified head and the merge commit
 have the same Git tree, so the exact content that passed qualification is the content now
 on `main`.
 
 | Workflow | Run | Result |
 | --- | ---: | --- |
-| Telemetry contract validation | 36271238300 | success |
-| Controller shell validation | 36271238299 | success |
-| Merge gate | 36271238288 | success |
-| LC0 real-inference qualification | 36271238258 | success |
-| ONLINE-2 real-network online profile qualification | 36271238269 | success |
-| M14-G3 online staged hybrid authority qualification | 36271238298 | success |
-| Baseline engine validation | 36271238264 | success |
+| Telemetry contract validation | 36344180892 | success |
+| Controller shell validation | 36344180852 | success |
+| Merge gate | 36344180834 | success |
+| LC0 real-inference qualification | 36344180739 | success |
+| ONLINE-2 real-network online profile qualification | 36344180754 | success |
+| M14-G3 online staged hybrid authority qualification | 36344180746 | success |
+| Baseline engine validation | 36344180968 | success |
+| **LOCAL-1 full-game lifecycle and five-arm baselines** | **36344180962** | **success** |
 
-PR #39 also closed its Codex code-review threads before merge. Review automation is evidence
-about the reviewed code, not a substitute for the runtime qualification gates above.
+The exact-head LOCAL-1 artifact is GitHub Actions artifact `10941548187`, SHA-256
+`23d2b1f8baa2b535e92e523c3a3dbd79219213127015a708daa50d49c3395d21`.
+Automated exact-head Codex review was unavailable after the review quota was exhausted, so
+no exact-head Codex-review claim is made; the runtime/qualification gates above are the
+promotion evidence.
+
+## LOCAL-1 qualification result
+
+The required campaign passed with **44/44 LOCAL-1 regressions**, the mandatory fault campaign
+and forced rule-transition probes green, **28/28 required games independently validated**,
+and **zero qualification errors**. The same-clock five-arm results remain descriptive rather
+than an Elo/equal-resource claim.
+
+Across the 800 validated Allfather-G3 plies in the retained artifact, authority was
+**796 ANCHOR_FALLBACK** and **4 HYBRID**. Two HYBRID decisions changed the Stockfish anchor
+move. These counts are **MEASURED coverage**, not a strength result.
 
 ## What is implemented and qualified
 
@@ -54,7 +69,10 @@ The repository now contains, in code and contract tests:
 16. ONLINE-1 clock-derived `TimePlan`, soft/hard deadline fencing and stale-generation protection;
 17. ONLINE-2 real-network hardware-bound online CPU reference composition;
 18. **M14-G3 clock-aware staged hybrid authority**, composing the real-network ONLINE profile,
-    staged VERIFY and an explicit fail-closed outward DecisionAuthorization gate.
+    staged VERIFY and an explicit fail-closed outward DecisionAuthorization gate;
+19. **LOCAL-1 complete-game lifecycle qualification**, including full-history game execution,
+    explicit rule witnesses, mandatory failure injection, replay/process/resource integrity,
+    and the five-arm same-clock descriptive baseline.
 
 ## M14-G3 result
 
@@ -114,37 +132,30 @@ not permission to erase their firewalls.
 
 ## Current critical path
 
-### 1. LOCAL-1 — full-game lifecycle qualification — **NEXT**
+### 1. ONLINE-3 — reproducible package + pinned Lichess bridge — **NEXT**
 
-Add a pinned established UCI match runner and exercise complete games. Validate legal move
-lifecycle, full history/repetition semantics, castling/en-passant/promotion, low clocks,
-long games, worker failure, restart/cleanup, storage/replay pressure and process/resource
-leakage.
+Package the exact LOCAL-1-qualified composition, pin a tested `lichess-bot` revision,
+add immutable deployment/release manifests, restricted bridge configuration, operator
+documentation and fake-server startup/game-lifecycle smoke tests. Do not change chess policy
+to make packaging easier.
 
-Engineering acceptance is lifecycle correctness, not Elo.
-
-### 2. ONLINE-3 — reproducible package + pinned Lichess bridge
-
-Package the qualified engine, pin a tested `lichess-bot` revision, add deployment manifests,
-operator documentation and bridge smoke tests.
-
-### 3. ONLINE-4 — network/restart/reconciliation/rollback qualification
+### 2. ONLINE-4 — network/restart/reconciliation/rollback qualification
 
 Exercise disconnects, uncertain move submission, duplicate/out-of-order events, service
-restart, stale output, rate limits, storage pressure and rollback.
+restart, stale output, rate limits, storage pressure, stop-new-games and rollback.
 
-### 4. Release qualification
+### 3. Release qualification
 
 Aggregate the required qualification families into one always-present release gate and
-freeze exact source/binary/network/profile/model/bridge identities.
+freeze exact source/binary/network/profile/model/bridge/package identities.
 
-### 5. ONLINE-RC
+### 4. ONLINE-RC
 
 Run the first restricted unrated bot canary only after the operational gates pass.
 
 ## Parallel work
 
-**M14-G4 production SKIP calibration** may proceed alongside LOCAL-1/ONLINE-3. It becomes
+**M14-G4 production SKIP calibration** may proceed alongside ONLINE-3/ONLINE-4. It becomes
 mandatory before learned compute suppression is promoted, but a conservative canary may
 continue to BUY/deny/fallback when shortcut evidence is unsupported.
 
@@ -163,5 +174,6 @@ M14-H/I native transport and M15-A governed policy evolution remain later optimi
 ## Claim boundary
 
 The repository now has a **qualified real-network, clock-aware staged hybrid authority
-composition**. It is not yet full-game qualified, packaged/deployed as a bot, or supported
-by an equal-envelope playing-strength campaign.
+composition that is also qualified across the declared complete-game lifecycle**. It is not
+yet packaged/deployed as a bot, network/restart qualified, or supported by an equal-envelope
+playing-strength campaign.

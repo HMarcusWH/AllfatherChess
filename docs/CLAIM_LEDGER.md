@@ -1,31 +1,34 @@
 # Claim ledger
 
-## Current repository synchronization after PR #39
+## Current repository synchronization after PR #41
 
-- **PROVED / CI-GATED:** main is `c301e9986566febfbb7978d55c5a3d3429423cff`.
-  The qualified PR #39 head `9ea858eed4133ea1bc8e89137176b4e5cf2eb316` and the
-  merge commit share Git tree `397c004a90adf7e1d666ebd10c2fd81617906b23`.
-  Telemetry, Controller shell, Merge gate, LC0 real-inference, ONLINE-2,
-  M14-G3 and Baseline validation all passed on that qualified tree.
+- **PROVED / CI-GATED:** main is `524ec9b25c7f08d981ba7c88318d106e22586295`.
+  The qualified PR #41 head `6fc6522f863e2a15c6d4c230fa558cbb993f867e` and the
+  merge commit share Git tree `0a2095ba5dde83292a348cff2495d02bd4e05299`.
+  Telemetry, Controller shell, Merge gate, LC0 real-inference, ONLINE-2, M14-G3,
+  Baseline validation and LOCAL-1 all passed on that qualified tree.
 - **PROVED / AUTHORITY:** M14-G3 composes the real ONLINE-2 bundle, G2
   BUY_STAGED_VERIFY routing, complete same-process staged VERIFY terminals,
   a frozen proposal/evidence digest, clock-aware DecisionAuthorization and
   deadline-safe publication. The qualifier requires a real non-anchor HYBRID
   emission; invalid/unsupported states retain deterministic Stockfish fallback.
-- **PROVED / LIFECYCLE-INTEGRITY MECHANISMS:** closed dispatch permits are normal
-  rejected work rather than worker failure; post-output UCI readiness waits for the
-  measured interval to freeze; process endpoints freeze before reuse while controller
-  CPU remains measured through resource-relevant route finalization; published terminal
-  moves are immutable history.
-- **OPEN RELEASE GATES:** LOCAL-1 complete-game lifecycle qualification, ONLINE-3
-  packaging/bridge, ONLINE-4 network/restart/rollback, aggregate release qualification,
-  ONLINE-RC, main governance, and combined-distribution licensing.
-- **OPEN STRENGTH GATE:** no Elo or equal-envelope superiority claim follows from M14-G3.
-  M15-B/C remains the separate comparative campaign.
+- **PROVED / FULL-GAME LIFECYCLE:** LOCAL-1 exact-head run `36344180962`
+  passed 44 regressions, the mandatory fault suite, forced rule witnesses and
+  28/28 required games with zero qualification errors. Game→ply→session→search→replay
+  identity, full history, clocks, process cleanup and reconstructed resource/envelope
+  evidence are all inside the qualified contract.
+- **MEASURED / NATURAL G3 AUTHORITY COVERAGE:** the retained LOCAL-1 artifact contains
+  800 Allfather-G3 plies: 796 `ANCHOR_FALLBACK`, 4 `HYBRID`, with 2 HYBRID decisions
+  changing the Stockfish anchor move. This is coverage evidence, not an Elo or quality claim.
+- **OPEN RELEASE GATES:** ONLINE-3 packaging/bridge, ONLINE-4
+  network/restart/rollback, aggregate release qualification, ONLINE-RC, main governance,
+  and combined-distribution licensing.
+- **OPEN STRENGTH GATE:** no Elo or equal-envelope superiority claim follows from
+  LOCAL-1. M15-B/C remains the separate comparative campaign.
 
-## LOCAL-1 full-game lifecycle candidate — OPEN until exact-head qualification passes
+## LOCAL-1 full-game lifecycle — PROVED / CI-GATED
 
-### IMPLEMENTED IN THE CANDIDATE
+### QUALIFIED SURFACE
 
 - exact Fastchess commit/tree lock with supported-host source-test attestation and measured runner binary;
 - hash-pinned independent chess/PGN verification;
@@ -38,11 +41,11 @@
   resource/envelope qualification;
 - five-arm descriptive same-clock baseline across Stockfish, Reckless, LC0,
   Allfather-Anchor and Allfather-G3;
-- process-group cleanup auditing and a sharded 200-game engineering soak.
+- process-group cleanup auditing and a separately invokable sharded 200-game engineering soak.
 
-### OPEN / NOT PROMOTED
+### NOT PROMOTED BY LOCAL-1
 
-- implementation is not proof: LOCAL-1 remains OPEN until the dedicated exact-head workflow is green;
+- the optional 200-game soak is additional engineering reliability evidence, not an Elo sample;
 - same-clock W/D/L is not equal-resource evidence and establishes no Elo/superiority claim;
 - Allfather-Anchor is a native-clock single-Stockfish wrapper control, not a clean isolated
   measurement of every cost introduced by G3;

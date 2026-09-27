@@ -1,6 +1,6 @@
 # AllfatherChess
 
-> **Current synchronized build state:** PR #39 / M14-G3 is merged at `c301e9986566febfbb7978d55c5a3d3429423cff`; LOCAL-1 full-game lifecycle qualification is next.  
+> **Current synchronized build state:** PR #41 / LOCAL-1 is merged at `524ec9b25c7f08d981ba7c88318d106e22586295`; complete-game lifecycle qualification is green and ONLINE-3 packaging is next.  
 > See [docs/CURRENT_STATUS.md](docs/CURRENT_STATUS.md) for the exact implemented surface and
 > [docs/ROADMAP.md](docs/ROADMAP.md) for the canonical forward execution order.
 
@@ -62,12 +62,12 @@ The current stack includes the immediate controller layers plus an explicit comm
 Documentation: `docs/README.md`, `docs/CURRENT_STATUS.md`, `docs/ROADMAP.md`, `docs/ONLINE_RELEASE_PLAN.md`, `docs/ONLINE_TIME.md`, `docs/BUILD_PLAN.md`, `docs/ARCHITECTURE.md`, `docs/UCI_SHELL.md`, `docs/SHARD_LEDGER.md`, `docs/PREFIX_SHARDS.md`, `docs/SHADOW_EXECUTION.md`, `docs/REPLAY_FORMAT.md`, `docs/RESIDUAL_CALIBRATION.md`, `docs/BUDGET_ROUTING.md`, `docs/VERIFY_RELOCK.md`, `docs/COMPARE_RELOCK.md`, `docs/PREFIX_SHARDS.md`, `docs/REFINEMENT.md`, `docs/ACTIVE_SPECIALIST_SCHEDULER.md`, `docs/CROSS_FEED.md`, `docs/CROSS_FEED_ADAPTERS.md`, `docs/SEARCH_REGIMES.md`, `docs/STAGED_VERIFY.md`, `docs/UNIFIED_VALUE_ROUTER.md`, `docs/RESOURCE_ACCOUNTING.md`, `docs/SEARCH_SPACE_OWNERSHIP.md`, `docs/TELEMETRY_SCHEMA.md`, `docs/TELEMETRY_MAPPING.md`, `docs/THEORY_IMPLEMENTATION_MAP.md`, `docs/CLAIM_LEDGER.md`, `docs/ADVERSARIAL_AUDIT.md`, `docs/CODEX_REVIEW_AUDIT.md`, `docs/UPSTREAM_PROVENANCE.md`, and `LICENSES.md`.
 
 **No strength claim is made.** No equal-envelope Elo/superiority campaign has been completed.
-PR #39 establishes a qualified real-network, clock-aware staged hybrid authority composition,
-not that its HYBRID choices are stronger. Stockfish remains the deterministic fallback on
-any denied/unsupported authority state. The existing random/backend-light LC0 profiles remain
-regression infrastructure; the real BLAS/network identity is separately pinned by ONLINE-2
-and reused by M14-G3. Full-game lifecycle, deployment, and the formal strength campaign remain
-separate gates. `docs/CLAIM_LEDGER.md` labels the evidence boundary explicitly.
+PR #39 establishes the qualified real-network, clock-aware staged hybrid authority composition,
+and PR #41 / LOCAL-1 establishes that the same composition survives the declared complete-game
+lifecycle, failure, rules, replay and resource gates. Neither result shows that HYBRID choices
+are stronger. Stockfish remains the deterministic fallback on denied/unsupported authority
+states. Deployment and the formal equal-resource strength campaign remain separate gates.
+`docs/CLAIM_LEDGER.md` labels the evidence boundary explicitly.
 
 
 ## Route to online deployment
@@ -89,11 +89,11 @@ make online-hybrid-contract       # consumes the frozen ONLINE-2 bundle
 make run-allfather-online-hybrid
 ```
 
-PR #39 completed M14-G3. The remaining first-canary path is now:
+PR #41 completed LOCAL-1. The remaining first-canary path is now:
 
 ```text
-LOCAL-1 full-game lifecycle qualification
-    -> ONLINE-3 reproducible package + pinned lichess-bot bridge
+LOCAL-1 full-game lifecycle qualification  [DONE]
+    -> ONLINE-3 reproducible package + pinned lichess-bot bridge  [NEXT]
     -> ONLINE-4 network/restart/reconciliation/rollback qualification
     -> aggregate release qualification
     -> ONLINE-RC restricted unrated bot canary
@@ -102,10 +102,13 @@ LOCAL-1 full-game lifecycle qualification
 M14-G4 production SKIP calibration and M15-B/C equal-resource strength work proceed on
 separate promotion tracks. ONLINE operation is not a substitute for the strength campaign.
 
-### LOCAL-1 full-game qualification candidate
+### LOCAL-1 full-game qualification — qualified
 
-The current LOCAL-1 candidate is documented in
-[docs/FULL_GAME_QUALIFICATION.md](docs/FULL_GAME_QUALIFICATION.md). It pins Fastchess,
+The qualified LOCAL-1 contract is documented in
+[docs/FULL_GAME_QUALIFICATION.md](docs/FULL_GAME_QUALIFICATION.md). PR #41 exact head
+`6fc6522f863e2a15c6d4c230fa558cbb993f867e` passed workflow
+`36344180962` with 44 regressions green, 28/28 required games independently validated,
+the mandatory fault/rule campaigns green and zero qualification errors. It pins Fastchess,
 derives the playing G3 runtime from the already-qualified online-hybrid profile, records the
 exact Fastchess↔engine UCI boundary, independently parses chess/PGN state, and joins every
 validated G3 ply back to replay/decision/resource evidence.

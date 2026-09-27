@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "repository": "https://github.com/Disservin/fastchess.git",
+  "label": "post-v1.8.2-alpha-sigpipe-fix",
+  "commit": "ccb85325b1db322658687b8be8cfe9f54c495840",
+  "tree": "fd43662006af6419242d4f9093344df3520c0660",
+  "license": "MIT",
+  "zlib": false,
+  "role": "test runner only; not a chess engine and not an unpinned PyPI fastchess package"
+}

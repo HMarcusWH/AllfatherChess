@@ -5,11 +5,36 @@ from __future__ import annotations
 import os
 import queue
 import re
+import signal
 import subprocess
 import threading
 import time
 from pathlib import Path
 from typing import Callable, Iterable
+
+
+
+
+def _live_process_group(pgid: int) -> list[dict[str, int | str]]:
+    rows = []
+    for directory in Path("/proc").iterdir():
+        if not directory.name.isdigit():
+            continue
+        try:
+            text = (directory / "stat").read_text()
+            fields = text[text.rfind(")") + 2:].split()
+            state = fields[0]
+            if int(fields[2]) != pgid or state == "Z":
+                continue
+            rows.append({
+                "pid": int(directory.name),
+                "pgid": int(fields[2]),
+                "start_ticks": int(fields[19]),
+                "state": state,
+            })
+        except (FileNotFoundError, ProcessLookupError, PermissionError):
+            continue
+    return sorted(rows, key=lambda row: (int(row["pid"]), int(row["start_ticks"])))
 
 
 class UciError(RuntimeError):
@@ -27,12 +52,16 @@ class UciSession:
         cwd: Path,
         timeout: float = 10.0,
         args: list[str] | None = None,
+        start_new_session: bool = False,
     ):
         self.binary = binary
         self.cwd = cwd
         self.timeout = timeout
         self.args = list(args or [])
+        self.start_new_session = bool(start_new_session)
         self.proc: subprocess.Popen[str] | None = None
+        self.leaked_before_cleanup: list[dict[str, int | str]] = []
+        self.remaining_after_cleanup: list[dict[str, int | str]] = []
         self._lines: queue.Queue[str | None] = queue.Queue()
         self._reader: threading.Thread | None = None
         self.options: set[str] = set()
@@ -61,6 +90,7 @@ class UciSession:
             stderr=subprocess.STDOUT,
             text=True,
             bufsize=1,
+            start_new_session=self.start_new_session,
         )
         assert self.proc.stdout is not None
 
@@ -202,6 +232,31 @@ class UciSession:
             except subprocess.TimeoutExpired:
                 proc.kill()
                 proc.wait(timeout=2.0)
+
+        if self.start_new_session:
+            pgid = proc.pid
+            self.leaked_before_cleanup = _live_process_group(pgid)
+            if self.leaked_before_cleanup:
+                try:
+                    os.killpg(pgid, signal.SIGTERM)
+                except ProcessLookupError:
+                    pass
+                deadline = time.monotonic() + 2.0
+                remaining = _live_process_group(pgid)
+                while remaining and time.monotonic() < deadline:
+                    time.sleep(0.02)
+                    remaining = _live_process_group(pgid)
+                if remaining:
+                    try:
+                        os.killpg(pgid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                    deadline = time.monotonic() + 2.0
+                    while remaining and time.monotonic() < deadline:
+                        time.sleep(0.02)
+                        remaining = _live_process_group(pgid)
+                self.remaining_after_cleanup = remaining
+
         if self._reader is not None:
             self._reader.join(timeout=1.0)
         for handle in (proc.stdin, proc.stdout, proc.stderr):

@@ -1,0 +1,9 @@
+[
+  {"id": "white-castling", "fen": "r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1", "moves": [], "move": "e1g1", "expect": "castling"},
+  {"id": "black-castling", "fen": "r3k2r/8/8/8/8/8/8/R3K2R b KQkq - 0 1", "moves": [], "move": "e8c8", "expect": "castling"},
+  {"id": "en-passant", "fen": "4k3/8/8/3pP3/8/8/8/4K3 w - d6 0 2", "moves": [], "move": "e5d6", "expect": "en_passant"},
+  {"id": "underpromotion", "fen": "7k/P7/8/8/8/8/8/4K3 w - - 0 1", "moves": [], "move": "a7a8n", "expect": "underpromotion"},
+  {"id": "mate", "fen": "7k/8/5KQ1/8/8/8/8/8 w - - 0 1", "moves": [], "move": "g6g7", "expect": "checkmate"},
+  {"id": "stalemate", "fen": "7k/5K2/Q7/8/8/8/8/8 w - - 0 1", "moves": [], "move": "a6g6", "expect": "stalemate"},
+  {"id": "repetition-history", "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", "moves": ["g1f3", "g8f6", "f3g1", "f6g8", "g1f3", "g8f6", "f3g1"], "move": "f6g8", "expect": "threefold"}
+]

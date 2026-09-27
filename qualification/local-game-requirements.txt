@@ -1,0 +1,2 @@
+# Test-only PGN/rules verifier; independent of Fastchess's C++ move generator.
+chess==1.11.2 --hash=sha256:a8b43e5678fdb3000695bdaa573117ad683761e5ca38e591c4826eba6d25bb39

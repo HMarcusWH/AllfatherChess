@@ -75,22 +75,25 @@ The first public canary is an operational experiment, not an Elo or superiority 
 Prove that the qualified PR #39 composition remains correct across complete games rather
 than isolated `go` requests.
 
-### Planned repository surface
+### Candidate repository surface
 
-Expected additions:
+The canonical candidate is implemented as an isolated qualification toolchain rather than a
+second production controller:
 
-- `qualification/fastchess.lock.json` — exact match-runner revision/provenance;
-- `scripts/build-fastchess.sh` — verified reproducible match-runner build;
-- `config/allfather.local-game.validation.json` — full-game validation profile derived
-  from the qualified online-hybrid profile without weakening G3 gates;
-- `qualification/local-full-game.json` — frozen campaign/acceptance definition;
-- `scripts/qualify-full-game-lifecycle.py` — PGN/replay/resource validator;
-- `.github/workflows/full-game-qualification.yml` — dedicated lifecycle gate;
-- `docs/FULL_GAME_QUALIFICATION.md` — lifecycle semantics and evidence contract;
-- Make targets for runner build, qualification, and local reproduction.
+- `qualification/fastchess.lock.json` — exact Fastchess commit/tree provenance;
+- `qualification/local-full-game.json` — frozen lifecycle, failure-case, baseline and soak policy;
+- `qualification/local-game-requirements.txt` — hash-pinned independent chess/PGN dependency;
+- `tools/local_game/` — runner, transparent proxy, independent integrity/PGN validation,
+  forced rule witnesses, failure injection, process/resource auditing and Fastchess build logic;
+- `tests/local_game/` — fail-closed contract and subprocess regressions;
+- `tests/fixtures/local_full_game/` — frozen opening/endgame/rule-transition fixtures;
+- `Makefile.local-game` — standalone qualification entry point;
+- `.github/workflows/full-game-qualification.yml` — required gate plus a sharded manual soak;
+- `docs/FULL_GAME_QUALIFICATION.md` — exact evidence and claim contract.
 
-Names may change if implementation reveals a cleaner boundary, but the evidence requirements
-below are not optional.
+The G3 runtime is derived from `config/allfather.online-hybrid.validation.json` at execution
+time; LOCAL-1 does not maintain a second hand-edited copy of the authority policy. The gate
+remains OPEN until exact-head CI passes.
 
 ### Lifecycle coverage
 
@@ -132,6 +135,10 @@ A qualifying campaign requires:
 
 LOCAL-1 may record W/D/L and controller behavior for diagnostics, but lifecycle acceptance
 is not an Elo test. A small campaign cannot become a playing-strength claim by implication.
+
+The candidate also records all ten color-reversed pairings across Stockfish, Reckless, LC0,
+Allfather-Anchor and Allfather-G3. That matrix is **same tournament clock**, not equal total
+compute. M15-B/C remains the only path to a comparative equal-resource strength claim.
 
 ## 4. ONLINE-3 — reproducible service package and bridge
 

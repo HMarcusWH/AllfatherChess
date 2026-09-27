@@ -29,7 +29,14 @@
       "artifact": "bin/lc0",
       "network_artifact": "networks/791556.pb.gz",
       "backend": "blas",
-      "strength_profile_id": "lc0-strength-v1"
+      "strength_profile_id": "lc0-strength-v1",
+      "isa": "x86-64-portable",
+      "native_arch": false,
+      "ispc": false,
+      "ispc_native_only": false,
+      "popcnt": false,
+      "f16c": false,
+      "pext": false
     }
   },
   "process_environment": {

@@ -1,0 +1,83 @@
+{
+  "schema_version": 1,
+  "profile_id": "local-full-game-v1",
+  "source_runtime": "config/allfather.online-hybrid.validation.json",
+  "arms": [
+    "stockfish",
+    "reckless",
+    "lc0",
+    "allfather-anchor",
+    "allfather-g3"
+  ],
+  "concurrency": 1,
+  "games_per_pair": 2,
+  "same_compute_claim": false,
+  "baseline_clock": "0:30+1",
+  "lifecycle_clock": "0:30+1",
+  "low_clock": "0:10+1",
+  "job_timeout_s": 900,
+  "startup_ms": 60000,
+  "ping_ms": 30000,
+  "timemargin_ms": 0,
+  "soak_repetitions": 10,
+  "reference_driver_nodes": 1,
+  "opening": "tests/fixtures/local_full_game/history.pgn",
+  "lifecycle_cases": [
+    {
+      "id": "startpos-reuse",
+      "opening": "startpos.pgn",
+      "restart": false,
+      "clock": "lifecycle_clock"
+    },
+    {
+      "id": "history-reuse",
+      "opening": "history.pgn",
+      "restart": false,
+      "clock": "lifecycle_clock"
+    },
+    {
+      "id": "restart",
+      "opening": "endgame.pgn",
+      "restart": true,
+      "clock": "lifecycle_clock"
+    },
+    {
+      "id": "low-clock",
+      "opening": "endgame.pgn",
+      "restart": false,
+      "clock": "low_clock"
+    }
+  ],
+  "qualification": {
+    "natural_rules_termination": true,
+    "no_sprt_or_elo_gate": true,
+    "no_move_cap_adjudication": true,
+    "require_g3_positive_prerequisite": true,
+    "require_game_override": false,
+    "missing_evidence_is_failure": true,
+    "unexpected_resource_failure_is_failure": true,
+    "low_clock_resource_denial_is_reported_not_hidden": true
+  },
+  "fault_cases": [
+    {
+      "id": "shadow-worker-crash",
+      "kind": "controller-failure-injection"
+    },
+    {
+      "id": "slow-shadow-shutdown",
+      "kind": "controller-failure-injection"
+    },
+    {
+      "id": "replay-storage-failure",
+      "kind": "replay-failure-injection"
+    },
+    {
+      "id": "active-game-termination",
+      "kind": "controller-lifecycle-injection"
+    },
+    {
+      "id": "long-generation-reuse",
+      "kind": "controller-lifecycle-reuse"
+    }
+  ]
+}

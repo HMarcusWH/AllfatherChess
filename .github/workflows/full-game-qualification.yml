@@ -1,0 +1,249 @@
+name: LOCAL-1 full-game lifecycle and five-arm baselines
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Required lifecycle/baselines or extended 200-baseline-game soak
+        type: choice
+        options: [required, soak]
+        default: required
+  pull_request:
+    paths:
+      - 'tools/local_game/**'
+      - 'tools/__init__.py'
+      - 'tests/local_game/**'
+      - 'tests/fixtures/local_full_game/**'
+      - 'qualification/**'
+      - 'config/**'
+      - 'controller/**'
+      - 'adapters/**'
+      - 'common/**'
+      - 'engines/**'
+      - 'scripts/**'
+      - 'tests/harness/**'
+      - 'tests/controller/**'
+      - 'tests/fixtures/fake_uci_engine.py'
+      - 'vendor.lock.json'
+      - 'Makefile*'
+      - '.github/workflows/full-game-qualification.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'tools/local_game/**'
+      - 'tools/__init__.py'
+      - 'tests/local_game/**'
+      - 'tests/fixtures/local_full_game/**'
+      - 'qualification/**'
+      - 'config/**'
+      - 'controller/**'
+      - 'adapters/**'
+      - 'common/**'
+      - 'engines/**'
+      - 'scripts/**'
+      - 'tests/harness/**'
+      - 'tests/controller/**'
+      - 'tests/fixtures/fake_uci_engine.py'
+      - 'vendor.lock.json'
+      - 'Makefile*'
+      - '.github/workflows/full-game-qualification.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: local-full-game-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fastchess-source-tests:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    env:
+      ALLFATHER_SOURCE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+      JOBS: '2'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.ALLFATHER_SOURCE_SHA }}
+      - name: Verify checkout identity
+        run: test "$(git rev-parse HEAD)" = "$ALLFATHER_SOURCE_SHA"
+      - name: Match upstream Fastchess Linux test host
+        run: |
+          sudo sysctl -w vm.mmap_rnd_bits=28
+          g++ --version
+      - name: Run pinned Fastchess source tests
+        run: |
+          python3 -m tools.local_game.build_fastchess             --source-test-only             --attestation build/fastchess-source-test/attestation.json
+      - name: Upload Fastchess source-test attestation
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: local1-fastchess-source-test
+          path: build/fastchess-source-test/attestation.json
+          if-no-files-found: error
+          retention-days: 14
+
+  qualification-build:
+    needs: fastchess-source-tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      ALLFATHER_SOURCE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+      JOBS: '2'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.ALLFATHER_SOURCE_SHA }}
+      - name: Verify checkout identity
+        run: test "$(git rev-parse HEAD)" = "$ALLFATHER_SOURCE_SHA"
+      - name: Download source-test attestation
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: local1-fastchess-source-test
+          path: build/fastchess-source-test
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y             build-essential git meson ninja-build pkg-config             libprotobuf-dev protobuf-compiler zlib1g-dev libopenblas-dev
+      - name: Build exact qualification binaries
+        run: |
+          make -f Makefile.local-game build-fastchess
+          make build-online-cpu-reference
+      - name: Upload exact qualification build bundle
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: local1-qualification-build
+          path: |
+            build/tools/fastchess
+            build/online-cpu-reference
+            build/fastchess-source-test/attestation.json
+            build/artifacts/lc0/791556.pb.gz
+            engines/lc0/build/release/lc0
+          if-no-files-found: error
+          retention-days: 14
+
+  qualify:
+    needs: qualification-build
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.mode == 'required' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 330
+    env:
+      ALLFATHER_SOURCE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.ALLFATHER_SOURCE_SHA }}
+      - name: Verify checkout identity and bind reference runner
+        run: |
+          test "$(git rev-parse HEAD)" = "$ALLFATHER_SOURCE_SHA"
+          echo "ALLFATHER_RUNNER_ENVIRONMENT=${{ runner.environment }}" >> "$GITHUB_ENV"
+      - name: Download exact qualification build bundle
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: local1-qualification-build
+          path: .
+      - name: Restore executable bits and install runtime/test dependencies
+        run: |
+          chmod +x             build/tools/fastchess/bin/fastchess             build/online-cpu-reference/bin/stockfish             build/online-cpu-reference/bin/reckless             build/online-cpu-reference/bin/lc0             engines/lc0/build/release/lc0
+          sudo apt-get update
+          sudo apt-get install -y             meson ninja-build pkg-config libprotobuf-dev protobuf-compiler zlib1g-dev             libopenblas-dev python3-pip python3-setuptools python3-wheel
+          python3 -m pip install --break-system-packages --no-build-isolation --no-deps             --require-hashes -r qualification/local-game-requirements.txt
+      - name: Run LOCAL-1 negative controls and cross-generation regressions
+        run: make -f Makefile.local-game test
+      - name: Qualify prerequisites, failure cases, rule transitions, full games and five-arm results
+        run: python3 -m tools.local_game.runner --mode required
+      - name: Retain evidence including failed/incomplete campaigns
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: local-full-game-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            build/test-results/local-full-game
+            build/test-results/lc0-strength
+            build/test-results/online-profile
+            build/test-results/online-hybrid
+          if-no-files-found: warn
+          retention-days: 14
+
+  soak:
+    needs: qualification-build
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'soak' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0,1,2,3,4,5,6,7,8,9]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 330
+    env:
+      ALLFATHER_SOURCE_SHA: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.ALLFATHER_SOURCE_SHA }}
+      - name: Verify checkout identity
+        run: test "$(git rev-parse HEAD)" = "$ALLFATHER_SOURCE_SHA"
+      - name: Download exact qualification build bundle
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: local1-qualification-build
+          path: build
+      - name: Restore executable bits and install dependencies
+        run: |
+          chmod +x             build/tools/fastchess/bin/fastchess             build/online-cpu-reference/bin/stockfish             build/online-cpu-reference/bin/reckless             build/online-cpu-reference/bin/lc0             engines/lc0/build/release/lc0
+          sudo apt-get update
+          sudo apt-get install -y             meson ninja-build pkg-config libprotobuf-dev protobuf-compiler zlib1g-dev             libopenblas-dev python3-pip python3-setuptools python3-wheel
+          python3 -m pip install --break-system-packages --no-build-isolation --no-deps             --require-hashes -r qualification/local-game-requirements.txt
+      - name: Run LOCAL-1 test contracts
+        run: make -f Makefile.local-game test
+      - name: Run bounded soak shard
+        run: |
+          python3 -m tools.local_game.runner             --mode soak             --shard-index "${{ matrix.shard }}"             --shard-count 10
+      - name: Retain self-contained soak shard evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: local-full-game-soak-shard-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
+          path: build/test-results/local-full-game
+          if-no-files-found: warn
+          retention-days: 14
+
+  soak-aggregate:
+    needs: [qualification-build, soak]
+    if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.mode == 'soak' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      ALLFATHER_SOURCE_SHA: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.ALLFATHER_SOURCE_SHA }}
+      - name: Verify checkout identity
+        run: test "$(git rev-parse HEAD)" = "$ALLFATHER_SOURCE_SHA"
+      - name: Download exact qualification build bundle
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: local1-qualification-build
+          path: build
+      - name: Install independent validator dependency
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-pip python3-setuptools python3-wheel
+          python3 -m pip install --break-system-packages --no-build-isolation --no-deps             --require-hashes -r qualification/local-game-requirements.txt
+      - name: Download all soak shard artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: local-full-game-soak-shard-${{ github.run_id }}-${{ github.run_attempt }}-*
+          path: build/soak-shards
+          merge-multiple: false
+      - name: Independently requalify and aggregate all ten soak shards
+        run: |
+          python3 -m tools.local_game.aggregate_soak             build/soak-shards             --output build/test-results/local-full-game-soak-aggregate/report.json
+      - name: Retain aggregate soak report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: local-full-game-soak-aggregate-${{ github.run_id }}-${{ github.run_attempt }}
+          path: build/test-results/local-full-game-soak-aggregate
+          if-no-files-found: warn
+          retention-days: 14

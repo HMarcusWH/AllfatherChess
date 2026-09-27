@@ -64,17 +64,13 @@ LOCAL-1 therefore separates the claims:
 This is stronger than ignoring the upstream test crash or falsely claiming the 24.04 test
 suite passed.
 
-## Existing controller limitation remains visible
+## Historical controller limitation: replay-only finalization
 
-Rapid successive requests can legitimately publish a new anchor while replay-only work from
-the prior generation is still draining; in that condition the coordinator declines a second
-shadow bundle rather than overwrite callback state.
-
-The synthetic reuse regression now waits for each finalized replay because that test is
-specifically about reuse of **finalized** generations. The actual Fastchess campaign does
-not add such an artificial replay wait. If natural game pacing produces a searched G3 ply
-without its required replay, LOCAL-1 remains red. The qualification harness therefore does
-not conceal this current-controller limitation.
+Earlier revisions declined a new shadow bundle while the prior generation was replay-only:
+engine/resource state was already safe to reuse, but one `_run` pointer still owned both
+engine callbacks and deferred replay sealing. Run 96 reproduced the consequence under natural
+Fastchess pacing as missing G3 generations. The seventh hardening pass below removes that
+single-owner coupling rather than inserting an artificial inter-move wait.
 
 ## Claim discipline
 
@@ -147,3 +143,24 @@ Clock validation now consumes one exact Fastchess `tl=<seconds.millis>s` field p
 Exact-head run `36327333863` passed the Fastchess source tests, qualification build and all 42 LOCAL-1 unit regressions, then failed before the tournament in the LC0 prerequisite. Retained evidence showed `lc0-strength: engine exited while waiting for uciok; rc=-4`; on Linux that negative return code is SIGILL. The build log independently showed LC0 accepting `-march=native`. The qualification build and qualification execution use different GitHub-hosted Ubuntu 24.04 VMs, so the artifact could contain instructions supported by the build CPU but not by the execution CPU. The dedicated LC0 workflow remained green because it builds and executes LC0 on the same runner.
 
 The LC0 real-inference/reference profile is therefore now explicitly cross-runner portable: `native_arch=false`, `ispc=false`, `ispc_native_only=false`, `popcnt=false`, `f16c=false`, and `pext=false`. The ONLINE-2 policy records the same ISA contract, its builder fails closed if profile and policy drift, and the profile validator rejects reintroduction of native-only code generation. This changes qualification binary portability, not LC0 network/backend identity, engine policy, match clocks, G3 authority, or acceptance criteria.
+
+## Seventh hardening pass — exact scoreless clocks and concurrent replay finalization
+
+Exact-head LOCAL-1 run 96 reached all 28 games. Twelve validation failures were traced to a
+pinned Fastchess serialization quirk, not tournament-clock drift: `Match::addMoveData()`
+records elapsed time before its scoreless-engine early return but leaves `MoveData.timeleft`
+at zero. The two Allfather wrappers therefore emit comments such as
+`/0 1.796s, tl=0.000s` while the next actual UCI request correctly carries
+`31000 - 1796 + 1000 = 30204` ms. LOCAL-1 now derives the post-move state from the retained
+integer-millisecond elapsed value and treats populated `tl=` as an equality check. Only the
+known Allfather `/0 ... tl=0.000s` sentinel is non-authoritative; direct-engine zero values or
+other mismatches still fail.
+
+The remaining real failures were missing G3 replays when natural move pacing overtook prior
+replay sealing. The coordinator now separates the single engine-owned generation from a
+generation-indexed replay-finalization registry. As soon as engine/process/resource endpoints
+are immutable, the old generation releases the engine slot but remains addressable for late
+deferred telemetry and artifact sealing. New searches therefore receive their own replay
+bundle immediately; shutdown waits all pending finalizers before callbacks are detached.
+Deterministic backlog and rapid multi-game regressions exercise this overlap without adding
+an artificial replay wait or weakening the replay requirement.

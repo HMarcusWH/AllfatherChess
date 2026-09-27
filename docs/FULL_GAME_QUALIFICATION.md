@@ -73,11 +73,16 @@ MultiPV=1; G3 specialists retain the already-qualified MultiPV=3 profile.
 
 All actual `setoption` and `go` commands are recorded. The validator mirrors the pinned
 Fastchess time-control state machine rather than assuming UCI starts at the nominal base:
-Fastchess initializes each side to **base + one increment** and `timeleft=true` retains the
-post-move clock as an exact three-decimal `tl=<seconds>s` PGN field. Opening-book plies leave
-that state untouched. Before every searched ply, both transmitted clocks and both increments
-must equal the independently reconstructed state exactly; after the move, the mover's state is
-replaced by the retained `tl=` value while the opponent's clock remains unchanged.
+Fastchess initializes each side to **base + one increment**. Its PGN always retains the
+search elapsed time in exact milliseconds and, normally, `timeleft=true` also retains the
+post-move clock as `tl=<seconds>s`. Pinned Fastchess has one source-level exception: its
+scoreless-engine early return leaves `MoveData.timeleft` at the default zero, so the two
+Allfather wrappers serialize `/0 <elapsed>s, tl=0.000s` even though the internal tournament
+clock is nonzero. LOCAL-1 therefore reconstructs the mover clock exactly as
+`max(0, transmitted_clock - elapsed) + increment`; a populated `tl=` must equal that result,
+while the zero scoreless-wrapper sentinel is accepted only for the two known wrappers and the
+matching `/0` comment shape. Opening-book plies leave state untouched, and every following
+UCI `go` must equal the reconstructed two-sided state exactly.
 
 The baseline is therefore **same recorded tournament clock on one host**, not M15-B/C
 equal-resource superiority. Native Stockfish nodes and LC0 visits are never treated as one
@@ -162,6 +167,13 @@ and a session-local replay directory to differ from
 All timing, reservations, node limits, real LC0 network/backend identity, staged VERIFY and
 DecisionAuthorization settings therefore remain the qualified G3 policy. The native-clock
 anchor control is an explicit, separate derivation.
+
+The controller keeps engine ownership and replay ownership separate. Once an ONLINE
+generation has frozen all engine/process/resource endpoints, its generation-scoped replay
+state moves into a finalization registry and the next search may reuse the engines immediately.
+Late deferred telemetry remains routed by generation ID to the old bundle; controller shutdown
+waits for all pending finalizers (or explicitly records deferred-observation loss) before
+detaching callbacks.
 
 No production controller/engine source or authority gate is changed by LOCAL-1.
 

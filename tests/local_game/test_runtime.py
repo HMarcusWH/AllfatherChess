@@ -40,17 +40,14 @@ class GenerationLifecycleTests(unittest.TestCase):
                     wait_for(lambda: len(terminals(out)) == count + 1)
                     shell.handle_command("isready")
                     expected_manifests += 1
-                    # This regression explicitly tests *finalized* run reuse.
-                    # Wait for the replay barrier before admitting the next go;
-                    # otherwise the coordinator correctly declines a second
-                    # shadow run while replay-only work from the prior
-                    # generation is still draining.
-                    wait_for(
-                        lambda: len(list(tmp.glob("replays/*/manifest.json")))
-                        == expected_manifests,
-                        timeout=5,
-                    )
-                    wait_for(lambda: shadow._run is None or shadow._run.finished.is_set())
+                    # Do not wait for replay sealing here. Natural Fastchess
+                    # pacing may submit the next move after the measured engine
+                    # boundary but before the prior manifest is sealed.
+            wait_for(
+                lambda: len(list(tmp.glob("replays/*/manifest.json")))
+                == expected_manifests,
+                timeout=10,
+            )
             self.assertEqual(len(list(tmp.glob("replays/*/manifest.json"))), 12)
             bundles = discover_replay_bundles(tmp / "replays")
             self.assertFalse(bundles.skipped)

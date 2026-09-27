@@ -19,6 +19,8 @@ from .integrity import (_clock_ms, finite_metrics, input_paths, parse_go_limits,
 
 MOVE = re.compile(r"bestmove ([a-h][1-8][a-h][1-8][qrbn]?)(?: ponder [a-h][1-8][a-h][1-8][qrbn]?)?\Z")
 TIMELEFT = re.compile(r"(?<![A-Za-z0-9_])tl=(\d+)\.(\d{3})s(?![A-Za-z0-9_])")
+ELAPSED = re.compile(r"(?<![A-Za-z0-9_=])(\d+)\.(\d{3})s(?![A-Za-z0-9_])")
+SCORELESS_FASTCHESS = re.compile(r"^\s*/0\s+\d+\.\d{3}s(?:\s*,|\s|$)")
 
 
 def chess_modules():
@@ -274,12 +276,30 @@ def validate_g3(item: dict, allow_denial: bool) -> dict:
 
 
 def _fastchess_timeleft_ms(node) -> int:
-    """Read the exact millisecond clock retained by Fastchess's timeleft=true PGN."""
+    """Read Fastchess's serialized timeleft field in exact milliseconds."""
     matches = TIMELEFT.findall(node.comment or "")
     require(len(matches) == 1,
             f"searched PGN ply must contain exactly one Fastchess tl= value: {node.comment!r}")
     seconds, milliseconds = matches[0]
     return int(seconds) * 1000 + int(milliseconds)
+
+
+def _fastchess_elapsed_ms(node) -> int:
+    """Read the bare elapsed-search duration Fastchess always writes before tl=."""
+    matches = ELAPSED.findall(node.comment or "")
+    require(len(matches) == 1,
+            f"searched PGN ply must contain exactly one Fastchess elapsed value: {node.comment!r}")
+    seconds, milliseconds = matches[0]
+    return int(seconds) * 1000 + int(milliseconds)
+
+
+def _scoreless_timeleft_sentinel(arm: str, node, recorded_ms: int) -> bool:
+    """Pinned Fastchess leaves MoveData.timeleft at zero on its scoreless early return."""
+    return bool(
+        arm in ("allfather-anchor", "allfather-g3")
+        and recorded_ms == 0
+        and SCORELESS_FASTCHESS.match(node.comment or "")
+    )
 
 
 def verify_game_clocks(game, streams: dict[str, list[dict]], plan: dict,
@@ -304,7 +324,15 @@ def verify_game_clocks(game, streams: dict[str, list[dict]], plan: dict,
             require(current["wtime"] >= 0 and current["btime"] >= 0, "negative transmitted Fastchess clock")
             require(current == state, f"transmitted Fastchess clock differs from exact reconstructed state: {current!r} vs {state!r}")
             mover = "wtime" if board.turn else "btime"
-            state[mover] = _fastchess_timeleft_ms(node)
+            elapsed_ms = _fastchess_elapsed_ms(node)
+            expected_post = max(0, current[mover] - elapsed_ms) + increment_ms
+            recorded_post = _fastchess_timeleft_ms(node)
+            if recorded_post != expected_post:
+                require(
+                    _scoreless_timeleft_sentinel(arm, node, recorded_post),
+                    "Fastchess tl= value disagrees with exact elapsed-time clock reconstruction",
+                )
+            state[mover] = expected_post
             counters[arm] += 1
         board.push(move)
     require(all(counters[name] == len(streams[name]) for name in streams), "clock reconstruction did not consume every searched ply")

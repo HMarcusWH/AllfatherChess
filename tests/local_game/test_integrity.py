@@ -94,6 +94,32 @@ class EffectiveCommandTests(unittest.TestCase):
             n1.comment=malformed
             with self.assertRaises(QualificationError): verify_game_clocks(game,streams,plan,0)
 
+    def test_scoreless_allfather_zero_timeleft_uses_elapsed_clock_reconstruction(self):
+        import chess
+        import chess.pgn
+        game=chess.pgn.Game(); game.headers["White"]="allfather-g3"; game.headers["Black"]="stockfish"
+        n1=game.add_variation(chess.Move.from_uci("e2e4")); n1.comment="/0 1.796s, tl=0.000s"
+        n2=n1.add_variation(chess.Move.from_uci("e7e5")); n2.comment="+0.10/8 0.202s, tl=31.798s"
+        streams={
+            "allfather-g3":[{"command":"go wtime 31000 btime 31000 winc 1000 binc 1000"}],
+            "stockfish":[{"command":"go wtime 30204 btime 31000 winc 1000 binc 1000"}],
+        }
+        verify_game_clocks(game,streams,{"clock":"0:30+1","driver_nodes":None},0)
+
+        # Zero tl= is a narrowly-scoped Fastchess scoreless-wrapper sentinel,
+        # never a generic excuse for missing clock evidence.
+        game.headers["White"]="stockfish"; game.headers["Black"]="reckless"
+        with self.assertRaises(QualificationError):
+            verify_game_clocks(
+                game,
+                {
+                    "stockfish":[{"command":"go wtime 31000 btime 31000 winc 1000 binc 1000"}],
+                    "reckless":[{"command":"go wtime 30204 btime 31000 winc 1000 binc 1000"}],
+                },
+                {"clock":"0:30+1","driver_nodes":None},
+                0,
+            )
+
     def test_fastchess_clock_10_plus_1_starts_at_11000(self):
         import chess
         import chess.pgn

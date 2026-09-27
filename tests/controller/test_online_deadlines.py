@@ -180,7 +180,7 @@ class DeadlineTests(unittest.TestCase):
             self.assertTrue(anchor_stream['complete'])
             self.assertTrue(anchor_stream['contract_validatable'])
 
-    def test_replay_only_backlog_does_not_quarantine_or_block_next_anchor(self):
+    def test_replay_only_backlog_keeps_old_generation_addressable_while_next_run_starts(self):
         with shell_fixture() as (shell,manager,shadow,out,tmp):
             entered=threading.Event();release=threading.Event();original=manager._observer
 
@@ -191,22 +191,24 @@ class DeadlineTests(unittest.TestCase):
                 original(instance,token,*args)
 
             manager.set_instance_observer(observe)
+            first = None
             try:
                 shell.handle_command('go movetime 500')
                 self.assertTrue(entered.wait(1))
                 wait_for(lambda:len(bestmoves(out))==1,1)
                 old_clock = shell._clock_search
-                self.assertIsNotNone(shadow._run)
-                wait_for(lambda:shadow._run.engine_quiesced.is_set(),3)
+                first = shadow._run
+                self.assertIsNotNone(first)
+                wait_for(lambda:first.engine_quiesced.is_set(),3)
                 self.assertTrue(old_clock.measurement_frozen.is_set())
+                wait_for(lambda:shadow._finalizing.get(1) is first,3)
                 self.assertFalse(
                     release.is_set(),
                     "deferred telemetry drained before replay-only barrier was exercised",
                 )
 
-                # Deferred telemetry is still blocked, but every physical
-                # engine is already idle/restored. Synchronization must not
-                # quarantine healthy workers for replay-only backlog.
+                # Deferred generation-1 telemetry is still blocked, but engine
+                # ownership has moved on. Position synchronization stays legal.
                 shell.handle_command('position startpos moves e2e4')
                 for name in SHADOWS:
                     self.assertTrue(
@@ -214,22 +216,29 @@ class DeadlineTests(unittest.TestCase):
                         f"{name} was quarantined for replay-only backlog",
                     )
 
-                # A new anchor can run immediately. Until generation 1 replay
-                # finalizes, the coordinator deliberately declines a new shadow
-                # bundle rather than overwriting its callback state.
+                # Generation 2 must receive a real replay bundle immediately;
+                # replay-only generation 1 remains independently addressable.
                 shell.handle_command('go movetime 500')
                 self.assertFalse(
                     old_clock.measurement_superseded.is_set(),
                     "a new anchor invalidated already-frozen resource evidence",
                 )
                 wait_for(lambda:len(bestmoves(out))==2,1)
+                wait_for(lambda:len(list(tmp.glob('replays/*'))) == 2,2)
                 self.assertEqual(bestmoves(out)[-1],'bestmove e2e4')
+                self.assertNotIn(
+                    "previous replay finalization is still pending",
+                    out.getvalue(),
+                )
                 for name in SHADOWS:
                     self.assertTrue(manager.shadow_available(name))
             finally:
                 release.set()
 
-            wait_for(lambda:list(tmp.glob('replays/*/manifest.json')),3)
+            wait_for(lambda:len(list(tmp.glob('replays/*/manifest.json'))) == 2,5)
+            wait_for(lambda:not shadow._finalizing,5)
+            for run in tmp.glob('replays/*'):
+                self.assertEqual(verify_bundle_integrity(run),[])
 
     def test_slow_stdout_write_keeps_run_alive_until_decision_publication(self):
         with shell_fixture(

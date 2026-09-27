@@ -454,7 +454,11 @@ class ShadowRunCoordinator:
         #: `quiesce()` joins them so none can reach a later generation.
         self._stop_threads: list[threading.Thread] = []
         self._lock = threading.RLock()
+        # Exactly one generation may own engine/process state. Once that state
+        # is quiesced, replay-only work moves to _finalizing so a later
+        # generation can reuse the engines without losing late telemetry.
         self._run: _ActiveRun | None = None
+        self._finalizing: dict[int, _ActiveRun] = {}
         self._closed = False
         # Identities are taken from the runtime, which captured them when the
         # configuration was loaded -- before any engine process was started, so
@@ -683,6 +687,23 @@ class ShadowRunCoordinator:
         with self._lock:
             return self._history[-1] if self._history else None
 
+    def _run_for_generation_locked(self, generation: int) -> _ActiveRun | None:
+        active = self._run
+        if active is not None and active.generation == generation:
+            return active
+        return self._finalizing.get(generation)
+
+    def _handoff_replay_only(self, active: _ActiveRun) -> bool:
+        """Release engine ownership while retaining generation-scoped replay state."""
+        if active.context.clock is None or not active.engine_quiesced.is_set():
+            return False
+        with self._lock:
+            if self._run is active:
+                self._finalizing[active.generation] = active
+                self._run = None
+                return True
+            return self._finalizing.get(active.generation) is active
+
     def prepare_run(self, *, generation: int, go_command: str, clock: ClockSearch | None = None) -> bool:
         """Create the run bundle and anchor stream *before* the anchor starts.
 
@@ -723,21 +744,17 @@ class ShadowRunCoordinator:
                     "observation for this search"
                 )
                 return False
-            # Engine/process state can be safe for the next move while the
-            # previous bundle still flushes deferred telemetry/replay files.
-            # Never overwrite the current run in that window: old callbacks
-            # still need its generation-scoped state. The outward anchor
-            # proceeds without shadow observation until finalization finishes.
+            # quiesce() hands an engine-safe ONLINE run into the
+            # generation-indexed replay registry. A successful barrier must
+            # therefore leave the single engine-owned slot available.
             with self._lock:
-                replay_only = (
-                    self._run is previous
-                    and not previous.finished.is_set()
-                    and previous.engine_quiesced.is_set()
+                still_owns_engines = (
+                    self._run is previous and not previous.finished.is_set()
                 )
-            if replay_only:
+            if still_owns_engines:
                 self._diagnostic(
-                    "previous replay finalization is still pending; this search "
-                    "runs anchor-only rather than replacing its audit state"
+                    "previous shadow generation retained engine ownership after "
+                    "a successful quiesce barrier"
                 )
                 return False
 
@@ -953,8 +970,8 @@ class ShadowRunCoordinator:
     def _observe_line(self, instance: str, token: int, line: str, observed_monotonic: float) -> None:
         """Capture one dequeued engine line. Runs on that engine's reader thread."""
         with self._lock:
-            active = self._run
-            if active is None or active.generation != token:
+            active = self._run_for_generation_locked(token)
+            if active is None:
                 return
             stream = None
             if active.refinement is not None:
@@ -1905,6 +1922,7 @@ class ShadowRunCoordinator:
                     "late stop writer did not drain before synchronization"
                 )
                 return False
+            self._handoff_replay_only(active)
             return True
 
         stopper = threading.Thread(
@@ -1957,6 +1975,8 @@ class ShadowRunCoordinator:
                 "clock engine generation did not drain before synchronization"
             )
             return False
+        if reason != "close" and active is not None and active.engine_quiesced.is_set():
+            self._handoff_replay_only(active)
         return True
     def _quarantine_clock_workers(self, reason: str) -> None:
         for instance in self.runtime.shadow_instances:
@@ -1975,8 +1995,8 @@ class ShadowRunCoordinator:
         """
         del line
         with self._lock:
-            active = self._run
-            if active is None or active.generation != generation:
+            active = self._run_for_generation_locked(generation)
+            if active is None:
                 return
             if lost and active.anchor_stream is not None:
                 active.anchor_stream.note_loss(
@@ -1990,7 +2010,10 @@ class ShadowRunCoordinator:
     def _force_close_observation_loss(self, active: _ActiveRun) -> None:
         """Complete a timed-out deferred-observation barrier with explicit loss."""
         with self._lock:
-            if self._run is not active or active.anchor_observation_done.is_set():
+            if (
+                self._run_for_generation_locked(active.generation) is not active
+                or active.anchor_observation_done.is_set()
+            ):
                 return
             stream = active.anchor_stream
             message = (
@@ -2013,20 +2036,36 @@ class ShadowRunCoordinator:
                 self.settings.drain_timeout_s,
                 self.runtime.config.online_time.quiesce_budget_ms / 1000,
             )
-        drained = self.quiesce(reason="close", timeout=timeout)
+        self.quiesce(reason="close", timeout=timeout)
 
-        if (
-            not drained
-            and active is not None
-            and active.context.clock is not None
-            and active.engine_quiesced.is_set()
-            and not active.anchor_observation_done.is_set()
-        ):
-            # Normal shutdown may terminate a DeferredObserver only after the
-            # replay records that the remaining observation was lost. Publishing
-            # this barrier lets the worker close the stream deterministically.
-            self._force_close_observation_loss(active)
-            active.finished.wait(timeout=self.settings.drain_timeout_s)
+        # Shutdown is the one boundary that waits for replay-only generations.
+        # Keep callbacks installed until every retained generation either
+        # finalizes or records explicit deferred-observation loss.
+        with self._lock:
+            pending = list(self._finalizing.values())
+            if self._run is not None:
+                pending.append(self._run)
+            if active is not None and active not in pending and not active.finished.is_set():
+                pending.append(active)
+
+        deadline = time.monotonic() + max(
+            self.settings.drain_timeout_s,
+            0.0 if timeout is None else timeout,
+        )
+        for candidate in pending:
+            if candidate.finished.wait(timeout=max(0.0, deadline - time.monotonic())):
+                continue
+            if (
+                candidate.context.clock is not None
+                and candidate.engine_quiesced.is_set()
+                and not candidate.anchor_observation_done.is_set()
+            ):
+                # Normal shutdown may terminate a DeferredObserver only after
+                # the replay records that the remaining observation was lost.
+                self._force_close_observation_loss(candidate)
+                candidate.finished.wait(
+                    timeout=max(0.0, deadline - time.monotonic())
+                )
 
         self.runtime.set_instance_observer(None)
         self.runtime.set_shadow_exit_handler(None)
@@ -2350,6 +2389,8 @@ class ShadowRunCoordinator:
                     # resource endpoints are immutable. Replay-only telemetry may
                     # continue without blocking the next UCI generation.
                     active.engine_quiesced.set()
+                    if active.context.clock is not None:
+                        self._handoff_replay_only(active)
 
                 # ONLINE anchor telemetry is replay-only after the measured
                 # boundary above. It must be drained before the stream/manifest
@@ -2453,6 +2494,8 @@ class ShadowRunCoordinator:
                 with self._lock:
                     if self._run is active:
                         self._run = None
+                    if self._finalizing.get(active.generation) is active:
+                        self._finalizing.pop(active.generation, None)
                 active.finished.set()
 
     def _router_start(self, active: _ActiveRun) -> None:

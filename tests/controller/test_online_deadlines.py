@@ -210,6 +210,10 @@ class DeadlineTests(unittest.TestCase):
                 self.assertTrue(old_clock.measurement_frozen.is_set())
                 wait_for(lambda:shadow._finalizing.get(1) is first,3)
                 self.assertFalse(
+                    shadow.replay_finalization_idle(),
+                    "replay barrier reported idle while generation 1 was still sealing",
+                )
+                self.assertFalse(
                     release.is_set(),
                     "deferred telemetry drained before replay-only barrier was exercised",
                 )
@@ -244,6 +248,7 @@ class DeadlineTests(unittest.TestCase):
 
             wait_for(lambda:len(list(tmp.glob('replays/*/manifest.json'))) == 2,5)
             wait_for(lambda:not shadow._finalizing,5)
+            self.assertTrue(shadow.replay_finalization_idle())
             for run in tmp.glob('replays/*'):
                 self.assertEqual(verify_bundle_integrity(run),[])
 

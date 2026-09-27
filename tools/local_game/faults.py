@@ -6,22 +6,34 @@ They are release-gate evidence for lifecycle handling, not chess-strength eviden
 """
 from __future__ import annotations
 
-import shutil
 import threading
 import time
 from pathlib import Path
 from unittest.mock import patch
 
-from .common import load, require, save
+from .common import load, require, safe_copy_regular_tree, save
 
 
 def _terminals(output):
     return [line for line in output.getvalue().splitlines() if line.startswith("bestmove ")]
 
 
+def _wait_replay_finalization(shadow, *, timeout: float = 15.0) -> None:
+    """Wait until no controller generation can still mutate replay artifacts."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if shadow.replay_finalization_idle():
+            return
+        time.sleep(0.01)
+    require(
+        shadow.replay_finalization_idle(),
+        "replay finalization did not become idle before evidence retention",
+    )
+
+
 def _copy_replays(source: Path, destination: Path) -> None:
     if source.is_dir():
-        shutil.copytree(source, destination, dirs_exist_ok=True)
+        safe_copy_regular_tree(source, destination)
 
 
 def run_faults(output: Path, policy: dict) -> dict:
@@ -51,7 +63,7 @@ def run_faults(output: Path, policy: dict) -> dict:
         shell.handle_command("position startpos")
         shell.handle_command("go movetime 500")
         wait_for(lambda: len(_terminals(out)) == 3)
-        wait_for(lambda: shadow._run is None or shadow._run.finished.is_set(), timeout=5)
+        _wait_replay_finalization(shadow)
         _copy_replays(tmp / "replays", case / "replays")
         rows.append({
             "id": "shadow-worker-crash",
@@ -77,6 +89,7 @@ def run_faults(output: Path, policy: dict) -> dict:
         shell.handle_command("position startpos")
         shell.handle_command("go movetime 500")
         wait_for(lambda: len(_terminals(out)) == 2)
+        _wait_replay_finalization(shadow)
         _copy_replays(tmp / "replays", case / "replays")
         rows.append({
             "id": "slow-shadow-shutdown",
@@ -105,7 +118,7 @@ def run_faults(output: Path, policy: dict) -> dict:
             shell.handle_command("go movetime 500")
             wait_for(lambda: len(_terminals(out)) == 1)
             require(failed.wait(5), "storage injection was not reached")
-            wait_for(lambda: shadow._run is None or shadow._run.finished.is_set(), timeout=5)
+            _wait_replay_finalization(shadow)
         discovery = discover_replay_bundles(tmp / "replays")
         _copy_replays(tmp / "replays", case / "replays")
         rows.append({
@@ -137,6 +150,7 @@ def run_faults(output: Path, policy: dict) -> dict:
         shell.handle_command("position startpos")
         shell.handle_command("go movetime 500")
         wait_for(lambda: len(_terminals(out)) == 2, timeout=3)
+        _wait_replay_finalization(shadow)
         _copy_replays(tmp / "replays", case / "replays")
         rows.append({
             "id": "active-game-termination",
@@ -167,6 +181,7 @@ def run_faults(output: Path, policy: dict) -> dict:
                     lambda: len(list(tmp.glob("replays/*/manifest.json"))) == expected,
                     timeout=5,
                 )
+        _wait_replay_finalization(shadow)
         bundles = discover_replay_bundles(tmp / "replays")
         generations = [load_manifest(path)["generation"] for path in bundles.bundles]
         _copy_replays(tmp / "replays", case / "replays")

@@ -186,3 +186,25 @@ Regression coverage binds both sides of the contract: the runtime exposes the pr
 classification without quarantining the worker, and the resource meter proves that
 removing a never-dispatched provisional stage does not hide or weaken measurements for
 work that actually ran.
+
+## Ninth hardening pass — stable replay evidence retention
+
+Exact-head LOCAL-1 run 99 passed all 43 cheap regressions but aborted during the mandatory
+`slow-shadow-shutdown` fault case before the baseline campaign. The fault harness copied
+the live replay tree immediately after the second outward move. A replay finalizer was
+atomically publishing `route.json`: the copier enumerated its
+`.route.json.<pid>.<thread>.tmp` pathname, the writer renamed it, and the copier then
+failed with ENOENT. This was an evidence-retention race, not a controller or chess failure.
+
+The coordinator now exposes a lock-protected `replay_finalization_idle()` barrier that is
+strictly stronger than engine quiescence: it is true only when neither the engine-owned
+run nor any generation-indexed replay finalizer can still mutate replay files. Every
+mandatory fault case waits on that barrier before retaining its replay tree. Retention also
+uses the existing `safe_copy_regular_tree()` contract instead of raw `shutil.copytree`,
+so links/special files/source mutation/digest drift continue to fail closed. The injected
+replay-storage-failure case still retains its intentionally incomplete stable tree; it does
+not require a manifest to exist.
+
+A deterministic regression blocks deferred anchor telemetry, starts evidence retention,
+proves retention remains blocked while the generation is in the finalizer registry, then
+releases telemetry and verifies the hardened retained tree contains the finalized manifest.

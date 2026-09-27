@@ -19,6 +19,7 @@ from tests.controller.online_helpers import shell_fixture, wait_for
 from controller.replay import discover_replay_bundles, load_manifest, verify_bundle_integrity
 from tests.harness.uci_session import UciSession
 from tools.local_game.common import process_identity
+from tools.local_game.faults import _copy_replays, _wait_replay_finalization
 from tools.local_game.proxy import _registered_child_scope, _spawn_registered_child
 from tools.local_game.runner import bounded
 
@@ -56,6 +57,55 @@ class GenerationLifecycleTests(unittest.TestCase):
             self.assertEqual(terminals(out), ["bestmove e2e4"] * 12)
             for run in bundles.bundles:
                 self.assertFalse(verify_bundle_integrity(run), run)
+
+    def test_fault_evidence_retention_waits_for_replay_finalization(self):
+        entered = threading.Event()
+        release = threading.Event()
+
+        with shell_fixture() as (shell, manager, shadow, out, tmp):
+            original = manager._observer
+
+            def observe(instance, token, *args):
+                if instance == "stockfish-anchor" and token == 1:
+                    entered.set()
+                    release.wait(5)
+                original(instance, token, *args)
+
+            manager.set_instance_observer(observe)
+            errors = []
+            retained = threading.Event()
+            destination = tmp / "retained-replays"
+
+            def retain():
+                try:
+                    _wait_replay_finalization(shadow, timeout=4)
+                    _copy_replays(tmp / "replays", destination)
+                except Exception as exc:
+                    errors.append(exc)
+                finally:
+                    retained.set()
+
+            try:
+                shell.handle_command("go movetime 500")
+                self.assertTrue(entered.wait(1))
+                wait_for(lambda: len(terminals(out)) == 1, timeout=1)
+                wait_for(lambda: 1 in shadow._finalizing, timeout=3)
+                worker = threading.Thread(target=retain, daemon=True)
+                worker.start()
+                self.assertFalse(
+                    retained.wait(0.15),
+                    "evidence retention crossed a live replay finalizer",
+                )
+            finally:
+                release.set()
+
+            self.assertTrue(retained.wait(4))
+            self.assertEqual(errors, [])
+            self.assertTrue(destination.is_dir())
+            self.assertEqual(
+                len(list(destination.glob("*/manifest.json"))),
+                1,
+            )
 
     def test_normal_runner_exit_cleans_same_group_child_without_killing_unrelated(self):
         (ROOT / "build").mkdir(exist_ok=True)

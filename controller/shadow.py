@@ -687,6 +687,16 @@ class ShadowRunCoordinator:
         with self._lock:
             return self._history[-1] if self._history else None
 
+    def replay_finalization_idle(self) -> bool:
+        """Return True only when no generation can still mutate replay files.
+
+        Engine quiescence is deliberately weaker: ONLINE generations may release
+        physical engine ownership while deferred telemetry and replay sealing
+        continue in _finalizing. Evidence retention needs the stronger barrier.
+        """
+        with self._lock:
+            return self._run is None and not self._finalizing
+
     def _run_for_generation_locked(self, generation: int) -> _ActiveRun | None:
         active = self._run
         if active is not None and active.generation == generation:

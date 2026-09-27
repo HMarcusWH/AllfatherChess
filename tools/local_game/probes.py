@@ -43,8 +43,14 @@ def run_probes(output: Path, source: dict) -> dict:
     cases = load(ROOT / "tests/fixtures/local_full_game/rule-probes.json")
     report = {"passed": False, "kind": "forced-searchmoves-rule-witnesses-not-baseline-games", "cases": []}
     known = set()
-    with UciSession(Path(sys.executable), cwd=ROOT, timeout=45,
-                    args=["-m", "controller", "--config", str(config_path)]) as shell:
+    shell = UciSession(
+        Path(sys.executable),
+        cwd=ROOT,
+        timeout=45,
+        args=["-m", "controller", "--config", str(config_path)],
+        start_new_session=True,
+    )
+    with shell:
         shell.configure({"UCI_Chess960": False})
         for case in cases:
             shell.new_game()
@@ -78,6 +84,14 @@ def run_probes(output: Path, source: dict) -> dict:
                                     "run_id": run.name})
             save(output / "report.json", report)
         (output / "uci.log").write_text("\n".join(shell.transcript) + "\n")
+    require(not shell.leaked_before_cleanup,
+            "rule-probe controller/backend group leaked after normal shutdown")
+    require(not shell.remaining_after_cleanup,
+            "rule-probe controller/backend group survived emergency cleanup")
+    report["process_cleanup"] = {
+        "leaked_before_cleanup": shell.leaked_before_cleanup,
+        "remaining_after_cleanup": shell.remaining_after_cleanup,
+    }
     report["passed"] = True
     save(output / "report.json", report)
     return report

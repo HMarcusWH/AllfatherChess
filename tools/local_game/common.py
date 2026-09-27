@@ -234,15 +234,20 @@ def terminate_token_processes(token: str, *, term_s: float = 5.0, kill_s: float 
         return [], []
 
     def signal_owned(rows: list[dict], signum: int) -> None:
-        groups = sorted({row["pgid"] for row in rows if row["pgid"] > 1})
-        for pgid in groups:
-            # Re-check token ownership immediately before signaling so numeric
-            # PGID reuse can never turn stale evidence into an unrelated kill.
-            live = [row for row in processes_with_token(token) if row["pgid"] == pgid]
-            if not live:
+        # Signal exact token-owned process identities, not a bare numeric PGID.
+        # This prevents PID/PGID reuse from turning stale evidence into an
+        # unrelated process kill. Re-scan after every signal phase catches
+        # descendants spawned concurrently with cleanup.
+        live = {
+            (row["pid"], row["start_ticks"]): row
+            for row in processes_with_token(token)
+        }
+        for row in rows:
+            key = (row["pid"], row["start_ticks"])
+            if key not in live:
                 continue
             try:
-                os.killpg(pgid, signum)
+                os.kill(row["pid"], signum)
             except ProcessLookupError:
                 pass
 

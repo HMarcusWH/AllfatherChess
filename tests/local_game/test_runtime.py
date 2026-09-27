@@ -60,25 +60,71 @@ class GenerationLifecycleTests(unittest.TestCase):
             for run in bundles.bundles:
                 self.assertFalse(verify_bundle_integrity(run), run)
 
-    def test_normal_runner_exit_cleans_detached_child_but_retains_failure_evidence(self):
+    def test_normal_runner_exit_cleans_same_group_child_without_killing_unrelated(self):
         (ROOT / "build").mkdir(exist_ok=True)
-        with tempfile.TemporaryDirectory(dir=ROOT / "build") as tmp:
-            cwd = Path(tmp)
-            script = (
-                "import json,pathlib,subprocess; "
-                "child=subprocess.Popen(['sleep','60'],start_new_session=True); "
-                "session=pathlib.Path('sessions')/'x'/'y'; session.mkdir(parents=True); "
-                "(session/'session.json').write_text(json.dumps({'pgid':child.pid}),encoding='utf-8')"
-            )
-            result = bounded([sys.executable, "-c", script], cwd, cwd / "runner.log", 10)
-            self.assertEqual(result["returncode"], 0)
-            self.assertFalse(result["timed_out"])
-            self.assertTrue(result["detached_groups_before_cleanup"])
-            self.assertFalse(result["detached_groups_after_cleanup"])
-            for pgid in result["detached_groups_before_cleanup"]:
-                with self.assertRaises(ProcessLookupError):
-                    os.killpg(pgid, 0)
+        unrelated = subprocess.Popen(["sleep", "60"], start_new_session=True)
+        try:
+            with tempfile.TemporaryDirectory(dir=ROOT / "build") as tmp:
+                cwd = Path(tmp)
+                script = "import subprocess; subprocess.Popen(['sleep','60'])"
+                result = bounded(
+                    [sys.executable, "-c", script],
+                    cwd,
+                    cwd / "runner.log",
+                    10,
+                )
+                self.assertEqual(result["returncode"], 0)
+                self.assertFalse(result["timed_out"])
+                self.assertTrue(result["descendants_before_cleanup"])
+                self.assertFalse(result["descendants_after_cleanup"])
+                self.assertIsNone(
+                    process_identity(result["descendants_before_cleanup"][0]["pid"])
+                )
+                self.assertIsNone(unrelated.poll(), "token cleanup killed unrelated process")
+        finally:
+            unrelated.kill()
+            unrelated.wait(timeout=5)
 
+    def test_proxy_registration_failure_cleans_child_without_session_evidence(self):
+        captured = {}
+
+        def fail_registration(process, pgid, identity):
+            captured["identity"] = identity
+            raise OSError("LOCAL-1 injected initial session write failure")
+
+        with self.assertRaises(OSError):
+            _spawn_registered_child(
+                ["sleep", "60"],
+                cwd=ROOT,
+                environment=os.environ.copy(),
+                register=fail_registration,
+            )
+        self.assertIsNone(process_identity(captured["identity"]["pid"]))
+
+    def test_managed_uci_session_cleans_controller_group_and_records_leak(self):
+        script = (
+            "import subprocess,sys\n"
+            "subprocess.Popen(['sleep','60'])\n"
+            "for raw in sys.stdin:\n"
+            "    line=raw.strip()\n"
+            "    if line=='uci':\n"
+            "        print('id name managed-fake'); print('uciok'); sys.stdout.flush()\n"
+            "    elif line=='isready':\n"
+            "        print('readyok'); sys.stdout.flush()\n"
+            "    elif line=='quit':\n"
+            "        break\n"
+        )
+        shell = UciSession(
+            Path(sys.executable),
+            cwd=ROOT,
+            timeout=5,
+            args=["-c", script],
+            start_new_session=True,
+        )
+        with shell:
+            shell.ready()
+        self.assertTrue(shell.leaked_before_cleanup)
+        self.assertFalse(shell.remaining_after_cleanup)
     def test_later_shadow_crash_does_not_elect_new_authority(self):
         args = {"stockfish-anchor": ["--info-lines", "5", "--info-delay-ms", "20"],
                 "reckless-shadow": ["--exit-on-go-number", "2"]}

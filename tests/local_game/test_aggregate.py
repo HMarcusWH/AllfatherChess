@@ -2,9 +2,10 @@
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from tools.local_game.aggregate_soak import aggregate
-from tools.local_game.common import ROOT, policy, save, source_identity
+from tools.local_game.common import ROOT, load, policy, save, source_identity
 from tools.local_game.runner import schedule
 
 
@@ -41,12 +42,29 @@ class SoakAggregateTests(unittest.TestCase):
                 "claim_boundary":{"full_game_lifecycle":False},
             })
 
-    def test_complete_ten_shard_union_is_required_for_aggregate_claim(self):
+    def test_fabricated_manifest_report_pairs_cannot_promote_aggregate_claim(self):
         (ROOT/"build").mkdir(exist_ok=True)
         with tempfile.TemporaryDirectory(dir=ROOT/"build") as tmp:
             root=Path(tmp)
             self._write_shards(root)
             report=aggregate(root)
+            self.assertFalse(report["passed"])
+            self.assertFalse(report["aggregate_soak_complete"])
+            self.assertTrue(any("requalification" in error or "QualificationError" in error
+                                for error in report["errors"]))
+
+    def test_complete_requalified_ten_shard_union_can_promote_aggregate_claim(self):
+        (ROOT/"build").mkdir(exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=ROOT/"build") as tmp:
+            root=Path(tmp)
+            self._write_shards(root)
+
+            def trusted_recompute(campaign):
+                return load(Path(campaign) / "report.json")
+
+            with patch("tools.local_game.aggregate_soak.qualify",
+                       side_effect=trusted_recompute):
+                report=aggregate(root)
             self.assertTrue(report["passed"])
             self.assertTrue(report["aggregate_soak_complete"])
             self.assertTrue(report["baseline_is_complete"])

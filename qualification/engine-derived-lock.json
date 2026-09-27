@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "source_commit": "b8bd0fdda4a7e67f6437a74e5373f69ef2c15c78",
+  "engines": {
+    "stockfish": {
+      "upstream_commit": "17a6c8f1eb0da45c2ca405321919519bf4e211ba",
+      "upstream_tree": "b14521db7dc6f5747042d76579a0b171e0a89f3f",
+      "derived_tree": "c6e6cb72e2ecd75b0c2c3de4354afcd0c54d8c25",
+      "modifications": []
+    },
+    "reckless": {
+      "upstream_commit": "31d9cd6fd2bea6d9f72eeb35e0bac70daa295fb1",
+      "upstream_tree": "88763d8e81ea45b938403f7f4feee990ad244c2d",
+      "derived_tree": "28aaf9f0fe824dee611cfd3289da9116780f934d",
+      "modifications": [
+        "verified NNUE acquisition/build-input hardening",
+        "UCI searchmoves parsing and restricted-root construction"
+      ]
+    },
+    "lc0": {
+      "upstream_commit": "5cbfeb924c0fcf5efc1b2a43813ac8d63cfd9904",
+      "upstream_tree": "6dd8aad55c79fddc291abfede17934f9ce4ca928",
+      "derived_tree": "bd27d596401b68974d49ad157ff1c41f89c58582",
+      "modifications": [
+        "adaptive prefetch",
+        "defect telemetry",
+        "generation-aware speculative provenance and telemetry quiescence repairs"
+      ]
+    }
+  }
+}

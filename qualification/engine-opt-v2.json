@@ -1,0 +1,99 @@
+{
+  "schema_version": 1,
+  "profile_id": "engine-opt-v2",
+  "status": "candidate",
+  "baseline": {
+    "main_commit": "b8bd0fdda4a7e67f6437a74e5373f69ef2c15c78",
+    "local1_qualified_head": "6fc6522f863e2a15c6d4c230fa558cbb993f867e",
+    "local1_qualified_tree": "0a2095ba5dde83292a348cff2495d02bd4e05299",
+    "runtime_config": "config/allfather.online-hybrid.validation.json",
+    "bundle_root": "build/online-cpu-reference"
+  },
+  "frozen_native_work": {
+    "explore": {
+      "nodes": 16
+    },
+    "verify": {
+      "nodes": 16
+    },
+    "staged_verify": {
+      "nodes": 32
+    },
+    "rationale": "Preserve the qualified n16->n32 G2 intervention identity; optimize execution and resource estimates without redefining native work."
+  },
+  "research": {
+    "corpus": "tests/fixtures/engine_opt/positions.epd",
+    "openings": "tests/fixtures/engine_opt/openings.pgn",
+    "preserve_engine_sources": true,
+    "allow_upstream_refresh": false,
+    "allow_gpu_promotion": false,
+    "allow_hard_nn_skip": false
+  },
+  "candidate_axes": {
+    "lc0": {
+      "minibatch_size": [
+        0,
+        1,
+        4,
+        7,
+        16,
+        32
+      ],
+      "max_prefetch": [
+        0,
+        4,
+        8,
+        12,
+        16,
+        32
+      ],
+      "nn_cache_size": [
+        0,
+        65536,
+        262144,
+        2000000
+      ],
+      "adaptive_prefetch": [
+        false,
+        true
+      ]
+    },
+    "stockfish": {
+      "build_profiles": [
+        "x86-64",
+        "x86-64-pgo"
+      ],
+      "hash_mb": [
+        16,
+        32,
+        64,
+        128,
+        256
+      ]
+    },
+    "reckless": {
+      "build_profiles": [
+        "x86-64",
+        "x86-64-pgo"
+      ]
+    }
+  },
+  "required_measurements": [
+    "wall_ms",
+    "cpu_ms",
+    "bestmove",
+    "native_work_value",
+    "native_work_semantics",
+    "completed_before_deadline",
+    "binary_sha256",
+    "network_sha256",
+    "uci_options"
+  ],
+  "claim_boundary": {
+    "strength": false,
+    "elo": false,
+    "equal_compute": false,
+    "deployed_bot": false,
+    "hard_nn_skip": false
+  }
+}

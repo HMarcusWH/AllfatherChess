@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "profile_id": "engine-opt-v2-selection",
+  "status": "pending-measurement",
+  "source_report": null,
+  "selected": null,
+  "claim_boundary": "No candidate is promoted until an exact benchmark artifact is hash-bound here and the selected v2 profiles requalify."
+}

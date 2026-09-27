@@ -7,6 +7,7 @@ import json
 
 from .common import ROOT, load, policy, require, save, source_identity
 from .runner import schedule
+from .validate import qualify
 
 
 def _campaign_manifests(root: Path) -> list[Path]:
@@ -37,7 +38,13 @@ def aggregate(root: Path) -> dict:
             manifest=load(manifest_path)
             report_path=manifest_path.with_name("report.json")
             require(report_path.is_file(), f"missing shard report beside {manifest_path}")
-            report=load(report_path)
+            retained_report=load(report_path)
+            recomputed=qualify(manifest_path.parent)
+            require(recomputed.get("passed") is True,
+                    f"shard raw evidence failed independent requalification: {recomputed.get('errors')}")
+            require(retained_report == recomputed,
+                    "retained shard report differs from independently recomputed evidence")
+            report=recomputed
             shard=manifest.get("shard") or {}
             require(shard.get("count")==10 and type(shard.get("index")) is int,
                     "soak aggregate expects ten deterministic shards")

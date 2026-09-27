@@ -73,6 +73,18 @@ class ContractTests(unittest.TestCase):
             with self.assertRaises(QualificationError):
                 retain_report_runs(source, root / "bad", ["old"], {"old"}, "test")
 
+    def test_replay_retention_rejects_nested_symlink(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "source"
+            run = source / "fresh"
+            run.mkdir(parents=True)
+            outside = root / "outside.txt"
+            outside.write_text("secret", encoding="utf-8")
+            (run / "escape").symlink_to(outside)
+            with self.assertRaises(QualificationError):
+                retain_report_runs(source, root / "retained", ["fresh"], set(), "test")
+
     def test_profile_is_only_output_relocation_and_not_a_new_policy(self):
         source = {"schema_version": 2, "online_time": {"max_move_ms": 4000},
                   "hybrid_authority": {"allow_skipped_extension_authority": False},
@@ -171,17 +183,30 @@ class RulesTests(unittest.TestCase):
         moves = ["e2e4", "e7e5", "f1c4", "b8c6", "d1h5", "g8f6", "h5f7"]
         streams = {"stockfish": [], "reckless": []}
         history = []
+        wtime = btime = 31000
         for index, uci in enumerate(moves):
             arm = "stockfish" if board.turn else "reckless"
-            streams[arm].append({"position": "position startpos" + (" moves " + " ".join(history) if history else ""),
+            streams[arm].append({
+                "position": "position startpos" + (" moves " + " ".join(history) if history else ""),
+                "command": f"go wtime {wtime} btime {btime} winc 1000 binc 1000",
                 "move": uci, "search": len(streams[arm])+1, "game": 1, "session_id": arm,
-                "sent_ns": index*100, "received_ns": index*100+10, "metrics": {"cpu_ms_observed": 1}})
+                "sent_ns": index*100, "received_ns": index*100+10,
+                "metrics": {"cpu_ms_observed": 1},
+            })
+            # Zero elapsed is the maximal legal growth path: the mover receives
+            # exactly one increment while the opponent clock is unchanged.
+            if board.turn:
+                wtime += 1000
+            else:
+                btime += 1000
             history.append(uci); board.push_uci(uci)
         game = chess.pgn.Game.from_board(board)
         game.headers.update(White="stockfish", Black="reckless", Result="1-0", Termination="normal")
-        self.assertEqual(len(match_game(game, streams, False)), 7)
+        plan = {"clock": "0:30+1", "driver_nodes": None}
+        self.assertEqual(len(match_game(game, streams, False, None, plan)), 7)
         streams["stockfish"][1]["position"] = "position startpos"
-        with self.assertRaisesRegex(QualificationError, "history"): match_game(game, streams, False)
+        with self.assertRaisesRegex(QualificationError, "history"):
+            match_game(game, streams, False, None, plan)
         self.assertEqual(rules_result(board), "1-0")
         self.assertIsNone(rules_result(chess.Board()))
 

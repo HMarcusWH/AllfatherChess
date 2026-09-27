@@ -76,7 +76,13 @@ class SoakAggregateTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(dir=ROOT/"build") as tmp:
             root=Path(tmp)
             self._write_shards(root,omit=7)
-            report=aggregate(root)
+
+            def trusted_recompute(campaign):
+                return load(Path(campaign) / "report.json")
+
+            with patch("tools.local_game.aggregate_soak.qualify",
+                       side_effect=trusted_recompute):
+                report=aggregate(root)
             self.assertFalse(report["passed"])
             self.assertFalse(report["aggregate_soak_complete"])
             self.assertIn("missing soak shards: [7]",report["errors"])

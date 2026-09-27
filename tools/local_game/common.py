@@ -5,6 +5,10 @@ import copy
 import hashlib
 import json
 import os
+import shutil
+import signal
+import stat
+import time
 from pathlib import Path
 import subprocess
 from typing import Any
@@ -178,3 +182,111 @@ def cpu_delta(before: dict, after: dict) -> float | None:
         return None
     values = [after[k]["cpu_ms"] - before[k]["cpu_ms"] for k in before]
     return sum(values) if all(v >= 0 for v in values) else None
+
+
+def process_identity(pid: int) -> dict | None:
+    """Return stable Linux process identity; zombies are not live work."""
+    try:
+        stat_text = (Path("/proc") / str(pid) / "stat").read_text()
+        close = stat_text.rfind(")")
+        require(close >= 0, f"malformed /proc/{pid}/stat")
+        fields = stat_text[close + 2:].split()
+        state = fields[0]
+        if state == "Z":
+            return None
+        return {
+            "pid": int(pid),
+            "state": state,
+            "ppid": int(fields[1]),
+            "pgid": int(fields[2]),
+            "start_ticks": int(fields[19]),
+        }
+    except (FileNotFoundError, ProcessLookupError, PermissionError):
+        return None
+
+
+def processes_with_token(token: str) -> list[dict]:
+    """Discover live processes inheriting one LOCAL-1 ownership token."""
+    require(isinstance(token, str) and token, "empty qualification process token")
+    needle = f"ALLFATHER_LOCAL1_PROCESS_TOKEN={token}".encode()
+    found = []
+    for directory in Path("/proc").iterdir():
+        if not directory.name.isdigit():
+            continue
+        pid = int(directory.name)
+        identity = process_identity(pid)
+        if identity is None:
+            continue
+        try:
+            environ = (directory / "environ").read_bytes().split(b"\0")
+        except (FileNotFoundError, ProcessLookupError, PermissionError):
+            continue
+        if needle in environ:
+            found.append(identity)
+    return sorted(found, key=lambda row: (row["pgid"], row["pid"], row["start_ticks"]))
+
+
+def terminate_token_processes(token: str, *, term_s: float = 5.0, kill_s: float = 5.0
+                              ) -> tuple[list[dict], list[dict]]:
+    """Observe token-owned live work, clean it, and preserve the pre-cleanup evidence."""
+    before = processes_with_token(token)
+    if not before:
+        return [], []
+
+    def signal_owned(rows: list[dict], signum: int) -> None:
+        groups = sorted({row["pgid"] for row in rows if row["pgid"] > 1})
+        for pgid in groups:
+            # Re-check token ownership immediately before signaling so numeric
+            # PGID reuse can never turn stale evidence into an unrelated kill.
+            live = [row for row in processes_with_token(token) if row["pgid"] == pgid]
+            if not live:
+                continue
+            try:
+                os.killpg(pgid, signum)
+            except ProcessLookupError:
+                pass
+
+    signal_owned(before, signal.SIGTERM)
+    deadline = time.monotonic() + term_s
+    remaining = processes_with_token(token)
+    while remaining and time.monotonic() < deadline:
+        time.sleep(0.05)
+        remaining = processes_with_token(token)
+    if remaining:
+        signal_owned(remaining, signal.SIGKILL)
+        deadline = time.monotonic() + kill_s
+        while remaining and time.monotonic() < deadline:
+            time.sleep(0.05)
+            remaining = processes_with_token(token)
+    return before, remaining
+
+
+def safe_copy_regular_tree(source: Path, destination: Path) -> None:
+    """Copy one evidence tree without following links or accepting special files."""
+    source = Path(source)
+    destination = Path(destination)
+    require(source.is_dir() and not source.is_symlink(), f"unsafe evidence root: {source}")
+    require(not destination.exists() and not destination.is_symlink(),
+            f"evidence destination already exists: {destination}")
+    destination.mkdir(parents=True)
+
+    def copy_dir(src: Path, dst: Path) -> None:
+        with os.scandir(src) as entries:
+            for entry in entries:
+                src_path = Path(entry.path)
+                dst_path = dst / entry.name
+                mode = entry.stat(follow_symlinks=False).st_mode
+                require(not stat.S_ISLNK(mode), f"symlink in evidence tree: {src_path}")
+                if stat.S_ISDIR(mode):
+                    dst_path.mkdir()
+                    copy_dir(src_path, dst_path)
+                elif stat.S_ISREG(mode):
+                    shutil.copyfile(src_path, dst_path, follow_symlinks=False)
+                    shutil.copystat(src_path, dst_path, follow_symlinks=False)
+                    require(sha(src_path) == sha(dst_path) and
+                            src_path.stat().st_size == dst_path.stat().st_size,
+                            f"evidence copy changed bytes: {src_path}")
+                else:
+                    raise QualificationError(f"special file in evidence tree: {src_path}")
+
+    copy_dir(source, destination)

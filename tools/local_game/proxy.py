@@ -24,6 +24,55 @@ from .common import (ROOT, cpu_delta, file_record, load, process_group,
                      process_identity, require, runtime_config, save)
 
 
+def _cleanup_private_group(process: subprocess.Popen, pgid: int) -> None:
+    if process.poll() is None or process_group(pgid):
+        try:
+            os.killpg(pgid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(pgid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                pass
+    if process_group(pgid):
+        try:
+            os.killpg(pgid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+
+
+def _spawn_registered_child(command: list[str], *, cwd: Path, environment: dict,
+                            register) -> tuple[subprocess.Popen, int, dict]:
+    process = subprocess.Popen(
+        command,
+        cwd=cwd,
+        env=environment,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        start_new_session=True,
+        bufsize=0,
+    )
+    pgid = process.pid
+    identity = process_identity(process.pid)
+    if identity is None or identity["pgid"] != pgid:
+        _cleanup_private_group(process, pgid)
+        raise RuntimeError("could not establish detached child process identity")
+    try:
+        register(process, pgid, identity)
+    except BaseException:
+        _cleanup_private_group(process, pgid)
+        raise
+    return process, pgid, identity
+
+
 def run(spec: dict) -> int:
     root = Path(spec["root"]).resolve()
     sessions = Path(spec["sessions"]).resolve()
@@ -53,46 +102,7 @@ def run(spec: dict) -> int:
     started_ns = time.monotonic_ns()
     children_before = resource.getrusage(resource.RUSAGE_CHILDREN)
     own_before = time.process_time_ns()
-    process = subprocess.Popen(
-        command,
-        cwd=root,
-        env=environment,
-        stdin=subprocess.PIPE,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        start_new_session=True,
-        bufsize=0,
-    )
-    pgid = process.pid
-    child_identity = process_identity(process.pid)
-    require(child_identity is not None and child_identity["pgid"] == pgid,
-            "could not establish detached child process identity")
-
-    def emergency_cleanup_spawned_child() -> None:
-        """Cleanup must not depend on session evidence reaching disk."""
-        if process.poll() is None or process_group(pgid):
-            try:
-                os.killpg(pgid, signal.SIGTERM)
-            except ProcessLookupError:
-                pass
-            try:
-                process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                try:
-                    os.killpg(pgid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-                try:
-                    process.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    pass
-        if process_group(pgid):
-            try:
-                os.killpg(pgid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-
-    try:
+    def register_child(process, pgid, identity) -> None:
         os.set_blocking(process.stdin.fileno(), False)
         os.set_blocking(sys.stdout.fileno(), False)
         save(session / "session.json", {
@@ -102,14 +112,18 @@ def run(spec: dict) -> int:
             "session_id": session.name,
             "pid": process.pid,
             "pgid": pgid,
-            "process_identity": child_identity,
+            "process_identity": identity,
             "started_ns": started_ns,
             "command": command,
             "spec": spec,
         })
-    except BaseException:
-        emergency_cleanup_spawned_child()
-        raise
+
+    process, pgid, child_identity = _spawn_registered_child(
+        command,
+        cwd=root,
+        environment=environment,
+        register=register_child,
+    )
 
     def pipe_write(fd: int, raw: bytes, timeout: float = 3.0) -> None:
         view = memoryview(raw)

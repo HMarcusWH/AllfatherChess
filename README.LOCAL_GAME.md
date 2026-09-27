@@ -37,12 +37,14 @@ failures (worker crash, slow shadow shutdown, replay-storage failure, active sto
 and long generation reuse).
 
 The extended 200-baseline-game soak is an engineering reliability workload, not a strength
-sample-size calculation. CI executes it in ten bounded shards; local reproduction may run
-the whole soak serially or one shard at a time:
+sample-size calculation. CI executes it in ten bounded shards and then runs a separate
+aggregate validator; no individual shard is allowed to claim complete lifecycle/baseline
+qualification. Local reproduction may run the whole soak serially or one shard at a time:
 
 ```bash
 make -f Makefile.local-game soak
 make -f Makefile.local-game soak-shard SHARD=0 SHARDS=10
+make -f Makefile.local-game soak-aggregate SHARD_ROOT=<downloaded-shard-root>
 ```
 
 This implements the current roadmap gate. It does not predeclare that LOCAL-1 has passed,

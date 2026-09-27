@@ -13,8 +13,9 @@ import sys
 from .common import (ARMS, ROOT, QualificationError, contained, file_record, load, policy,
                      require, sha, source_identity, verify_g3_derivation, verify_record, save)
 from .runner import schedule, command
-from .integrity import (input_paths, verify_builds, verify_prerequisites, verify_probes,
-                        verify_resource_claim, verify_session_commands, finite_metrics)
+from .integrity import (_clock_ms, finite_metrics, input_paths, parse_go_limits,
+                        verify_builds, verify_prerequisites, verify_probes,
+                        verify_resource_claim, verify_session_commands)
 
 MOVE = re.compile(r"bestmove ([a-h][1-8][a-h][1-8][qrbn]?)(?: ponder [a-h][1-8][a-h][1-8][qrbn]?)?\Z")
 
@@ -261,7 +262,59 @@ def validate_g3(item: dict, allow_denial: bool) -> dict:
             "replay_id": run.name}
 
 
-def match_game(game, streams: dict[str, list[dict]], allow_denial: bool, opening=None) -> list[dict]:
+def verify_game_clocks(game, streams: dict[str, list[dict]], plan: dict,
+                       opening_length: int) -> None:
+    """Reconstruct the exact invariants Fastchess exposes at each go boundary.
+
+    Pinned Fastchess initializes each side to base+increment. Between two
+    searched plies, the side that did not just move must be unchanged, while
+    the side that did move can increase by at most one increment because
+    elapsed time is non-negative.
+    """
+    base_ms, increment_ms = _clock_ms(plan["clock"])
+    initial_ms = base_ms + increment_ms
+    board = game.board()
+    counters = {name: 0 for name in streams}
+    previous: dict[str, int] | None = None
+
+    for index, move in enumerate(game.mainline_moves()):
+        arm = game.headers["White" if board.turn else "Black"]
+        if index >= opening_length:
+            require(arm in streams, "clock reconstruction saw unexpected engine")
+            cursor = counters[arm]
+            require(cursor < len(streams[arm]),
+                    f"clock reconstruction missing search for {arm} ply {index}")
+            limits = parse_go_limits(streams[arm][cursor]["command"])
+            require({"wtime", "btime", "winc", "binc"} <= set(limits),
+                    "clocked search omitted a required UCI clock field")
+            current = {"wtime": int(limits["wtime"]), "btime": int(limits["btime"])}
+            require(int(limits["winc"]) == int(limits["binc"]) == increment_ms,
+                    "transmitted increment differs from frozen control")
+            require(current["wtime"] >= 0 and current["btime"] >= 0,
+                    "negative transmitted clock")
+            mover_key = "wtime" if board.turn else "btime"
+            other_key = "btime" if board.turn else "wtime"
+            if previous is None:
+                require(current["wtime"] == current["btime"] == initial_ms,
+                        f"initial Fastchess clock must be base+increment ({initial_ms} ms)")
+            else:
+                # The side about to move did not consume time on the preceding
+                # ply, so its clock is unchanged. The preceding mover may have
+                # gained at most one increment after subtracting elapsed time.
+                require(current[mover_key] == previous[mover_key],
+                        "non-moving Fastchess clock changed between plies")
+                require(current[other_key] <= previous[other_key] + increment_ms,
+                        "mover Fastchess clock grew by more than one increment")
+            previous = current
+            counters[arm] += 1
+        board.push(move)
+
+    require(all(counters[name] == len(streams[name]) for name in streams),
+            "clock reconstruction did not consume every searched ply")
+
+
+def match_game(game, streams: dict[str, list[dict]], allow_denial: bool,
+               opening=None, plan: dict | None = None) -> list[dict]:
     chess = chess_modules()
     board = game.board()
     require(board.is_valid(), "invalid PGN root")
@@ -273,6 +326,8 @@ def match_game(game, streams: dict[str, list[dict]], allow_denial: bool, opening
     require(all_searches, "no searched plies")
     opening_moves = [] if opening is None else [m.uci() for m in opening.mainline_moves()]
     opening_length = len(opening_moves)
+    require(plan is not None, "game validation requires the frozen match plan")
+    verify_game_clocks(game, streams, plan, opening_length)
     expected_root = chess.STARTING_FEN if opening is None else opening.board().fen(en_passant="fen")
     require(root_fen == expected_root, "PGN root differs from pinned opening")
     require([m.uci() for m in game.mainline_moves()][:opening_length] == opening_moves,
@@ -367,8 +422,8 @@ def qualify(output: Path) -> dict:
                 require(execution["argv"] == command(plan, directory, p, source, fastchess, write_specs=False),
                         "executed match command differs from policy")
                 if (execution["returncode"] != 0 or execution["timed_out"]
-                        or execution.get("detached_groups_before_cleanup")
-                        or execution.get("detached_groups_after_cleanup")):
+                        or execution.get("descendants_before_cleanup")
+                        or execution.get("descendants_after_cleanup")):
                     errors.append(f"{plan['id']}: Fastchess/lifecycle cleanup did not finish")
                 verify_runner_log(directory / "runner.log", plan)
                 games = read_games(directory / "games.pgn", require_completed=True)
@@ -406,10 +461,14 @@ def qualify(output: Path) -> dict:
                     require([game.headers["White"], game.headers["Black"]] == expected_colors, "colors not reversed")
                     row = rows[index]
                     try:
-                        plies = match_game(game, {a: by_arm[a][index] for a in plan["arms"]},
-                                           plan["allow_resource_denial"],
-                                           read_games(ROOT / "tests/fixtures/local_full_game" / plan["opening"])[0]
-                                           if plan["opening"] else None)
+                        plies = match_game(
+                            game,
+                            {a: by_arm[a][index] for a in plan["arms"]},
+                            plan["allow_resource_denial"],
+                            read_games(ROOT / "tests/fixtures/local_full_game" / plan["opening"])[0]
+                            if plan["opening"] else None,
+                            plan,
+                        )
                         report["plies"].extend({"job": plan["id"], "game": index, **ply} for ply in plies)
                         row["valid"] = True
                     except Exception as exc:

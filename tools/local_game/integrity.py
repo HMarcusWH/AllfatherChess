@@ -107,17 +107,15 @@ def verify_prerequisites(output: Path, source: dict) -> None:
     positive = g3["positive_case"]
     require(positive["authority"] == "HYBRID" and positive["emitted_move"] != positive["anchor_move"],
             "G3 positive prerequisite is not an actual override")
-    require((g3_replays / positive["run_id"]).is_dir(),
-            "G3 prerequisite positive run missing")
-    run = root / "g3-positive-replay"
-    for verifier in (verify_bundle_integrity, verify_final_decision_integrity, verify_counterfactual_integrity):
+    run = contained(g3_replays, positive["run_id"])
+    require(run.is_dir(), "G3 prerequisite positive run missing")
+    for verifier in (verify_bundle_integrity, verify_final_decision_integrity,
+                     verify_counterfactual_integrity):
         problems = verifier(run)
         require(not problems, f"G3 prerequisite replay rejected: {problems}")
     manifest = load(run / "manifest.json")
-    require(sha(run / "manifest.json") == sha(g3_replays / positive["run_id"] / "manifest.json"),
-            "copied G3 positive replay differs from retained replay root")
     final = load(run / "decision/final.json")["decision"]
-    require(manifest["run_id"] == positive["run_id"] == run.name,
+    require(manifest["run_id"] == positive["run_id"],
             "G3 prerequisite run identity mismatch")
     require(final["authority"] == "HYBRID" and final["emitted_move"] == positive["emitted_move"] and
             final["anchor_move"] == positive["anchor_move"], "G3 prerequisite report disagrees with played decision")

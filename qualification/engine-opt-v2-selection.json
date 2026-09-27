@@ -1,8 +1,44 @@
 {
   "schema_version": 1,
   "profile_id": "engine-opt-v2-selection",
-  "status": "pending-measurement",
+  "status": "provisional",
   "source_report": null,
-  "selected": null,
-  "claim_boundary": "No candidate is promoted until an exact benchmark artifact is hash-bound here and the selected v2 profiles requalify."
+  "selected": {
+    "stockfish": {
+      "build_profile": "x86-64-pgo",
+      "hash_mb": 64
+    },
+    "reckless": {
+      "build_profile": "x86-64",
+      "hash_mb": 64
+    },
+    "lc0": {
+      "backend": "blas",
+      "network": "791556",
+      "nn_cache_size": 262144,
+      "minibatch_size": 0,
+      "max_prefetch": 0,
+      "adaptive_prefetch": false,
+      "defect_telemetry": false,
+      "warmup_nodes": 64,
+      "phase_multipv": {
+        "EXPLORE": 1,
+        "VERIFY": 3,
+        "STAGED_VERIFY": 3
+      }
+    },
+    "resource_estimates_ms": {
+      "explore": {
+        "stockfish": 100,
+        "reckless": 100,
+        "lc0": 1600
+      },
+      "verify": {
+        "stockfish": 100,
+        "reckless": 100,
+        "lc0": 1600
+      }
+    }
+  },
+  "claim_boundary": "Provisional conventional CPU repair candidate. Measurement may replace it; no strength or release promotion until status becomes selected and the source_report hash is frozen."
 }

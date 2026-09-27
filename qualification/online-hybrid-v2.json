@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "profile_id": "online-hybrid-v2",
+  "qualification_tier": "online-hybrid-authority-v2",
+  "source_profile": "online-engine-opt-v2",
+  "runtime_config": "config/allfather.online-hybrid-v2.validation.json",
+  "reference_runtime": "config/allfather.online-engine-opt-v2.json",
+  "bundle_root": "build/online-engine-opt-v2",
+  "authority_policy": "clocked_staged_preanchor_v1",
+  "terminal_source_policy": "route_bound_staged_v1",
+  "allow_skipped_extension_authority": false,
+  "explore": {
+    "nodes": 16
+  },
+  "verification": {
+    "base": {
+      "nodes": 16
+    },
+    "extension": {
+      "nodes": 32
+    },
+    "intervention": "same_process_staged_verify_v1"
+  },
+  "claim_boundary": {
+    "hybrid_authority": true,
+    "strength": false,
+    "elo": false,
+    "equal_compute": false,
+    "deployed_bot": false
+  }
+}

@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "profile_id": "online-engine-opt-v2",
+  "qualification_tier": "engine-opt-cpu-reference",
+  "engine_opt_profile": "engine-opt-v2",
+  "selection": "qualification/engine-opt-v2-selection.json",
+  "selection_status_required_for_promotion": "selected",
+  "bundle_root": "build/online-engine-opt-v2",
+  "runtime_config": "config/allfather.online-engine-opt-v2.json",
+  "platform": {
+    "os": "linux",
+    "architecture": "x86_64",
+    "reference_os": "ubuntu-24.04",
+    "accelerator_kind": "cpu",
+    "cpu_model": "record-and-bind",
+    "memory": "record-and-bind"
+  },
+  "builds": {
+    "stockfish": {
+      "artifact": "bin/stockfish",
+      "network_artifact": "networks/nn-134a887f4c8f.nnue",
+      "arch": "x86-64",
+      "pgo": true
+    },
+    "reckless": {
+      "artifact": "bin/reckless",
+      "network_artifact": "networks/v60-7f587dfb.nnue",
+      "target": "x86_64-unknown-linux-gnu",
+      "target_cpu": "x86-64",
+      "pgo": false
+    },
+    "lc0": {
+      "artifact": "bin/lc0",
+      "network_artifact": "networks/791556.pb.gz",
+      "backend": "blas",
+      "strength_profile_id": "lc0-strength-v1",
+      "isa": "x86-64-portable",
+      "native_arch": false,
+      "ispc": false,
+      "ispc_native_only": false,
+      "popcnt": false,
+      "f16c": false,
+      "pext": false
+    }
+  },
+  "claim_boundary": {
+    "strength": false,
+    "elo": false,
+    "equal_compute": false,
+    "deployed_bot": false,
+    "gpu": false
+  }
+}

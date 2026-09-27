@@ -200,7 +200,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: local-full-game-soak-${{ github.run_id }}-${{ matrix.shard }}
+          name: local-full-game-soak-shard-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
           path: build/test-results/local-full-game
           if-no-files-found: warn
           retention-days: 14
@@ -231,7 +231,7 @@ jobs:
       - name: Download all soak shard artifacts
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
-          pattern: local-full-game-soak-${{ github.run_id }}-*
+          pattern: local-full-game-soak-shard-${{ github.run_id }}-${{ github.run_attempt }}-*
           path: build/soak-shards
           merge-multiple: false
       - name: Independently requalify and aggregate all ten soak shards
@@ -241,7 +241,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: local-full-game-soak-aggregate-${{ github.run_id }}
+          name: local-full-game-soak-aggregate-${{ github.run_id }}-${{ github.run_attempt }}
           path: build/test-results/local-full-game-soak-aggregate
           if-no-files-found: warn
           retention-days: 14

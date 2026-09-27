@@ -2,8 +2,24 @@
 
 **Implementation:** `tools/local_game/`, `tests/local_game/`, `Makefile.local-game` and
 `.github/workflows/full-game-qualification.yml`.  
-**State:** implemented candidate; only an exact-source successful qualification run can
-close LOCAL-1. The release/status ledger must not be advanced by source changes alone.
+**State:** **QUALIFIED** on PR #41 exact head
+`6fc6522f863e2a15c6d4c230fa558cbb993f867e`; merged as
+`524ec9b25c7f08d981ba7c88318d106e22586295` with identical tree
+`0a2095ba5dde83292a348cff2495d02bd4e05299`.
+
+## Qualification result
+
+- Workflow: `36344180962` / LOCAL-1 run #100.
+- Regression suite: **44 passed**.
+- Required natural tournament: **28/28 games independently validated**.
+- Mandatory failure-injection campaign: passed.
+- Forced rule-transition probes: passed.
+- Qualification errors: **0**.
+- Retained evidence artifact: `10941548187`.
+- Artifact SHA-256: `23d2b1f8baa2b535e92e523c3a3dbd79219213127015a708daa50d49c3395d21`.
+
+The manual 200-game soak remains additional engineering-reliability evidence; it is not an
+Elo sample and is not required to describe the required LOCAL-1 gate as qualified.
 
 ## What is being tested
 
@@ -353,5 +369,6 @@ It does **not** establish Elo, equal-resource comparability, superiority, produc
 SKIP safety, or deployed-network reconnect/rollback correctness. Those remain M15-B/C,
 M14-G4 and ONLINE-3/4 respectively.
 
-LOCAL-1 status advances only after the exact source has earned a successful qualification
-result.
+LOCAL-1 advanced on 27 September 2026 after the exact PR #41 source earned a successful
+qualification result. The next release milestone is ONLINE-3 packaging/pinned bridge
+qualification; deployed-network recovery and playing-strength claims remain separate gates.

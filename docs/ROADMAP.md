@@ -1,9 +1,9 @@
 # AllfatherChess roadmap
 
-**Status date:** 26 September 2026  
-**Current main:** `c301e9986566febfbb7978d55c5a3d3429423cff`  
-**Latest merged milestone:** PR #39 / M14-G3 — clock-aware staged hybrid authority  
-**Current execution milestone:** LOCAL-1 — full-game lifecycle qualification  
+**Status date:** 27 September 2026  
+**Current main:** `524ec9b25c7f08d981ba7c88318d106e22586295`  
+**Latest merged milestone:** PR #41 / LOCAL-1 — full-game lifecycle qualification  
+**Current execution milestone:** ONLINE-3 — reproducible package + pinned lichess-bot bridge  
 **Current-state authority:** [CURRENT_STATUS.md](CURRENT_STATUS.md)  
 **Detailed deployment audit:** [ONLINE_RELEASE_PLAN.md](ONLINE_RELEASE_PLAN.md)
 
@@ -33,9 +33,10 @@ The qualified reference composition uses the real ONLINE-2 CPU bundle with Stock
 Reckless and BLAS-LC0. It requires a genuine non-anchor HYBRID result in the predeclared
 qualification set and retains deterministic fail-closed fallback.
 
-That closes the single-move authority question. It does **not** yet establish that the
-controller survives complete games, is deployable as a service, or is stronger than a
-constituent engine.
+PR #39 closed the single-move authority question. PR #41 / LOCAL-1 then qualified that
+composition across the declared complete-game lifecycle, mandatory failure cases, rule
+transitions and replay/resource/process integrity. The project is **not** yet deployable as
+a qualified service and has not established superiority over a constituent engine.
 
 ## 2. Critical path to the first public canary
 
@@ -45,11 +46,12 @@ M14-G3 / PR #39
 clock-safe staged hybrid authority
         |
         v
-NEXT
-LOCAL-1
+DONE
+LOCAL-1 / PR #41
 full-game lifecycle qualification
         |
         v
+NEXT
 ONLINE-3
 reproducible package + pinned lichess-bot bridge
         |
@@ -68,16 +70,23 @@ restricted unrated public bot canary
 
 The first public canary is an operational experiment, not an Elo or superiority claim.
 
-## 3. LOCAL-1 — full-game lifecycle qualification
+## 3. LOCAL-1 — full-game lifecycle qualification — **QUALIFIED**
+
+**PR:** #41  
+**Qualified head:** `6fc6522f863e2a15c6d4c230fa558cbb993f867e`  
+**Merge commit:** `524ec9b25c7f08d981ba7c88318d106e22586295`  
+**Shared tree:** `0a2095ba5dde83292a348cff2495d02bd4e05299`  
+**Workflow:** `36344180962` / run #100  
+**Required games:** 28/28 validated; zero qualification errors.
 
 ### Objective
 
-Prove that the qualified PR #39 composition remains correct across complete games rather
-than isolated `go` requests.
+Qualify that the PR #39 composition remains correct across complete games rather than
+isolated `go` requests.
 
-### Candidate repository surface
+### Qualified repository surface
 
-The canonical candidate is implemented as an isolated qualification toolchain rather than a
+The canonical qualification is implemented as an isolated toolchain rather than a
 second production controller:
 
 - `qualification/fastchess.lock.json` — exact Fastchess commit/tree provenance;
@@ -93,7 +102,7 @@ second production controller:
 
 The G3 runtime is derived from `config/allfather.online-hybrid.validation.json` at execution
 time; LOCAL-1 does not maintain a second hand-edited copy of the authority policy. The gate
-remains OPEN until exact-head CI passes.
+closed on the exact PR #41 head above after the required workflow passed.
 
 ### Lifecycle coverage
 
@@ -136,13 +145,13 @@ A qualifying campaign requires:
 LOCAL-1 may record W/D/L and controller behavior for diagnostics, but lifecycle acceptance
 is not an Elo test. A small campaign cannot become a playing-strength claim by implication.
 
-The candidate also records all ten color-reversed pairings across Stockfish, Reckless, LC0,
+The qualified campaign also records all ten color-reversed pairings across Stockfish, Reckless, LC0,
 Allfather-Anchor and Allfather-G3. That matrix is **same tournament clock**, not equal total
 compute. M15-B/C remains the only path to a comparative equal-resource strength claim.
 
-## 4. ONLINE-3 — reproducible service package and bridge
+## 4. ONLINE-3 — reproducible service package and bridge — **NEXT**
 
-After LOCAL-1 is green, package exactly the qualified engine rather than building new chess
+With LOCAL-1 green, package exactly the qualified engine rather than building new chess
 logic.
 
 Planned surface:

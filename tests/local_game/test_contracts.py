@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import importlib.util
 import json
+import shutil
 from pathlib import Path
 import tempfile
 import unittest
@@ -15,6 +16,7 @@ from tools.local_game.common import (ARMS, QualificationError, contained, cpu_de
 from tools.local_game.runner import command, engine_options, retain_report_runs, schedule
 from tools.local_game.validate import position, trace_searches, match_game, rules_result
 from tools.local_game.probes import check_transition
+from tools.local_game.build_fastchess import reset_build_target
 
 HAS_CHESS = importlib.util.find_spec("chess") is not None
 
@@ -84,6 +86,21 @@ class ContractTests(unittest.TestCase):
             (run / "escape").symlink_to(outside)
             with self.assertRaises(QualificationError):
                 retain_report_runs(source, root / "retained", ["fresh"], set(), "test")
+
+    def test_fastchess_target_reset_does_not_follow_nested_symlinks(self):
+        target = ROOT / "build" / "local1-reset-target-test"
+        shutil.rmtree(target, ignore_errors=True)
+        with tempfile.TemporaryDirectory() as tmp:
+            outside = Path(tmp)
+            sentinel = outside / "sentinel.txt"
+            sentinel.write_text("keep", encoding="utf-8")
+            target.mkdir(parents=True)
+            (target / "nested").symlink_to(outside, target_is_directory=True)
+            reset_build_target(target)
+            self.assertTrue(target.is_dir())
+            self.assertEqual(list(target.iterdir()), [])
+            self.assertEqual(sentinel.read_text(encoding="utf-8"), "keep")
+        shutil.rmtree(target, ignore_errors=True)
 
     def test_profile_is_only_output_relocation_and_not_a_new_policy(self):
         source = {"schema_version": 2, "online_time": {"max_move_ms": 4000},

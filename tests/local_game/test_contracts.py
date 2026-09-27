@@ -87,6 +87,17 @@ class ContractTests(unittest.TestCase):
             with self.assertRaises(QualificationError):
                 retain_report_runs(source, root / "retained", ["fresh"], set(), "test")
 
+    def test_replay_retention_rejects_top_level_symlink(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "source"
+            real = source / "real"
+            real.mkdir(parents=True)
+            (real / "manifest.json").write_text("{}", encoding="utf-8")
+            (source / "alias").symlink_to(real, target_is_directory=True)
+            with self.assertRaises(QualificationError):
+                retain_report_runs(source, root / "retained", ["alias"], set(), "test")
+
     def test_fastchess_target_reset_does_not_follow_nested_symlinks(self):
         target = ROOT / "build" / "local1-reset-target-test"
         shutil.rmtree(target, ignore_errors=True)

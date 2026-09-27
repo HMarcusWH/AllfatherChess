@@ -33,7 +33,24 @@ echo "==> Building Reckless target-cpu=x86-64"
 )
 cp "$ROOT/engines/reckless/target/x86_64-unknown-linux-gnu/release/reckless" "$BUNDLE/bin/reckless"
 
-echo "==> Building LC0 BLAS"
+echo "==> Verifying portable LC0 cross-runner build contract"
+python3 - "$ROOT/qualification/lc0-strength-profile.json" "$POLICY" <<'PY'
+import json,sys
+profile=json.load(open(sys.argv[1],encoding="utf-8"))
+policy=json.load(open(sys.argv[2],encoding="utf-8"))
+required={
+    "-Dnative_arch=false", "-Dispc=false", "-Dispc_native_only=false",
+    "-Dpopcnt=false", "-Df16c=false", "-Dpext=false",
+}
+missing=sorted(required-set(profile["build"]["meson_options"]))
+assert not missing, f"portable LC0 Meson options missing: {missing}"
+lc0=policy["builds"]["lc0"]
+assert lc0["isa"]=="x86-64-portable"
+for key in ("native_arch","ispc","ispc_native_only","popcnt","f16c","pext"):
+    assert lc0[key] is False, f"ONLINE-2 LC0 portability drift: {key}={lc0[key]!r}"
+PY
+
+echo "==> Building LC0 BLAS (portable x86_64 reference)"
 bash "$ROOT/scripts/build-lc0-strength.sh"
 cp "$ROOT/engines/lc0/build/release/lc0" "$BUNDLE/bin/lc0"
 

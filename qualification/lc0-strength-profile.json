@@ -24,7 +24,13 @@
       "-Dsycl=off",
       "-Dhip=false",
       "-Dgtest=false",
-      "-Db_lto=false"
+      "-Db_lto=false",
+      "-Dnative_arch=false",
+      "-Dispc=false",
+      "-Dispc_native_only=false",
+      "-Dpopcnt=false",
+      "-Df16c=false",
+      "-Dpext=false"
     ],
     "required_packages": [
       "meson",

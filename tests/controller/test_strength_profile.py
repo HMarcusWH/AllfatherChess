@@ -55,6 +55,16 @@ class StrengthProfileStaticTests(unittest.TestCase):
         validate_profile(self.profile)
         self.assertNotEqual(self.profile["runtime"]["Backend"], "random")
         self.assertGreater(self.profile["runtime"]["MinibatchSize"], 0)
+        self.assertTrue(
+            {
+                "-Dnative_arch=false",
+                "-Dispc=false",
+                "-Dispc_native_only=false",
+                "-Dpopcnt=false",
+                "-Df16c=false",
+                "-Dpext=false",
+            }.issubset(set(self.profile["build"]["meson_options"]))
+        )
         self.assertEqual(
             set(self.profile["build"]["required_packages"]),
             {
@@ -95,6 +105,15 @@ class StrengthProfileStaticTests(unittest.TestCase):
                 "record_memory": True,
             },
         )
+
+    def test_native_only_reference_build_is_rejected(self):
+        profile = copy.deepcopy(self.profile)
+        profile["build"]["meson_options"] = [
+            item for item in profile["build"]["meson_options"]
+            if item != "-Dnative_arch=false"
+        ] + ["-Dnative_arch=true"]
+        with self.assertRaises(StrengthProfileError):
+            validate_profile(profile)
 
     def test_random_backend_is_rejected(self):
         profile = copy.deepcopy(self.profile)

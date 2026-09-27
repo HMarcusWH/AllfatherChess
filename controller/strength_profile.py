@@ -179,6 +179,20 @@ def validate_profile(data: dict[str, Any]) -> None:
         raise StrengthProfileError("build.meson_options must be non-empty strings")
     if not any(item == "-Dbuild_backends=true" for item in options):
         raise StrengthProfileError("strength build must enable neural backends")
+    portable_options = {
+        "-Dnative_arch=false",
+        "-Dispc=false",
+        "-Dispc_native_only=false",
+        "-Dpopcnt=false",
+        "-Df16c=false",
+        "-Dpext=false",
+    }
+    missing_portable = sorted(portable_options - set(options))
+    if missing_portable:
+        raise StrengthProfileError(
+            "strength/reference LC0 build must be portable across x86_64 runners; "
+            f"missing Meson options: {missing_portable}"
+        )
     packages = build.get("required_packages")
     if not isinstance(packages, list) or not all(
         isinstance(item, str) and item for item in packages

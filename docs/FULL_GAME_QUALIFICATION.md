@@ -283,9 +283,11 @@ The required PR/main gate is intentionally bounded. The optional 200-game soak i
 
 Fastchess source tests are executed first on Ubuntu 22.04 and uploaded as an attestation.
 A separate Ubuntu 24.04 build job then consumes that mandatory host/source-bound attestation,
-builds one exact Fastchess + ONLINE-2 qualification bundle, and uploads it once. Required
-games, every soak shard, and the soak aggregator consume that **same binary bundle** rather
-than rebuilding independently.
+builds one exact Fastchess + ONLINE-2 qualification bundle, and uploads it once. Because the
+build job and game job can land on different GitHub-hosted CPU models, the LC0 BLAS binary in
+that bundle is explicitly portable x86_64: `native_arch`, ISPC native-only code, POPCNT, F16C
+and PEXT-only assumptions are disabled in the frozen profile. Required games, every soak shard,
+and the soak aggregator consume that **same binary bundle** rather than rebuilding independently.
 
 The soak no longer attempts roughly 104 serial Fastchess jobs inside one 330-minute workflow
 job. A manual soak dispatch uses **10 parallel bounded shards**, each receiving a

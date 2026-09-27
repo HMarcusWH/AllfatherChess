@@ -7,9 +7,14 @@ import unittest
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from tests.local_game.test_contracts import events
-from tools.local_game.common import QualificationError
-from tools.local_game.integrity import verify_session_commands, finite_metrics
-from tools.local_game.validate import apply_scope_flags, verify_runner_log
+from tools.local_game.common import QualificationError, file_record, save, sha
+from tools.local_game.integrity import (
+    finite_metrics,
+    verify_fastchess_attestation,
+    verify_session_commands,
+    verify_specialist_settlements,
+)
+from tools.local_game.validate import apply_scope_flags, verify_game_clocks, verify_runner_log
 
 
 class EffectiveCommandTests(unittest.TestCase):
@@ -18,7 +23,7 @@ class EffectiveCommandTests(unittest.TestCase):
         lines = events([("in", "setoption name UCI_Chess960 value false"),
                         ("in", "ucinewgame"),
                         ("in", "position startpos"),
-                        ("in", "go wtime 30000 btime 30000 winc 1000 binc 1000")])
+                        ("in", "go wtime 31000 btime 31000 winc 1000 binc 1000")])
         verify_session_commands(lines, "allfather-g3", plan, {})
         for suffix in (" nodes 1", " movetime 500", " searchmoves e2e4"):
             changed = copy.deepcopy(lines)
@@ -71,19 +76,98 @@ class EffectiveCommandTests(unittest.TestCase):
                                           "reaped_subtree_cpu_ms": 1,
                                           "proxy_cpu_ms": 1}})
 
-    def test_first_transmitted_clock_must_match_frozen_control(self):
+    def test_fastchess_clock_state_starts_at_base_plus_increment_and_preserves_opponent(self):
+        import chess
+        import chess.pgn
+
+        game = chess.pgn.Game()
+        game.headers["White"] = "stockfish"
+        game.headers["Black"] = "reckless"
+        node = game.add_variation(chess.Move.from_uci("e2e4"))
+        node.add_variation(chess.Move.from_uci("e7e5"))
+        streams = {
+            "stockfish": [{
+                "command": "go wtime 31000 btime 31000 winc 1000 binc 1000",
+            }],
+            "reckless": [{
+                "command": "go wtime 31900 btime 31000 winc 1000 binc 1000",
+            }],
+        }
         plan = {"clock": "0:30+1", "driver_nodes": None}
-        lines = events([
-            ("in", "setoption name UCI_Chess960 value false"),
-            ("in", "ucinewgame"),
-            ("in", "position startpos"),
-            ("in", "go wtime 30000 btime 30000 winc 1000 binc 1000"),
-        ])
-        verify_session_commands(lines, "allfather-g3", plan, {})
-        changed = copy.deepcopy(lines)
-        changed[-1]["line"] = "go wtime 1 btime 1 winc 1000 binc 1000"
+        verify_game_clocks(game, streams, plan, 0)
+
+        bad_initial = copy.deepcopy(streams)
+        bad_initial["stockfish"][0]["command"] = (
+            "go wtime 30000 btime 30000 winc 1000 binc 1000"
+        )
         with self.assertRaises(QualificationError):
-            verify_session_commands(changed, "allfather-g3", plan, {})
+            verify_game_clocks(game, bad_initial, plan, 0)
+
+        bad_opponent = copy.deepcopy(streams)
+        bad_opponent["reckless"][0]["command"] = (
+            "go wtime 31900 btime 30999 winc 1000 binc 1000"
+        )
+        with self.assertRaises(QualificationError):
+            verify_game_clocks(game, bad_opponent, plan, 0)
+
+    def test_specialist_authorize_must_resolve_exactly_once(self):
+        authorize = {
+            "event": "authorize", "reservation_token": "verify:1:r",
+            "granted": True, "phase": "verify",
+            "requested_cpu_ms": 10, "requested_gpu_ms": 0,
+        }
+        settle = {
+            "event": "settle", "reservation_token": "verify:1:r",
+            "granted": True, "phase": "verify",
+            "requested_cpu_ms": 10, "requested_gpu_ms": 0,
+        }
+        self.assertTrue(verify_specialist_settlements([authorize, settle], 0))
+        self.assertFalse(verify_specialist_settlements([authorize], 1))
+        with self.assertRaises(QualificationError):
+            verify_specialist_settlements([authorize, settle, settle], 0)
+        with self.assertRaises(QualificationError):
+            verify_specialist_settlements([settle], 0)
+
+    def test_fastchess_attestation_is_mandatory_and_host_bound(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            fc_root = root / "fastchess"
+            fc_root.mkdir()
+            lock_path = root / "lock.json"
+            lock = {
+                "repository": "https://example.invalid/fastchess.git",
+                "commit": "a" * 40,
+                "tree": "b" * 40,
+            }
+            save(lock_path, lock)
+            attestation_path = fc_root / "source-test-attestation.json"
+            attestation = {
+                "passed": True,
+                "repository": lock["repository"],
+                "commit": lock["commit"],
+                "tree": lock["tree"],
+                "lock_sha256": sha(lock_path),
+                "reference_host": "ubuntu-22.04",
+                "os_release": {"ID": "ubuntu", "VERSION_ID": "22.04"},
+                "contract": "clean -> make tests -> fastchess-tests",
+                "compiler": "g++ test",
+            }
+            save(attestation_path, attestation)
+            fc = {
+                "upstream_tests_passed": True,
+                "lock_sha256": sha(lock_path),
+                "source_test_attestation": file_record(attestation_path, fc_root),
+            }
+            verify_fastchess_attestation(fc_root, fc, lock_path)
+            missing = dict(fc)
+            missing.pop("source_test_attestation")
+            with self.assertRaises(QualificationError):
+                verify_fastchess_attestation(fc_root, missing, lock_path)
+            attestation["reference_host"] = "ubuntu-24.04"
+            save(attestation_path, attestation)
+            fc["source_test_attestation"] = file_record(attestation_path, fc_root)
+            with self.assertRaises(QualificationError):
+                verify_fastchess_attestation(fc_root, fc, lock_path)
 
 
 if __name__ == "__main__":

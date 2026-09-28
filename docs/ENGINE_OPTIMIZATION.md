@@ -90,3 +90,25 @@ so a reproducible portable Reckless PGO path remains a future build experiment.
 The pre-selection G3-v2 run also produced a genuine non-anchor authority event:
 `c2c4 -> g1f3` in the frozen queen-pawn case. That event remains diagnostic until the
 final selected exact head reruns G3-v2 and LOCAL-1-v2.
+
+
+## Replay preparation repair
+
+The first repair moved per-run directory creation off the clocked path, but LOCAL-1 run
+`36440361529` isolated the next blocking surface: generations 54 and 40 still lost replay
+evidence because construction of the anchor `TelemetryStreamWriter` exceeded the remaining
+~100 ms pre-anchor preparation budget. The authority path correctly continued and the
+lifecycle gate correctly refused qualification.
+
+The prepared object is therefore now a complete future **replay slot**: a staging directory,
+an already-open anchor JSONL file, and an already-running telemetry writer thread. When the
+clocked request arrives, the coordinator performs only a same-filesystem directory rename
+and binds the position-specific telemetry adapter in memory before the first event is
+enqueued. Creation of the following slot is requested only after the current anchor dispatch
+attempt, so directory creation, file open, and writer-thread startup do not consume the
+current request's pre-anchor budget.
+
+The original bounded fallback remains intact when no prepared slot is available. It may
+still fail open to Stockfish authority, but a missing replay remains a qualification failure.
+Unused prepared writers are closed and removed on shutdown; their staging root is a sibling
+of the replay corpus, so they cannot be mistaken for finalized evidence.

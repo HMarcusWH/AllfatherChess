@@ -209,8 +209,8 @@ class VerificationRun:
         family: str,
         search_id: str,
         command: str,
-        phase: str,
-        effective_options: dict[str, object],
+        phase: str = "VERIFY",
+        effective_options: dict[str, object] | None = None,
         dispatched_ms: float,
     ) -> VerificationStage:
         with self._lock:
@@ -224,7 +224,7 @@ class VerificationRun:
                 search_id=search_id,
                 command=command,
                 phase=phase,
-                effective_options=dict(effective_options),
+                effective_options=dict(effective_options or {}),
                 candidate_roots=self.plan.candidate_roots,
                 dispatch_order=self._dispatch_counter,
                 dispatched_ms=dispatched_ms,

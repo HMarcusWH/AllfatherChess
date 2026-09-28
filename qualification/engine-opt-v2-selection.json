@@ -6,11 +6,11 @@
   "selected": {
     "stockfish": {
       "build_profile": "x86-64-pgo",
-      "hash_mb": 64
+      "hash_mb": 16
     },
     "reckless": {
       "build_profile": "x86-64",
-      "hash_mb": 64
+      "hash_mb": 16
     },
     "lc0": {
       "backend": "blas",

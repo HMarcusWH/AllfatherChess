@@ -176,8 +176,8 @@ class StagedVerificationRun:
         family: str,
         search_id: str,
         command: str,
-        phase: str,
-        effective_options: dict[str, object],
+        phase: str = "STAGED_VERIFY",
+        effective_options: dict[str, object] | None = None,
         dispatched_ms: float,
     ) -> StagedVerificationStage:
         with self._lock:
@@ -197,7 +197,7 @@ class StagedVerificationRun:
                 search_id=search_id,
                 command=command,
                 phase=phase,
-                effective_options=dict(effective_options),
+                effective_options=dict(effective_options or {}),
                 candidate_roots=self.candidate_roots,
                 dispatched_ms=dispatched_ms,
                 dispatch_order=self._dispatch_counter,

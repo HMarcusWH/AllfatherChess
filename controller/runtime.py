@@ -98,7 +98,7 @@ class BackendSpec:
     args: tuple[str, ...]
     environment: dict[str, str]
     options: dict[str, object]
-    phase_options: dict[str, dict[str, object]]
+    phase_options: dict[str, dict[str, object]] = field(default_factory=dict)
     warmup: BackendWarmup | None = None
 
 

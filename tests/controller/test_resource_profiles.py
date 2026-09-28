@@ -171,6 +171,20 @@ class ResourceProfileContractTests(unittest.TestCase):
                 MutationBoundary.GAME,
             )
 
+    def test_uci_option_names_with_spaces_are_supported(self):
+        item = ProfileOption(
+            "Move Overhead",
+            10,
+            MutationBoundary.GAME,
+        )
+        self.assertEqual(item.name, "Move Overhead")
+        with self.assertRaises(OrchestrationContractError):
+            ProfileOption(
+                " Move Overhead",
+                10,
+                MutationBoundary.GAME,
+            )
+
     def test_search_option_requires_phase_and_heavy_option_may_not_claim_one(self):
         with self.assertRaises(OrchestrationContractError):
             ProfileOption("MultiPV", 1, MutationBoundary.SEARCH)
@@ -232,6 +246,19 @@ class ResourceProfileContractTests(unittest.TestCase):
                 work_chunk_ids=(),
                 qualification=qualification(),
             )
+
+    def test_unknown_serialized_profile_fields_and_missing_authority_are_rejected(self):
+        raw = profile().as_dict()
+
+        hidden = copy.deepcopy(raw)
+        hidden["authorized_move"] = "e2e4"
+        with self.assertRaises(OrchestrationContractError):
+            EngineResourceProfile.from_dict(hidden)
+
+        missing = copy.deepcopy(raw)
+        missing.pop("authority")
+        with self.assertRaises(OrchestrationContractError):
+            EngineResourceProfile.from_dict(missing)
 
     def test_profile_has_no_move_authority(self):
         item = profile()

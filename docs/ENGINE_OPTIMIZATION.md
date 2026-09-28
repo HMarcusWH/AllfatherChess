@@ -35,18 +35,28 @@ source `72fe32567591804061b0489b1bb73743dc0f3c9d`. Artifact identities, per-repo
 SHA-256 hashes, extracted measurements and the selected profile are frozen in
 `qualification/engine-opt-v2-evidence.json`.
 
-The LC0 diagnosis was decisive. At n16 on the real 791556 BLAS network, the v1-style
+The LC0 diagnosis was decisive, but the first selection was not repeatable enough. At n16
+on the real 791556 BLAS network, the v1-style
 `NNCacheSize=0 / MinibatchSize=32 / MaxPrefetch=32` profile measured **1250.602 ms**
-median wall time. The selected conventional CPU profile,
+median wall time. The first choice,
 `NNCacheSize=262144 / MinibatchSize=0 / MaxPrefetch=0`, measured **272.053 ms**
-median and **301.016 ms** maximum on the same eight-position corpus, while preserving
-the same bestmove vector. That is roughly a **78% reduction in median wall time**.
+median and **301.016 ms** maximum and initially matched the v1 bestmove vector.
 
-The 2M-entry cache was only slightly faster in its measured warm lane (263.504 ms median)
-but raised median RSS from about 151 MiB to 241 MiB, so the 256k cache is selected for the
-CPU specialist efficiency frontier. A 64-node startup warmup did not improve the selected
-profile (277.580 ms warm versus 272.053 ms cold), so the selected v2 profile disables
-startup warmup.
+The exact-head rerun on workflow `36366449343` exposed a host-sensitive batch-boundary
+failure in that choice: the rook-endgame case changed from `f2f3` to `h2h3` while the
+v1 control remained `f2f3`. The aggregate correctly rejected promotion.
+
+The revised candidate is the cross-run-stable
+`NNCacheSize=262144 / MinibatchSize=7 / MaxPrefetch=8` profile with a 64-node startup
+warmup. It preserved the complete 8/8 v1 bestmove vector on both the original measurement
+run and the failed exact-head run, with median wall times **337.053 ms** and **329.912 ms**
+and maxima **448.091 ms** and **440.476 ms** respectively. The workflow now repeats both
+the v1 baseline and the selected profile three times on the exact candidate head before
+promotion. Additional cold minibatch candidates remain in the matrix so a future no-warmup
+profile can replace this one only with measured repeatability evidence.
+
+The 2M-entry cache remained slightly faster in one warm lane but used materially more
+memory, so the 256k cache remains on the CPU specialist efficiency frontier.
 
 Adaptive prefetch is **not** promoted. The measured adaptive 2M-cache lane remained around
 1074 ms median at n16. This does not reject the research idea; it establishes that the
@@ -62,10 +72,11 @@ Portable Stockfish PGO measured 584.329 ms versus 595.832 ms for the same-source
 build and is selected. Stockfish hash differences were sub-1% and therefore not promoted
 without strength evidence; both Stockfish and Reckless retain 16 MiB hash.
 
-The selected LC0 reservation estimate is reduced from 1600 ms to **400 ms**. Real G3-v2
-evidence measured at most 240 ms LC0 EXPLORE CPU and 190 ms staged-VERIFY CPU on the frozen
-positive corpus, while the profile matrix maximum was about 301 ms wall. The 400 ms value
-retains headroom while removing severe over-reservation.
+The revised candidate uses owner-specific provisional reservations of **600 ms for LC0
+EXPLORE** and **800 ms for LC0 VERIFY/staged VERIFY**. These are deliberately conservative
+until the revised profile is exercised by the fresh exact-head G3-v2 run. The aggregate
+now reads the retained physical resource reports and refuses promotion if measured LC0
+stage CPU exceeds either selected reservation.
 
 The frozen measurement run is the **selection basis**, not the final exact-head qualification:
 subsequent commits apply the chosen profile and harden phase/resource dispatch ordering.

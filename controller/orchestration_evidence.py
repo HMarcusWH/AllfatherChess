@@ -17,6 +17,7 @@ from controller.resource_profiles import (
     _enum,
     _mapping,
     _positive_int,
+    _reject_unknown,
     _safe_id,
     _sha256,
 )
@@ -108,8 +109,25 @@ class ProfileApplicationEvidence:
                 f"unsupported profile application schema_version: "
                 f"{raw.get('schema_version')!r}"
             )
+        _reject_unknown(
+            raw,
+            {
+                "application_id",
+                "schema_version",
+                "instance",
+                "profile_id",
+                "profile_digest",
+                "boundary",
+                "effective_options_digest",
+                "resource_state_digest",
+                "success",
+                "faults",
+                "authority",
+            },
+            "profile application evidence",
+        )
         authority = raw.get("authority")
-        if authority is not None and authority != {
+        if authority != {
             "resource_evidence": True,
             "resource_authorization": False,
             "outward_move": False,
@@ -128,7 +146,7 @@ class ProfileApplicationEvidence:
             faults=_faults(raw.get("faults", []), "profile application faults"),
         )
         claimed = raw.get("application_id")
-        if claimed is not None and claimed != item.application_id:
+        if claimed != item.application_id:
             raise OrchestrationContractError(
                 "profile application application_id does not match canonical payload"
             )
@@ -205,8 +223,26 @@ class OrchestrationEvidence:
                 f"unsupported orchestration evidence schema_version: "
                 f"{raw.get('schema_version')!r}"
             )
+        _reject_unknown(
+            raw,
+            {
+                "schema_version",
+                "evidence_version",
+                "run_id",
+                "generation",
+                "position_id",
+                "game_environment_digest",
+                "composition_profile_digest",
+                "profile_catalog_digest",
+                "application_ids",
+                "grant_ids",
+                "faults",
+                "authority",
+            },
+            "orchestration evidence",
+        )
         authority = raw.get("authority")
-        if authority is not None and authority != {
+        if authority != {
             "resource_evidence": True,
             "resource_authorization": False,
             "outward_move": False,

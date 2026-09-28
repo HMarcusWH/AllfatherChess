@@ -108,7 +108,13 @@ def run(spec: dict) -> int:
         command = [sys.executable, "-m", "controller", "--config", str(session / "runtime.json")]
     else:
         name = {"stockfish": "stockfish-anchor", "reckless": "reckless-shadow", "lc0": "lc0-shadow"}[arm]
-        command = [str(root / source["instances"][name]["binary"])]
+        engine = source["instances"][name]
+        raw_args = engine.get("args", [])
+        require(
+            isinstance(raw_args, list) and all(isinstance(item, str) for item in raw_args),
+            f"{arm}: source runtime engine args must be an array of strings",
+        )
+        command = [str(root / engine["binary"]), *raw_args]
     environment = os.environ.copy()
     environment.update(spec.get("environment", {}))
     # Subreaper permits deterministic accounting/reaping of accidental orphan descendants.

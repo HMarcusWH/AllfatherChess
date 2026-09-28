@@ -29,17 +29,77 @@ cp "$LC0_NET" "$BUNDLE/networks/791556.pb.gz"
 python3 - "$ROOT" "$BUNDLE" "$POLICY" <<'PY'
 import hashlib,json,subprocess,sys
 from pathlib import Path
-root=Path(sys.argv[1]); bundle=Path(sys.argv[2]); policy_path=Path(sys.argv[3])
-def digest(p):
- h=hashlib.sha256()
- with Path(p).open('rb') as f:
-  for b in iter(lambda:f.read(1<<20),b''): h.update(b)
- return h.hexdigest()
+root=Path(sys.argv[1]).resolve()
+bundle=Path(sys.argv[2]).resolve()
+policy_path=Path(sys.argv[3]).resolve()
+def load(path):
+    return json.loads(Path(path).read_text(encoding="utf-8"))
+def digest(path):
+    h=hashlib.sha256()
+    with Path(path).open("rb") as f:
+        for block in iter(lambda:f.read(1<<20),b""):
+            h.update(block)
+    return h.hexdigest()
 def rec(rel):
- p=bundle/rel; return {'path':rel,'size':p.stat().st_size,'sha256':digest(p)}
-policy=json.loads(policy_path.read_text())
-source=subprocess.check_output(['git','-C',str(root),'rev-parse','HEAD'],text=True).strip()
-manifest={'schema_version':1,'profile_id':policy['profile_id'],'source_commit':source,'contracts':{'policy_sha256':digest(policy_path),'selection_sha256':digest(root/'qualification/engine-opt-v2-selection.json'),'derived_lock_sha256':digest(root/'qualification/engine-derived-lock.json')},'builds':policy['builds'],'artifacts':{'engines':{k:rec(v['artifact']) for k,v in policy['builds'].items()},'networks':{k:rec(v['network_artifact']) for k,v in policy['builds'].items()}}}
-(bundle/'build-manifest.json').write_text(json.dumps(manifest,indent=2,sort_keys=True)+'\n')
+    path=bundle/rel
+    return {"path":rel,"size":path.stat().st_size,"sha256":digest(path)}
+def git(*args):
+    return subprocess.check_output(["git","-C",str(root),*args],text=True).strip()
+
+policy=load(policy_path)
+vendor=load(root/"vendor.lock.json")
+derived=load(root/"qualification/engine-derived-lock.json")
+source=git("rev-parse","HEAD")
+source_tree=git("rev-parse","HEAD^{tree}")
+engine_trees={
+    family:git("rev-parse",f"HEAD:engines/{family}")
+    for family in ("stockfish","reckless","lc0")
+}
+for family,tree in engine_trees.items():
+    expected=(derived.get("engines") or {}).get(family,{}).get("derived_tree")
+    if tree != expected:
+        raise SystemExit(
+            f"derived engine tree drift for {family}: checkout={tree} lock={expected}"
+        )
+
+manifest={
+    "schema_version":1,
+    "profile_id":policy["profile_id"],
+    "source_commit":source,
+    "source_tree":source_tree,
+    "contracts":{
+        "vendor_lock_sha256":digest(root/"vendor.lock.json"),
+        "policy_sha256":digest(policy_path),
+        "runtime_config_sha256":digest(root/policy["runtime_config"]),
+        "selection_sha256":digest(root/"qualification/engine-opt-v2-selection.json"),
+        "derived_lock_sha256":digest(root/"qualification/engine-derived-lock.json"),
+        "lc0_strength_lock_sha256":digest(root/"qualification/lc0-strength.lock.json"),
+        "lc0_strength_profile_sha256":digest(root/"qualification/lc0-strength-profile.json"),
+    },
+    "vendor":{
+        family:{
+            "commit":vendor["engines"][family]["commit"],
+            "tree":vendor["engines"][family]["tree"],
+        }
+        for family in ("stockfish","reckless","lc0")
+    },
+    "derived_engine_trees":engine_trees,
+    "builds":policy["builds"],
+    "artifacts":{
+        "engines":{
+            family:rec(policy["builds"][family]["artifact"])
+            for family in ("stockfish","reckless","lc0")
+        },
+        "networks":{
+            family:rec(policy["builds"][family]["network_artifact"])
+            for family in ("stockfish","reckless","lc0")
+        },
+    },
+}
+(bundle/"build-manifest.json").write_text(
+    json.dumps(manifest,indent=2,sort_keys=True,allow_nan=False)+"\n",
+    encoding="utf-8",
+)
+print("ENGINE-OPT-V2 manifest source",source,source_tree)
 PY
 echo "==> ENGINE-OPT-V2 bundle ready: $BUNDLE"

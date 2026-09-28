@@ -187,7 +187,13 @@ def session_games(directory: Path, arm: str, source: dict, source_runtime: str, 
         else:
             instance = {"stockfish": "stockfish-anchor", "reckless": "reckless-shadow",
                         "lc0": "lc0-shadow"}[arm]
-            expected_command = [str(ROOT / source["instances"][instance]["binary"])]
+            engine = source["instances"][instance]
+            raw_args = engine.get("args", [])
+            require(
+                isinstance(raw_args, list) and all(isinstance(item, str) for item in raw_args),
+                f"{arm}: source runtime engine args must be an array of strings",
+            )
+            expected_command = [str(ROOT / engine["binary"]), *raw_args]
         require(summary.get("command") == expected_command,
                 f"{arm}: launched command differs from frozen arm")
         trace = verify_record(session, summary["transcript"])

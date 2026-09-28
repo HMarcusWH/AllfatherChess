@@ -16,12 +16,13 @@ from tools.local_game.common import load, save
 
 @unittest.skipUnless(sys.platform == "linux", "procfs reference")
 class ProxyTests(unittest.TestCase):
-    def exercise(self, *, duplicate=False, leak=False):
+    def exercise(self, *, duplicate=False, leak=False, engine_args=None):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "config").mkdir()
             binary = root / "engine"
             binary.write_text("#!/usr/bin/env python3\nimport sys, subprocess\n" +
+                ("assert '--required-arg' in sys.argv\n" if engine_args else "") +
                 ("subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(120)'])\n" if leak else "") +
                 "for raw in sys.stdin:\n"
                 " line=raw.strip()\n"
@@ -33,7 +34,9 @@ class ProxyTests(unittest.TestCase):
                 " elif line=='quit': break\n")
             binary.chmod(0o755)
             save(root / "config/allfather.online-hybrid.validation.json",
-                 {"instances": {"stockfish-anchor": {"binary": str(binary)}}})
+                 {"instances": {"stockfish-anchor": {
+                     "binary": str(binary), "args": list(engine_args or [])
+                 }}})
             spec = root / "spec.json"
             save(spec, {"root": str(root), "arm": "stockfish", "sessions": str(root / "build/sessions")})
             child = subprocess.Popen([sys.executable, "-m", "tools.local_game.proxy", "--spec", str(spec)],
@@ -70,6 +73,11 @@ class ProxyTests(unittest.TestCase):
         self.assertFalse(result["errors"])
         self.assertTrue(result["resources"]["cpu_complete"])
         self.assertGreater(result["resources"]["reaped_subtree_cpu_ms"], 0)
+
+    def test_direct_engine_args_are_preserved(self):
+        result = self.exercise(engine_args=["--required-arg"])
+        self.assertEqual(result["command"][-1], "--required-arg")
+        self.assertFalse(result["errors"])
 
     def test_duplicate_is_not_hidden_from_runner(self):
         result = self.exercise(duplicate=True)

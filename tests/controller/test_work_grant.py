@@ -156,6 +156,22 @@ class WorkGrantContractTests(unittest.TestCase):
                 cost_evidence_digest=SHA_D,
             )
 
+    def test_negative_zero_is_canonicalized_for_resource_identity(self):
+        first = chunk()
+        second = WorkChunk(
+            chunk_id=first.chunk_id,
+            family=first.family,
+            phase=first.phase,
+            purpose=first.purpose,
+            native_limit=first.native_limit,
+            reserved_cpu_ms=first.reserved_cpu_ms,
+            reserved_gpu_ms=-0.0,
+            wall_bound_ms=first.wall_bound_ms,
+            cost_evidence_digest=first.cost_evidence_digest,
+        )
+        self.assertEqual(first.as_dict(), second.as_dict())
+        self.assertEqual(first.digest, second.digest)
+
     def test_grant_round_trip_and_identity_are_stable(self):
         first = grant()
         raw = first.as_dict()
@@ -200,6 +216,16 @@ class WorkGrantContractTests(unittest.TestCase):
         tampered["authority"]["outward_move"] = True
         with self.assertRaises(OrchestrationContractError):
             WorkGrant.from_dict(tampered)
+
+        missing = copy.deepcopy(raw)
+        missing.pop("grant_id")
+        with self.assertRaises(OrchestrationContractError):
+            WorkGrant.from_dict(missing)
+
+        hidden = copy.deepcopy(raw)
+        hidden["authorized_move"] = "e2e4"
+        with self.assertRaises(OrchestrationContractError):
+            WorkGrant.from_dict(hidden)
 
     def test_generation_must_be_positive_integer_not_bool(self):
         item = grant()

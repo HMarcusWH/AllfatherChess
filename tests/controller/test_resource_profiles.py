@@ -184,6 +184,12 @@ class ResourceProfileContractTests(unittest.TestCase):
                 10,
                 MutationBoundary.GAME,
             )
+        with self.assertRaises(OrchestrationContractError):
+            ProfileOption(
+                "Move\nOverhead",
+                10,
+                MutationBoundary.GAME,
+            )
 
     def test_search_option_requires_phase_and_heavy_option_may_not_claim_one(self):
         with self.assertRaises(OrchestrationContractError):
@@ -219,6 +225,25 @@ class ResourceProfileContractTests(unittest.TestCase):
         )
         with self.assertRaises(OrchestrationContractError):
             profile(options=(option, option))
+
+    def test_environment_identity_matches_runtime_contract_and_allows_empty_value(self):
+        item = ProcessIdentity(
+            binary_sha256=SHA_A,
+            environment=(("CUDA_VISIBLE_DEVICES", ""),),
+        )
+        self.assertEqual(
+            item.as_dict()["environment"]["CUDA_VISIBLE_DEVICES"],
+            "",
+        )
+        with self.assertRaises(OrchestrationContractError):
+            ProcessIdentity(
+                binary_sha256=SHA_A,
+                environment=(("BAD/NAME", "1"),),
+            )
+
+    def test_hierarchical_ids_reject_path_traversal_segments(self):
+        with self.assertRaises(OrchestrationContractError):
+            profile(profile_id="lc0/../escape")
 
     def test_malformed_sha_and_artifact_identity_are_rejected(self):
         with self.assertRaises(OrchestrationContractError):

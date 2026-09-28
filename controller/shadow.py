@@ -673,6 +673,30 @@ class ShadowRunCoordinator:
         )
         return ok
 
+    def _open_anchor_stream_within_budget(
+        self,
+        *,
+        run_id: str,
+        run_dir: Path,
+        deadline: float,
+        instance: str,
+        family: str,
+        adapter_factory: Callable[[str], Any],
+    ) -> TelemetryStreamWriter | None:
+        opened, stream = self._within_prepare_budget(
+            f"{run_id}-anchor-stream",
+            discard=lambda late: self._release_late_stream(run_dir, late),
+            deadline=deadline,
+            work=lambda: TelemetryStreamWriter(
+                instance=instance,
+                family=family,
+                role="anchor",
+                path=run_dir / f"{instance}.jsonl",
+                adapter_factory=adapter_factory,
+            ),
+        )
+        return stream if opened else None
+
     def _variant(self) -> str:
         return "chess960" if self.runtime.chess960 else "standard"
 
@@ -987,19 +1011,15 @@ class ShadowRunCoordinator:
             # This path is deliberately qualification-visible: if opening the
             # stream cannot finish inside the remaining preparation budget, the
             # anchor still runs but no replay bundle is fabricated.
-            opened, anchor_stream = self._within_prepare_budget(
-                f"{run_id}-anchor-stream",
-                discard=lambda stream: self._release_late_stream(run_dir, stream),
+            anchor_stream = self._open_anchor_stream_within_budget(
+                run_id=run_id,
+                run_dir=run_dir,
                 deadline=prepare_deadline,
-                work=lambda: TelemetryStreamWriter(
-                    instance=anchor_name,
-                    family=anchor_spec.family,
-                    role=anchor_spec.role,
-                    path=run_dir / f"{anchor_name}.jsonl",
-                    adapter_factory=anchor_factory,
-                ),
+                instance=anchor_name,
+                family=anchor_spec.family,
+                adapter_factory=anchor_factory,
             )
-            if not opened or anchor_stream is None:
+            if anchor_stream is None:
                 self._discard_run_dir(run_dir)
                 return False
         run.register_stream(anchor_stream)

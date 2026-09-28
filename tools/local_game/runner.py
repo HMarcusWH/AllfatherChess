@@ -175,6 +175,19 @@ def prerequisites(output: Path, p: dict) -> list[dict]:
             label, script, report_name = row.get("id"), row.get("script"), row.get("report")
             require(all(isinstance(x, str) and x for x in (label, script, report_name)),
                     "prerequisite id/script/report must be non-empty strings")
+            retain = row.get("retain_case_replays", False)
+            require(isinstance(retain, bool), f"{label}: retain_case_replays must be boolean")
+            replay_root = None
+            replay_before: set[str] = set()
+            if retain:
+                replay_value = row.get("replay_root")
+                require(isinstance(replay_value, str) and replay_value,
+                        f"{label}: retained prerequisite requires replay_root")
+                replay_root = ROOT / replay_value
+                replay_before = (
+                    {path.name for path in replay_root.iterdir() if path.is_dir()}
+                    if replay_root.is_dir() else set()
+                )
             report=ROOT / report_name
             report.unlink(missing_ok=True)
             result=bounded([sys.executable, script], ROOT, output / f"{label}.log", 1200)
@@ -183,6 +196,17 @@ def prerequisites(output: Path, p: dict) -> list[dict]:
             require(result["returncode"] == 0 and not result["timed_out"], f"{label} prerequisite failed")
             require(report.is_file(), f"{label}: expected prerequisite report not produced: {report}")
             shutil.copy2(report, output / f"{label}.json")
+            if retain:
+                report_doc = load(report)
+                run_ids = referenced_run_ids(report_doc, label)
+                require(replay_root is not None, f"{label}: internal replay-root error")
+                retain_report_runs(
+                    replay_root,
+                    output / f"{label}-replays",
+                    run_ids,
+                    replay_before,
+                    label,
+                )
         return records
 
     online_runtime = load(ROOT / "config/allfather.online.cpu-reference.json")

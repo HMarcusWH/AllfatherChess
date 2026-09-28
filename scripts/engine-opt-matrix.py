@@ -21,6 +21,8 @@ PROFILES=(
  ("auto-p0-c2m-warm64",{"NNCacheSize":2000000,"MinibatchSize":0,"MaxPrefetch":0,"AdaptivePrefetch":False},64),
  ("b7-p12-c2m-warm64",{"NNCacheSize":2000000,"MinibatchSize":7,"MaxPrefetch":12,"AdaptivePrefetch":False},64),
  ("auto-adaptive-c2m-warm64",{"NNCacheSize":2000000,"MinibatchSize":0,"MaxPrefetch":32,"AdaptivePrefetch":True},64),
+ ("b7-p32-c2m-telemetry",{"NNCacheSize":2000000,"MinibatchSize":7,"MaxPrefetch":32,"AdaptivePrefetch":False,"DefectTelemetry":True,"DefectTelemetryIterations":0},64),
+ ("auto-adaptive-c2m-telemetry",{"NNCacheSize":2000000,"MinibatchSize":0,"MaxPrefetch":32,"AdaptivePrefetch":True,"DefectTelemetry":True,"DefectTelemetryIterations":0},64),
 )
 
 def main()->int:
@@ -51,6 +53,19 @@ def main()->int:
                     environment=env,args=["--show-hidden"],warmup_nodes=warmup_nodes,
                 )
                 row["profile"]=profile
+                for transcript_line in row.get("transcript", []):
+                    marker="<< info string DEFECT_TELEMETRY_SUMMARY "
+                    if transcript_line.startswith(marker):
+                        try:
+                            row["defect_telemetry"]=json.loads(transcript_line[len(marker):])
+                        except json.JSONDecodeError as exc:
+                            raise RuntimeError(
+                                f"{profile}/{case.case_id}: malformed defect telemetry summary: {exc}"
+                            ) from exc
+                if delta.get("DefectTelemetry") is True and "defect_telemetry" not in row:
+                    raise RuntimeError(
+                        f"{profile}/{case.case_id}: telemetry-enabled search emitted no summary"
+                    )
                 rows.append(row)
                 profile_rows.append(row)
             except Exception as exc:

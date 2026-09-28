@@ -83,9 +83,42 @@ def verify_prerequisites(output: Path, source: dict, p: dict | None = None) -> N
                 "declared prerequisite execution differs from policy")
         reports = {}
         for row in declared:
-            report = load(root / f"{row['id']}.json")
-            require(report.get("passed") is True, f"{row['id']}: prerequisite report did not pass")
-            reports[row["id"]] = report
+            label = row["id"]
+            report = load(root / f"{label}.json")
+            require(report.get("passed") is True, f"{label}: prerequisite report did not pass")
+            reports[label] = report
+            if row.get("retain_case_replays", False):
+                run_ids = [case.get("run_id") for case in report.get("cases", [])]
+                require(run_ids and all(isinstance(run_id, str) and run_id for run_id in run_ids),
+                        f"{label}: retained prerequisite report has missing run ids")
+                require(len(run_ids) == len(set(run_ids)),
+                        f"{label}: retained prerequisite report reuses a run id")
+                replay_root = root / f"{label}-replays"
+                require(replay_root.is_dir(), f"{label}: retained replay evidence missing")
+                actual = {path.name for path in replay_root.iterdir() if path.is_dir()}
+                require(actual == set(run_ids),
+                        f"{label}: retained replay set differs from report")
+                for run_id in run_ids:
+                    run = contained(replay_root, run_id)
+                    problems = verify_bundle_integrity(run)
+                    require(not problems, f"{label}: replay integrity failed for {run_id}: {problems}")
+                    problems = verify_final_decision_integrity(run)
+                    require(not problems, f"{label}: final decision integrity failed for {run_id}: {problems}")
+                    if (run / "decision/counterfactual.json").is_file():
+                        problems = verify_counterfactual_integrity(run)
+                        require(not problems, f"{label}: counterfactual integrity failed for {run_id}: {problems}")
+                positive = report.get("positive_case")
+                if isinstance(positive, dict):
+                    require(positive.get("run_id") in set(run_ids),
+                            f"{label}: positive run is not retained")
+                    run = contained(replay_root, positive["run_id"])
+                    final = load(run / "decision/final.json")["decision"]
+                    require(
+                        final.get("authority") == positive.get("authority")
+                        and final.get("emitted_move") == positive.get("emitted_move")
+                        and final.get("anchor_move") == positive.get("anchor_move"),
+                        f"{label}: retained positive decision disagrees with report",
+                    )
         engine = reports.get("engine-opt-v2")
         require(isinstance(engine, dict) and engine.get("promotion_ready") is True,
                 "ENGINE-OPT-V2 selection is not measured/frozen for promotion")

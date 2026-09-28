@@ -3091,12 +3091,35 @@ class ShadowRunCoordinator:
             )
         except SearchRequestError:
             return False
-        if active.cancelled or self._closed or active.anchor_completed.is_set():
-            return False
+        reservation_key = f"verify:{owner}"
+        with self._lock:
+            if (
+                active.cancelled
+                or self._closed
+                or active.anchor_completed.is_set()
+                or not self.runtime.shadow_available(instance)
+            ):
+                return False
+            if not self._authorize_specialist(
+                active,
+                key=reservation_key,
+                phase="verify",
+                owner=owner,
+            ):
+                return False
+
+        # Phase reconfiguration is optional specialist work too. It may not
+        # touch an engine until the same resource authority that covers the
+        # following VERIFY search has reserved capacity.
         phase_config_started = time.monotonic()
         try:
             effective_options = self.runtime.configure_shadow_phase(instance, "VERIFY")
         except ControllerRuntimeError as exc:
+            self._release_specialist(
+                active,
+                key=reservation_key,
+                reason="VERIFY reservation released because phase configuration failed",
+            )
             verification.set_disposition(
                 "incomplete",
                 f"VERIFY phase configuration failed for {instance}: {exc}",
@@ -3121,7 +3144,6 @@ class ShadowRunCoordinator:
         # note_anchor_complete(). If the anchor wins the race this stage never
         # starts; if this dispatch wins, it is already in flight and the
         # declared drain/cancel policy applies.
-        reservation_key = f"verify:{owner}"
         with self._lock:
             if (
                 active.cancelled
@@ -3129,13 +3151,14 @@ class ShadowRunCoordinator:
                 or active.anchor_completed.is_set()
                 or not self.runtime.shadow_available(instance)
             ):
-                return False
-            if not self._authorize_specialist(
-                active,
-                key=reservation_key,
-                phase="verify",
-                owner=owner,
-            ):
+                self._release_specialist(
+                    active,
+                    key=reservation_key,
+                    reason=(
+                        "VERIFY reservation released because the decision "
+                        "boundary closed during phase configuration"
+                    ),
+                )
                 return False
             verification.activate_stream(instance)
             stream.begin_stage(
@@ -3508,14 +3531,38 @@ class ShadowRunCoordinator:
             )
         except SearchRequestError:
             return False
-        if active.cancelled or self._closed or active.anchor_completed.is_set():
-            return False
+        reservation_key = f"verify_extension:{owner}"
+        with self._lock:
+            if (
+                active.cancelled
+                or self._closed
+                or active.anchor_completed.is_set()
+                or not self.runtime.shadow_available(instance)
+            ):
+                return False
+            if not self._authorize_specialist(
+                active,
+                key=reservation_key,
+                phase="verify",
+                owner=owner,
+                target_id="staged_extension",
+            ):
+                return False
+
         phase_config_started = time.monotonic()
         try:
             effective_options = self.runtime.configure_shadow_phase(
                 instance, "STAGED_VERIFY"
             )
         except ControllerRuntimeError as exc:
+            self._release_specialist(
+                active,
+                key=reservation_key,
+                reason=(
+                    "staged VERIFY reservation released because phase "
+                    "configuration failed"
+                ),
+            )
             staged.set_disposition(
                 "incomplete",
                 f"staged VERIFY phase configuration failed for {instance}: {exc}",
@@ -3541,7 +3588,6 @@ class ShadowRunCoordinator:
                 line,
             )
 
-        reservation_key = f"verify_extension:{owner}"
         with self._lock:
             if (
                 active.cancelled
@@ -3549,14 +3595,14 @@ class ShadowRunCoordinator:
                 or active.anchor_completed.is_set()
                 or not self.runtime.shadow_available(instance)
             ):
-                return False
-            if not self._authorize_specialist(
-                active,
-                key=reservation_key,
-                phase="verify",
-                owner=owner,
-                target_id="staged_extension",
-            ):
+                self._release_specialist(
+                    active,
+                    key=reservation_key,
+                    reason=(
+                        "staged VERIFY reservation released because the decision "
+                        "boundary closed during phase configuration"
+                    ),
+                )
                 return False
             staged.activate_stream(instance)
             stream.begin_stage(

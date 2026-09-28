@@ -3091,11 +3091,23 @@ class ShadowRunCoordinator:
             )
         except SearchRequestError:
             return False
+        if active.cancelled or self._closed or active.anchor_completed.is_set():
+            return False
+        phase_config_started = time.monotonic()
         try:
             effective_options = self.runtime.configure_shadow_phase(instance, "VERIFY")
         except ControllerRuntimeError as exc:
-            verification.set_disposition("incomplete", f"VERIFY phase configuration failed for {instance}: {exc}")
+            verification.set_disposition(
+                "incomplete",
+                f"VERIFY phase configuration failed for {instance}: {exc}",
+            )
             return False
+        finally:
+            self._charge_controller_elapsed(
+                active,
+                label=f"phase_config_verify_{owner}",
+                elapsed_ms=(time.monotonic() - phase_config_started) * 1000.0,
+            )
         search_id = f"{active.run.run_id}:verify:{instance}:0"
         generation = active.generation
 
@@ -3496,11 +3508,25 @@ class ShadowRunCoordinator:
             )
         except SearchRequestError:
             return False
-        try:
-            effective_options = self.runtime.configure_shadow_phase(instance, "STAGED_VERIFY")
-        except ControllerRuntimeError as exc:
-            staged.set_disposition("incomplete", f"staged VERIFY phase configuration failed for {instance}: {exc}")
+        if active.cancelled or self._closed or active.anchor_completed.is_set():
             return False
+        phase_config_started = time.monotonic()
+        try:
+            effective_options = self.runtime.configure_shadow_phase(
+                instance, "STAGED_VERIFY"
+            )
+        except ControllerRuntimeError as exc:
+            staged.set_disposition(
+                "incomplete",
+                f"staged VERIFY phase configuration failed for {instance}: {exc}",
+            )
+            return False
+        finally:
+            self._charge_controller_elapsed(
+                active,
+                label=f"phase_config_staged_verify_{owner}",
+                elapsed_ms=(time.monotonic() - phase_config_started) * 1000.0,
+            )
         search_id = f"{active.run.run_id}:verify-extension:{instance}:0"
         generation = active.generation
 
@@ -5509,13 +5535,22 @@ class ShadowRunCoordinator:
             run.note(f"owner {state.owner} dispatch rejected: {exc}")
             state.done.set()
             return False
+        phase_config_started = time.monotonic()
         try:
-            effective_options = self.runtime.configure_shadow_phase(state.instance, "EXPLORE")
+            effective_options = self.runtime.configure_shadow_phase(
+                state.instance, "EXPLORE"
+            )
         except ControllerRuntimeError as exc:
             run.note(f"owner {state.owner} EXPLORE phase configuration failed: {exc}")
             state.failed = True
             state.done.set()
             return False
+        finally:
+            self._charge_controller_elapsed(
+                active,
+                label=f"phase_config_explore_{state.owner}",
+                elapsed_ms=(time.monotonic() - phase_config_started) * 1000.0,
+            )
 
         generation = active.generation
 

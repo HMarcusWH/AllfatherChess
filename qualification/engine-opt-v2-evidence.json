@@ -5,7 +5,7 @@
     "workflow_run": 36363702414,
     "source_commit": "72fe32567591804061b0489b1bb73743dc0f3c9d",
     "source_tree": "a39f36e8a36be2c0e24800ccd36d0161cc52915d",
-    "note": "Measurement source predates only the LOCAL-1 synthetic-soak policy-identity test repair; engine/controller/config behavior measured here is the selection basis."
+    "note": "This frozen run is the selection-basis measurement source. Later PR commits apply the measured selection, harden phase/resource dispatch ordering, and repair lifecycle qualification plumbing. The ENGINE-OPT aggregate workflow re-runs the LC0 matrix, constituent A/B, real G3-v2 authority, and LOCAL-1-v2 on the exact candidate head before qualification."
   },
   "artifacts": {
     "candidate": {

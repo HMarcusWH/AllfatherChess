@@ -62,10 +62,19 @@ Portable Stockfish PGO measured 584.329 ms versus 595.832 ms for the same-source
 build and is selected. Stockfish hash differences were sub-1% and therefore not promoted
 without strength evidence; both Stockfish and Reckless retain 16 MiB hash.
 
-The provisional LC0 reservation estimate is reduced from 1600 ms to **400 ms**. Real G3-v2
+The selected LC0 reservation estimate is reduced from 1600 ms to **400 ms**. Real G3-v2
 evidence measured at most 240 ms LC0 EXPLORE CPU and 190 ms staged-VERIFY CPU on the frozen
 positive corpus, while the profile matrix maximum was about 301 ms wall. The 400 ms value
 retains headroom while removing severe over-reservation.
+
+The frozen measurement run is the **selection basis**, not the final exact-head qualification:
+subsequent commits apply the chosen profile and harden phase/resource dispatch ordering.
+The ENGINE-OPT workflow therefore re-runs the LC0 matrix, constituent A/B, real G3-v2
+authority gate and LOCAL-1-v2 on the exact candidate head before the aggregate gate can pass.
+
+Reckless PGO is deliberately not claimed as tested in this milestone. The vendored upstream
+PGO target does not preserve the selected portable x86-64/no-default-features build contract,
+so a reproducible portable Reckless PGO path remains a future build experiment.
 
 The pre-selection G3-v2 run also produced a genuine non-anchor authority event:
 `c2c4 -> g1f3` in the frozen queen-pawn case. That event remains diagnostic until the

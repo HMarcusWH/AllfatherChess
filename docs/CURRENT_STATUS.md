@@ -123,7 +123,9 @@ These are lifecycle/resource integrity properties, not playing-strength claims.
 | `allfather.online.cpu-reference.json` | pinned BLAS/network | yes | no hybrid authority | no | ONLINE-2 real-inference reference |
 | `allfather.hybrid.validation.json` | random | historical movetime-only path | no staged composition | M14-C only | bounded authority regression |
 | `allfather.unified-value.validation.json` | random | no ONLINE composition | yes | no | M14-G2 routing regression |
-| `allfather.online-hybrid.validation.json` | pinned BLAS/network | yes | yes, route-bound staged | **yes, M14-G3** | current integrated authority reference |
+| `allfather.online-hybrid.validation.json` | pinned BLAS/network | yes | yes, route-bound staged | **yes, M14-G3** | current qualified integrated authority reference |
+| `allfather.online-engine-opt-v2.json` | selected BLAS/network profile | yes | no hybrid authority | no | PR #44 optimized CPU reference candidate |
+| `allfather.online-hybrid-v2.validation.json` | selected BLAS/network profile | yes | yes, route-bound staged | yes, same G3 policy | PR #44 optimized hybrid candidate |
 
 The older profiles remain valuable negative/regression controls. M14-G3 is a new composition,
 not permission to erase their firewalls.
@@ -138,9 +140,10 @@ safe phase-specific specialist options, portable constituent build optimization 
 owner-specific resource reservation estimates. It preserves the n16 EXPLORE / n16 VERIFY /
 n32 staged-VERIFY intervention and does not change G3's fail-closed authority semantics.
 
-The checked-in v2 selection is provisional until the exact benchmark report is hash-bound,
-the real-process G3-v2 positive authority gate passes, and the complete v2 lifecycle is
-qualified.
+The v2 engine/profile selection is now measurement-backed and hash-bound in
+`qualification/engine-opt-v2-evidence.json` / `engine-opt-v2-selection.json`. It is still
+**not a qualified replacement for v1** until the exact-head ENGINE-OPT aggregate closes,
+including the real-process G3-v2 authority witness and complete LOCAL-1-v2 lifecycle.
 
 ### 2. ONLINE-3 — reproducible package + pinned Lichess bridge
 

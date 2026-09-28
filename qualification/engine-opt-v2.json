@@ -27,7 +27,10 @@
     "preserve_engine_sources": true,
     "allow_upstream_refresh": false,
     "allow_gpu_promotion": false,
-    "allow_hard_nn_skip": false
+    "allow_hard_nn_skip": false,
+    "deferred_build_axes": {
+      "reckless_pgo": "Deferred: the vendored upstream PGO target does not preserve the selected x86-64/no-default-features production build contract; qualify a reproducible portable PGO path before adding it as a candidate."
+    }
   },
   "candidate_axes": {
     "lc0": {
@@ -77,8 +80,7 @@
     },
     "reckless": {
       "build_profiles": [
-        "x86-64",
-        "x86-64-pgo"
+        "x86-64"
       ]
     }
   },

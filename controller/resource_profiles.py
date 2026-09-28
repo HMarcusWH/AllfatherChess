@@ -118,7 +118,7 @@ def _finite_nonnegative(value: Any, label: str) -> float:
     number = float(value)
     if not math.isfinite(number) or number < 0.0:
         raise OrchestrationContractError(f"{label} must be finite and non-negative")
-    return number
+    return 0.0 if number == 0.0 else number
 
 
 def _finite_positive(value: Any, label: str) -> float:

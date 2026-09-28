@@ -15,6 +15,7 @@ from controller.resource_profiles import (
     ORCHESTRATION_SCHEMA_VERSION,
     OrchestrationContractError,
     _enum,
+    _instance_id,
     _mapping,
     _positive_int,
     _reject_unknown,
@@ -49,7 +50,7 @@ class ProfileApplicationEvidence:
     faults: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
-        _safe_id(self.instance, "profile application instance")
+        _instance_id(self.instance, "profile application instance")
         _safe_id(self.profile_id, "profile application profile_id")
         _sha256(self.profile_digest, "profile application profile_digest")
         boundary = _enum(self.boundary, MutationBoundary, "profile application boundary")
@@ -172,9 +173,9 @@ class OrchestrationEvidence:
                 f"unsupported orchestration evidence version: "
                 f"{self.evidence_version!r}"
             )
-        _safe_id(self.run_id, "orchestration run_id")
+        _instance_id(self.run_id, "orchestration run_id")
         _positive_int(self.generation, "orchestration generation")
-        _safe_id(self.position_id, "orchestration position_id")
+        _instance_id(self.position_id, "orchestration position_id")
         _sha256(self.game_environment_digest, "game_environment_digest")
         _sha256(self.composition_profile_digest, "composition_profile_digest")
         _sha256(self.profile_catalog_digest, "profile_catalog_digest")

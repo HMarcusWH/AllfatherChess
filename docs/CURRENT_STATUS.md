@@ -143,10 +143,12 @@ n32 staged-VERIFY intervention and does not change G3's fail-closed authority se
 The first exact-head ENGINE-OPT aggregate rejected the original p0 LC0 choice after one
 frozen rook-endgame bestmove changed across hosted CPU environments. The revised selection
 uses the cross-run-stable warm b7/p8 256k profile and now requires three exact-head
-confirmation repeats of both baseline and selected profile. In parallel, the ordinary v1
-LOCAL-1 control exposed two missing replay bundles when per-run directory creation exceeded
-the 100 ms pre-anchor observation budget; the repair pre-creates the next directory off the
-clocked path without relaxing the missing-evidence gate.
+confirmation repeats of both baseline and selected profile. In parallel, the ordinary v1 LOCAL-1 control first exposed missing replay bundles when
+per-run directory creation exceeded the 100 ms pre-anchor observation budget. After that
+directory-only repair, run `36440361529` isolated the remaining failure to anchor telemetry
+writer construction. The coordinator now prepares the complete next replay slot off the
+clocked path: directory, open anchor stream, and writer thread. The request-time claim is a
+same-filesystem rename plus in-memory adapter binding; the missing-evidence gate is unchanged.
 
 The revised selection remains **not a qualified replacement for v1** until a fresh exact-head
 ENGINE-OPT aggregate closes, including repeatability, real-process G3-v2 authority/resource

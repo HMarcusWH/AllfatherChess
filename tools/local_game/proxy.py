@@ -98,7 +98,9 @@ def run(spec: dict) -> int:
     require(sessions.is_relative_to(root / "build"), "sessions must be inside build/")
     session = sessions / (f"{time.time_ns()}-{uuid.uuid4().hex}")
     session.mkdir(parents=True, exist_ok=False)
-    source = load(root / "config/allfather.online-hybrid.validation.json")
+    source_runtime = spec.get("source_runtime", "config/allfather.online-hybrid.validation.json")
+    require(isinstance(source_runtime, str) and source_runtime, "proxy source_runtime missing")
+    source = load(root / source_runtime)
     arm = spec["arm"]
     if arm.startswith("allfather-"):
         config = runtime_config(source, arm, root, session / "replays")

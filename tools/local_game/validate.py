@@ -150,7 +150,7 @@ def trace_searches(events: list[dict]) -> dict[int, list[dict]]:
     return dict(games)
 
 
-def session_games(directory: Path, arm: str, source: dict, plan: dict,
+def session_games(directory: Path, arm: str, source: dict, source_runtime: str, plan: dict,
                   campaign_run_ids: set[str], campaign_manifest_hashes: set[str]) -> tuple[list[list[dict]], list[dict]]:
     from .runner import engine_options
 
@@ -178,7 +178,8 @@ def session_games(directory: Path, arm: str, source: dict, plan: dict,
         _, expected_environment = engine_options(arm, source)
         expected_spec = {"schema_version": 1, "arm": arm, "root": str(ROOT),
                          "sessions": str(directory / "sessions" / arm),
-                         "environment": expected_environment}
+                         "environment": expected_environment,
+                         "source_runtime": source_runtime}
         require(summary.get("spec") == expected_spec,
                 f"{arm}: proxy spec/environment differs from frozen arm")
         if arm.startswith("allfather-"):
@@ -401,7 +402,10 @@ def qualify(output: Path) -> dict:
         if m["status"] != "completed" or m["failures"]:
             errors.append(f"campaign incomplete: {m.get('failures')}")
         require(m["source"] == source_identity(), "campaign does not match this source checkout")
-        p = policy()
+        policy_record = m.get("policy")
+        require(isinstance(policy_record, dict), "campaign policy identity missing")
+        policy_file = verify_record(ROOT, policy_record)
+        p = policy(path=policy_file)
         full_schedule = schedule(p, m["mode"])
         shard = m.get("shard") or {"index": 0, "count": 1}
         require(type(shard.get("index")) is int and type(shard.get("count")) is int and
@@ -418,10 +422,11 @@ def qualify(output: Path) -> dict:
         require([j["plan"] for j in m["jobs"]] == expected[:len(m["jobs"])], "altered executed schedule")
         if len(m["jobs"]) != len(expected):
             errors.append(f"unfulfilled jobs: {len(expected) - len(m['jobs'])}")
-        require(len(m["inputs"]) == len(input_paths(p)) and
-                {r["path"] for r in m["inputs"]} == {str(path.relative_to(ROOT)) for path in input_paths(p)},
+        expected_inputs = input_paths(p, policy_file)
+        require(len(m["inputs"]) == len(expected_inputs) and
+                {r["path"] for r in m["inputs"]} == {str(path.relative_to(ROOT)) for path in expected_inputs},
                 "campaign omitted/duplicated/added a required input")
-        fastchess = verify_builds(m["source"])
+        fastchess = verify_builds(m["source"], p)
         for record in m["inputs"]:
             verify_record(ROOT, record)
         actual_paths = {str(path.relative_to(output)) for path in output.rglob("*")
@@ -431,10 +436,13 @@ def qualify(output: Path) -> dict:
         for record in m["artifacts"]:
             verify_record(output, record)
         source = load(ROOT / p["source_runtime"])
-        if ([s["id"] for s in m["prerequisites"]] != ["lc0", "online2", "g3"] or
-                not all(s["returncode"] == 0 and not s["timed_out"] for s in m["prerequisites"])):
+        expected_prerequisites = ([row["id"] for row in p["prerequisites"]]
+                                  if p.get("prerequisites") is not None
+                                  else ["lc0", "online2", "g3"])
+        if ([row["id"] for row in m["prerequisites"]] != expected_prerequisites or
+                not all(row["returncode"] == 0 and not row["timed_out"] for row in m["prerequisites"])):
             errors.append("prerequisites missing or failed")
-        verify_prerequisites(output, m["source"])
+        verify_prerequisites(output, m["source"], p)
         verify_probes(output, m.get("rule_probes", {}))
         from .faults import verify_faults
         verify_faults(output, m.get("fault_cases", {}), p)
@@ -473,7 +481,7 @@ def qualify(output: Path) -> dict:
                 by_arm = {}
                 for arm in plan["arms"]:
                     groups, summaries = session_games(
-                        directory, arm, source, plan,
+                        directory, arm, source, p["source_runtime"], plan,
                         campaign_run_ids, campaign_manifest_hashes,
                     )
                     require(len(groups) == 2, f"{arm}: expected two searched games")

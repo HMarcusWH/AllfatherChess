@@ -9,17 +9,17 @@ import subprocess
 from .common import ROOT, load, require, sha, verify_record, contained, runtime_config
 
 
-def input_paths(p: dict) -> list[Path]:
+def input_paths(p: dict, policy_path: Path | None = None) -> list[Path]:
     fixtures = subprocess.check_output(
         ["git", "-C", str(ROOT), "ls-files", "tests/fixtures/local_full_game"],
         text=True,
     ).splitlines()
     require(fixtures, "no committed LOCAL-1 fixtures found")
-    return [ROOT / path for path in (
-        "qualification/local-full-game.json", "qualification/fastchess.lock.json",
-        "qualification/local-game-requirements.txt", p["source_runtime"],
-        "build/online-cpu-reference/build-manifest.json", "build/tools/fastchess/build-manifest.json",
-    )] + [ROOT / path for path in fixtures]
+    selected_policy = ROOT / "qualification/local-full-game.json" if policy_path is None else Path(policy_path)
+    bundle_root = p.get("bundle_root", "build/online-cpu-reference")
+    return [selected_policy, ROOT / "qualification/fastchess.lock.json",
+            ROOT / "qualification/local-game-requirements.txt", ROOT / p["source_runtime"],
+            ROOT / bundle_root / "build-manifest.json", ROOT / "build/tools/fastchess/build-manifest.json"] + [ROOT / path for path in fixtures]
 
 
 def verify_fastchess_attestation(fc_root: Path, fc: dict, lock_path: Path) -> Path:
@@ -50,7 +50,7 @@ def verify_fastchess_attestation(fc_root: Path, fc: dict, lock_path: Path) -> Pa
     return attestation_path
 
 
-def verify_builds(source: dict) -> Path:
+def verify_builds(source: dict, p: dict | None = None) -> Path:
     fc_root = ROOT / "build/tools/fastchess"
     fc = load(fc_root / "build-manifest.json")
     lock = ROOT / "qualification/fastchess.lock.json"
@@ -59,7 +59,7 @@ def verify_builds(source: dict) -> Path:
     verify_record(fc_root, fc["license"])
     verify_fastchess_attestation(fc_root, fc, lock)
 
-    bundle = ROOT / "build/online-cpu-reference"
+    bundle = ROOT / ((p or {}).get("bundle_root", "build/online-cpu-reference"))
     build = load(bundle / "build-manifest.json")
     require(build["source_commit"] == source["commit"], "ONLINE-2 bundle source mismatch")
     for category in ("engines", "networks"):
@@ -70,12 +70,26 @@ def verify_builds(source: dict) -> Path:
     return fastchess
 
 
-def verify_prerequisites(output: Path, source: dict) -> None:
+def verify_prerequisites(output: Path, source: dict, p: dict | None = None) -> None:
     from controller.replay import verify_bundle_integrity
     from controller.final_decision import verify_final_decision_integrity
     from controller.counterfactual import verify_counterfactual_integrity
 
     root = output / "prerequisites"
+    if p is not None and p.get("prerequisites") is not None:
+        declared = p["prerequisites"]
+        retained = load(root / "prerequisites.json")
+        require([row.get("id") for row in retained] == [row.get("id") for row in declared],
+                "declared prerequisite execution differs from policy")
+        reports = {}
+        for row in declared:
+            report = load(root / f"{row['id']}.json")
+            require(report.get("passed") is True, f"{row['id']}: prerequisite report did not pass")
+            reports[row["id"]] = report
+        engine = reports.get("engine-opt-v2")
+        require(isinstance(engine, dict) and engine.get("promotion_ready") is True,
+                "ENGINE-OPT-V2 selection is not measured/frozen for promotion")
+        return
     lc0, online, g3 = (load(root / f"{label}.json") for label in ("lc0", "online2", "g3"))
     build = load(ROOT / "build/online-cpu-reference/build-manifest.json")
     require(lc0["commit_sha"] == online["source_commit"] == source["commit"], "stale prerequisite source")

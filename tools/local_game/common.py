@@ -104,8 +104,13 @@ def verify_record(root: Path, record: dict) -> Path:
     return path
 
 
-def policy(root: Path = ROOT) -> dict:
-    p = load(root / "qualification/local-full-game.json")
+def policy(root: Path = ROOT, path: Path | str | None = None) -> dict:
+    selected = root / "qualification/local-full-game.json" if path is None else Path(path)
+    if not selected.is_absolute():
+        selected = root / selected
+    selected = selected.resolve()
+    require(selected.is_relative_to(root.resolve()), "LOCAL-1 policy escapes repository root")
+    p = load(selected)
     require(type(p.get("schema_version")) is int and p["schema_version"] == 1,
             "unsupported LOCAL-1 policy")
     require(p.get("arms") == list(ARMS), "the five baseline arms must not change implicitly")

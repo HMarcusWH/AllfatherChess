@@ -67,7 +67,8 @@ def command(job: dict, directory: Path, p: dict, source: dict, fastchess: Path, 
         options, environment = engine_options(arm, source)
         spec_path = directory / f"{arm}.json"
         spec = {"schema_version": 1, "arm": arm, "root": str(ROOT),
-                "sessions": str(directory / "sessions" / arm), "environment": environment}
+                "sessions": str(directory / "sessions" / arm), "environment": environment,
+                "source_runtime": p["source_runtime"]}
         if write_specs:
             save(spec_path, spec)
         argv += ["-engine", f"name={arm}", f"cmd={sys.executable}",
@@ -163,7 +164,27 @@ def retain_report_runs(source_root: Path, destination: Path, run_ids: list[str],
         safe_copy_regular_tree(source, destination / run_id)
 
 
-def prerequisites(output: Path) -> list[dict]:
+def prerequisites(output: Path, p: dict) -> list[dict]:
+    """Run the prerequisite family declared by the selected lifecycle policy."""
+    declared = p.get("prerequisites")
+    if declared is not None:
+        require(isinstance(declared, list) and declared, "declared prerequisites must be non-empty")
+        records=[]
+        for row in declared:
+            require(isinstance(row, dict), "malformed prerequisite declaration")
+            label, script, report_name = row.get("id"), row.get("script"), row.get("report")
+            require(all(isinstance(x, str) and x for x in (label, script, report_name)),
+                    "prerequisite id/script/report must be non-empty strings")
+            report=ROOT / report_name
+            report.unlink(missing_ok=True)
+            result=bounded([sys.executable, script], ROOT, output / f"{label}.log", 1200)
+            records.append({"id": label, **result})
+            save(output / "prerequisites.json", records)
+            require(result["returncode"] == 0 and not result["timed_out"], f"{label} prerequisite failed")
+            require(report.is_file(), f"{label}: expected prerequisite report not produced: {report}")
+            shutil.copy2(report, output / f"{label}.json")
+        return records
+
     online_runtime = load(ROOT / "config/allfather.online.cpu-reference.json")
     g3_runtime = load(ROOT / "config/allfather.online-hybrid.validation.json")
     replay_roots = {
@@ -171,8 +192,7 @@ def prerequisites(output: Path) -> list[dict]:
         "g3": ROOT / g3_runtime["shadow"]["replay_root"],
     }
     replay_snapshots = {
-        label: ({path.name for path in root.iterdir() if path.is_dir()}
-                if root.is_dir() else set())
+        label: ({path.name for path in root.iterdir() if path.is_dir()} if root.is_dir() else set())
         for label, root in replay_roots.items()
     }
     steps = [
@@ -180,46 +200,39 @@ def prerequisites(output: Path) -> list[dict]:
         ("online2", "scripts/qualify-online-profile.py", "build/test-results/online-profile/report.json"),
         ("g3", "scripts/qualify-online-hybrid-authority.py", "build/test-results/online-hybrid/report.json"),
     ]
-    records = []
+    records=[]
     for label, script, report_name in steps:
-        # Remove only the well-known old result, so a failed run cannot borrow an old pass.
-        report = ROOT / report_name
+        report=ROOT / report_name
         report.unlink(missing_ok=True)
-        run = bounded([sys.executable, script], ROOT, output / f"{label}.log", 600)
-        records.append({"id": label, **run})
+        result=bounded([sys.executable, script], ROOT, output / f"{label}.log", 600)
+        records.append({"id": label, **result})
         save(output / "prerequisites.json", records)
-        require(run["returncode"] == 0 and not run["timed_out"], f"{label} prerequisite failed")
+        require(result["returncode"] == 0 and not result["timed_out"], f"{label} prerequisite failed")
         require(report.is_file(), f"{label}: expected qualification report not produced: {report}")
         shutil.copy2(report, output / f"{label}.json")
-    online = load(output / "online2.json")
-    g3_report = load(output / "g3.json")
-    g3 = g3_report["positive_case"]
+    online=load(output / "online2.json")
+    g3_report=load(output / "g3.json")
+    g3=g3_report["positive_case"]
     require(g3["authority"] == "HYBRID" and g3["emitted_move"] != g3["anchor_move"],
             "G3 prerequisite did not exercise actual non-anchor authority")
-
-    online_runtime = load(ROOT / "config/allfather.online.cpu-reference.json")
-    online_root = ROOT / online_runtime["shadow"]["replay_root"]
-    runtime = load(ROOT / "config/allfather.online-hybrid.validation.json")
-    g3_root = ROOT / runtime["shadow"]["replay_root"]
-    require(online_root.is_dir() and g3_root.is_dir(),
-            "prerequisite replay root missing")
-
-    online_ids = referenced_run_ids(online, "ONLINE-2")
-    g3_ids = referenced_run_ids(g3_report, "G3")
-    retain_report_runs(online_root, output / "online2-replays", online_ids,
+    online_ids=referenced_run_ids(online, "ONLINE-2")
+    g3_ids=referenced_run_ids(g3_report, "G3")
+    retain_report_runs(replay_roots["online2"], output / "online2-replays", online_ids,
                        replay_snapshots["online2"], "ONLINE-2")
-    retain_report_runs(g3_root, output / "g3-replays", g3_ids,
+    retain_report_runs(replay_roots["g3"], output / "g3-replays", g3_ids,
                        replay_snapshots["g3"], "G3")
     require(g3["run_id"] in set(g3_ids), "positive G3 run is absent from current report")
     return records
 
-
-def run(mode: str, output: Path, *, shard_index: int = 0, shard_count: int = 1) -> int:
+def run(mode: str, output: Path, *, shard_index: int = 0, shard_count: int = 1,
+        policy_path: Path | None = None) -> int:
     require(sys.platform == "linux", "LOCAL-1 reference requires Linux procfs")
     require(not any(c.isspace() for c in str(ROOT)), "reference checkout path must have no whitespace")
     require(output.resolve().is_relative_to(ROOT / "build"), "campaign output must be inside build/")
     output.mkdir(parents=True, exist_ok=False)  # never merge a rerun into an earlier campaign
-    p = policy()
+    policy_file = (ROOT / "qualification/local-full-game.json" if policy_path is None
+                   else policy_path if policy_path.is_absolute() else ROOT / policy_path).resolve()
+    p = policy(path=policy_file)
     source = load(ROOT / p["source_runtime"])
     full_schedule = schedule(p, mode)
     require(type(shard_index) is int and type(shard_count) is int and
@@ -234,20 +247,21 @@ def run(mode: str, output: Path, *, shard_index: int = 0, shard_count: int = 1) 
         expected = full_schedule
     manifest = {"schema_version": 1, "campaign_id": output.name, "mode": mode,
                 "shard": {"index": shard_index, "count": shard_count},
-                "source": source_identity(), "status": "running", "planned_jobs": expected,
+                "source": source_identity(), "policy": file_record(policy_file),
+                "status": "running", "planned_jobs": expected,
                 "jobs": [], "failures": [], "prerequisites": [],
                 "host": {"system": list(os.uname()), "logical_cpus": os.cpu_count()},
                 "clock_regime": "same tournament clock; NOT equal aggregate compute",
                 "control": "allfather-anchor is one Stockfish process through the legacy native-clock shell"}
-    inputs = input_paths(p)
+    inputs = input_paths(p, policy_file)
     save(output / "manifest.json", manifest)
     try:
         manifest["inputs"] = [file_record(path) for path in inputs if path.is_file()]
         require(len(manifest["inputs"]) == len(inputs), "missing build/qualification input")
-        fastchess = verify_builds(manifest["source"])
+        fastchess = verify_builds(manifest["source"], p)
         pre = output / "prerequisites"
         pre.mkdir()
-        manifest["prerequisites"] = prerequisites(pre)
+        manifest["prerequisites"] = prerequisites(pre, p)
         from .probes import run_probes
         manifest["rule_probes"] = run_probes(output / "rule-probes", source)
         from .faults import run_faults
@@ -271,7 +285,7 @@ def run(mode: str, output: Path, *, shard_index: int = 0, shard_count: int = 1) 
         for record in manifest["inputs"]:
             verify_record(ROOT, record)
         require(source_identity() == manifest["source"], "checkout identity changed during campaign")
-        verify_builds(manifest["source"])
+        verify_builds(manifest["source"], p)
         manifest["status"] = "failed" if manifest["failures"] else "completed"
     except Exception as exc:
         manifest["status"] = "failed"
@@ -298,10 +312,12 @@ def main() -> int:
     parser.add_argument("--output", type=Path)
     parser.add_argument("--shard-index", type=int, default=0)
     parser.add_argument("--shard-count", type=int, default=1)
+    parser.add_argument("--policy", type=Path)
     args = parser.parse_args()
     output = args.output or ROOT / "build/test-results/local-full-game" / f"{time.time_ns()}-{uuid.uuid4().hex[:8]}"
     return run(args.mode, output.resolve(),
-               shard_index=args.shard_index, shard_count=args.shard_count)
+               shard_index=args.shard_index, shard_count=args.shard_count,
+               policy_path=args.policy)
 
 
 if __name__ == "__main__":

@@ -1,8 +1,11 @@
 """Immutable game-environment contract for M14-J.
 
 This module records what the controller is allowed to know about the surrounding
-match before resource selection.  It performs no host probing and makes no
+match before resource selection. It performs no host probing and makes no
 allocation decision.
+
+Per-side remaining clocks and increments are preserved explicitly. The schema
+never collapses asymmetric UCI timing into one synthetic "increment".
 """
 
 from __future__ import annotations
@@ -18,6 +21,7 @@ from controller.resource_profiles import (
     _mapping,
     _nonnegative_int,
     _positive_int,
+    _reject_unknown,
     _safe_id,
 )
 
@@ -56,7 +60,8 @@ def _optional_positive_int(value: Any, label: str) -> int | None:
 class GameEnvironment:
     source: EnvironmentSource
     base_ms: int | None
-    increment_ms: int | None
+    white_increment_ms: int | None
+    black_increment_ms: int | None
     moves_to_go: int | None
     white_time_ms: int | None
     black_time_ms: int | None
@@ -71,12 +76,19 @@ class GameEnvironment:
         object.__setattr__(self, "source", source)
 
         base_ms = _optional_positive_int(self.base_ms, "base_ms")
-        increment_ms = _optional_nonnegative_int(self.increment_ms, "increment_ms")
+        white_increment_ms = _optional_nonnegative_int(
+            self.white_increment_ms, "white_increment_ms"
+        )
+        black_increment_ms = _optional_nonnegative_int(
+            self.black_increment_ms, "black_increment_ms"
+        )
         moves_to_go = _optional_positive_int(self.moves_to_go, "moves_to_go")
         white_time_ms = _optional_nonnegative_int(self.white_time_ms, "white_time_ms")
         black_time_ms = _optional_nonnegative_int(self.black_time_ms, "black_time_ms")
+
         object.__setattr__(self, "base_ms", base_ms)
-        object.__setattr__(self, "increment_ms", increment_ms)
+        object.__setattr__(self, "white_increment_ms", white_increment_ms)
+        object.__setattr__(self, "black_increment_ms", black_increment_ms)
         object.__setattr__(self, "moves_to_go", moves_to_go)
         object.__setattr__(self, "white_time_ms", white_time_ms)
         object.__setattr__(self, "black_time_ms", black_time_ms)
@@ -98,17 +110,34 @@ class GameEnvironment:
         object.__setattr__(self, "candidate_composition_ids", tuple(sorted(candidates)))
 
         if source is EnvironmentSource.BRIDGE_PREDECLARED:
-            if base_ms is None or increment_ms is None:
+            if (
+                base_ms is None
+                or white_increment_ms is None
+                or black_increment_ms is None
+            ):
                 raise OrchestrationContractError(
-                    "bridge_predeclared environment requires base_ms and increment_ms"
+                    "bridge_predeclared environment requires base_ms and both increments"
                 )
         elif source is EnvironmentSource.UCI_OBSERVED:
-            if white_time_ms is None or black_time_ms is None or increment_ms is None:
+            if (
+                white_time_ms is None
+                or black_time_ms is None
+                or white_increment_ms is None
+                or black_increment_ms is None
+            ):
                 raise OrchestrationContractError(
-                    "uci_observed environment requires both remaining clocks and increment_ms"
+                    "uci_observed environment requires both remaining clocks "
+                    "and both increments"
                 )
         else:
-            timing = (base_ms, increment_ms, moves_to_go, white_time_ms, black_time_ms)
+            timing = (
+                base_ms,
+                white_increment_ms,
+                black_increment_ms,
+                moves_to_go,
+                white_time_ms,
+                black_time_ms,
+            )
             if any(value is not None for value in timing):
                 raise OrchestrationContractError(
                     "unknown environment may not assert timing facts"
@@ -119,7 +148,8 @@ class GameEnvironment:
             "schema_version": ORCHESTRATION_SCHEMA_VERSION,
             "source": self.source.value,
             "base_ms": self.base_ms,
-            "increment_ms": self.increment_ms,
+            "white_increment_ms": self.white_increment_ms,
+            "black_increment_ms": self.black_increment_ms,
             "moves_to_go": self.moves_to_go,
             "white_time_ms": self.white_time_ms,
             "black_time_ms": self.black_time_ms,
@@ -143,8 +173,28 @@ class GameEnvironment:
                 f"unsupported game environment schema_version: "
                 f"{raw.get('schema_version')!r}"
             )
+        _reject_unknown(
+            raw,
+            {
+                "schema_version",
+                "source",
+                "base_ms",
+                "white_increment_ms",
+                "black_increment_ms",
+                "moves_to_go",
+                "white_time_ms",
+                "black_time_ms",
+                "concurrency",
+                "network_policy",
+                "network_reserve_ms",
+                "host_profile_id",
+                "candidate_composition_ids",
+                "authority",
+            },
+            "game environment",
+        )
         authority = raw.get("authority")
-        if authority is not None and authority != {
+        if authority != {
             "resource_context": True,
             "resource_authorization": False,
             "outward_move": False,
@@ -158,7 +208,8 @@ class GameEnvironment:
         return cls(
             source=raw.get("source"),
             base_ms=raw.get("base_ms"),
-            increment_ms=raw.get("increment_ms"),
+            white_increment_ms=raw.get("white_increment_ms"),
+            black_increment_ms=raw.get("black_increment_ms"),
             moves_to_go=raw.get("moves_to_go"),
             white_time_ms=raw.get("white_time_ms"),
             black_time_ms=raw.get("black_time_ms"),

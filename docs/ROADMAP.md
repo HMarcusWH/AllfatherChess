@@ -1,10 +1,11 @@
 # AllfatherChess roadmap
 
 **Status date:** 28 September 2026  
-**Current main:** `b8bd0fdda4a7e67f6437a74e5373f69ef2c15c78`  
-**Latest merged milestone:** PR #41 / LOCAL-1 — full-game lifecycle qualification  
-**Current execution milestone:** ENGINE-OPT-V2 / PR #44 — measured engine/profile optimization before packaging  
+**Current main:** `7248f25fc64be4d04a78ec2b1f0c9de2986a11a5`  
+**Latest merged milestone:** PR #44 / ENGINE-OPT-V2 — qualified measured engine/profile optimization  
+**Current execution milestone:** M14-J — Adaptive Resource Orchestration  
 **Current-state authority:** [CURRENT_STATUS.md](CURRENT_STATUS.md)  
+**M14-J implementation plan:** [M14_J_ADAPTIVE_RESOURCE_ORCHESTRATION.md](M14_J_ADAPTIVE_RESOURCE_ORCHESTRATION.md)  
 **Detailed deployment audit:** [ONLINE_RELEASE_PLAN.md](ONLINE_RELEASE_PLAN.md)
 
 This document is the canonical **forward execution roadmap**. Historical build plans remain
@@ -35,7 +36,9 @@ qualification set and retains deterministic fail-closed fallback.
 
 PR #39 closed the single-move authority question. PR #41 / LOCAL-1 then qualified that
 composition across the declared complete-game lifecycle, mandatory failure cases, rule
-transitions and replay/resource/process integrity. The project is **not** yet deployable as
+transitions and replay/resource/process integrity. PR #44 / ENGINE-OPT-V2 subsequently
+qualified the selected portable engine/profile composition on exact head `085420843b95f3f2dd206fc1c66bf642cbd49b6d`
+and merged the identical tree as `7248f25fc64be4d04a78ec2b1f0c9de2986a11a5`. The project is **not** yet deployable as
 a qualified service and has not established superiority over a constituent engine.
 
 ## 2. Critical path to the first public canary
@@ -51,9 +54,22 @@ LOCAL-1 / PR #41
 full-game lifecycle qualification
         |
         v
-NEXT
+DONE
 ENGINE-OPT-V2 / PR #44
 measured constituent/profile optimization
+        |
+        v
+NEXT
+M14-J
+adaptive resource orchestration
+        |
+        v
+META-1
+same-resource authority-value control
+        |
+        v
+ONLINE-PLAY-1
+production-profile 10+5 experiment
         |
         v
 ONLINE-3
@@ -72,7 +88,7 @@ ONLINE-RC
 restricted unrated public bot canary
 ```
 
-The first public canary is an operational experiment, not an Elo or superiority claim.
+The canary and ONLINE-PLAY-1 are operational experiments, not Elo/equal-resource superiority claims. META-1 isolates the value of hybrid move authority under matched orchestration, while M15-B/C remains the separate path to a formal common-resource strength claim.
 
 ## 3. LOCAL-1 — full-game lifecycle qualification — **QUALIFIED**
 
@@ -153,20 +169,39 @@ The qualified campaign also records all ten color-reversed pairings across Stock
 Allfather-Anchor and Allfather-G3. That matrix is **same tournament clock**, not equal total
 compute. M15-B/C remains the only path to a comparative equal-resource strength claim.
 
-## 4. ENGINE-OPT-V2 — measured constituent/profile optimization — **NEXT**
+## 4. ENGINE-OPT-V2 — measured constituent/profile optimization — **QUALIFIED / MERGED**
 
-Preserve the qualified v1 composition as the control. Measure the current LC0 CPU failure
-mode, bind a conventional repaired profile before testing adaptive prefetch, add only
-reproducible portable build gains, specialize MultiPV safely by search phase, and reserve
-heterogeneous specialist cost by owner rather than treating native counters as one compute
-currency.
+**PR:** #44  
+**Qualified head:** `085420843b95f3f2dd206fc1c66bf642cbd49b6d`  
+**Merge commit:** `7248f25fc64be4d04a78ec2b1f0c9de2986a11a5`  
+**Shared tree:** `80fae798aed99a5e37fcfb7fce321a7e01a2fc56`  
+**Aggregate workflow:** `36458789423` / success
 
-Promotion requires an evidence-bound selection manifest, a real-process non-anchor G3-v2
-authority witness, the complete LOCAL-1-v2 lifecycle gate and the v2 soak before ONLINE-3
-packages the new composition. No GPU, learned NN-skip, upstream-refresh or new alpha-beta
-pruning change is part of this milestone.
+ENGINE-OPT-V2 preserved the qualified n16 EXPLORE / n16 VERIFY / n32 staged-VERIFY intervention while promoting portable PGO Stockfish, portable x86-64 Reckless and the cross-run-stable LC0 `b7-p8-c256k-warm64` profile. The selected LC0 profile repeated the frozen 8/8 move vector three times on exact head with median wall time **329.0025–331.5455 ms**, versus the frozen v1 baseline **1291.427–1316.554 ms**.
 
-## 5. ONLINE-3 — reproducible service package and bridge
+Promotion also required a real-process non-anchor G3-v2 authority witness, owner-specific physical-resource bounds, the ordinary v1 LOCAL-1 control and complete LOCAL-1-v2 lifecycle qualification. The final aggregate reported `promotion_ready: true` with no errors. These results qualify a profile/build/resource composition; they do not establish Elo or constituent superiority.
+
+## 5. M14-J — Adaptive Resource Orchestration — **NEXT**
+
+M14-J moves resource/profile authority above the constituent engines. The meta-controller will select only prequalified operating points, derive move-level resource envelopes from host/game context, issue typed WorkGrants, progressively buy the most valuable next computation, and preserve exact resource provenance for DecisionAuthorization. ENGINE-OPT-V2 remains the fail-closed fallback.
+
+Implementation order:
+
+1. **J0** — synchronize the post-PR-44 baseline and freeze the fallback;
+2. **J1** — immutable resource/profile/game/work-grant contracts;
+3. **J2** — effective host capability and pressure detection;
+4. **J3** — qualified resource-profile catalog representing current v2 exactly;
+5. **J4/J5** — safe game-boundary profile application and resource enforcement;
+6. **J6/J7** — resource laboratory plus exact-head engine/composition profile qualification;
+7. **J8/J9** — adaptive MoveResourcePlan and progressive WorkGrant scheduler;
+8. **J10/J11** — deterministic allocator plus replay/authority provenance binding;
+9. **J12** — complete orchestrated-v1 real-engine/lifecycle qualification;
+10. **J13 / META-1** — HYBRID vs ANCHOR_CONTROL with matched orchestration;
+11. **J14 / ONLINE-PLAY-1** — production-profile 10+5 comparative experiment.
+
+The full file-level rebuild plan is [M14_J_ADAPTIVE_RESOURCE_ORCHESTRATION.md](M14_J_ADAPTIVE_RESOURCE_ORCHESTRATION.md). M14-J does not authorize arbitrary runtime hyperparameter generation, chess-search retuning or learned outward authority. ResourceAuthorization and DecisionAuthorization remain separate hard gates.
+
+## 6. ONLINE-3 — reproducible service package and bridge
 
 With LOCAL-1 green, package exactly the qualified engine rather than building new chess
 logic.
@@ -192,7 +227,7 @@ Initial policy:
 - no automatic resign/draw logic until score provenance is explicitly compatible;
 - credentials injected as secrets, never committed or logged.
 
-## 6. ONLINE-4 — network, restart, reconciliation and rollback
+## 7. ONLINE-4 — network, restart, reconciliation and rollback
 
 Qualify the service around the engine:
 
@@ -212,7 +247,7 @@ Qualify the service around the engine:
 A restart must rebuild correct repetition/history state. It may not silently reduce a game
 to a bare FEN if doing so loses decision-relevant history.
 
-## 7. RELEASE-QUALIFICATION
+## 8. RELEASE-QUALIFICATION
 
 Add an aggregate always-present release workflow that cannot succeed because a path-scoped
 required job was skipped.
@@ -232,7 +267,7 @@ Freeze:
 
 The release gate consumes the existing qualification families plus LOCAL-1 and ONLINE-3/4.
 
-## 8. ONLINE-RC — restricted public canary
+## 9. ONLINE-RC — restricted public canary
 
 Cut an explicitly experimental immutable release only after the preceding gates pass.
 
@@ -250,7 +285,7 @@ Proposed first canary:
 The canary demonstrates permitted online operation. It does not establish equal-envelope
 superiority.
 
-## 9. Parallel research track
+## 10. Parallel research track
 
 These may proceed without blocking the conservative first canary.
 
@@ -278,7 +313,7 @@ reserve fractions and source-specific evidence as immutable policy generations.
 Profile deployed process/UCI boundaries first. Replace IPC/native boundaries only when
 measured benefit justifies the additional integration, provenance and licensing risk.
 
-## 10. Administrative release gates
+## 11. Administrative release gates
 
 These remain separate from chess-controller correctness:
 
@@ -289,7 +324,7 @@ These remain separate from chess-controller correctness:
 - create a fresh Lichess BOT account/token for the canary;
 - define the first opponent allow-list.
 
-## 11. Claim discipline
+## 12. Claim discipline
 
 The roadmap uses four distinct levels:
 

@@ -867,13 +867,11 @@ class ShadowRunCoordinator:
     def prepare_run(self, *, generation: int, go_command: str, clock: ClockSearch | None = None) -> bool:
         """Create the run bundle and anchor stream *before* the anchor starts.
 
-        This performs no engine IO, but it does perform **filesystem** IO -- a
-        `mkdir`, a file open and a writer-thread start -- and the frontend calls
-        it before `start_anchor_search`. On a slow or blocked `replay_root` that
-        is observational infrastructure delaying decision authority, which the
-        authority firewall does not permit. The filesystem portion therefore
-        runs off the calling thread under `shadow.prepare_budget_s`: past that
-        bound the search proceeds with no bundle rather than waiting.
+        This performs no engine IO. Normally it claims a directory and anchor
+        telemetry writer that were prepared before the clocked request arrived.
+        If that slot is unavailable, the legacy filesystem fallback remains
+        bounded by the same preparation deadline and the search proceeds
+        without a replay bundle rather than delaying decision authority.
         """
         if clock is not None:
             if clock.plan.generation != generation or clock.plan.external_go_command != go_command:
@@ -945,14 +943,25 @@ class ShadowRunCoordinator:
 
         if clock is not None and position.position_id != clock.plan.position_id:
             raise ControllerRuntimeError("position changed during clock preparation")
+        anchor_name = self.runtime.anchor_name
+        anchor_spec = self.runtime.spec(anchor_name)
+        anchor_factory = self._adapter_factory(
+            family=anchor_spec.family,
+            instance=anchor_name,
+            position_id=position.position_id,
+            variant=variant,
+        )
+
         now = _dt.datetime.now(_dt.timezone.utc)
         run_id = f"{now.strftime('%Y%m%dT%H%M%S%fZ')}-g{generation:06d}-{uuid.uuid4().hex[:8]}"
         run_dir = self.settings.replay_root / run_id
-        claimed_prepared = self._claim_prepared_run_directory(generation, run_dir)
-        if not claimed_prepared and not self._make_run_dir_within_budget(run_dir, prepare_deadline):
-            self.prime_run_directory(generation + 1)
+        anchor_stream = self._claim_prepared_run_slot(
+            generation,
+            run_dir,
+            adapter_factory=anchor_factory,
+        )
+        if anchor_stream is None and not self._make_run_dir_within_budget(run_dir, prepare_deadline):
             return False
-        self.prime_run_directory(generation + 1)
 
         run = ReplayRun(
             run_id=run_id,
@@ -973,34 +982,26 @@ class ShadowRunCoordinator:
         if clock is not None:
             run.time_plan = clock.plan.as_dict()
 
-        anchor_name = self.runtime.anchor_name
-        anchor_spec = self.runtime.spec(anchor_name)
-        # `TelemetryStreamWriter` does its own `mkdir` and `open`, which is more
-        # pre-anchor filesystem work and belongs inside the same bound.
-        opened, anchor_stream = self._within_prepare_budget(
-            f"{run_id}-anchor-stream",
-            discard=lambda stream: self._release_late_stream(run_dir, stream),
-            deadline=prepare_deadline,
-            work=lambda: TelemetryStreamWriter(
-                instance=anchor_name,
-                family=anchor_spec.family,
-                role=anchor_spec.role,
-                path=run_dir / f"{anchor_name}.jsonl",
-                adapter_factory=self._adapter_factory(
-                    family=anchor_spec.family,
+        if anchor_stream is None:
+            # A missing prepared slot retains the original bounded fallback.
+            # This path is deliberately qualification-visible: if opening the
+            # stream cannot finish inside the remaining preparation budget, the
+            # anchor still runs but no replay bundle is fabricated.
+            opened, anchor_stream = self._within_prepare_budget(
+                f"{run_id}-anchor-stream",
+                discard=lambda stream: self._release_late_stream(run_dir, stream),
+                deadline=prepare_deadline,
+                work=lambda: TelemetryStreamWriter(
                     instance=anchor_name,
-                    position_id=position.position_id,
-                    variant=variant,
+                    family=anchor_spec.family,
+                    role=anchor_spec.role,
+                    path=run_dir / f"{anchor_name}.jsonl",
+                    adapter_factory=anchor_factory,
                 ),
-            ),
-        )
-        if not opened or anchor_stream is None:
-            # The directory exists and no run will ever finalize into it, so no
-            # manifest will ever be written there. Take it back here; on the
-            # timeout path an abandoned thread may still be opening its stream
-            # file, and that thread releases the directory itself afterwards.
-            self._discard_run_dir(run_dir)
-            return False
+            )
+            if not opened or anchor_stream is None:
+                self._discard_run_dir(run_dir)
+                return False
         run.register_stream(anchor_stream)
         anchor_search_id = f"{run_id}:{anchor_name}:0"
         anchor_stream.begin_stage(

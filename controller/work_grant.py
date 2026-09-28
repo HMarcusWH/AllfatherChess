@@ -22,6 +22,7 @@ from controller.resource_profiles import (
     _mapping,
     _phase,
     _positive_int,
+    _reject_unknown,
     _safe_id,
     _sha256,
 )
@@ -89,6 +90,7 @@ class NativeLimit:
     @classmethod
     def from_dict(cls, raw: Mapping[str, Any]) -> "NativeLimit":
         raw = _mapping(raw, "native limit")
+        _reject_unknown(raw, {"kind", "value", "semantics"}, "native limit")
         return cls(
             kind=raw.get("kind"),
             value=raw.get("value"),
@@ -122,11 +124,17 @@ class WorkChunk:
         self.native_limit.validate_for_family(family)
         cpu = _finite_nonnegative(self.reserved_cpu_ms, "reserved_cpu_ms")
         gpu = _finite_nonnegative(self.reserved_gpu_ms, "reserved_gpu_ms")
+        object.__setattr__(self, "reserved_cpu_ms", cpu)
+        object.__setattr__(self, "reserved_gpu_ms", gpu)
         if cpu == 0.0 and gpu == 0.0:
             raise OrchestrationContractError(
                 "work chunk must reserve positive CPU or GPU capacity"
             )
-        _finite_positive(self.wall_bound_ms, "wall_bound_ms")
+        object.__setattr__(
+            self,
+            "wall_bound_ms",
+            _finite_positive(self.wall_bound_ms, "wall_bound_ms"),
+        )
         _sha256(self.cost_evidence_digest, "cost_evidence_digest")
 
     def as_dict(self) -> dict[str, Any]:
@@ -155,8 +163,25 @@ class WorkChunk:
             raise OrchestrationContractError(
                 f"unsupported work chunk schema_version: {raw.get('schema_version')!r}"
             )
+        _reject_unknown(
+            raw,
+            {
+                "schema_version",
+                "chunk_id",
+                "family",
+                "phase",
+                "purpose",
+                "native_limit",
+                "reserved_cpu_ms",
+                "reserved_gpu_ms",
+                "wall_bound_ms",
+                "cost_evidence_digest",
+                "authority",
+            },
+            "work chunk",
+        )
         authority = raw.get("authority")
-        if authority is not None and authority != {
+        if authority != {
             "resource_template": True,
             "resource_authorization": False,
             "outward_move": False,
@@ -218,11 +243,17 @@ class WorkGrant:
         self.native_limit.validate_for_family(owner)
         cpu = _finite_nonnegative(self.reserved_cpu_ms, "reserved_cpu_ms")
         gpu = _finite_nonnegative(self.reserved_gpu_ms, "reserved_gpu_ms")
+        object.__setattr__(self, "reserved_cpu_ms", cpu)
+        object.__setattr__(self, "reserved_gpu_ms", gpu)
         if cpu == 0.0 and gpu == 0.0:
             raise OrchestrationContractError(
                 "work grant must reserve positive CPU or GPU capacity"
             )
-        _finite_positive(self.wall_deadline_ms, "wall_deadline_ms")
+        object.__setattr__(
+            self,
+            "wall_deadline_ms",
+            _finite_positive(self.wall_deadline_ms, "wall_deadline_ms"),
+        )
         _sha256(self.effective_options_digest, "effective_options_digest")
         _sha256(self.allocator_decision_digest, "allocator_decision_digest")
 
@@ -269,8 +300,33 @@ class WorkGrant:
             raise OrchestrationContractError(
                 f"unsupported work grant schema_version: {raw.get('schema_version')!r}"
             )
+        _reject_unknown(
+            raw,
+            {
+                "grant_id",
+                "schema_version",
+                "generation",
+                "position_id",
+                "owner",
+                "instance",
+                "profile_id",
+                "profile_digest",
+                "phase",
+                "purpose",
+                "work_chunk_id",
+                "work_chunk_digest",
+                "native_limit",
+                "reserved_cpu_ms",
+                "reserved_gpu_ms",
+                "wall_deadline_ms",
+                "effective_options_digest",
+                "allocator_decision_digest",
+                "authority",
+            },
+            "work grant",
+        )
         authority = raw.get("authority")
-        if authority is not None and authority != {
+        if authority != {
             "resource_authorization": True,
             "outward_move": False,
         }:
@@ -294,7 +350,7 @@ class WorkGrant:
             allocator_decision_digest=raw.get("allocator_decision_digest"),
         )
         claimed = raw.get("grant_id")
-        if claimed is not None and claimed != grant.grant_id:
+        if claimed != grant.grant_id:
             raise OrchestrationContractError(
                 "work grant grant_id does not match canonical payload"
             )

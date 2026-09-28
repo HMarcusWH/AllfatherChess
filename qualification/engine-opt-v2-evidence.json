@@ -148,11 +148,12 @@
       "selection_reason": "Derived searchmoves plumbing shows no regression on the frozen unrestricted corpus; 16 MiB is the fastest measured hash setting."
     },
     "resource_estimate_basis": {
-      "lc0_explore_observed_cpu_ms_max": 240,
-      "lc0_explore_observed_wall_ms_max": 235.575,
-      "lc0_staged_verify_observed_cpu_ms_max": 190,
-      "selected_reservation_ms": 400,
-      "note": "400 ms retains headroom above both the profile matrix max (~301 ms) and observed G3-v2 specialist CPU maxima while removing the previous 1600 ms over-reservation."
+      "prior_profile_lc0_explore_observed_cpu_ms_max": 240,
+      "prior_profile_lc0_staged_verify_observed_cpu_ms_max": 190,
+      "prior_selected_reservation_ms": 400,
+      "revised_explore_reservation_ms": 600,
+      "revised_verify_reservation_ms": 800,
+      "note": "The 600/800 ms reservations are conservative prequalification values for the revised warm b7/p8 profile. Fresh exact-head G3-v2 resource reports must fit inside them before promotion; the aggregate now checks that directly."
     }
   },
   "selected": {

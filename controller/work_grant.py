@@ -19,6 +19,7 @@ from controller.resource_profiles import (
     _family,
     _finite_nonnegative,
     _finite_positive,
+    _instance_id,
     _mapping,
     _phase,
     _positive_int,
@@ -225,9 +226,9 @@ class WorkGrant:
 
     def __post_init__(self) -> None:
         _positive_int(self.generation, "generation")
-        _safe_id(self.position_id, "position_id")
+        _instance_id(self.position_id, "position_id")
         owner = _family(self.owner, "owner")
-        _safe_id(self.instance, "instance")
+        _instance_id(self.instance, "instance")
         _safe_id(self.profile_id, "profile_id")
         _sha256(self.profile_digest, "profile_digest")
         phase = _phase(self.phase)

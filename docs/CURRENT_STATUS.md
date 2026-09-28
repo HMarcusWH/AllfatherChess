@@ -140,10 +140,17 @@ safe phase-specific specialist options, portable constituent build optimization 
 owner-specific resource reservation estimates. It preserves the n16 EXPLORE / n16 VERIFY /
 n32 staged-VERIFY intervention and does not change G3's fail-closed authority semantics.
 
-The v2 engine/profile selection is now measurement-backed and hash-bound in
-`qualification/engine-opt-v2-evidence.json` / `engine-opt-v2-selection.json`. It is still
-**not a qualified replacement for v1** until the exact-head ENGINE-OPT aggregate closes,
-including the real-process G3-v2 authority witness and complete LOCAL-1-v2 lifecycle.
+The first exact-head ENGINE-OPT aggregate rejected the original p0 LC0 choice after one
+frozen rook-endgame bestmove changed across hosted CPU environments. The revised selection
+uses the cross-run-stable warm b7/p8 256k profile and now requires three exact-head
+confirmation repeats of both baseline and selected profile. In parallel, the ordinary v1
+LOCAL-1 control exposed two missing replay bundles when per-run directory creation exceeded
+the 100 ms pre-anchor observation budget; the repair pre-creates the next directory off the
+clocked path without relaxing the missing-evidence gate.
+
+The revised selection remains **not a qualified replacement for v1** until a fresh exact-head
+ENGINE-OPT aggregate closes, including repeatability, real-process G3-v2 authority/resource
+evidence, the ordinary v1 LOCAL-1 control and complete LOCAL-1-v2 lifecycle.
 
 ### 2. ONLINE-3 — reproducible package + pinned Lichess bridge
 

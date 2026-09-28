@@ -1,0 +1,102 @@
+name: Engine optimization v2
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'qualification/engine-opt-*.json'
+      - 'qualification/online-engine-opt-v2.json'
+      - 'qualification/online-hybrid-v2.json'
+      - 'qualification/local-full-game-v2.json'
+      - 'config/allfather.online-engine-opt-v2.json'
+      - 'config/allfather.online-hybrid-v2.validation.json'
+      - 'controller/**'
+      - 'adapters/process/**'
+      - 'tools/engine_opt/**'
+      - 'tools/local_game/**'
+      - 'scripts/engine-opt-*.py'
+      - 'scripts/build-online-engine-opt-v2.sh'
+      - 'scripts/qualify-engine-opt-v2.py'
+      - 'scripts/qualify-online-hybrid-v2.py'
+      - 'tests/engine_opt/**'
+      - 'tests/controller/test_engine_opt_runtime.py'
+      - 'tests/fixtures/engine_opt/**'
+      - 'Makefile'
+      - 'Makefile.local-game'
+      - '.github/workflows/engine-optimization.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: engine-opt-v2-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  static-contracts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Static contracts
+        run: |
+          python3 -m compileall -q controller adapters tools scripts tests/engine_opt tests/controller/test_engine_opt_runtime.py
+          python3 tests/engine_opt/test_contracts.py
+          python3 tests/controller/test_engine_opt_runtime.py
+          python3 scripts/qualify-online-hybrid-v2.py
+          for f in qualification/engine-opt-v2.json qualification/engine-opt-v2-selection.json qualification/engine-derived-lock.json qualification/online-engine-opt-v2.json qualification/online-hybrid-v2.json qualification/local-full-game-v2.json config/allfather.online-engine-opt-v2.json config/allfather.online-hybrid-v2.validation.json; do python3 -m json.tool "$f" >/dev/null; done
+          bash -n scripts/build-online-engine-opt-v2.sh
+
+  build-candidate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 70
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential meson ninja-build pkg-config libprotobuf-dev protobuf-compiler zlib1g-dev libopenblas-dev
+      - name: Cache networks
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: |
+            build/artifacts/stockfish
+            build/artifacts/reckless
+            build/artifacts/lc0
+          key: engine-opt-v2-networks-${{ runner.os }}-${{ hashFiles('vendor.lock.json','qualification/lc0-strength.lock.json') }}
+      - name: Build candidate bundle
+        run: make build-online-engine-opt-v2
+      - name: Qualify candidate identity
+        run: python3 scripts/qualify-engine-opt-v2.py
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: engine-opt-v2-candidate
+          path: |
+            build/online-engine-opt-v2
+            build/test-results/engine-opt-v2
+          retention-days: 14
+
+  lc0-runtime-matrix:
+    needs: build-candidate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: engine-opt-v2-candidate
+          path: build/candidate-download
+      - name: Restore candidate executable bits
+        run: chmod +x build/candidate-download/online-engine-opt-v2/bin/*
+      - name: Install runtime dependencies
+        run: sudo apt-get update && sudo apt-get install -y libopenblas-dev
+      - name: Run real-network LC0 matrix
+        run: |
+          python3 scripts/engine-opt-matrix.py             --binary build/candidate-download/online-engine-opt-v2/bin/lc0             --weights build/candidate-download/online-engine-opt-v2/networks/791556.pb.gz             --output build/test-results/engine-opt-matrix/lc0.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: engine-opt-v2-lc0-matrix
+          path: build/test-results/engine-opt-matrix
+          if-no-files-found: warn
+          retention-days: 14

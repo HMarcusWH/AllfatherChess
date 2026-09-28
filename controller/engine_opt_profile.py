@@ -49,6 +49,35 @@ def validate_reference(policy: dict[str,Any], selection: dict[str,Any], config: 
     require(set((routing.get("verify_stage_cpu_ms_estimate_by_owner") or {}))=={"stockfish","reckless","lc0"},"v2 requires owner-specific VERIFY resource estimates")
     require((config.get("resource_measurement") or {}).get("require_gpu_for_claim") is False,"v2 CPU profile may not make GPU claims")
     require((config.get("budget") or {}).get("gpu_ms")==0,"v2 CPU profile budget must remain GPU-free")
+    chosen=selection.get("selected") or {}
+    stockfish=chosen.get("stockfish") or {}
+    reckless=chosen.get("reckless") or {}
+    lc0_selected=chosen.get("lc0") or {}
+    estimates=chosen.get("resource_estimates_ms") or {}
+    for name in ("stockfish-anchor","stockfish-shadow"):
+        require((instances[name].get("options") or {}).get("Hash")==stockfish.get("hash_mb"),
+                f"{name} Hash differs from ENGINE-OPT selection")
+    require((instances["reckless-shadow"].get("options") or {}).get("Hash")==reckless.get("hash_mb"),
+            "Reckless Hash differs from ENGINE-OPT selection")
+    require(opts.get("Backend")==lc0_selected.get("backend"),"LC0 backend differs from ENGINE-OPT selection")
+    require(opts.get("NNCacheSize")==lc0_selected.get("nn_cache_size"),"LC0 NNCacheSize differs from selection")
+    require(opts.get("MinibatchSize")==lc0_selected.get("minibatch_size"),"LC0 MinibatchSize differs from selection")
+    require(opts.get("MaxPrefetch")==lc0_selected.get("max_prefetch"),"LC0 MaxPrefetch differs from selection")
+    require(opts.get("AdaptivePrefetch") is lc0_selected.get("adaptive_prefetch"),"LC0 AdaptivePrefetch differs from selection")
+    require(opts.get("DefectTelemetry") is lc0_selected.get("defect_telemetry"),"LC0 DefectTelemetry differs from selection")
+    require((lc0.get("warmup") or {}).get("nodes")==lc0_selected.get("warmup_nodes"),"LC0 warmup differs from selection")
+    require({phase:(phases.get(phase) or {}).get("MultiPV") for phase in ("EXPLORE","VERIFY","STAGED_VERIFY")}
+            ==lc0_selected.get("phase_multipv"),"LC0 phase MultiPV differs from selection")
+    require(routing.get("stage_cpu_ms_estimate_by_owner")==estimates.get("explore"),
+            "EXPLORE resource estimates differ from selection")
+    require(routing.get("verify_stage_cpu_ms_estimate_by_owner")==estimates.get("verify"),
+            "VERIFY resource estimates differ from selection")
+    builds=policy.get("builds") or {}
+    require(bool((builds.get("stockfish") or {}).get("pgo")) ==
+            (stockfish.get("build_profile")=="x86-64-pgo"),
+            "Stockfish build profile differs from selection")
+    require((builds.get("reckless") or {}).get("target_cpu")=="x86-64",
+            "Reckless promoted build must remain portable x86-64")
 
 def validate_hybrid(policy: dict[str,Any], reference: dict[str,Any], hybrid: dict[str,Any]) -> None:
     require(policy.get("profile_id")=="online-hybrid-v2","wrong v2 hybrid policy")

@@ -8,6 +8,11 @@ on:
         type: choice
         options: [required, soak]
         default: required
+      profile:
+        description: Lifecycle profile (v1 qualified control or v2 engine-opt candidate)
+        type: choice
+        options: [v1, v2]
+        default: v1
   pull_request:
     paths:
       - 'tools/local_game/**'
@@ -50,6 +55,9 @@ on:
 
 permissions:
   contents: read
+
+env:
+  LOCAL1_POLICY: ${{ github.event_name == 'workflow_dispatch' && inputs.profile == 'v2' && 'qualification/local-full-game-v2.json' || 'qualification/local-full-game.json' }}
 
 concurrency:
   group: local-full-game-${{ github.workflow }}-${{ github.ref }}
@@ -108,14 +116,18 @@ jobs:
       - name: Build exact qualification binaries
         run: |
           make -f Makefile.local-game build-fastchess
-          make build-online-cpu-reference
+          if [[ "$LOCAL1_POLICY" == "qualification/local-full-game-v2.json" ]]; then
+            make build-online-engine-opt-v2
+          else
+            make build-online-cpu-reference
+          fi
       - name: Upload exact qualification build bundle
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: local1-qualification-build
           path: |
             build/tools/fastchess
-            build/online-cpu-reference
+            build/online-*
             build/fastchess-source-test/attestation.json
             build/artifacts/lc0/791556.pb.gz
             engines/lc0/build/release/lc0
@@ -144,14 +156,15 @@ jobs:
           path: .
       - name: Restore executable bits and install runtime/test dependencies
         run: |
-          chmod +x             build/tools/fastchess/bin/fastchess             build/online-cpu-reference/bin/stockfish             build/online-cpu-reference/bin/reckless             build/online-cpu-reference/bin/lc0             engines/lc0/build/release/lc0
+          chmod +x build/tools/fastchess/bin/fastchess engines/lc0/build/release/lc0
+          find build -path '*/bin/*' -type f -exec chmod +x {} +
           sudo apt-get update
           sudo apt-get install -y             meson ninja-build pkg-config libprotobuf-dev protobuf-compiler zlib1g-dev             libopenblas-dev python3-pip python3-setuptools python3-wheel
           python3 -m pip install --break-system-packages --no-build-isolation --no-deps             --require-hashes -r qualification/local-game-requirements.txt
       - name: Run LOCAL-1 negative controls and cross-generation regressions
         run: make -f Makefile.local-game test
       - name: Qualify prerequisites, failure cases, rule transitions, full games and five-arm results
-        run: python3 -m tools.local_game.runner --mode required
+        run: python3 -m tools.local_game.runner --mode required --policy "$LOCAL1_POLICY"
       - name: Retain evidence including failed/incomplete campaigns
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -162,6 +175,9 @@ jobs:
             build/test-results/lc0-strength
             build/test-results/online-profile
             build/test-results/online-hybrid
+            build/test-results/engine-opt-v2
+            build/test-results/online-hybrid-v2
+            build/replays-online-hybrid-v2
           if-no-files-found: warn
           retention-days: 14
 
@@ -189,7 +205,8 @@ jobs:
           path: build
       - name: Restore executable bits and install dependencies
         run: |
-          chmod +x             build/tools/fastchess/bin/fastchess             build/online-cpu-reference/bin/stockfish             build/online-cpu-reference/bin/reckless             build/online-cpu-reference/bin/lc0             engines/lc0/build/release/lc0
+          chmod +x build/tools/fastchess/bin/fastchess engines/lc0/build/release/lc0
+          find build -path '*/bin/*' -type f -exec chmod +x {} +
           sudo apt-get update
           sudo apt-get install -y             meson ninja-build pkg-config libprotobuf-dev protobuf-compiler zlib1g-dev             libopenblas-dev python3-pip python3-setuptools python3-wheel
           python3 -m pip install --break-system-packages --no-build-isolation --no-deps             --require-hashes -r qualification/local-game-requirements.txt
@@ -197,7 +214,7 @@ jobs:
         run: make -f Makefile.local-game test
       - name: Run bounded soak shard
         run: |
-          python3 -m tools.local_game.runner             --mode soak             --shard-index "${{ matrix.shard }}"             --shard-count 10
+          python3 -m tools.local_game.runner             --mode soak             --policy "$LOCAL1_POLICY"             --shard-index "${{ matrix.shard }}"             --shard-count 10
       - name: Retain self-contained soak shard evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -238,7 +255,7 @@ jobs:
           merge-multiple: false
       - name: Independently requalify and aggregate all ten soak shards
         run: |
-          python3 -m tools.local_game.aggregate_soak             build/soak-shards             --output build/test-results/local-full-game-soak-aggregate/report.json
+          python3 -m tools.local_game.aggregate_soak             build/soak-shards             --policy "$LOCAL1_POLICY"             --output build/test-results/local-full-game-soak-aggregate/report.json
       - name: Retain aggregate soak report
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

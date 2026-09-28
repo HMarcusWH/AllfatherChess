@@ -20,7 +20,8 @@ class GameEnvironmentContractTests(unittest.TestCase):
         values = {
             "source": EnvironmentSource.BRIDGE_PREDECLARED,
             "base_ms": 600000,
-            "increment_ms": 5000,
+            "white_increment_ms": 5000,
+            "black_increment_ms": 5000,
             "moves_to_go": None,
             "white_time_ms": None,
             "black_time_ms": None,
@@ -53,6 +54,15 @@ class GameEnvironmentContractTests(unittest.TestCase):
         self.assertEqual(first.as_dict(), reordered.as_dict())
         self.assertEqual(first.digest, reordered.digest)
 
+    def test_asymmetric_increments_are_preserved(self):
+        first = self.bridge(
+            white_increment_ms=1000,
+            black_increment_ms=2000,
+        )
+        self.assertEqual(first.white_increment_ms, 1000)
+        self.assertEqual(first.black_increment_ms, 2000)
+        self.assertNotEqual(first.digest, self.bridge().digest)
+
     def test_claim_bearing_change_changes_digest(self):
         self.assertNotEqual(
             self.bridge().digest,
@@ -63,13 +73,16 @@ class GameEnvironmentContractTests(unittest.TestCase):
         with self.assertRaises(OrchestrationContractError):
             self.bridge(base_ms=None)
         with self.assertRaises(OrchestrationContractError):
-            self.bridge(increment_ms=None)
+            self.bridge(white_increment_ms=None)
+        with self.assertRaises(OrchestrationContractError):
+            self.bridge(black_increment_ms=None)
 
-    def test_uci_observed_requires_both_clocks_and_increment(self):
+    def test_uci_observed_requires_both_clocks_and_both_increments(self):
         observed = GameEnvironment(
             source="uci_observed",
             base_ms=None,
-            increment_ms=1000,
+            white_increment_ms=1000,
+            black_increment_ms=2000,
             moves_to_go=None,
             white_time_ms=30000,
             black_time_ms=28000,
@@ -83,10 +96,24 @@ class GameEnvironmentContractTests(unittest.TestCase):
             GameEnvironment(
                 source="uci_observed",
                 base_ms=None,
-                increment_ms=1000,
+                white_increment_ms=1000,
+                black_increment_ms=2000,
                 moves_to_go=None,
                 white_time_ms=30000,
                 black_time_ms=None,
+                concurrency=1,
+                network_policy="generic-uci-v1",
+                network_reserve_ms=50,
+            )
+        with self.assertRaises(OrchestrationContractError):
+            GameEnvironment(
+                source="uci_observed",
+                base_ms=None,
+                white_increment_ms=1000,
+                black_increment_ms=None,
+                moves_to_go=None,
+                white_time_ms=30000,
+                black_time_ms=28000,
                 concurrency=1,
                 network_policy="generic-uci-v1",
                 network_reserve_ms=50,
@@ -96,7 +123,8 @@ class GameEnvironmentContractTests(unittest.TestCase):
         unknown = GameEnvironment(
             source="unknown",
             base_ms=None,
-            increment_ms=None,
+            white_increment_ms=None,
+            black_increment_ms=None,
             moves_to_go=None,
             white_time_ms=None,
             black_time_ms=None,
@@ -110,7 +138,8 @@ class GameEnvironmentContractTests(unittest.TestCase):
             GameEnvironment(
                 source="unknown",
                 base_ms=60000,
-                increment_ms=None,
+                white_increment_ms=None,
+                black_increment_ms=None,
                 moves_to_go=None,
                 white_time_ms=None,
                 black_time_ms=None,
@@ -124,6 +153,8 @@ class GameEnvironmentContractTests(unittest.TestCase):
             self.bridge(concurrency=True)
         with self.assertRaises(OrchestrationContractError):
             self.bridge(network_reserve_ms=False)
+        with self.assertRaises(OrchestrationContractError):
+            self.bridge(white_increment_ms=True)
 
     def test_duplicate_composition_candidates_are_rejected(self):
         with self.assertRaises(OrchestrationContractError):
@@ -134,12 +165,23 @@ class GameEnvironmentContractTests(unittest.TestCase):
                 )
             )
 
-    def test_tampered_authority_marker_is_rejected(self):
+    def test_tampering_unknown_fields_and_missing_authority_are_rejected(self):
         raw = self.bridge().as_dict()
-        raw = copy.deepcopy(raw)
-        raw["authority"]["outward_move"] = True
+
+        tampered = copy.deepcopy(raw)
+        tampered["authority"]["outward_move"] = True
         with self.assertRaises(OrchestrationContractError):
-            GameEnvironment.from_dict(raw)
+            GameEnvironment.from_dict(tampered)
+
+        hidden = copy.deepcopy(raw)
+        hidden["authorized_move"] = "e2e4"
+        with self.assertRaises(OrchestrationContractError):
+            GameEnvironment.from_dict(hidden)
+
+        missing = copy.deepcopy(raw)
+        missing.pop("authority")
+        with self.assertRaises(OrchestrationContractError):
+            GameEnvironment.from_dict(missing)
 
 
 if __name__ == "__main__":

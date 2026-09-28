@@ -739,8 +739,19 @@ class ShadowRunCoordinator:
         except OSError:
             pass
 
+    def _dispose_prepared_slot(self, slot: _PreparedReplaySlot) -> None:
+        try:
+            slot.anchor_stream.close(timeout=1.0)
+        finally:
+            try:
+                slot.anchor_stream.path.unlink()
+            except OSError:
+                pass
+            self._discard_run_dir(slot.directory)
+            self._cleanup_prepared_root()
+
     def prime_run_directory(self, generation: int) -> None:
-        """Prepare one future replay directory off the decision path."""
+        """Prepare the next replay directory and anchor writer off the clock path."""
         if isinstance(generation, bool) or not isinstance(generation, int) or generation < 1:
             raise ControllerRuntimeError("prepared replay generation must be a positive integer")
         with self._lock:
@@ -751,34 +762,59 @@ class ShadowRunCoordinator:
                 or generation in self._prepare_threads
             ):
                 return
-            slot = self._prepared_root / f"g{generation:06d}-{uuid.uuid4().hex}"
+            slot_dir = self._prepared_root / f"g{generation:06d}-{uuid.uuid4().hex}"
+            anchor_name = self.runtime.anchor_name
+            anchor_spec = self.runtime.spec(anchor_name)
 
             def prepare() -> None:
                 error: str | None = None
+                candidate: _PreparedReplaySlot | None = None
                 try:
                     self.settings.replay_root.mkdir(parents=True, exist_ok=True)
                     self._prepared_root.mkdir(parents=True, exist_ok=True)
-                    slot.mkdir(exist_ok=False)
+                    slot_dir.mkdir(exist_ok=False)
+                    stream = TelemetryStreamWriter(
+                        instance=anchor_name,
+                        family=anchor_spec.family,
+                        role=anchor_spec.role,
+                        path=slot_dir / f"{anchor_name}.jsonl",
+                        adapter_factory=None,
+                    )
+                    candidate = _PreparedReplaySlot(
+                        generation=generation,
+                        directory=slot_dir,
+                        anchor_stream=stream,
+                    )
                 except Exception as exc:
                     error = f"{type(exc).__name__}: {exc}"
+
                 keep = False
                 with self._lock:
                     self._prepare_threads.pop(generation, None)
                     if (
-                        error is None
+                        candidate is not None
+                        and error is None
                         and not self._closed
                         and generation not in self._prepared_claimed
                         and generation not in self._prepared_runs
                     ):
-                        self._prepared_runs[generation] = slot
+                        self._prepared_runs[generation] = candidate
                         keep = True
+
                 if error is not None:
                     self._diagnostic(
-                        f"prepared replay directory for generation {generation} failed: {error}"
+                        f"prepared replay slot for generation {generation} failed: {error}"
                     )
                 if not keep:
-                    self._discard_run_dir(slot)
-                    self._cleanup_prepared_root()
+                    if candidate is not None:
+                        self._dispose_prepared_slot(candidate)
+                    else:
+                        try:
+                            (slot_dir / f"{anchor_name}.jsonl").unlink()
+                        except OSError:
+                            pass
+                        self._discard_run_dir(slot_dir)
+                        self._cleanup_prepared_root()
 
             worker = threading.Thread(
                 target=prepare,
@@ -788,24 +824,45 @@ class ShadowRunCoordinator:
             self._prepare_threads[generation] = worker
         worker.start()
 
-    def _claim_prepared_run_directory(self, generation: int, run_dir: Path) -> bool:
+    def _claim_prepared_run_slot(
+        self,
+        generation: int,
+        run_dir: Path,
+        *,
+        adapter_factory: Callable[[str], Any],
+    ) -> TelemetryStreamWriter | None:
         with self._lock:
             self._prepared_claimed.add(generation)
             slot = self._prepared_runs.pop(generation, None)
         if slot is None:
-            return False
+            return None
+
+        final_path = run_dir / slot.anchor_stream.path.name
+        moved = False
         try:
-            slot.replace(run_dir)
-        except OSError as exc:
+            slot.directory.replace(run_dir)
+            moved = True
+            slot.anchor_stream.bind_prepared(
+                path=final_path,
+                adapter_factory=adapter_factory,
+            )
+            return slot.anchor_stream
+        except Exception as exc:
             self._diagnostic(
-                f"prepared replay directory claim for generation {generation} failed: "
+                f"prepared replay slot claim for generation {generation} failed: "
                 f"{type(exc).__name__}: {exc}"
             )
-            self._discard_run_dir(slot)
-            return False
-        finally:
-            self._cleanup_prepared_root()
-        return True
+            try:
+                slot.anchor_stream.close(timeout=1.0)
+            finally:
+                for path in (final_path, slot.anchor_stream.path):
+                    try:
+                        path.unlink()
+                    except OSError:
+                        pass
+                self._discard_run_dir(run_dir if moved else slot.directory)
+                self._cleanup_prepared_root()
+            return None
 
     def prepare_run(self, *, generation: int, go_command: str, clock: ClockSearch | None = None) -> bool:
         """Create the run bundle and anchor stream *before* the anchor starts.

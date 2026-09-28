@@ -1,6 +1,6 @@
 # AllfatherChess
 
-> **Current synchronized build state:** PR #41 / LOCAL-1 remains the qualified behavior baseline; main is synchronized at `b8bd0fdda4a7e67f6437a74e5373f69ef2c15c78`. PR #44 / ENGINE-OPT-V2 is the current candidate milestone before ONLINE-3 and is not yet promoted.  
+> **Current synchronized build state:** PR #44 / ENGINE-OPT-V2 is merged and qualified; main is synchronized at `7248f25fc64be4d04a78ec2b1f0c9de2986a11a5`. The next architecture milestone is **M14-J Adaptive Resource Orchestration**, which moves host/time-control/profile allocation under the meta-controller while preserving ENGINE-OPT-V2 as the fail-closed fallback.  
 > See [docs/CURRENT_STATUS.md](docs/CURRENT_STATUS.md) for the exact implemented surface and
 > [docs/ROADMAP.md](docs/ROADMAP.md) for the canonical forward execution order.
 
@@ -59,7 +59,7 @@ The current stack includes the immediate controller layers plus an explicit comm
 16. **ONLINE-2 real-network online CPU reference (PR #38)** — packages portable Stockfish/Reckless builds with the pinned BLAS-LC0 network/backend identity under ONLINE timing/resource contracts while retaining Stockfish outward authority.
 17. **M14-G3 clock-aware staged hybrid authority (PR #39)** — composes ONLINE-2, G1/G2 staged VERIFY, frozen route-bound proposal evidence, clock-aware DecisionAuthorization, deadline-safe outward publication, deterministic Stockfish fallback, and post-output resource/replay sealing. The qualification requires a genuine real-backend non-anchor HYBRID emission.
 
-Documentation: `docs/README.md`, `docs/ENGINE_OPTIMIZATION.md`, `docs/CURRENT_STATUS.md`, `docs/ROADMAP.md`, `docs/ONLINE_RELEASE_PLAN.md`, `docs/ONLINE_TIME.md`, `docs/BUILD_PLAN.md`, `docs/ARCHITECTURE.md`, `docs/UCI_SHELL.md`, `docs/SHARD_LEDGER.md`, `docs/PREFIX_SHARDS.md`, `docs/SHADOW_EXECUTION.md`, `docs/REPLAY_FORMAT.md`, `docs/RESIDUAL_CALIBRATION.md`, `docs/BUDGET_ROUTING.md`, `docs/VERIFY_RELOCK.md`, `docs/COMPARE_RELOCK.md`, `docs/PREFIX_SHARDS.md`, `docs/REFINEMENT.md`, `docs/ACTIVE_SPECIALIST_SCHEDULER.md`, `docs/CROSS_FEED.md`, `docs/CROSS_FEED_ADAPTERS.md`, `docs/SEARCH_REGIMES.md`, `docs/STAGED_VERIFY.md`, `docs/UNIFIED_VALUE_ROUTER.md`, `docs/RESOURCE_ACCOUNTING.md`, `docs/SEARCH_SPACE_OWNERSHIP.md`, `docs/TELEMETRY_SCHEMA.md`, `docs/TELEMETRY_MAPPING.md`, `docs/THEORY_IMPLEMENTATION_MAP.md`, `docs/CLAIM_LEDGER.md`, `docs/ADVERSARIAL_AUDIT.md`, `docs/CODEX_REVIEW_AUDIT.md`, `docs/UPSTREAM_PROVENANCE.md`, and `LICENSES.md`.
+Documentation: `docs/README.md`, `docs/ENGINE_OPTIMIZATION.md`, `docs/M14_J_ADAPTIVE_RESOURCE_ORCHESTRATION.md`, `docs/CURRENT_STATUS.md`, `docs/ROADMAP.md`, `docs/ONLINE_RELEASE_PLAN.md`, `docs/ONLINE_TIME.md`, `docs/BUILD_PLAN.md`, `docs/ARCHITECTURE.md`, `docs/UCI_SHELL.md`, `docs/SHARD_LEDGER.md`, `docs/PREFIX_SHARDS.md`, `docs/SHADOW_EXECUTION.md`, `docs/REPLAY_FORMAT.md`, `docs/RESIDUAL_CALIBRATION.md`, `docs/BUDGET_ROUTING.md`, `docs/VERIFY_RELOCK.md`, `docs/COMPARE_RELOCK.md`, `docs/PREFIX_SHARDS.md`, `docs/REFINEMENT.md`, `docs/ACTIVE_SPECIALIST_SCHEDULER.md`, `docs/CROSS_FEED.md`, `docs/CROSS_FEED_ADAPTERS.md`, `docs/SEARCH_REGIMES.md`, `docs/STAGED_VERIFY.md`, `docs/UNIFIED_VALUE_ROUTER.md`, `docs/RESOURCE_ACCOUNTING.md`, `docs/SEARCH_SPACE_OWNERSHIP.md`, `docs/TELEMETRY_SCHEMA.md`, `docs/TELEMETRY_MAPPING.md`, `docs/THEORY_IMPLEMENTATION_MAP.md`, `docs/CLAIM_LEDGER.md`, `docs/ADVERSARIAL_AUDIT.md`, `docs/CODEX_REVIEW_AUDIT.md`, `docs/UPSTREAM_PROVENANCE.md`, and `LICENSES.md`.
 
 **No strength claim is made.** No equal-envelope Elo/superiority campaign has been completed.
 PR #39 establishes the qualified real-network, clock-aware staged hybrid authority composition,
@@ -93,7 +93,10 @@ PR #41 completed LOCAL-1. The remaining first-canary path is now:
 
 ```text
 LOCAL-1 full-game lifecycle qualification  [DONE]
-    -> ENGINE-OPT-V2 measured constituent/profile optimization  [NEXT]
+    -> ENGINE-OPT-V2 measured constituent/profile optimization  [DONE]
+    -> M14-J adaptive resource orchestration  [NEXT]
+    -> META-1 matched-resource authority-value control
+    -> ONLINE-PLAY-1 production-profile 10+5 experiment
     -> ONLINE-3 reproducible package + pinned lichess-bot bridge
     -> ONLINE-4 network/restart/reconciliation/rollback qualification
     -> aggregate release qualification
@@ -101,7 +104,12 @@ LOCAL-1 full-game lifecycle qualification  [DONE]
 ```
 
 M14-G4 production SKIP calibration and M15-B/C equal-resource strength work proceed on
-separate promotion tracks. ONLINE operation is not a substitute for the strength campaign.
+separate promotion tracks. META-1 isolates hybrid authority value under matched orchestration;
+ONLINE-PLAY-1 measures the production profiles at 10+5. Neither substitutes for the formal
+M15-B/C equal-resource strength campaign.
+
+The complete M14-J rebuild sequence is documented in
+[docs/M14_J_ADAPTIVE_RESOURCE_ORCHESTRATION.md](docs/M14_J_ADAPTIVE_RESOURCE_ORCHESTRATION.md).
 
 ### LOCAL-1 full-game qualification — qualified
 

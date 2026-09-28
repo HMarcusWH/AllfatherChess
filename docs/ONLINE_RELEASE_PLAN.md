@@ -1,18 +1,18 @@
 > Repository integration: originally frozen as the 25 September 2026 post-#35 deployment audit;
-> synchronized on 27 September 2026 after merged PR #41 / LOCAL-1.
-> ONLINE-1, ONLINE-2, M14-G3 and LOCAL-1 are complete. ONLINE-3 packaging is next, followed
-> by lifecycle/recovery qualification, aggregate release qualification and the canary.
-> [ROADMAP.md](ROADMAP.md) is now the canonical forward-order document; this file remains
+> synchronized on 28 September 2026 after merged PR #44 / ENGINE-OPT-V2.
+> ONLINE-1, ONLINE-2, M14-G3, LOCAL-1 and ENGINE-OPT-V2 are complete. M14-J Adaptive Resource
+> Orchestration is next, followed by META-1, ONLINE-PLAY-1 and the existing ONLINE-3/4 release path.
+> [ROADMAP.md](ROADMAP.md) is the canonical forward-order document; this file remains
 > the detailed deployment audit. Hardware, licensing and branch-protection items remain
 > explicit release gates.
 
 # AllfatherChess — Final plan from current repository to online bot play
 
 **Original review date:** 25 September 2026  
-**Status synchronization:** 27 September 2026  
+**Status synchronization:** 28 September 2026  
 **Repository:** `HMarcusWH/AllfatherChess`  
-**Current main commit:** `524ec9b25c7f08d981ba7c88318d106e22586295`  
-**Current milestone:** PR #41 / LOCAL-1 merged and qualified; ONLINE-3 is the active execution gate.  
+**Current main commit:** `7248f25fc64be4d04a78ec2b1f0c9de2986a11a5`  
+**Current milestone:** PR #44 / ENGINE-OPT-V2 merged and qualified; M14-J Adaptive Resource Orchestration is the active architecture gate.  
 **Current status authority:** [CURRENT_STATUS.md](CURRENT_STATUS.md)  
 **Delivery:** source-backed audit plus synchronized implementation/deployment plan. The repository is not yet a deployed bot and makes no playing-strength claim.
 
@@ -24,6 +24,10 @@ The critical path is:
 
 ```text
 PR #41 / LOCAL-1 merged + qualified
+    -> PR #44 / ENGINE-OPT-V2 merged + qualified
+    -> M14-J adaptive resource orchestration
+    -> META-1 matched-resource authority-value control
+    -> ONLINE-PLAY-1 production-profile 10+5 experiment
     -> ONLINE-3 reproducible package + pinned lichess-bot bridge
     -> ONLINE-4 network/restart/rollback qualification
     -> aggregate release qualification
@@ -59,29 +63,21 @@ artifact inspection was narrower than rerunning the complete repository suite. C
 
 ### 2.1 Current synchronized qualification evidence
 
-PR #41's final qualified head is
-`6fc6522f863e2a15c6d4c230fa558cbb993f867e`. The merge commit
-`524ec9b25c7f08d981ba7c88318d106e22586295` has the same Git tree
-`0a2095ba5dde83292a348cff2495d02bd4e05299`, so the code content that passed
-the qualification workflows is the content merged to `main`.
+PR #44's final qualified head is `085420843b95f3f2dd206fc1c66bf642cbd49b6d`. The merge commit `7248f25fc64be4d04a78ec2b1f0c9de2986a11a5` has the same Git tree `80fae798aed99a5e37fcfb7fce321a7e01a2fc56`, so the code content that closed the exact-head qualification workflows is the code content merged to `main`.
 
 | Workflow | Run | Result |
 | --- | ---: | --- |
-| Telemetry contract validation | 36344180892 | success |
-| Controller shell validation | 36344180852 | success |
-| Merge gate | 36344180834 | success |
-| LC0 real-inference qualification | 36344180739 | success |
-| ONLINE-2 real-network online profile qualification | 36344180754 | success |
-| M14-G3 online staged hybrid authority qualification | 36344180746 | success |
-| Baseline engine validation | 36344180968 | success |
-| **LOCAL-1 full-game lifecycle and five-arm baselines** | **36344180962** | **success** |
+| Telemetry contract validation | 36458789547 | success |
+| Controller shell validation | 36458789275 | success |
+| Merge gate | 36458789123 | success |
+| LC0 real-inference qualification | 36458789157 | success |
+| ONLINE-2 real-network online profile qualification | 36458789327 | success |
+| M14-G3 online staged hybrid authority qualification | 36458789431 | success |
+| Baseline engine validation | 36458789271 | success |
+| **LOCAL-1 full-game lifecycle and five-arm baselines** | **36458789252** | **success** |
+| **ENGINE-OPT-V2 aggregate** | **36458789423** | **success** |
 
-LOCAL-1 run #100 passed 44 regressions, the mandatory failure/rule campaigns and all
-28 required games with zero qualification errors. Artifact `10941548187` has SHA-256
-`23d2b1f8baa2b535e92e523c3a3dbd79219213127015a708daa50d49c3395d21`.
-The dedicated M14-G3 qualifier still supplies the separate predeclared real non-anchor
-HYBRID proof; natural-game LOCAL-1 authority counts are descriptive coverage, not
-playing-strength evidence.
+ENGINE-OPT-V2 aggregate artifact `10990541766` has SHA-256 `080678710a7df45a44d008df5ef484fbcfa3c01911d1a50a5cb0a96cbc3b07d1`. The aggregate reported promotion-ready with no errors. The selected LC0 profile repeated the frozen eight-position move vector three times, a genuine non-anchor G3-v2 authority witness was retained, LOCAL-1-v2 completed 28/28 required games, and the ordinary v1 LOCAL-1 control reran green on the same exact head. These facts are qualification and coverage evidence, not playing-strength evidence.
 
 ### 2.2 Historical downloaded audit snapshot — 25 September
 
@@ -386,6 +382,18 @@ no leaked prior-game workers, and complete game→ply→evidence linkage.
 
 
 
+### ENGINE-OPT-V2 — Measured constituent/profile optimization — **COMPLETED IN PR #44**
+
+**PR:** #44 · **Qualified head:** `085420843b95f3f2dd206fc1c66bf642cbd49b6d` · **Merge:** `7248f25fc64be4d04a78ec2b1f0c9de2986a11a5` · **Aggregate workflow:** `36458789423`
+
+ENGINE-OPT-V2 qualified the selected portable Stockfish/Reckless/BLAS-LC0 execution profile, owner-specific resource reservations, a real non-anchor G3-v2 authority witness and complete LOCAL-1-v2 lifecycle evidence. The selected LC0 profile is `b7-p8-c256k-warm64`; the ordinary v1 LOCAL-1 control remains retained as a regression reference. This milestone is profile/build/resource qualification, not Elo or superiority evidence.
+
+### M14-J — Adaptive Resource Orchestration — **NEXT**
+
+Place host/time-control/profile allocation under the meta-controller while preserving ENGINE-OPT-V2 as the exact fail-closed fallback. M14-J introduces prequalified engine operating points, host/game capability detection, move-level resource plans, typed WorkGrants, progressive deterministic allocation and allocation provenance bound into DecisionAuthorization. ResourceAuthorization remains separate from move authority.
+
+The complete implementation sequence is [M14_J_ADAPTIVE_RESOURCE_ORCHESTRATION.md](M14_J_ADAPTIVE_RESOURCE_ORCHESTRATION.md). After integrated qualification, META-1 isolates hybrid authority value under matched orchestration and ONLINE-PLAY-1 measures the production profiles at 10+5 before packaging proceeds.
+
 ### ONLINE-3 — Package the engine and reuse lichess-bot
 
 **Suggested title:** `feat: package AllfatherChess for controlled Lichess bot play`
@@ -507,25 +515,15 @@ reference after seeing results, or dropping controller/specialist overhead.
 
 ## 9. Current next implementation after LOCAL-1
 
-ONLINE-1, ONLINE-2, M14-G3 and LOCAL-1 are merged and qualified on the shared PR #41 tree.
-The next behavior-changing release milestone is **ONLINE-3: package the exact qualified
-engine and reuse a pinned lichess-bot bridge**.
+ONLINE-1, ONLINE-2, M14-G3, LOCAL-1 and ENGINE-OPT-V2 are merged and qualified. The current architecture milestone is **M14-J: Adaptive Resource Orchestration**.
 
-The open question is no longer complete-game lifecycle correctness. ONLINE-3 must prove that
-a clean host can reproduce an immutable service package around the exact qualified
-composition, with a pinned bridge revision/dependencies, restricted standard/casual 10+5
-policy, no hidden move sources, secret-safe token injection, bounded writable PGN/replay
-storage and fake-server startup/game-lifecycle smoke tests.
+The engine-source audit after PR #44 showed why this insertion is necessary before a large 10+5 study: native Stockfish, Reckless and LC0 time managers scale their own search budgets aggressively with a large external clock, while the qualified G3 composition remains capped by a 4,000 ms outer wall envelope, 12,000 CPU-ms ceiling and fixed n16/n16/n32 specialist interventions. A raw same-clock match would therefore mix resource-policy and move-quality effects.
 
-After ONLINE-3, the critical path is ONLINE-4 network/restart/reconciliation/rollback
-qualification, aggregate release qualification, then ONLINE-RC.
+M14-J first creates a governed portfolio of qualified resource profiles and moves host/game/move allocation into the meta-controller. **META-1** then compares orchestrated HYBRID with an orchestrated ANCHOR_CONTROL under matched compute, so only final move authority differs. **ONLINE-PLAY-1** follows as the production-profile 10+5 operational comparison. Neither is the formal M15-B/C equal-resource strength campaign.
 
-The manual 200-game LOCAL-1 soak remains available as additional engineering-reliability
-evidence. It is not an Elo test and is not retroactively required to call the required
-LOCAL-1 gate qualified.
+After those architecture and predeployment experiments, the existing release path continues with ONLINE-3 packaging, ONLINE-4 network/restart/reconciliation/rollback qualification, aggregate release qualification and ONLINE-RC.
 
-M14-G4 production SKIP qualification may proceed alongside ONLINE-3/ONLINE-4. It remains a
-hard gate before learned SKIP is promoted.
+The manual LOCAL-1 soak remains available as additional engineering-reliability evidence. It is not an Elo test. M14-G4 production SKIP qualification remains a separate promotion gate before learned SKIP can be enabled.
 
 ## 10. Final acceptance checklist
 
@@ -570,6 +568,9 @@ Sources S01-S21 and E01 preserve the original 25 September audit snapshot and th
 - **S27 — PR #41 / LOCAL-1:** `https://github.com/HMarcusWH/AllfatherChess/pull/41`; merge commit `524ec9b25c7f08d981ba7c88318d106e22586295`; qualified head `6fc6522f863e2a15c6d4c230fa558cbb993f867e`; shared qualified/merged tree `0a2095ba5dde83292a348cff2495d02bd4e05299`.
 - **S28 — LOCAL-1 exact-head run #100:** `https://github.com/HMarcusWH/AllfatherChess/actions/runs/36344180962`; required qualification passed with 44 regressions, 28/28 required games and zero qualification errors.
 - **E02 — LOCAL-1 retained evidence:** GitHub Actions artifact `10941548187`, archive SHA-256 `23d2b1f8baa2b535e92e523c3a3dbd79219213127015a708daa50d49c3395d21`.
+- **S29 — PR #44 / ENGINE-OPT-V2:** `https://github.com/HMarcusWH/AllfatherChess/pull/44`; merge commit `7248f25fc64be4d04a78ec2b1f0c9de2986a11a5`; qualified head `085420843b95f3f2dd206fc1c66bf642cbd49b6d`; shared tree `80fae798aed99a5e37fcfb7fce321a7e01a2fc56`.
+- **S30 — PR #44 exact-head workflow set:** ENGINE-OPT-V2 aggregate `36458789423`; LOCAL-1 `36458789252`; M14-G3 `36458789431`; Telemetry `36458789547`; Controller shell `36458789275`; Merge gate `36458789123`; ONLINE-2 `36458789327`; LC0 real inference `36458789157`; Baseline engine validation `36458789271`.
+- **E03 — ENGINE-OPT-V2 retained aggregate evidence:** artifact `10990541766`, archive SHA-256 `080678710a7df45a44d008df5ef484fbcfa3c01911d1a50a5cb0a96cbc3b07d1`.
 - **E01 — Historical downloaded CI evidence:** `allfather-main-9a1414-validation-evidence.zip`; inspection output `audit/independent-checks.json`; reproducible local inspector `audit/check_ci_evidence.py` in the accompanying audit pack. This artifact belongs to the 25 September `9a1414...` audit snapshot, not the current G3 tree.
 
 For core source paths not expanded as a URL above, prepend `https://github.com/HMarcusWH/AllfatherChess/blob/9a1414b8d7897e856364b15423fe3efb5a7cc7f7/`.

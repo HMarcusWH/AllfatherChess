@@ -1,8 +1,8 @@
 # ENGINE-OPT-V2
 
-ENGINE-OPT-V2 is the controlled optimization programme inserted between qualified LOCAL-1 v1 and ONLINE-3.
+ENGINE-OPT-V2 was the controlled optimization programme inserted after qualified LOCAL-1 v1. PR #44 qualified the selected v2 composition on exact head `085420843b95f3f2dd206fc1c66bf642cbd49b6d` and merged the identical tree as `7248f25fc64be4d04a78ec2b1f0c9de2986a11a5`.
 
-The v1 composition remains the control. This programme does **not** rewrite the already-qualified v1 runtime or claim that LOCAL-1 evidence transfers to a new binary/profile.
+The v1 composition remains the historical control. Qualification of v2 did **not** rewrite the already-qualified v1 runtime or retroactively transfer LOCAL-1 evidence; PR #44 reran both the ordinary v1 control and a separate LOCAL-1-v2 lifecycle campaign.
 
 ## Initial defect exposed by LOCAL-1
 
@@ -112,3 +112,30 @@ The original bounded fallback remains intact when no prepared slot is available.
 still fail open to Stockfish authority, but a missing replay remains a qualification failure.
 Unused prepared writers are closed and removed on shutdown; their staging root is a sibling
 of the replay corpus, so they cannot be mistaken for finalized evidence.
+
+
+## Final exact-head qualification
+
+The final PR #44 head `085420843b95f3f2dd206fc1c66bf642cbd49b6d` closed every required workflow and was merged as `7248f25fc64be4d04a78ec2b1f0c9de2986a11a5`; both commits have tree `80fae798aed99a5e37fcfb7fce321a7e01a2fc56`.
+
+The selected LC0 profile remained `b7-p8-c256k-warm64`: BLAS network 791556, `NNCacheSize=262144`, `MinibatchSize=7`, `MaxPrefetch=8`, adaptive prefetch disabled, defect telemetry disabled and a 64-node startup warmup. Across the three exact-head confirmation repeats, the selected profile preserved the complete frozen eight-position move vector. Its median wall range was **329.0025–331.5455 ms**, versus **1291.427–1316.554 ms** for the frozen v1 baseline. The aggregate's conservative worst-selected / fastest-baseline ratio was **0.25672802256728405**.
+
+The exact-head aggregate workflow was `36458789423`. Retained aggregate artifact `10990541766` has SHA-256 `080678710a7df45a44d008df5ef484fbcfa3c01911d1a50a5cb0a96cbc3b07d1`. It reported `passed: true`, `promotion_ready: true` and no errors.
+
+The qualification also closed:
+
+- 100% bestmove agreement in the frozen constituent A/B controls;
+- the real G3-v2 non-anchor authority witness `c2c4 -> g1f3`;
+- 28/28 required LOCAL-1-v2 games with no qualification errors;
+- the ordinary v1 LOCAL-1 control on the same exact head, also green;
+- owner-specific resource reservations and physical-resource evidence within the selected bounds.
+
+LOCAL-1-v2 exercised `native=2606`, `ANCHOR_FALLBACK=580`, `HYBRID=289` and 74 actual anchor-changing overrides. Those authority counts are descriptive coverage. They are not playing-strength evidence.
+
+No Elo, equal-compute, GPU, deployment or constituent-superiority claim follows from ENGINE-OPT-V2.
+
+## Why optimization now leads to orchestration
+
+A post-qualification source audit exposed the next architectural constraint. The three constituent engines have materially different native time-management behavior: Stockfish, Reckless and LC0 all scale their own search budgets with the external clock, while the qualified G3 composition remains bounded by a fixed 4,000 ms outer wall envelope, 12,000 CPU-ms ceiling and fixed n16/n16/n32 specialist interventions.
+
+A raw 10+5 same-clock match would therefore mix two questions: chess decision quality and resource/time-management policy. M14-J addresses that confound by placing qualified engine operating points, host/game detection, move-level resource planning and progressive work allocation under the meta-controller while preserving ENGINE-OPT-V2 as the fail-closed fallback. See [M14_J_ADAPTIVE_RESOURCE_ORCHESTRATION.md](M14_J_ADAPTIVE_RESOURCE_ORCHESTRATION.md).

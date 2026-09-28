@@ -1,12 +1,13 @@
 # AllfatherChess current build and release status
 
 **Status date:** 28 September 2026  
-**Authoritative main commit:** `b8bd0fdda4a7e67f6437a74e5373f69ef2c15c78`  
-**Merged milestone:** PR #41 / LOCAL-1 — full-game lifecycle qualification  
-**Qualified PR head:** `6fc6522f863e2a15c6d4c230fa558cbb993f867e`  
-**Tree identity:** both the qualified PR head and merge commit use tree `0a2095ba5dde83292a348cff2495d02bd4e05299`  
-**Current execution milestone:** ENGINE-OPT-V2 / PR #44 — measured constituent/profile optimization before ONLINE-3  
+**Authoritative main commit:** `7248f25fc64be4d04a78ec2b1f0c9de2986a11a5`  
+**Latest merged milestone:** PR #44 / ENGINE-OPT-V2 — measured constituent/profile optimization  
+**Qualified PR head:** `085420843b95f3f2dd206fc1c66bf642cbd49b6d`  
+**Tree identity:** qualified PR head and merge commit share tree `80fae798aed99a5e37fcfb7fce321a7e01a2fc56`  
+**Current execution milestone:** M14-J — Adaptive Resource Orchestration  
 **Forward roadmap:** [ROADMAP.md](ROADMAP.md)  
+**M14-J rebuild plan:** [M14_J_ADAPTIVE_RESOURCE_ORCHESTRATION.md](M14_J_ADAPTIVE_RESOURCE_ORCHESTRATION.md)  
 **Detailed deployment plan:** [ONLINE_RELEASE_PLAN.md](ONLINE_RELEASE_PLAN.md)
 
 This document is the short-form synchronization point for the live repository. Historical
@@ -15,24 +16,21 @@ for current status and forward ordering.
 
 ## Current qualification evidence
 
-PR #41 remains the qualified behavior baseline. PR #43 subsequently synchronized repository status/docs and merged as `b8bd0fdda4a7e67f6437a74e5373f69ef2c15c78` without changing the qualified chess/controller behavior. ENGINE-OPT-V2 is being developed separately in PR #44; its v2 selection is not yet a qualified replacement.
+PR #44 / ENGINE-OPT-V2 qualified on exact candidate head `085420843b95f3f2dd206fc1c66bf642cbd49b6d` and was merged as `7248f25fc64be4d04a78ec2b1f0c9de2986a11a5` with the same Git tree `80fae798aed99a5e37fcfb7fce321a7e01a2fc56`. The merged tree therefore matches the tree that closed the final exact-head qualification gates.
 
 | Workflow | Run | Result |
 | --- | ---: | --- |
-| Telemetry contract validation | 36344180892 | success |
-| Controller shell validation | 36344180852 | success |
-| Merge gate | 36344180834 | success |
-| LC0 real-inference qualification | 36344180739 | success |
-| ONLINE-2 real-network online profile qualification | 36344180754 | success |
-| M14-G3 online staged hybrid authority qualification | 36344180746 | success |
-| Baseline engine validation | 36344180968 | success |
-| **LOCAL-1 full-game lifecycle and five-arm baselines** | **36344180962** | **success** |
+| Telemetry contract validation | 36458789547 | success |
+| Controller shell validation | 36458789275 | success |
+| Merge gate | 36458789123 | success |
+| LC0 real-inference qualification | 36458789157 | success |
+| ONLINE-2 real-network online profile qualification | 36458789327 | success |
+| M14-G3 online staged hybrid authority qualification | 36458789431 | success |
+| Baseline engine validation | 36458789271 | success |
+| **LOCAL-1 full-game lifecycle and five-arm baselines** | **36458789252** | **success** |
+| **ENGINE-OPT-V2 aggregate** | **36458789423** | **success** |
 
-The exact-head LOCAL-1 artifact is GitHub Actions artifact `10941548187`, SHA-256
-`23d2b1f8baa2b535e92e523c3a3dbd79219213127015a708daa50d49c3395d21`.
-Automated exact-head Codex review was unavailable after the review quota was exhausted, so
-no exact-head Codex-review claim is made; the runtime/qualification gates above are the
-promotion evidence.
+The retained ENGINE-OPT-V2 aggregate artifact is `10990541766`, SHA-256 `080678710a7df45a44d008df5ef484fbcfa3c01911d1a50a5cb0a96cbc3b07d1`. The exact-head aggregate reported `passed: true`, `promotion_ready: true`, no errors, three repeat confirmations of the selected LC0 profile, a real non-anchor G3-v2 authority witness, and successful LOCAL-1-v2 lifecycle evidence. The ordinary v1 LOCAL-1 control also reran successfully; its retained artifact is `10990165658`, SHA-256 `a57b65603866b8444bfb325b43cd3d9809650910a1eaf389a5e2382b995384e7`.
 
 ## LOCAL-1 qualification result
 
@@ -44,6 +42,14 @@ than an Elo/equal-resource claim.
 Across the 800 validated Allfather-G3 plies in the retained artifact, authority was
 **796 ANCHOR_FALLBACK** and **4 HYBRID**. Two HYBRID decisions changed the Stockfish anchor
 move. These counts are **MEASURED coverage**, not a strength result.
+
+## ENGINE-OPT-V2 qualification result
+
+The promoted CPU reference keeps portable PGO Stockfish at 16 MiB hash, portable x86-64 Reckless at 16 MiB hash, and BLAS LC0 network 791556 with the selected `b7-p8-c256k-warm64` profile: `NNCacheSize=262144`, `MinibatchSize=7`, `MaxPrefetch=8`, adaptive prefetch off, defect telemetry off and a 64-node startup warmup.
+
+Across the three exact-head confirmation repeats, the selected LC0 profile preserved the frozen 8/8 move vector with median wall time in the range **329.0025–331.5455 ms**. The frozen v1 baseline measured **1291.427–1316.554 ms** median wall time. The aggregate used the conservative worst-selected / fastest-baseline ratio **0.25672802256728405**. These are profile-efficiency and repeatability measurements, not Elo or playing-strength evidence.
+
+The exact-head LOCAL-1-v2 campaign validated 28/28 required games with no qualification errors. Its descriptive authority coverage was `native=2606`, `ANCHOR_FALLBACK=580`, `HYBRID=289`, with 74 actual anchor-changing overrides. Those counts establish exercised authority coverage only; they do not establish that the overrides improve chess strength.
 
 ## What is implemented and qualified
 
@@ -70,7 +76,10 @@ The repository now contains, in code and contract tests:
     staged VERIFY and an explicit fail-closed outward DecisionAuthorization gate;
 19. **LOCAL-1 complete-game lifecycle qualification**, including full-history game execution,
     explicit rule witnesses, mandatory failure injection, replay/process/resource integrity,
-    and the five-arm same-clock descriptive baseline.
+    and the five-arm same-clock descriptive baseline;
+20. **ENGINE-OPT-V2 exact-head qualification**, including the cross-run-stable LC0 profile,
+    portable Stockfish PGO, owner-specific resource reservations, real G3-v2 authority evidence,
+    ordinary v1 lifecycle control and complete LOCAL-1-v2 lifecycle qualification.
 
 ## M14-G3 result
 
@@ -124,56 +133,43 @@ These are lifecycle/resource integrity properties, not playing-strength claims.
 | `allfather.hybrid.validation.json` | random | historical movetime-only path | no staged composition | M14-C only | bounded authority regression |
 | `allfather.unified-value.validation.json` | random | no ONLINE composition | yes | no | M14-G2 routing regression |
 | `allfather.online-hybrid.validation.json` | pinned BLAS/network | yes | yes, route-bound staged | **yes, M14-G3** | current qualified integrated authority reference |
-| `allfather.online-engine-opt-v2.json` | selected BLAS/network profile | yes | no hybrid authority | no | PR #44 optimized CPU reference candidate |
-| `allfather.online-hybrid-v2.validation.json` | selected BLAS/network profile | yes | yes, route-bound staged | yes, same G3 policy | PR #44 optimized hybrid candidate |
+| `allfather.online-engine-opt-v2.json` | selected BLAS/network profile | yes | no hybrid authority | no | qualified ENGINE-OPT-V2 CPU reference / frozen orchestration fallback substrate |
+| `allfather.online-hybrid-v2.validation.json` | selected BLAS/network profile | yes | yes, route-bound staged | yes, same G3 policy | qualified ENGINE-OPT-V2 hybrid reference / frozen M14-J fallback |
 
 The older profiles remain valuable negative/regression controls. M14-G3 is a new composition,
 not permission to erase their firewalls.
 
 ## Current critical path
 
-### 1. ENGINE-OPT-V2 / PR #44 — measured constituent/profile optimization — **NEXT**
+### 1. M14-J — Adaptive Resource Orchestration — **NEXT**
 
-Keep the PR #41/LOCAL-1 v1 composition frozen as the control while measuring and repairing
-the execution profile. The v2 programme targets LC0 CPU cache/minibatch/prefetch/warmup,
-safe phase-specific specialist options, portable constituent build optimization and
-owner-specific resource reservation estimates. It preserves the n16 EXPLORE / n16 VERIFY /
-n32 staged-VERIFY intervention and does not change G3's fail-closed authority semantics.
+Move host, game-clock, engine-profile and progressive work allocation under one versioned controller resource policy while preserving ENGINE-OPT-V2 as the exact fail-closed fallback. The detailed implementation sequence is frozen in [M14_J_ADAPTIVE_RESOURCE_ORCHESTRATION.md](M14_J_ADAPTIVE_RESOURCE_ORCHESTRATION.md).
 
-The first exact-head ENGINE-OPT aggregate rejected the original p0 LC0 choice after one
-frozen rook-endgame bestmove changed across hosted CPU environments. The revised selection
-uses the cross-run-stable warm b7/p8 256k profile and now requires three exact-head
-confirmation repeats of both baseline and selected profile. In parallel, the ordinary v1 LOCAL-1 control first exposed missing replay bundles when
-per-run directory creation exceeded the 100 ms pre-anchor observation budget. After that
-directory-only repair, run `36440361529` isolated the remaining failure to anchor telemetry
-writer construction. The coordinator now prepares the complete next replay slot off the
-clocked path: directory, open anchor stream, and writer thread. The request-time claim is a
-same-filesystem rename plus in-memory adapter binding; the missing-evidence gate is unchanged.
+M14-J does not authorize arbitrary live hyperparameter synthesis. It introduces prequalified engine operating points, host/game capability detection, typed WorkGrants, a progressive deterministic allocator and replay-bound resource provenance. ResourceAuthorization remains separate from DecisionAuthorization.
 
-The revised selection remains **not a qualified replacement for v1** until a fresh exact-head
-ENGINE-OPT aggregate closes, including repeatability, real-process G3-v2 authority/resource
-evidence, the ordinary v1 LOCAL-1 control and complete LOCAL-1-v2 lifecycle.
+### 2. META-1 — authority-value control experiment
 
-### 2. ONLINE-3 — reproducible package + pinned Lichess bridge
+Run orchestrated HYBRID against an orchestrated ANCHOR_CONTROL with the same host, allocator, resource plan, constituent work and evidence. Only the final permission for a HYBRID proposal to replace the Stockfish anchor differs. This isolates move-authority value from time-management and compute-allocation differences.
 
-Package the exact LOCAL-1-qualified composition, pin a tested `lichess-bot` revision,
-add immutable deployment/release manifests, restricted bridge configuration, operator
-documentation and fake-server startup/game-lifecycle smoke tests. Do not change chess policy
-to make packaging easier.
+### 3. ONLINE-PLAY-1 — production-profile 10+5 experiment
 
-### 3. ONLINE-4 — network/restart/reconciliation/rollback qualification
+Compare the exact production profiles at the intended 10+5 operating regime and report actual CPU, wall and native work consumption. This is an operational production-profile comparison, not the M15-B/C equal-resource superiority campaign.
 
-Exercise disconnects, uncertain move submission, duplicate/out-of-order events, service
-restart, stale output, rate limits, storage pressure, stop-new-games and rollback.
+### 4. ONLINE-3 — reproducible package + pinned Lichess bridge
 
-### 4. Release qualification
+Package the exact qualified orchestrated composition, pin a tested `lichess-bot` revision, add immutable deployment/release manifests, restricted bridge configuration, operator documentation and fake-server startup/game-lifecycle smoke tests.
 
-Aggregate the required qualification families into one always-present release gate and
-freeze exact source/binary/network/profile/model/bridge/package identities.
+### 5. ONLINE-4 — network/restart/reconciliation/rollback qualification
 
-### 5. ONLINE-RC
+Exercise disconnects, uncertain move submission, duplicate/out-of-order events, service restart, stale output, rate limits, storage pressure, stop-new-games and rollback.
 
-Run the first restricted unrated bot canary only after the operational gates pass.
+### 6. Release qualification
+
+Aggregate the required qualification families into one always-present release gate and freeze exact source/binary/network/profile/allocator/bridge/package identities.
+
+### 7. ONLINE-RC
+
+Run the first restricted unrated bot canary only after the orchestration and operational gates pass.
 
 ## Parallel work
 
@@ -195,7 +191,4 @@ M14-H/I native transport and M15-A governed policy evolution remain later optimi
 
 ## Claim boundary
 
-The repository now has a **qualified real-network, clock-aware staged hybrid authority
-composition that is also qualified across the declared complete-game lifecycle**. It is not
-yet packaged/deployed as a bot, network/restart qualified, or supported by an equal-envelope
-playing-strength campaign.
+The repository now has a **qualified ENGINE-OPT-V2 real-network, clock-aware staged hybrid composition with complete-game lifecycle evidence**. PR #44 also qualifies a substantially cheaper, repeatable LC0 CPU profile and preserves the frozen authority/resource contracts. It does not establish Elo, constituent superiority, equal-compute superiority or deployment readiness. M14-J is forward architecture work and has no behavioral authority until its own declared qualification closes.

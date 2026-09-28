@@ -62,6 +62,16 @@ def _mapping(value: Any, label: str) -> Mapping[str, Any]:
     return value
 
 
+def _reject_unknown(
+    raw: Mapping[str, Any], allowed: set[str], label: str
+) -> None:
+    unknown = sorted(set(raw) - allowed)
+    if unknown:
+        raise OrchestrationContractError(
+            f"{label} contains unsupported keys: {unknown}"
+        )
+
+
 def _safe_id(value: Any, label: str) -> str:
     if not isinstance(value, str) or _SAFE_ID_RE.fullmatch(value) is None:
         raise OrchestrationContractError(
@@ -158,7 +168,7 @@ def _option_scalar(value: Any, label: str) -> str | int | float | bool:
     if isinstance(value, float):
         if not math.isfinite(value):
             raise OrchestrationContractError(f"{label} must be finite")
-        return value
+        return 0.0 if value == 0.0 else value
     raise OrchestrationContractError(
         f"{label} must be a JSON scalar string/int/float/bool, got {type(value).__name__}"
     )
@@ -179,6 +189,7 @@ class ArtifactIdentity:
     @classmethod
     def from_dict(cls, raw: Mapping[str, Any]) -> "ArtifactIdentity":
         raw = _mapping(raw, "artifact identity")
+        _reject_unknown(raw, {"name", "sha256"}, "artifact identity")
         return cls(name=raw.get("name"), sha256=raw.get("sha256"))
 
 
@@ -240,6 +251,11 @@ class ProcessIdentity:
     @classmethod
     def from_dict(cls, raw: Mapping[str, Any]) -> "ProcessIdentity":
         raw = _mapping(raw, "process identity")
+        _reject_unknown(
+            raw,
+            {"binary_sha256", "artifacts", "backend", "args", "environment"},
+            "process identity",
+        )
         artifacts_raw = raw.get("artifacts", [])
         if not isinstance(artifacts_raw, list):
             raise OrchestrationContractError("process identity artifacts must be an array")
@@ -287,6 +303,11 @@ class QualificationIdentity:
     @classmethod
     def from_dict(cls, raw: Mapping[str, Any]) -> "QualificationIdentity":
         raw = _mapping(raw, "qualification identity")
+        _reject_unknown(
+            raw,
+            {"source_commit", "evidence_sha256", "evidence_id", "host_domain"},
+            "qualification identity",
+        )
         return cls(
             source_commit=raw.get("source_commit"),
             evidence_sha256=raw.get("evidence_sha256"),
@@ -305,8 +326,15 @@ class ProfileOption:
     phase: str | None = None
 
     def __post_init__(self) -> None:
-        _safe_id(self.name, "option name")
-        _option_scalar(self.value, f"option {self.name} value")
+        name = _nonempty_string(self.name, "option name")
+        if name != name.strip():
+            raise OrchestrationContractError("option name may not have edge whitespace")
+        object.__setattr__(self, "name", name)
+        object.__setattr__(
+            self,
+            "value",
+            _option_scalar(self.value, f"option {self.name} value"),
+        )
         boundary = _enum(self.boundary, MutationBoundary, "mutation boundary")
         object.__setattr__(self, "boundary", boundary)
 
@@ -328,6 +356,9 @@ class ProfileOption:
     @classmethod
     def from_dict(cls, raw: Mapping[str, Any]) -> "ProfileOption":
         raw = _mapping(raw, "profile option")
+        _reject_unknown(
+            raw, {"name", "value", "boundary", "phase"}, "profile option"
+        )
         return cls(
             name=raw.get("name"),
             value=raw.get("value"),
@@ -436,8 +467,26 @@ class EngineResourceProfile:
             raise OrchestrationContractError(
                 f"unsupported resource profile schema_version: {raw.get('schema_version')!r}"
             )
+        _reject_unknown(
+            raw,
+            {
+                "schema_version",
+                "profile_id",
+                "family",
+                "process_identity",
+                "options",
+                "cpu_slots",
+                "expected_memory_mib",
+                "accelerator",
+                "accelerator_memory_mib",
+                "work_chunk_ids",
+                "qualification",
+                "authority",
+            },
+            "engine resource profile",
+        )
         authority = raw.get("authority")
-        if authority is not None and authority != {
+        if authority != {
             "resource_profile": True,
             "resource_authorization": False,
             "outward_move": False,
@@ -498,6 +547,18 @@ class CompositionBinding:
     @classmethod
     def from_dict(cls, raw: Mapping[str, Any]) -> "CompositionBinding":
         raw = _mapping(raw, "composition binding")
+        _reject_unknown(
+            raw,
+            {
+                "instance",
+                "role",
+                "family",
+                "profile_id",
+                "cpu_slots",
+                "concurrency_group",
+            },
+            "composition binding",
+        )
         return cls(
             instance=raw.get("instance"),
             role=raw.get("role"),
@@ -627,8 +688,22 @@ class CompositionProfile:
             raise OrchestrationContractError(
                 f"unsupported composition schema_version: {raw.get('schema_version')!r}"
             )
+        _reject_unknown(
+            raw,
+            {
+                "schema_version",
+                "composition_id",
+                "declared_cpu_slots",
+                "expected_memory_mib",
+                "enforcement_required",
+                "bindings",
+                "qualification",
+                "authority",
+            },
+            "composition profile",
+        )
         authority = raw.get("authority")
-        if authority is not None and authority != {
+        if authority != {
             "resource_profile": True,
             "resource_authorization": False,
             "outward_move": False,

@@ -5,7 +5,7 @@ import argparse
 from pathlib import Path
 import json
 
-from .common import ROOT, load, policy, require, save, sha, source_identity
+from .common import ROOT, file_record, load, policy, require, save, sha, source_identity
 from .runner import schedule
 from .validate import qualify
 
@@ -22,8 +22,11 @@ def _campaign_manifests(root: Path) -> list[Path]:
     return sorted(found)
 
 
-def aggregate(root: Path) -> dict:
-    p=policy()
+def aggregate(root: Path, policy_path: Path | None = None) -> dict:
+    selected_policy=(ROOT / "qualification/local-full-game.json" if policy_path is None
+                     else policy_path if policy_path.is_absolute() else ROOT / policy_path).resolve()
+    p=policy(path=selected_policy)
+    expected_policy=file_record(selected_policy)
     expected_schedule=schedule(p,"soak")
     expected_by_id={row["id"]:row for row in expected_schedule}
     source=source_identity()
@@ -57,6 +60,8 @@ def aggregate(root: Path) -> dict:
                     "duplicate/out-of-range soak shard")
             require(manifest.get("source")==source,
                     f"shard {index}: source identity mismatch")
+            require(manifest.get("policy")==expected_policy,
+                    f"shard {index}: lifecycle policy identity mismatch")
             campaign_id=manifest.get("campaign_id")
             require(isinstance(campaign_id,str) and campaign_id, f"shard {index}: campaign identity missing")
             require(campaign_id not in seen_campaign_ids, f"duplicate soak campaign_id across shards: {campaign_id}")
@@ -157,8 +162,9 @@ def main()->int:
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument("root",type=Path)
     parser.add_argument("--output",type=Path,required=True)
+    parser.add_argument("--policy",type=Path)
     args=parser.parse_args()
-    report=aggregate(args.root.resolve())
+    report=aggregate(args.root.resolve(), args.policy)
     save(args.output.resolve(),report)
     print(json.dumps({
         "passed":report["passed"],

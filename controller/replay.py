@@ -111,6 +111,8 @@ class StageRecord:
     dispatched_roots: tuple[str, ...]
     dispatch_order: int
     dispatched_ms: float
+    phase: str = "EXPLORE"
+    effective_options: dict[str, object] = field(default_factory=dict)
     completed_ms: float | None = None
     completion_order: int | None = None
     disposition: str = "running"
@@ -128,6 +130,11 @@ class StageRecord:
             "search_id": self.search_id,
             "command": self.command,
             "request": parse_go_request(self.command),
+            "phase": self.phase,
+            "effective_options": dict(self.effective_options),
+            "effective_options_sha256": hashlib.sha256(
+                json.dumps(self.effective_options, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
+            ).hexdigest(),
             "dispatched_roots": list(self.dispatched_roots),
             "dispatch_order": self.dispatch_order,
             "dispatched_ms": round(self.dispatched_ms, 3),
@@ -155,7 +162,7 @@ class TelemetryStreamWriter:
         family: str,
         role: str,
         path: Path,
-        adapter_factory: Callable[[str], Any],
+        adapter_factory: Callable[[str], Any] | None,
         track_events: bool = False,
     ) -> None:
         self.instance = instance
@@ -201,6 +208,35 @@ class TelemetryStreamWriter:
             daemon=True,
         )
         self._thread.start()
+
+    def bind_prepared(
+        self,
+        *,
+        path: Path,
+        adapter_factory: Callable[[str], Any],
+    ) -> None:
+        """Bind an idle pre-opened writer to its final run path and adapter.
+
+        Prepared ONLINE slots open the file and start the writer thread before
+        the clocked request arrives. The directory is renamed into its final
+        run location, then this method updates only in-memory identity before
+        the first event can be enqueued.
+        """
+        with self._lock:
+            if self._closed:
+                raise ReplayError("cannot bind a closed telemetry stream")
+            if self._adapter_factory is not None:
+                raise ReplayError("prepared telemetry stream is already bound")
+            if (
+                self._adapter is not None
+                or self._search_ids
+                or self._enqueued != 0
+                or self._applied != 0
+                or self._event_count != 0
+            ):
+                raise ReplayError("prepared telemetry stream is not pristine")
+            self.path = Path(path)
+            self._adapter_factory = adapter_factory
 
     # -- producer side (runs on the engine stdout reader thread) -------------
 
@@ -282,7 +318,11 @@ class TelemetryStreamWriter:
         kind = item[0]
         if kind == "begin":
             _, search_id, position, request, controller, observed_ms = item
-            adapter = self._adapter_factory(search_id)
+            with self._lock:
+                adapter_factory = self._adapter_factory
+            if adapter_factory is None:
+                raise ReplayError("prepared telemetry stream was used before binding")
+            adapter = adapter_factory(search_id)
             event = adapter.start(
                 position=position,
                 request=request,
@@ -556,6 +596,8 @@ class ReplayRun:
         owner: str | None,
         search_id: str,
         command: str,
+        phase: str = "EXPLORE",
+        effective_options: dict[str, object] | None = None,
         dispatched_roots: tuple[str, ...],
         dispatched_ms: float,
         stage_index: int,
@@ -570,6 +612,8 @@ class ReplayRun:
                 owner=owner,
                 search_id=search_id,
                 command=command,
+                phase=phase,
+                effective_options=dict(effective_options or {}),
                 dispatched_roots=tuple(dispatched_roots),
                 dispatch_order=self._dispatch_counter,
                 dispatched_ms=dispatched_ms,

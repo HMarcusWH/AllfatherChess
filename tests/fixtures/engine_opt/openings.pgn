@@ -1,0 +1,29 @@
+[Event "ENGINE-OPT balanced openings"]
+[Site "AllfatherChess"]
+[Date "2026.09.28"]
+[Round "1"]
+[White "Opening"]
+[Black "Opening"]
+[Result "*"]
+
+1. e4 e5 2. Nf3 Nc6 3. Bb5 a6 *
+
+[Event "ENGINE-OPT balanced openings"]
+[Site "AllfatherChess"]
+[Date "2026.09.28"]
+[Round "2"]
+[White "Opening"]
+[Black "Opening"]
+[Result "*"]
+
+1. d4 d5 2. c4 e6 3. Nc3 Nf6 *
+
+[Event "ENGINE-OPT balanced openings"]
+[Site "AllfatherChess"]
+[Date "2026.09.28"]
+[Round "3"]
+[White "Opening"]
+[Black "Opening"]
+[Result "*"]
+
+1. e4 c5 2. Nf3 d6 3. d4 cxd4 *

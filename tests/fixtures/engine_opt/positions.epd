@@ -1,0 +1,9 @@
+# id | FEN | tags
+startpos | rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1 | opening,wide
+king-pawn | rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2 | opening
+queen-gambit | rnbqkbnr/ppp1pppp/8/3p4/2PP4/8/PP2PPPP/RNBQKBNR b KQkq c3 0 2 | opening
+sicilian | rnbqkbnr/pp1ppppp/8/2p5/4P3/8/PPPP1PPP/RNBQKBNR w KQkq c6 0 2 | opening
+italian | r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 3 3 | middlegame
+isolated-queen-pawn | r1bq1rk1/pp2bppp/2n1pn2/2pp4/3P4/2PBPN2/PP3PPP/R1BQ1RK1 w - - 2 9 | positional
+rook-endgame | 8/5pk1/6p1/7p/5P2/6P1/5K1P/4R3 w - - 0 1 | endgame
+queen-endgame | 8/5pk1/6p1/3q4/8/5Q2/5PK1/8 w - - 0 1 | endgame,tactical

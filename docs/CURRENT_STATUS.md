@@ -1,11 +1,11 @@
 # AllfatherChess current build and release status
 
-**Status date:** 27 September 2026  
-**Authoritative main commit:** `524ec9b25c7f08d981ba7c88318d106e22586295`  
+**Status date:** 28 September 2026  
+**Authoritative main commit:** `b8bd0fdda4a7e67f6437a74e5373f69ef2c15c78`  
 **Merged milestone:** PR #41 / LOCAL-1 — full-game lifecycle qualification  
 **Qualified PR head:** `6fc6522f863e2a15c6d4c230fa558cbb993f867e`  
 **Tree identity:** both the qualified PR head and merge commit use tree `0a2095ba5dde83292a348cff2495d02bd4e05299`  
-**Current execution milestone:** ONLINE-3 — reproducible service package + pinned lichess-bot bridge  
+**Current execution milestone:** ENGINE-OPT-V2 / PR #44 — measured constituent/profile optimization before ONLINE-3  
 **Forward roadmap:** [ROADMAP.md](ROADMAP.md)  
 **Detailed deployment plan:** [ONLINE_RELEASE_PLAN.md](ONLINE_RELEASE_PLAN.md)
 
@@ -15,9 +15,7 @@ for current status and forward ordering.
 
 ## Current qualification evidence
 
-PR #41 merged as a normal two-parent merge. Its final qualified head and the merge commit
-have the same Git tree, so the exact content that passed qualification is the content now
-on `main`.
+PR #41 remains the qualified behavior baseline. PR #43 subsequently synchronized repository status/docs and merged as `b8bd0fdda4a7e67f6437a74e5373f69ef2c15c78` without changing the qualified chess/controller behavior. ENGINE-OPT-V2 is being developed separately in PR #44; its v2 selection is not yet a qualified replacement.
 
 | Workflow | Run | Result |
 | --- | ---: | --- |
@@ -125,31 +123,55 @@ These are lifecycle/resource integrity properties, not playing-strength claims.
 | `allfather.online.cpu-reference.json` | pinned BLAS/network | yes | no hybrid authority | no | ONLINE-2 real-inference reference |
 | `allfather.hybrid.validation.json` | random | historical movetime-only path | no staged composition | M14-C only | bounded authority regression |
 | `allfather.unified-value.validation.json` | random | no ONLINE composition | yes | no | M14-G2 routing regression |
-| `allfather.online-hybrid.validation.json` | pinned BLAS/network | yes | yes, route-bound staged | **yes, M14-G3** | current integrated authority reference |
+| `allfather.online-hybrid.validation.json` | pinned BLAS/network | yes | yes, route-bound staged | **yes, M14-G3** | current qualified integrated authority reference |
+| `allfather.online-engine-opt-v2.json` | selected BLAS/network profile | yes | no hybrid authority | no | PR #44 optimized CPU reference candidate |
+| `allfather.online-hybrid-v2.validation.json` | selected BLAS/network profile | yes | yes, route-bound staged | yes, same G3 policy | PR #44 optimized hybrid candidate |
 
 The older profiles remain valuable negative/regression controls. M14-G3 is a new composition,
 not permission to erase their firewalls.
 
 ## Current critical path
 
-### 1. ONLINE-3 — reproducible package + pinned Lichess bridge — **NEXT**
+### 1. ENGINE-OPT-V2 / PR #44 — measured constituent/profile optimization — **NEXT**
+
+Keep the PR #41/LOCAL-1 v1 composition frozen as the control while measuring and repairing
+the execution profile. The v2 programme targets LC0 CPU cache/minibatch/prefetch/warmup,
+safe phase-specific specialist options, portable constituent build optimization and
+owner-specific resource reservation estimates. It preserves the n16 EXPLORE / n16 VERIFY /
+n32 staged-VERIFY intervention and does not change G3's fail-closed authority semantics.
+
+The first exact-head ENGINE-OPT aggregate rejected the original p0 LC0 choice after one
+frozen rook-endgame bestmove changed across hosted CPU environments. The revised selection
+uses the cross-run-stable warm b7/p8 256k profile and now requires three exact-head
+confirmation repeats of both baseline and selected profile. In parallel, the ordinary v1 LOCAL-1 control first exposed missing replay bundles when
+per-run directory creation exceeded the 100 ms pre-anchor observation budget. After that
+directory-only repair, run `36440361529` isolated the remaining failure to anchor telemetry
+writer construction. The coordinator now prepares the complete next replay slot off the
+clocked path: directory, open anchor stream, and writer thread. The request-time claim is a
+same-filesystem rename plus in-memory adapter binding; the missing-evidence gate is unchanged.
+
+The revised selection remains **not a qualified replacement for v1** until a fresh exact-head
+ENGINE-OPT aggregate closes, including repeatability, real-process G3-v2 authority/resource
+evidence, the ordinary v1 LOCAL-1 control and complete LOCAL-1-v2 lifecycle.
+
+### 2. ONLINE-3 — reproducible package + pinned Lichess bridge
 
 Package the exact LOCAL-1-qualified composition, pin a tested `lichess-bot` revision,
 add immutable deployment/release manifests, restricted bridge configuration, operator
 documentation and fake-server startup/game-lifecycle smoke tests. Do not change chess policy
 to make packaging easier.
 
-### 2. ONLINE-4 — network/restart/reconciliation/rollback qualification
+### 3. ONLINE-4 — network/restart/reconciliation/rollback qualification
 
 Exercise disconnects, uncertain move submission, duplicate/out-of-order events, service
 restart, stale output, rate limits, storage pressure, stop-new-games and rollback.
 
-### 3. Release qualification
+### 4. Release qualification
 
 Aggregate the required qualification families into one always-present release gate and
 freeze exact source/binary/network/profile/model/bridge/package identities.
 
-### 4. ONLINE-RC
+### 5. ONLINE-RC
 
 Run the first restricted unrated bot canary only after the operational gates pass.
 

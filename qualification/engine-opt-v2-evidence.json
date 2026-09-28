@@ -1,0 +1,209 @@
+{
+  "schema_version": 1,
+  "profile_id": "engine-opt-v2-evidence",
+  "measurement_source": {
+    "workflow_runs": [
+      36363702414,
+      36366449343
+    ],
+    "source_commits": [
+      "72fe32567591804061b0489b1bb73743dc0f3c9d",
+      "9bc81f51ba761f80754e010f95b5778dcdb353b3"
+    ],
+    "note": "Run 36363702414 was the original selection basis. Exact-head run 36366449343 exposed one host-sensitive frozen-corpus bestmove drift in auto-p0-c256k-cold while b7-p8-c256k-warm64 retained the v1 8/8 vector on both runs. The revised selection promotes the cross-run-stable warm b7/p8 candidate to a fresh exact-head repeatability gate; final qualification still requires a new aggregate pass."
+  },
+  "artifacts": {
+    "candidate": {
+      "artifact_id": 10946815944,
+      "digest": "sha256:b0be9844d159b2c50cfe08d1e1450abc29338057c20913fc49dfdc3c90057c33",
+      "report_sha256": "dfebe747a15b1a251a4f288a7003e92a8fd1dad8cf1487f4df100d14f3bda175",
+      "build_manifest_sha256": "86bc294d5560bf516022eab426b4230067635e115947f4aba303ba9fe3986cd8"
+    },
+    "lc0_matrix": {
+      "artifact_id": 10947210895,
+      "digest": "sha256:e293c4dc5319e28007e52e89733894816401def7c860739bc0788a95cd799788",
+      "report_sha256": "fae4cf39d01422544b89fff362b33ecdd2674273ef5615514ea786c7ab81296a"
+    },
+    "constituent_ab": {
+      "artifact_id": 10946612083,
+      "digest": "sha256:99e00784fcc5899f8cddf3107a8e8bb5d41f0a590744d070794ff59dbac2edf1",
+      "reports": {
+        "lc0_derived_vs_pristine": "b4b80037177f9ae827ff6e3b00c1ad20a4d1806b64f463c7e0879fe60613b072",
+        "reckless_derived_vs_pristine": "2c8e951ded66b6a4b4695cf8abf7e181da7e628db1a4a0626b1f56f6b4581391",
+        "reckless_hash_matrix": "67f31ca156c0f7c908374e1d6162e1b66b9278bc80d880516e259ce9541b4d6e",
+        "stockfish_hash_matrix": "407a5d55a5a0bcfbd9fd4eea49e8f704f480b642835d3946f067229b59629157",
+        "stockfish_pgo_vs_no_pgo": "4007401353f91597433670c4eb9ceefa885ea9e04608baa26c467407bbe7c87f"
+      }
+    },
+    "hybrid_v2": {
+      "artifact_id": 10946995693,
+      "digest": "sha256:2d100dd1e8e2ebd4d3a2877e0a23ef7c63d6dd5e8c48f56a4319ad19da68bec0",
+      "report_sha256": "8c144b72389851fb863a7896c12276f422fe27db64d10249e0e31eba49e832fe",
+      "positive_case": {
+        "case": "queen-pawn-white",
+        "anchor_move": "c2c4",
+        "emitted_move": "g1f3",
+        "authority": "HYBRID"
+      }
+    },
+    "lc0_matrix_exact_head": {
+      "artifact_id": 10946819863,
+      "digest": "sha256:7ac2f676e740c28010e3be1c94b31a5b826ca0238669bdd859285757d6c48ab3",
+      "report_sha256": "15f9e4c541aa323194fb473db7f39a646d1b4f518f264cc0ceefcc3ce4c1fdf5"
+    }
+  },
+  "observations": {
+    "lc0": {
+      "v1_current_cold": {
+        "median_wall_ms": 1250.602,
+        "median_cpu_ms": 1250,
+        "median_rss_kib": 168460,
+        "max_wall_ms": 1653.427
+      },
+      "selected_profile_cold": {
+        "profile": "auto-p0-c256k-cold",
+        "median_wall_ms": 272.053,
+        "median_cpu_ms": 275,
+        "median_rss_kib": 151286,
+        "max_wall_ms": 301.016,
+        "bestmove_vector_matches_v1": true
+      },
+      "selected_profile_warm64": {
+        "median_wall_ms": 277.58,
+        "median_cpu_ms": 275,
+        "median_rss_kib": 152140
+      },
+      "cache_2m_warm64": {
+        "median_wall_ms": 263.504,
+        "median_cpu_ms": 265,
+        "median_rss_kib": 241214
+      },
+      "adaptive_2m_warm64": {
+        "median_wall_ms": 1074.3095,
+        "median_cpu_ms": 1065,
+        "median_rss_kib": 276054
+      },
+      "derived_vs_pristine": {
+        "bestmove_agreement": 1,
+        "derived_median_wall_ms": 766.9315,
+        "pristine_median_wall_ms": 764.2165,
+        "derived_median_cpu_ms": 765,
+        "pristine_median_cpu_ms": 770
+      },
+      "repeatability_repair_basis": {
+        "rejected_profile": "auto-p0-c256k-cold",
+        "rejected_reason": "Exact-head run changed rook-endgame bestmove from f2f3 to h2h3 while the v1 control remained f2f3.",
+        "stable_candidate": "b7-p8-c256k-warm64",
+        "workflow_runs": [
+          36363702414,
+          36366449343
+        ],
+        "bestmove_agreement_with_v1_each_run": [
+          1,
+          1
+        ],
+        "median_wall_ms": [
+          337.053,
+          329.912
+        ],
+        "max_wall_ms": [
+          448.091,
+          440.476
+        ],
+        "max_cpu_ms": [
+          450,
+          440
+        ],
+        "note": "Cross-run evidence spans two hosted CPU identities; the revised workflow adds three same-head confirmation repeats."
+      }
+    },
+    "stockfish": {
+      "pgo_vs_no_pgo": {
+        "bestmove_agreement": 1,
+        "pgo_median_wall_ms": 584.329,
+        "no_pgo_median_wall_ms": 595.832
+      },
+      "hash_median_wall_ms": {
+        "16": 586.725,
+        "32": 584.6325,
+        "64": 581.919,
+        "128": 586.208,
+        "256": 587.7285
+      },
+      "selection_reason": "PGO is a repeatable ~2% fixed-node wall improvement; hash-size differences are sub-1%/noise-scale, so retain 16 MiB until strength evidence justifies extra memory."
+    },
+    "reckless": {
+      "derived_vs_pristine": {
+        "bestmove_agreement": 1,
+        "derived_median_wall_ms": 779.583,
+        "pristine_median_wall_ms": 790.7965
+      },
+      "hash_median_wall_ms": {
+        "16": 776.539,
+        "32": 778.8195,
+        "64": 783.6025,
+        "128": 790.563,
+        "256": 802.299
+      },
+      "selection_reason": "Derived searchmoves plumbing shows no regression on the frozen unrestricted corpus; 16 MiB is the fastest measured hash setting."
+    },
+    "resource_estimate_basis": {
+      "prior_profile_lc0_explore_observed_cpu_ms_max": 240,
+      "prior_profile_lc0_staged_verify_observed_cpu_ms_max": 190,
+      "prior_selected_reservation_ms": 400,
+      "revised_explore_reservation_ms": 600,
+      "revised_verify_reservation_ms": 800,
+      "note": "The 600/800 ms reservations are conservative prequalification values for the revised warm b7/p8 profile. Fresh exact-head G3-v2 resource reports must fit inside them before promotion; the aggregate now checks that directly."
+    }
+  },
+  "selected": {
+    "stockfish": {
+      "build_profile": "x86-64-pgo",
+      "hash_mb": 16
+    },
+    "reckless": {
+      "build_profile": "x86-64",
+      "hash_mb": 16
+    },
+    "lc0": {
+      "backend": "blas",
+      "network": "791556",
+      "matrix_profile": "b7-p8-c256k-warm64",
+      "nn_cache_size": 262144,
+      "minibatch_size": 7,
+      "max_prefetch": 8,
+      "adaptive_prefetch": false,
+      "defect_telemetry": false,
+      "warmup_nodes": 64,
+      "phase_multipv": {
+        "EXPLORE": 1,
+        "VERIFY": 3,
+        "STAGED_VERIFY": 3
+      },
+      "uci_args": [
+        "--show-hidden"
+      ]
+    },
+    "resource_estimates_ms": {
+      "explore": {
+        "stockfish": 100,
+        "reckless": 100,
+        "lc0": 600
+      },
+      "verify": {
+        "stockfish": 100,
+        "reckless": 100,
+        "lc0": 800
+      }
+    }
+  },
+  "claim_boundary": {
+    "strength": false,
+    "elo": false,
+    "equal_compute": false,
+    "deployment": false,
+    "upstream_refresh": false,
+    "gpu": false,
+    "hard_nn_skip": false
+  }
+}

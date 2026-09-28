@@ -1,6 +1,6 @@
 # AllfatherChess
 
-> **Current synchronized build state:** PR #41 / LOCAL-1 is merged at `524ec9b25c7f08d981ba7c88318d106e22586295`; complete-game lifecycle qualification is green and ONLINE-3 packaging is next.  
+> **Current synchronized build state:** PR #41 / LOCAL-1 remains the qualified behavior baseline; main is synchronized at `b8bd0fdda4a7e67f6437a74e5373f69ef2c15c78`. PR #44 / ENGINE-OPT-V2 is the current candidate milestone before ONLINE-3 and is not yet promoted.  
 > See [docs/CURRENT_STATUS.md](docs/CURRENT_STATUS.md) for the exact implemented surface and
 > [docs/ROADMAP.md](docs/ROADMAP.md) for the canonical forward execution order.
 
@@ -59,7 +59,7 @@ The current stack includes the immediate controller layers plus an explicit comm
 16. **ONLINE-2 real-network online CPU reference (PR #38)** — packages portable Stockfish/Reckless builds with the pinned BLAS-LC0 network/backend identity under ONLINE timing/resource contracts while retaining Stockfish outward authority.
 17. **M14-G3 clock-aware staged hybrid authority (PR #39)** — composes ONLINE-2, G1/G2 staged VERIFY, frozen route-bound proposal evidence, clock-aware DecisionAuthorization, deadline-safe outward publication, deterministic Stockfish fallback, and post-output resource/replay sealing. The qualification requires a genuine real-backend non-anchor HYBRID emission.
 
-Documentation: `docs/README.md`, `docs/CURRENT_STATUS.md`, `docs/ROADMAP.md`, `docs/ONLINE_RELEASE_PLAN.md`, `docs/ONLINE_TIME.md`, `docs/BUILD_PLAN.md`, `docs/ARCHITECTURE.md`, `docs/UCI_SHELL.md`, `docs/SHARD_LEDGER.md`, `docs/PREFIX_SHARDS.md`, `docs/SHADOW_EXECUTION.md`, `docs/REPLAY_FORMAT.md`, `docs/RESIDUAL_CALIBRATION.md`, `docs/BUDGET_ROUTING.md`, `docs/VERIFY_RELOCK.md`, `docs/COMPARE_RELOCK.md`, `docs/PREFIX_SHARDS.md`, `docs/REFINEMENT.md`, `docs/ACTIVE_SPECIALIST_SCHEDULER.md`, `docs/CROSS_FEED.md`, `docs/CROSS_FEED_ADAPTERS.md`, `docs/SEARCH_REGIMES.md`, `docs/STAGED_VERIFY.md`, `docs/UNIFIED_VALUE_ROUTER.md`, `docs/RESOURCE_ACCOUNTING.md`, `docs/SEARCH_SPACE_OWNERSHIP.md`, `docs/TELEMETRY_SCHEMA.md`, `docs/TELEMETRY_MAPPING.md`, `docs/THEORY_IMPLEMENTATION_MAP.md`, `docs/CLAIM_LEDGER.md`, `docs/ADVERSARIAL_AUDIT.md`, `docs/CODEX_REVIEW_AUDIT.md`, `docs/UPSTREAM_PROVENANCE.md`, and `LICENSES.md`.
+Documentation: `docs/README.md`, `docs/ENGINE_OPTIMIZATION.md`, `docs/CURRENT_STATUS.md`, `docs/ROADMAP.md`, `docs/ONLINE_RELEASE_PLAN.md`, `docs/ONLINE_TIME.md`, `docs/BUILD_PLAN.md`, `docs/ARCHITECTURE.md`, `docs/UCI_SHELL.md`, `docs/SHARD_LEDGER.md`, `docs/PREFIX_SHARDS.md`, `docs/SHADOW_EXECUTION.md`, `docs/REPLAY_FORMAT.md`, `docs/RESIDUAL_CALIBRATION.md`, `docs/BUDGET_ROUTING.md`, `docs/VERIFY_RELOCK.md`, `docs/COMPARE_RELOCK.md`, `docs/PREFIX_SHARDS.md`, `docs/REFINEMENT.md`, `docs/ACTIVE_SPECIALIST_SCHEDULER.md`, `docs/CROSS_FEED.md`, `docs/CROSS_FEED_ADAPTERS.md`, `docs/SEARCH_REGIMES.md`, `docs/STAGED_VERIFY.md`, `docs/UNIFIED_VALUE_ROUTER.md`, `docs/RESOURCE_ACCOUNTING.md`, `docs/SEARCH_SPACE_OWNERSHIP.md`, `docs/TELEMETRY_SCHEMA.md`, `docs/TELEMETRY_MAPPING.md`, `docs/THEORY_IMPLEMENTATION_MAP.md`, `docs/CLAIM_LEDGER.md`, `docs/ADVERSARIAL_AUDIT.md`, `docs/CODEX_REVIEW_AUDIT.md`, `docs/UPSTREAM_PROVENANCE.md`, and `LICENSES.md`.
 
 **No strength claim is made.** No equal-envelope Elo/superiority campaign has been completed.
 PR #39 establishes the qualified real-network, clock-aware staged hybrid authority composition,
@@ -93,7 +93,8 @@ PR #41 completed LOCAL-1. The remaining first-canary path is now:
 
 ```text
 LOCAL-1 full-game lifecycle qualification  [DONE]
-    -> ONLINE-3 reproducible package + pinned lichess-bot bridge  [NEXT]
+    -> ENGINE-OPT-V2 measured constituent/profile optimization  [NEXT]
+    -> ONLINE-3 reproducible package + pinned lichess-bot bridge
     -> ONLINE-4 network/restart/reconciliation/rollback qualification
     -> aggregate release qualification
     -> ONLINE-RC restricted unrated bot canary

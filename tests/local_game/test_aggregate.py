@@ -5,14 +5,16 @@ import unittest
 from unittest.mock import patch
 
 from tools.local_game.aggregate_soak import aggregate
-from tools.local_game.common import ROOT, load, policy, save, source_identity
+from tools.local_game.common import ROOT, file_record, load, policy, save, source_identity
 from tools.local_game.runner import schedule
 
 
 class SoakAggregateTests(unittest.TestCase):
     def _write_shards(self, root: Path, *, omit: int | None = None) -> None:
-        jobs=schedule(policy(ROOT),"soak")
+        selected_policy=ROOT/"qualification/local-full-game.json"
+        jobs=schedule(policy(ROOT, selected_policy),"soak")
         source=source_identity()
+        policy_identity=file_record(selected_policy)
         for shard in range(10):
             if shard==omit:
                 continue
@@ -25,6 +27,7 @@ class SoakAggregateTests(unittest.TestCase):
                 "mode":"soak",
                 "shard":{"index":shard,"count":10},
                 "source":source,
+                "policy":policy_identity,
                 "status":"completed",
                 "failures":[],
                 "planned_jobs":assigned,
@@ -88,6 +91,22 @@ class SoakAggregateTests(unittest.TestCase):
                 campaign=root/f"artifact-{shard}"/"test-results"/"local-full-game"/f"campaign-{shard}"; d=load(campaign/"report.json"); d["plies"]=[{"arm":"allfather-g3","replay_id":"duplicate-replay","replay_manifest_sha256":"a"*64}]; save(campaign/"report.json",d)
             with patch("tools.local_game.aggregate_soak.qualify",side_effect=lambda p:load(Path(p)/"report.json")): report=aggregate(root)
             self.assertFalse(report["passed"]); self.assertTrue(any("duplicate replay run_id" in e for e in report["errors"]))
+
+    def test_mismatched_policy_identity_fails_aggregate(self):
+        (ROOT/"build").mkdir(exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=ROOT/"build") as tmp:
+            root=Path(tmp)
+            self._write_shards(root)
+            campaign=root/"artifact-0"/"test-results"/"local-full-game"/"campaign-0"
+            manifest=load(campaign/"manifest.json")
+            manifest["policy"]={**manifest["policy"],"sha256":"0"*64}
+            save(campaign/"manifest.json",manifest)
+            with patch("tools.local_game.aggregate_soak.qualify",
+                       side_effect=lambda p:load(Path(p)/"report.json")):
+                report=aggregate(root)
+            self.assertFalse(report["passed"])
+            self.assertTrue(any("lifecycle policy identity mismatch" in e
+                                for e in report["errors"]))
 
     def test_missing_shard_fails_aggregate(self):
         (ROOT/"build").mkdir(exist_ok=True)

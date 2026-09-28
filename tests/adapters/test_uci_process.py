@@ -19,8 +19,11 @@ FAKE = ROOT / "tests" / "fixtures" / "fake_uci_engine.py"
 
 
 class UciProcessTests(unittest.TestCase):
-    def make_process(self, *, exit_on: str | None = None, on_exit=None) -> UciProcess:
-        args = [str(FAKE), "--name", "FakeStockfish"]
+    def make_process(
+        self, *, exit_on: str | None = None, on_exit=None,
+        extra_args: list[str] | None = None,
+    ) -> UciProcess:
+        args = [str(FAKE), "--name", "FakeStockfish", *(extra_args or [])]
         if exit_on is not None:
             args += ["--exit-on", exit_on]
         return UciProcess(
@@ -97,6 +100,48 @@ class UciProcessTests(unittest.TestCase):
                     timeout=1.0,
                 )
             process.stop()
+        finally:
+            process.close()
+
+    def test_idle_option_transaction_is_serial_and_rejects_active_search(self):
+        process = self.make_process(
+            extra_args=["--info-lines", "20", "--info-delay-ms", "10"]
+        )
+        info_seen = threading.Event()
+        complete_seen = threading.Event()
+        try:
+            process.start()
+            process.configure({"UCI_Chess960": False, "MultiPV": 1})
+            process.configure_idle({"MultiPV": 3}, timeout=2.0)
+            transcript = list(process._transcript)
+            set_index = max(
+                i for i, line in enumerate(transcript)
+                if line == ">> setoption name MultiPV value 3"
+            )
+            ready_index = next(
+                i for i in range(set_index + 1, len(transcript))
+                if transcript[i] == ">> isready"
+            )
+            readyok_index = next(
+                i for i in range(ready_index + 1, len(transcript))
+                if transcript[i] == "<< readyok"
+            )
+            self.assertLess(set_index, ready_index)
+            self.assertLess(ready_index, readyok_index)
+
+            process.start_search(
+                "go infinite",
+                token=23,
+                on_info=lambda token, line: info_seen.set(),
+                on_complete=lambda token, line: complete_seen.set(),
+            )
+            self.assertTrue(info_seen.wait(2.0), "fake engine emitted no search info")
+            with self.assertRaisesRegex(
+                UciProcessError, "forbidden during active search"
+            ):
+                process.configure_idle({"MultiPV": 1}, timeout=1.0)
+            process.stop()
+            self.assertTrue(complete_seen.wait(2.0))
         finally:
             process.close()
 

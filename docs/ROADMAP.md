@@ -1,9 +1,9 @@
 # AllfatherChess roadmap
 
-**Status date:** 27 September 2026  
-**Current main:** `524ec9b25c7f08d981ba7c88318d106e22586295`  
+**Status date:** 28 September 2026  
+**Current main:** `b8bd0fdda4a7e67f6437a74e5373f69ef2c15c78`  
 **Latest merged milestone:** PR #41 / LOCAL-1 — full-game lifecycle qualification  
-**Current execution milestone:** ONLINE-3 — reproducible package + pinned lichess-bot bridge  
+**Current execution milestone:** ENGINE-OPT-V2 / PR #44 — measured engine/profile optimization before packaging  
 **Current-state authority:** [CURRENT_STATUS.md](CURRENT_STATUS.md)  
 **Detailed deployment audit:** [ONLINE_RELEASE_PLAN.md](ONLINE_RELEASE_PLAN.md)
 
@@ -52,6 +52,10 @@ full-game lifecycle qualification
         |
         v
 NEXT
+ENGINE-OPT-V2 / PR #44
+measured constituent/profile optimization
+        |
+        v
 ONLINE-3
 reproducible package + pinned lichess-bot bridge
         |
@@ -149,7 +153,20 @@ The qualified campaign also records all ten color-reversed pairings across Stock
 Allfather-Anchor and Allfather-G3. That matrix is **same tournament clock**, not equal total
 compute. M15-B/C remains the only path to a comparative equal-resource strength claim.
 
-## 4. ONLINE-3 — reproducible service package and bridge — **NEXT**
+## 4. ENGINE-OPT-V2 — measured constituent/profile optimization — **NEXT**
+
+Preserve the qualified v1 composition as the control. Measure the current LC0 CPU failure
+mode, bind a conventional repaired profile before testing adaptive prefetch, add only
+reproducible portable build gains, specialize MultiPV safely by search phase, and reserve
+heterogeneous specialist cost by owner rather than treating native counters as one compute
+currency.
+
+Promotion requires an evidence-bound selection manifest, a real-process non-anchor G3-v2
+authority witness, the complete LOCAL-1-v2 lifecycle gate and the v2 soak before ONLINE-3
+packages the new composition. No GPU, learned NN-skip, upstream-refresh or new alpha-beta
+pruning change is part of this milestone.
+
+## 5. ONLINE-3 — reproducible service package and bridge
 
 With LOCAL-1 green, package exactly the qualified engine rather than building new chess
 logic.
@@ -175,7 +192,7 @@ Initial policy:
 - no automatic resign/draw logic until score provenance is explicitly compatible;
 - credentials injected as secrets, never committed or logged.
 
-## 5. ONLINE-4 — network, restart, reconciliation and rollback
+## 6. ONLINE-4 — network, restart, reconciliation and rollback
 
 Qualify the service around the engine:
 
@@ -195,7 +212,7 @@ Qualify the service around the engine:
 A restart must rebuild correct repetition/history state. It may not silently reduce a game
 to a bare FEN if doing so loses decision-relevant history.
 
-## 6. RELEASE-QUALIFICATION
+## 7. RELEASE-QUALIFICATION
 
 Add an aggregate always-present release workflow that cannot succeed because a path-scoped
 required job was skipped.
@@ -215,7 +232,7 @@ Freeze:
 
 The release gate consumes the existing qualification families plus LOCAL-1 and ONLINE-3/4.
 
-## 7. ONLINE-RC — restricted public canary
+## 8. ONLINE-RC — restricted public canary
 
 Cut an explicitly experimental immutable release only after the preceding gates pass.
 
@@ -233,7 +250,7 @@ Proposed first canary:
 The canary demonstrates permitted online operation. It does not establish equal-envelope
 superiority.
 
-## 8. Parallel research track
+## 9. Parallel research track
 
 These may proceed without blocking the conservative first canary.
 
@@ -261,7 +278,7 @@ reserve fractions and source-specific evidence as immutable policy generations.
 Profile deployed process/UCI boundaries first. Replace IPC/native boundaries only when
 measured benefit justifies the additional integration, provenance and licensing risk.
 
-## 9. Administrative release gates
+## 10. Administrative release gates
 
 These remain separate from chess-controller correctness:
 
@@ -272,7 +289,7 @@ These remain separate from chess-controller correctness:
 - create a fresh Lichess BOT account/token for the canary;
 - define the first opponent allow-list.
 
-## 10. Claim discipline
+## 11. Claim discipline
 
 The roadmap uses four distinct levels:
 

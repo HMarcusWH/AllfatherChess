@@ -372,6 +372,13 @@ class RunContext:
 
 
 @dataclass
+class _PreparedReplaySlot:
+    generation: int
+    directory: Path
+    anchor_stream: TelemetryStreamWriter
+
+
+@dataclass
 class _ActiveRun:
     generation: int
     run: ReplayRun
@@ -473,8 +480,16 @@ class ShadowRunCoordinator:
             self._build_engine_identities()
         )
         self._history: list[Path] = []
+        self._prepared_root = (
+            self.settings.replay_root.parent
+            / f".{self.settings.replay_root.name}.prepared"
+        )
+        self._prepared_runs: dict[int, _PreparedReplaySlot] = {}
+        self._prepared_claimed: set[int] = set()
+        self._prepare_threads: dict[int, threading.Thread] = {}
         runtime.set_instance_observer(self._observe_line)
         runtime.set_shadow_exit_handler(self._on_shadow_exit)
+        self.prime_run_directory(1)
 
     # ------------------------------------------------------------------
     # identity helpers
@@ -658,6 +673,30 @@ class ShadowRunCoordinator:
         )
         return ok
 
+    def _open_anchor_stream_within_budget(
+        self,
+        *,
+        run_id: str,
+        run_dir: Path,
+        deadline: float,
+        instance: str,
+        family: str,
+        adapter_factory: Callable[[str], Any],
+    ) -> TelemetryStreamWriter | None:
+        opened, stream = self._within_prepare_budget(
+            f"{run_id}-anchor-stream",
+            discard=lambda late: self._release_late_stream(run_dir, late),
+            deadline=deadline,
+            work=lambda: TelemetryStreamWriter(
+                instance=instance,
+                family=family,
+                role="anchor",
+                path=run_dir / f"{instance}.jsonl",
+                adapter_factory=adapter_factory,
+            ),
+        )
+        return stream if opened else None
+
     def _variant(self) -> str:
         return "chess960" if self.runtime.chess960 else "standard"
 
@@ -714,16 +753,149 @@ class ShadowRunCoordinator:
                 return True
             return self._finalizing.get(active.generation) is active
 
+    def prepared_run_directory_ready(self, generation: int) -> bool:
+        with self._lock:
+            return generation in self._prepared_runs
+
+    def _cleanup_prepared_root(self) -> None:
+        try:
+            self._prepared_root.rmdir()
+        except OSError:
+            pass
+
+    def _dispose_prepared_slot(self, slot: _PreparedReplaySlot) -> None:
+        try:
+            slot.anchor_stream.close(timeout=1.0)
+        finally:
+            try:
+                slot.anchor_stream.path.unlink()
+            except OSError:
+                pass
+            self._discard_run_dir(slot.directory)
+            self._cleanup_prepared_root()
+
+    def prime_run_directory(self, generation: int) -> None:
+        """Prepare the next replay directory and anchor writer off the clock path."""
+        if isinstance(generation, bool) or not isinstance(generation, int) or generation < 1:
+            raise ControllerRuntimeError("prepared replay generation must be a positive integer")
+        with self._lock:
+            if (
+                self._closed
+                or generation in self._prepared_claimed
+                or generation in self._prepared_runs
+                or generation in self._prepare_threads
+            ):
+                return
+            slot_dir = self._prepared_root / f"g{generation:06d}-{uuid.uuid4().hex}"
+            anchor_name = self.runtime.anchor_name
+            anchor_spec = self.runtime.spec(anchor_name)
+
+            def prepare() -> None:
+                error: str | None = None
+                candidate: _PreparedReplaySlot | None = None
+                try:
+                    self.settings.replay_root.mkdir(parents=True, exist_ok=True)
+                    self._prepared_root.mkdir(parents=True, exist_ok=True)
+                    slot_dir.mkdir(exist_ok=False)
+                    stream = TelemetryStreamWriter(
+                        instance=anchor_name,
+                        family=anchor_spec.family,
+                        role=anchor_spec.role,
+                        path=slot_dir / f"{anchor_name}.jsonl",
+                        adapter_factory=None,
+                    )
+                    candidate = _PreparedReplaySlot(
+                        generation=generation,
+                        directory=slot_dir,
+                        anchor_stream=stream,
+                    )
+                except Exception as exc:
+                    error = f"{type(exc).__name__}: {exc}"
+
+                keep = False
+                with self._lock:
+                    self._prepare_threads.pop(generation, None)
+                    if (
+                        candidate is not None
+                        and error is None
+                        and not self._closed
+                        and generation not in self._prepared_claimed
+                        and generation not in self._prepared_runs
+                    ):
+                        self._prepared_runs[generation] = candidate
+                        keep = True
+
+                if error is not None:
+                    self._diagnostic(
+                        f"prepared replay slot for generation {generation} failed: {error}"
+                    )
+                if not keep:
+                    if candidate is not None:
+                        self._dispose_prepared_slot(candidate)
+                    else:
+                        try:
+                            (slot_dir / f"{anchor_name}.jsonl").unlink()
+                        except OSError:
+                            pass
+                        self._discard_run_dir(slot_dir)
+                        self._cleanup_prepared_root()
+
+            worker = threading.Thread(
+                target=prepare,
+                name=f"allfather-replay-prep-g{generation:06d}",
+                daemon=True,
+            )
+            self._prepare_threads[generation] = worker
+        worker.start()
+
+    def _claim_prepared_run_slot(
+        self,
+        generation: int,
+        run_dir: Path,
+        *,
+        adapter_factory: Callable[[str], Any],
+    ) -> TelemetryStreamWriter | None:
+        with self._lock:
+            self._prepared_claimed.add(generation)
+            slot = self._prepared_runs.pop(generation, None)
+        if slot is None:
+            return None
+
+        final_path = run_dir / slot.anchor_stream.path.name
+        moved = False
+        try:
+            slot.directory.replace(run_dir)
+            moved = True
+            slot.anchor_stream.bind_prepared(
+                path=final_path,
+                adapter_factory=adapter_factory,
+            )
+            return slot.anchor_stream
+        except Exception as exc:
+            self._diagnostic(
+                f"prepared replay slot claim for generation {generation} failed: "
+                f"{type(exc).__name__}: {exc}"
+            )
+            try:
+                slot.anchor_stream.close(timeout=1.0)
+            finally:
+                for path in (final_path, slot.anchor_stream.path):
+                    try:
+                        path.unlink()
+                    except OSError:
+                        pass
+                self._discard_run_dir(run_dir if moved else slot.directory)
+                self._cleanup_prepared_root()
+            return None
+
     def prepare_run(self, *, generation: int, go_command: str, clock: ClockSearch | None = None) -> bool:
         """Create the run bundle and anchor stream *before* the anchor starts.
 
-        This performs no engine IO, but it does perform **filesystem** IO -- a
-        `mkdir`, a file open and a writer-thread start -- and the frontend calls
-        it before `start_anchor_search`. On a slow or blocked `replay_root` that
-        is observational infrastructure delaying decision authority, which the
-        authority firewall does not permit. The filesystem portion therefore
-        runs off the calling thread under `shadow.prepare_budget_s`: past that
-        bound the search proceeds with no bundle rather than waiting.
+        This performs no engine IO. Normally it claims a directory and anchor
+        telemetry writer that were prepared before the clocked request arrived.
+        If that slot is unavailable, the legacy filesystem fallback remains
+        bounded by the same preparation deadline and the search proceeds
+        without a replay bundle rather than delaying decision authority.
         """
         if clock is not None:
             if clock.plan.generation != generation or clock.plan.external_go_command != go_command:
@@ -795,10 +967,24 @@ class ShadowRunCoordinator:
 
         if clock is not None and position.position_id != clock.plan.position_id:
             raise ControllerRuntimeError("position changed during clock preparation")
+        anchor_name = self.runtime.anchor_name
+        anchor_spec = self.runtime.spec(anchor_name)
+        anchor_factory = self._adapter_factory(
+            family=anchor_spec.family,
+            instance=anchor_name,
+            position_id=position.position_id,
+            variant=variant,
+        )
+
         now = _dt.datetime.now(_dt.timezone.utc)
         run_id = f"{now.strftime('%Y%m%dT%H%M%S%fZ')}-g{generation:06d}-{uuid.uuid4().hex[:8]}"
         run_dir = self.settings.replay_root / run_id
-        if not self._make_run_dir_within_budget(run_dir, prepare_deadline):
+        anchor_stream = self._claim_prepared_run_slot(
+            generation,
+            run_dir,
+            adapter_factory=anchor_factory,
+        )
+        if anchor_stream is None and not self._make_run_dir_within_budget(run_dir, prepare_deadline):
             return False
 
         run = ReplayRun(
@@ -820,34 +1006,22 @@ class ShadowRunCoordinator:
         if clock is not None:
             run.time_plan = clock.plan.as_dict()
 
-        anchor_name = self.runtime.anchor_name
-        anchor_spec = self.runtime.spec(anchor_name)
-        # `TelemetryStreamWriter` does its own `mkdir` and `open`, which is more
-        # pre-anchor filesystem work and belongs inside the same bound.
-        opened, anchor_stream = self._within_prepare_budget(
-            f"{run_id}-anchor-stream",
-            discard=lambda stream: self._release_late_stream(run_dir, stream),
-            deadline=prepare_deadline,
-            work=lambda: TelemetryStreamWriter(
+        if anchor_stream is None:
+            # A missing prepared slot retains the original bounded fallback.
+            # This path is deliberately qualification-visible: if opening the
+            # stream cannot finish inside the remaining preparation budget, the
+            # anchor still runs but no replay bundle is fabricated.
+            anchor_stream = self._open_anchor_stream_within_budget(
+                run_id=run_id,
+                run_dir=run_dir,
+                deadline=prepare_deadline,
                 instance=anchor_name,
                 family=anchor_spec.family,
-                role=anchor_spec.role,
-                path=run_dir / f"{anchor_name}.jsonl",
-                adapter_factory=self._adapter_factory(
-                    family=anchor_spec.family,
-                    instance=anchor_name,
-                    position_id=position.position_id,
-                    variant=variant,
-                ),
-            ),
-        )
-        if not opened or anchor_stream is None:
-            # The directory exists and no run will ever finalize into it, so no
-            # manifest will ever be written there. Take it back here; on the
-            # timeout path an abandoned thread may still be opening its stream
-            # file, and that thread releases the directory itself afterwards.
-            self._discard_run_dir(run_dir)
-            return False
+                adapter_factory=anchor_factory,
+            )
+            if anchor_stream is None:
+                self._discard_run_dir(run_dir)
+                return False
         run.register_stream(anchor_stream)
         anchor_search_id = f"{run_id}:{anchor_name}:0"
         anchor_stream.begin_stage(
@@ -2059,6 +2233,20 @@ class ShadowRunCoordinator:
         with self._lock:
             self._closed = True
             active = self._run
+            prepared = list(self._prepared_runs.values())
+            prepare_threads = list(self._prepare_threads.values())
+            self._prepared_runs.clear()
+            self._prepared_claimed.clear()
+        for slot in prepared:
+            self._dispose_prepared_slot(slot)
+        for thread in prepare_threads:
+            thread.join(timeout=1.0)
+            if thread.is_alive():
+                self._diagnostic(
+                    "prepared replay worker did not finish during shutdown; "
+                    "it remains isolated in the sibling staging root"
+                )
+        self._cleanup_prepared_root()
 
         timeout = None
         if self.runtime.config.online_time is not None:
@@ -3091,19 +3279,6 @@ class ShadowRunCoordinator:
             )
         except SearchRequestError:
             return False
-        search_id = f"{active.run.run_id}:verify:{instance}:0"
-        generation = active.generation
-
-        def on_info(token: int, line: str) -> None:
-            return None
-
-        def on_complete(token: int, line: str) -> None:
-            self._on_verification_complete(generation, owner, token, line)
-
-        # The final decision-boundary check and dispatch use the same lock as
-        # note_anchor_complete(). If the anchor wins the race this stage never
-        # starts; if this dispatch wins, it is already in flight and the
-        # declared drain/cancel policy applies.
         reservation_key = f"verify:{owner}"
         with self._lock:
             if (
@@ -3119,6 +3294,59 @@ class ShadowRunCoordinator:
                 phase="verify",
                 owner=owner,
             ):
+                return False
+
+        # Phase reconfiguration is optional specialist work too. It may not
+        # touch an engine until the same resource authority that covers the
+        # following VERIFY search has reserved capacity.
+        phase_config_started = time.monotonic()
+        try:
+            effective_options = self.runtime.configure_shadow_phase(instance, "VERIFY")
+        except ControllerRuntimeError as exc:
+            self._release_specialist(
+                active,
+                key=reservation_key,
+                reason="VERIFY reservation released because phase configuration failed",
+            )
+            verification.set_disposition(
+                "incomplete",
+                f"VERIFY phase configuration failed for {instance}: {exc}",
+            )
+            return False
+        finally:
+            self._charge_controller_elapsed(
+                active,
+                label=f"phase_config_verify_{owner}",
+                elapsed_ms=(time.monotonic() - phase_config_started) * 1000.0,
+            )
+        search_id = f"{active.run.run_id}:verify:{instance}:0"
+        generation = active.generation
+
+        def on_info(token: int, line: str) -> None:
+            return None
+
+        def on_complete(token: int, line: str) -> None:
+            self._on_verification_complete(generation, owner, token, line)
+
+        # The final decision-boundary check and dispatch use the same lock as
+        # note_anchor_complete(). If the anchor wins the race this stage never
+        # starts; if this dispatch wins, it is already in flight and the
+        # declared drain/cancel policy applies.
+        with self._lock:
+            if (
+                active.cancelled
+                or self._closed
+                or active.anchor_completed.is_set()
+                or not self.runtime.shadow_available(instance)
+            ):
+                self._release_specialist(
+                    active,
+                    key=reservation_key,
+                    reason=(
+                        "VERIFY reservation released because the decision "
+                        "boundary closed during phase configuration"
+                    ),
+                )
                 return False
             verification.activate_stream(instance)
             stream.begin_stage(
@@ -3140,6 +3368,8 @@ class ShadowRunCoordinator:
                 family=spec.family,
                 search_id=search_id,
                 command=command,
+                phase="VERIFY",
+                effective_options=effective_options,
                 dispatched_ms=(time.monotonic() - active.started_monotonic) * 1000.0,
             )
 
@@ -3489,20 +3719,6 @@ class ShadowRunCoordinator:
             )
         except SearchRequestError:
             return False
-        search_id = f"{active.run.run_id}:verify-extension:{instance}:0"
-        generation = active.generation
-
-        def on_info(token: int, line: str) -> None:
-            return None
-
-        def on_complete(token: int, line: str) -> None:
-            self._on_staged_verification_complete(
-                generation,
-                owner,
-                token,
-                line,
-            )
-
         reservation_key = f"verify_extension:{owner}"
         with self._lock:
             if (
@@ -3519,6 +3735,62 @@ class ShadowRunCoordinator:
                 owner=owner,
                 target_id="staged_extension",
             ):
+                return False
+
+        phase_config_started = time.monotonic()
+        try:
+            effective_options = self.runtime.configure_shadow_phase(
+                instance, "STAGED_VERIFY"
+            )
+        except ControllerRuntimeError as exc:
+            self._release_specialist(
+                active,
+                key=reservation_key,
+                reason=(
+                    "staged VERIFY reservation released because phase "
+                    "configuration failed"
+                ),
+            )
+            staged.set_disposition(
+                "incomplete",
+                f"staged VERIFY phase configuration failed for {instance}: {exc}",
+            )
+            return False
+        finally:
+            self._charge_controller_elapsed(
+                active,
+                label=f"phase_config_staged_verify_{owner}",
+                elapsed_ms=(time.monotonic() - phase_config_started) * 1000.0,
+            )
+        search_id = f"{active.run.run_id}:verify-extension:{instance}:0"
+        generation = active.generation
+
+        def on_info(token: int, line: str) -> None:
+            return None
+
+        def on_complete(token: int, line: str) -> None:
+            self._on_staged_verification_complete(
+                generation,
+                owner,
+                token,
+                line,
+            )
+
+        with self._lock:
+            if (
+                active.cancelled
+                or self._closed
+                or active.anchor_completed.is_set()
+                or not self.runtime.shadow_available(instance)
+            ):
+                self._release_specialist(
+                    active,
+                    key=reservation_key,
+                    reason=(
+                        "staged VERIFY reservation released because the decision "
+                        "boundary closed during phase configuration"
+                    ),
+                )
                 return False
             staged.activate_stream(instance)
             stream.begin_stage(
@@ -3541,6 +3813,8 @@ class ShadowRunCoordinator:
                 family=spec.family,
                 search_id=search_id,
                 command=command,
+                phase="STAGED_VERIFY",
+                effective_options=effective_options,
                 dispatched_ms=(time.monotonic() - active.started_monotonic) * 1000.0,
             )
 
@@ -5495,6 +5769,22 @@ class ShadowRunCoordinator:
             run.note(f"owner {state.owner} dispatch rejected: {exc}")
             state.done.set()
             return False
+        phase_config_started = time.monotonic()
+        try:
+            effective_options = self.runtime.configure_shadow_phase(
+                state.instance, "EXPLORE"
+            )
+        except ControllerRuntimeError as exc:
+            run.note(f"owner {state.owner} EXPLORE phase configuration failed: {exc}")
+            state.failed = True
+            state.done.set()
+            return False
+        finally:
+            self._charge_controller_elapsed(
+                active,
+                label=f"phase_config_explore_{state.owner}",
+                elapsed_ms=(time.monotonic() - phase_config_started) * 1000.0,
+            )
 
         generation = active.generation
 
@@ -5539,6 +5829,8 @@ class ShadowRunCoordinator:
                 owner=state.owner,
                 search_id=search_id,
                 command=command,
+                phase="EXPLORE",
+                effective_options=effective_options,
                 dispatched_roots=state.roots,
                 dispatched_ms=elapsed,
                 stage_index=state.stage_index,

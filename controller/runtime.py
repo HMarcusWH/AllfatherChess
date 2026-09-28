@@ -14,7 +14,7 @@ import math
 import re
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Iterable
 
@@ -44,6 +44,7 @@ INSTANCE_ROLES = ("anchor", "managed", "shadow")
 AUTHORITY_ROLES = ("anchor", "managed")
 
 EXECUTION_MODES = ("anchor", "shadow", "active")
+PHASE_OPTION_NAMES = ("EXPLORE", "VERIFY", "STAGED_VERIFY")
 
 #: telemetry v1 ``controller.execution_mode`` value for each runtime mode.
 TELEMETRY_EXECUTION_MODE = {
@@ -72,6 +73,15 @@ class ShadowDispatchResult:
         return self.started
 
 @dataclass(frozen=True)
+class BackendWarmup:
+    """Bounded startup-only warmup for a declared engine instance."""
+
+    nodes: int
+    position: str = "startpos"
+    reset_after: bool = True
+
+
+@dataclass(frozen=True)
 class BackendSpec:
     """One managed engine instance.
 
@@ -88,6 +98,8 @@ class BackendSpec:
     args: tuple[str, ...]
     environment: dict[str, str]
     options: dict[str, object]
+    phase_options: dict[str, dict[str, object]] = field(default_factory=dict)
+    warmup: BackendWarmup | None = None
 
 
 @dataclass(frozen=True)
@@ -320,6 +332,17 @@ def _engine_identity(spec: "BackendSpec") -> dict[str, object]:
         "args": list(spec.args),
         "options": dict(spec.options),
     }
+    if spec.phase_options:
+        identity["phase_options"] = {
+            phase: dict(options)
+            for phase, options in sorted(spec.phase_options.items())
+        }
+    if spec.warmup is not None:
+        identity["warmup"] = {
+            "nodes": spec.warmup.nodes,
+            "position": spec.warmup.position,
+            "reset_after": spec.warmup.reset_after,
+        }
     # Preserve historical identity for every existing profile.  Only explicit
     # process-environment overrides are claim-bearing and therefore serialized.
     if spec.environment:
@@ -367,6 +390,51 @@ def _build_spec(
             )
         environment[key] = value
     options = _require_object(raw.get("options", {}), f"backend {name}.options")
+    phase_raw = _require_object(
+        raw.get("phase_options", {}), f"backend {name}.phase_options"
+    )
+    phase_options: dict[str, dict[str, object]] = {}
+    for phase, overrides_raw in phase_raw.items():
+        if phase not in PHASE_OPTION_NAMES:
+            raise RuntimeError(
+                f"backend {name}: phase_options key must be one of "
+                f"{list(PHASE_OPTION_NAMES)}, got {phase!r}"
+            )
+        overrides = _require_object(
+            overrides_raw, f"backend {name}.phase_options.{phase}"
+        )
+        if overrides.get("UCI_Chess960") is True:
+            raise RuntimeError(
+                f"backend {name}: phase option {phase} may not enable UCI_Chess960"
+            )
+        phase_options[str(phase)] = dict(overrides)
+
+    warmup: BackendWarmup | None = None
+    warmup_value = raw.get("warmup")
+    if warmup_value is not None:
+        warmup_raw = _require_object(warmup_value, f"backend {name}.warmup")
+        unknown = sorted(set(warmup_raw) - {"enabled", "nodes", "position", "reset_after"})
+        if unknown:
+            raise RuntimeError(f"backend {name}: warmup contains unsupported keys: {unknown}")
+        enabled = warmup_raw.get("enabled", True)
+        if not isinstance(enabled, bool):
+            raise RuntimeError(f"backend {name}: warmup.enabled must be a boolean")
+        if enabled:
+            nodes = warmup_raw.get("nodes", 64)
+            if isinstance(nodes, bool) or not isinstance(nodes, int) or nodes < 1:
+                raise RuntimeError(f"backend {name}: warmup.nodes must be a positive integer")
+            position = warmup_raw.get("position", "startpos")
+            if position != "startpos":
+                raise RuntimeError(
+                    f"backend {name}: warmup.position currently supports exactly 'startpos'"
+                )
+            reset_after = warmup_raw.get("reset_after", True)
+            if reset_after is not True:
+                raise RuntimeError(
+                    f"backend {name}: warmup.reset_after must be true so startup search state cannot leak"
+                )
+            warmup = BackendWarmup(nodes=int(nodes), position=str(position), reset_after=True)
+
     if options.get("UCI_Chess960") is True:
         # The controller's shared variant state starts as standard chess and is
         # only ever changed by the GUI's `setoption name UCI_Chess960`. Starting
@@ -386,6 +454,8 @@ def _build_spec(
         args=tuple(args_value),
         environment=environment,
         options=dict(options),
+        phase_options=phase_options,
+        warmup=warmup,
     )
 
 
@@ -1305,6 +1375,7 @@ class BackendManager:
         self._observer_failures: list[str] = []
         self._deferred_observers: list[DeferredObserver] = []
         self._online_clock: ClockSearch | None = None
+        self._effective_options: dict[str, dict[str, object]] = {}
 
         # Provenance is captured here, before `start()` launches anything. It
         # used to be computed when the shadow coordinator was constructed --
@@ -1388,6 +1459,40 @@ class BackendManager:
         """Return the live child PID used by the physical resource meter."""
         process = self.backends.get(instance)
         return None if process is None else process.pid
+
+    def effective_options(self, instance: str) -> dict[str, object]:
+        spec = self.spec(instance)
+        with self._lock:
+            return dict(self._effective_options.get(instance, spec.options))
+
+    def configure_shadow_phase(self, instance: str, phase: str) -> dict[str, object]:
+        """Apply the declared idle UCI option state for one shadow phase."""
+        spec = self.spec(instance)
+        if spec.role != "shadow":
+            raise RuntimeError(f"phase configuration requires a shadow instance: {instance!r}")
+        if phase not in PHASE_OPTION_NAMES:
+            raise RuntimeError(f"unsupported shadow phase: {phase!r}")
+        desired = dict(spec.options)
+        desired.update(spec.phase_options.get(phase, {}))
+        if not spec.phase_options:
+            return desired
+        process = self.backends.get(instance)
+        if process is None or not self.shadow_available(instance):
+            raise RuntimeError(f"shadow instance is unavailable: {instance}")
+        with self._lock:
+            current = dict(self._effective_options.get(instance, spec.options))
+        changed = {key: value for key, value in desired.items() if current.get(key) != value}
+        try:
+            if changed:
+                process.configure_idle(changed)
+        except UciProcessError as exc:
+            self.record_shadow_failure(
+                instance, f"{phase} phase option synchronization failed: {exc}"
+            )
+            raise RuntimeError(str(exc)) from exc
+        with self._lock:
+            self._effective_options[instance] = dict(desired)
+        return desired
 
     # ------------------------------------------------------------------
     # health
@@ -1531,6 +1636,9 @@ class BackendManager:
                     self.backends[name] = process
                     process.start()
                     process.configure(spec.options)
+                    self._effective_options[name] = dict(spec.options)
+                    if spec.warmup is not None:
+                        self._warmup_backend(name, process, spec.warmup)
                 except Exception as exc:
                     if spec.role in AUTHORITY_ROLES:
                         raise
@@ -1560,6 +1668,25 @@ class BackendManager:
             if isinstance(exc, RuntimeError):
                 raise
             raise RuntimeError(f"backend startup failed: {exc}") from exc
+
+    def _warmup_backend(
+        self, instance: str, process: UciProcess, warmup: BackendWarmup
+    ) -> None:
+        """Run one startup-only search and reset all game/search state afterwards."""
+        process.send_position("position startpos")
+        lines = process.run_idle_request(
+            f"go nodes {warmup.nodes}",
+            lambda line: line.startswith("bestmove "),
+            label=f"{instance} startup warmup bestmove",
+        )
+        terminals = [line for line in lines if line.startswith("bestmove ")]
+        if len(terminals) != 1:
+            raise RuntimeError(
+                f"backend {instance}: startup warmup produced {len(terminals)} terminal moves"
+            )
+        if warmup.reset_after:
+            process.new_game()
+            process.ready()
 
     def _diagnostic_startup_failure(self, instance: str, message: str) -> None:
         with self._lock:

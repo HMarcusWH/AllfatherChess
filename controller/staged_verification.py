@@ -12,6 +12,7 @@ resource-authorized, and still before the anchor decision boundary.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import threading
 from dataclasses import dataclass, field
@@ -46,6 +47,8 @@ class StagedVerificationStage:
     candidate_roots: tuple[str, ...]
     dispatched_ms: float
     dispatch_order: int
+    phase: str = "STAGED_VERIFY"
+    effective_options: dict[str, object] = field(default_factory=dict)
     completed_ms: float | None = None
     completion_order: int | None = None
     disposition: str = "running"
@@ -61,6 +64,11 @@ class StagedVerificationStage:
             "family": self.family,
             "search_id": self.search_id,
             "command": self.command,
+            "phase": self.phase,
+            "effective_options": dict(self.effective_options),
+            "effective_options_sha256": hashlib.sha256(
+                json.dumps(self.effective_options, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
+            ).hexdigest(),
             "candidate_roots": list(self.candidate_roots),
             "dispatch_order": self.dispatch_order,
             "dispatched_ms": round(self.dispatched_ms, 3),
@@ -168,6 +176,8 @@ class StagedVerificationRun:
         family: str,
         search_id: str,
         command: str,
+        phase: str = "STAGED_VERIFY",
+        effective_options: dict[str, object] | None = None,
         dispatched_ms: float,
     ) -> StagedVerificationStage:
         with self._lock:
@@ -186,6 +196,8 @@ class StagedVerificationRun:
                 family=family,
                 search_id=search_id,
                 command=command,
+                phase=phase,
+                effective_options=dict(effective_options or {}),
                 candidate_roots=self.candidate_roots,
                 dispatched_ms=dispatched_ms,
                 dispatch_order=self._dispatch_counter,

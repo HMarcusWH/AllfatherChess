@@ -639,6 +639,11 @@ class UciFrontend:
                 self._runtime_failed(f"search dispatch failed: {exc}", token)
             return
 
+        if self.shadow is not None:
+            # Replenish the next replay slot only after the authority search has
+            # already been dispatched. Directory/file open and writer-thread
+            # startup therefore cannot consume this request's pre-anchor budget.
+            self.shadow.prime_run_directory(token + 1)
         if prepared and self.shadow is not None:
             try:
                 self.shadow.start_shadow_work(token)
@@ -695,6 +700,10 @@ class UciFrontend:
         except RuntimeError as exc:
             self._clock_fail(token, f"clock dispatch failed: {exc}")
         finally:
+            if self.shadow is not None:
+                # Future replay allocation begins only after the current anchor
+                # dispatch attempt, never on the clocked pre-anchor path.
+                self.shadow.prime_run_directory(token + 1)
             if prepared and self.shadow is not None:
                 # Also run finalization when dispatch failed or the anchor
                 # already answered; all dispatch sites consume work_open().

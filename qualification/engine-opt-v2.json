@@ -1,0 +1,128 @@
+{
+  "schema_version": 1,
+  "profile_id": "engine-opt-v2",
+  "status": "selected-profile",
+  "baseline": {
+    "main_commit": "b8bd0fdda4a7e67f6437a74e5373f69ef2c15c78",
+    "local1_qualified_head": "6fc6522f863e2a15c6d4c230fa558cbb993f867e",
+    "local1_qualified_tree": "0a2095ba5dde83292a348cff2495d02bd4e05299",
+    "runtime_config": "config/allfather.online-hybrid.validation.json",
+    "bundle_root": "build/online-cpu-reference"
+  },
+  "frozen_native_work": {
+    "explore": {
+      "nodes": 16
+    },
+    "verify": {
+      "nodes": 16
+    },
+    "staged_verify": {
+      "nodes": 32
+    },
+    "rationale": "Preserve the qualified n16->n32 G2 intervention identity; optimize execution and resource estimates without redefining native work."
+  },
+  "research": {
+    "corpus": "tests/fixtures/engine_opt/positions.epd",
+    "openings": "tests/fixtures/engine_opt/openings.pgn",
+    "preserve_engine_sources": true,
+    "allow_upstream_refresh": false,
+    "allow_gpu_promotion": false,
+    "allow_hard_nn_skip": false,
+    "deferred_build_axes": {
+      "reckless_pgo": "Deferred: the vendored upstream PGO target does not preserve the selected x86-64/no-default-features production build contract; qualify a reproducible portable PGO path before adding it as a candidate."
+    },
+    "matrix_confirmation": {
+      "baseline_profile": "v1-current-cold",
+      "selected_profile_source": "qualification/engine-opt-v2-selection.json:selected.lc0.matrix_profile",
+      "confirmation_repeats": 3,
+      "rule": "The baseline and selected profile must each repeat the complete frozen corpus three times with an internally stable bestmove vector; the selected vector must equal the baseline vector on every repeat."
+    }
+  },
+  "candidate_axes": {
+    "lc0": {
+      "minibatch_size": [
+        0,
+        1,
+        4,
+        7,
+        16,
+        32
+      ],
+      "max_prefetch": [
+        0,
+        4,
+        8,
+        12,
+        16,
+        32
+      ],
+      "nn_cache_size": [
+        0,
+        65536,
+        262144,
+        2000000
+      ],
+      "adaptive_prefetch": [
+        false,
+        true
+      ],
+      "warmup_nodes": [
+        null,
+        64
+      ],
+      "matrix_profiles": [
+        "v1-current-cold",
+        "v1-current-warm64",
+        "auto-p0-c256k-cold",
+        "auto-p0-c256k-warm64",
+        "b1-p0-c256k-cold",
+        "b4-p0-c256k-cold",
+        "b7-p8-c256k-cold",
+        "b7-p0-c256k-warm64",
+        "b7-p8-c256k-warm64",
+        "b7-p12-c256k-warm64",
+        "b7-p32-c256k-warm64",
+        "auto-p0-c2m-warm64",
+        "b7-p12-c2m-warm64",
+        "auto-adaptive-c2m-warm64"
+      ],
+      "matrix_note": "The numeric axes describe the research envelope; matrix_profiles is the exact bounded shortlist executed by the qualification workflow."
+    },
+    "stockfish": {
+      "build_profiles": [
+        "x86-64",
+        "x86-64-pgo"
+      ],
+      "hash_mb": [
+        16,
+        32,
+        64,
+        128,
+        256
+      ]
+    },
+    "reckless": {
+      "build_profiles": [
+        "x86-64"
+      ]
+    }
+  },
+  "required_measurements": [
+    "wall_ms",
+    "cpu_ms",
+    "bestmove",
+    "native_work_value",
+    "native_work_semantics",
+    "completed_before_deadline",
+    "binary_sha256",
+    "network_sha256",
+    "uci_options"
+  ],
+  "claim_boundary": {
+    "strength": false,
+    "elo": false,
+    "equal_compute": false,
+    "deployed_bot": false,
+    "hard_nn_skip": false
+  }
+}

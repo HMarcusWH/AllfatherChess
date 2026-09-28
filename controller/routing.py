@@ -257,6 +257,8 @@ class RoutingPolicy:
     stage_cpu_ms_estimate: float
     anchor_cpu_ms_estimate: float
     stage_gpu_ms_estimate: float
+    stage_cpu_ms_estimate_by_owner: dict[str, float] = field(default_factory=dict)
+    verify_stage_cpu_ms_estimate_by_owner: dict[str, float] = field(default_factory=dict)
     #: Per-semantics observation floors. `min_observation_nodes` remains the
     #: alpha-beta default; a family whose counter means something else needs its
     #: own declared floor rather than borrowing that number.
@@ -293,6 +295,25 @@ class RoutingPolicy:
                 )
             return raw
 
+        def owner_map(key: str) -> dict[str, float]:
+            raw = config.get(key, {})
+            if not isinstance(raw, dict):
+                raise RoutingError(f"routing.{key} must be an object")
+            allowed = {"stockfish", "reckless", "lc0"}
+            if not set(raw) <= allowed:
+                raise RoutingError(
+                    f"routing.{key} contains unknown owners: {sorted(set(raw)-allowed)}"
+                )
+            result: dict[str, float] = {}
+            for owner, value in raw.items():
+                if isinstance(value, bool) or not isinstance(value, (int, float)):
+                    raise RoutingError(f"routing.{key}.{owner} must be numeric")
+                value = float(value)
+                if not math.isfinite(value) or value < 0.0:
+                    raise RoutingError(f"routing.{key}.{owner} must be non-negative and finite")
+                result[str(owner)] = value
+            return result
+
         try:
             return cls(
                 min_observation_nodes=int(number("min_observation_nodes", 4000)),
@@ -305,6 +326,8 @@ class RoutingPolicy:
                 stage_cpu_ms_estimate=float(number("stage_cpu_ms_estimate", 400.0)),
                 anchor_cpu_ms_estimate=float(number("anchor_cpu_ms_estimate", 0.0)),
                 stage_gpu_ms_estimate=float(number("stage_gpu_ms_estimate", 0.0)),
+                stage_cpu_ms_estimate_by_owner=owner_map("stage_cpu_ms_estimate_by_owner"),
+                verify_stage_cpu_ms_estimate_by_owner=owner_map("verify_stage_cpu_ms_estimate_by_owner"),
                 observation_floors=dict(config.get("observation_floors") or {}),
                 verify_stage_cpu_ms_estimate=float(number("verify_stage_cpu_ms_estimate", 200.0)),
                 verify_stage_gpu_ms_estimate=float(number("verify_stage_gpu_ms_estimate", 0.0)),
@@ -365,6 +388,15 @@ class RoutingPolicy:
         # out-of-range value deletes a gate rather than misconfiguring it. This
         # mapping was added in round six and skipped that rule: a floor of -1
         # makes `minimum_observation` pass for any tagged observation.
+        for mapping_name in ("stage_cpu_ms_estimate_by_owner", "verify_stage_cpu_ms_estimate_by_owner"):
+            mapping = getattr(self, mapping_name)
+            if not isinstance(mapping, dict):
+                raise RoutingError(f"{mapping_name} must be a mapping")
+            for owner, value in mapping.items():
+                if owner not in {"stockfish", "reckless", "lc0"}:
+                    raise RoutingError(f"{mapping_name} contains unknown owner {owner!r}")
+                if not math.isfinite(float(value)) or float(value) < 0.0:
+                    raise RoutingError(f"{mapping_name}[{owner!r}] must be non-negative and finite")
         if not isinstance(self.observation_floors, dict):
             raise RoutingError("observation_floors must be a mapping of semantics to floors")
         for semantics, floor in self.observation_floors.items():
@@ -376,6 +408,14 @@ class RoutingPolicy:
                 raise RoutingError(
                     f"observation_floors[{semantics!r}] must be a non-negative, finite count"
                 )
+
+    def stage_cpu_estimate_for(self, owner: str) -> float:
+        return float(self.stage_cpu_ms_estimate_by_owner.get(owner, self.stage_cpu_ms_estimate))
+
+    def verify_cpu_estimate_for(self, owner: str | None) -> float:
+        if owner is None:
+            return float(self.verify_stage_cpu_ms_estimate)
+        return float(self.verify_stage_cpu_ms_estimate_by_owner.get(owner, self.verify_stage_cpu_ms_estimate))
 
     def observation_floor_for(self, semantics: str | None) -> float | None:
         """The declared minimum observation for this engine-native quantity.
@@ -393,7 +433,7 @@ class RoutingPolicy:
         return None
 
     def as_dict(self) -> dict[str, Any]:
-        return {
+        payload = {
             "policy": self.policy_name,
             "min_observation_nodes": self.min_observation_nodes,
             "checkpoint_interval_ms": self.checkpoint_interval_ms,
@@ -413,6 +453,15 @@ class RoutingPolicy:
             "refine_oracle_gpu_ms_estimate": self.refine_oracle_gpu_ms_estimate,
             "observation_floors": dict(self.observation_floors),
         }
+        if self.stage_cpu_ms_estimate_by_owner:
+            payload["stage_cpu_ms_estimate_by_owner"] = dict(
+                self.stage_cpu_ms_estimate_by_owner
+            )
+        if self.verify_stage_cpu_ms_estimate_by_owner:
+            payload["verify_stage_cpu_ms_estimate_by_owner"] = dict(
+                self.verify_stage_cpu_ms_estimate_by_owner
+            )
+        return payload
 
 
 def observe_owner(
@@ -725,7 +774,7 @@ class ConservativeRouter:
             try:
                 reservation = self.ledger.reserve(
                     f"shadow:{owner}",
-                    cpu_ms=self.policy.stage_cpu_ms_estimate,
+                    cpu_ms=self.policy.stage_cpu_estimate_for(owner),
                     gpu_ms=self.policy.stage_gpu_ms_estimate,
                 )
             except BudgetExceeded as exc:
@@ -929,11 +978,11 @@ class ConservativeRouter:
                 "could not dispatch the authorized stage"
             )
 
-    def _specialist_cost(self, phase: str) -> tuple[str, float, float]:
+    def _specialist_cost(self, phase: str, owner: str | None = None) -> tuple[str, float, float]:
         if phase == "verify":
             return (
                 "verify",
-                self.policy.verify_stage_cpu_ms_estimate,
+                self.policy.verify_cpu_estimate_for(owner),
                 self.policy.verify_stage_gpu_ms_estimate,
             )
         if phase == "refine":
@@ -967,7 +1016,7 @@ class ConservativeRouter:
         audit = self.audit
         if audit is None:
             return None
-        purpose, cpu_ms, gpu_ms = self._specialist_cost(phase)
+        purpose, cpu_ms, gpu_ms = self._specialist_cost(phase, owner)
         if phase == "verify" and not self.verify_enabled:
             enabled = False
         elif phase.startswith("refine") and not self.refine_enabled:
@@ -1535,7 +1584,7 @@ class ConservativeRouter:
                 self._reservations.setdefault(owner, []).append(
                     self.ledger.reserve(
                         f"shadow:{owner}",
-                        cpu_ms=self.policy.stage_cpu_ms_estimate,
+                        cpu_ms=self.policy.stage_cpu_estimate_for(owner),
                         gpu_ms=self.policy.stage_gpu_ms_estimate,
                     )
                 )

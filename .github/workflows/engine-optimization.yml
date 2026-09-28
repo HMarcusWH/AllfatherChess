@@ -1,0 +1,341 @@
+name: Engine optimization v2
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'qualification/engine-opt-*.json'
+      - 'qualification/online-engine-opt-v2.json'
+      - 'qualification/online-hybrid-v2.json'
+      - 'qualification/local-full-game-v2.json'
+      - 'config/allfather.online-engine-opt-v2.json'
+      - 'config/allfather.online-hybrid-v2.validation.json'
+      - 'controller/**'
+      - 'adapters/process/**'
+      - 'tools/engine_opt/**'
+      - 'tools/local_game/**'
+      - 'scripts/engine-opt-*.py'
+      - 'scripts/build-online-engine-opt-v2.sh'
+      - 'scripts/qualify-engine-opt-v2.py'
+      - 'scripts/qualify-online-hybrid-v2.py'
+      - 'tests/engine_opt/**'
+      - 'tests/controller/test_engine_opt_runtime.py'
+      - 'tests/fixtures/engine_opt/**'
+      - 'Makefile'
+      - 'Makefile.local-game'
+      - '.github/workflows/engine-optimization.yml'
+
+permissions:
+  contents: read
+
+env:
+  ALLFATHER_SOURCE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+
+concurrency:
+  group: engine-opt-v2-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  static-contracts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.ALLFATHER_SOURCE_SHA }}
+      - name: Verify exact source checkout
+        run: test "$(git rev-parse HEAD)" = "$ALLFATHER_SOURCE_SHA"
+      - name: Static contracts
+        run: |
+          python3 -m compileall -q controller adapters tools scripts tests/engine_opt tests/controller/test_engine_opt_runtime.py
+          python3 tests/engine_opt/test_contracts.py
+          python3 tests/engine_opt/test_ab.py
+          python3 tests/controller/test_engine_opt_runtime.py
+          python3 scripts/qualify-online-hybrid-v2.py --static
+          for f in qualification/engine-opt-v2.json qualification/engine-opt-v2-selection.json qualification/engine-opt-v2-evidence.json qualification/engine-derived-lock.json qualification/online-engine-opt-v2.json qualification/online-hybrid-v2.json qualification/local-full-game-v2.json config/allfather.online-engine-opt-v2.json config/allfather.online-hybrid-v2.validation.json; do python3 -m json.tool "$f" >/dev/null; done
+          bash -n scripts/build-online-engine-opt-v2.sh
+
+  build-candidate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 70
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.ALLFATHER_SOURCE_SHA }}
+      - name: Verify exact source checkout
+        run: test "$(git rev-parse HEAD)" = "$ALLFATHER_SOURCE_SHA"
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential meson ninja-build pkg-config libprotobuf-dev protobuf-compiler zlib1g-dev libopenblas-dev
+      - name: Cache networks
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: |
+            build/artifacts/stockfish
+            build/artifacts/reckless
+            build/artifacts/lc0
+          key: engine-opt-v2-networks-${{ runner.os }}-${{ hashFiles('vendor.lock.json','qualification/lc0-strength.lock.json') }}
+      - name: Build candidate bundle
+        run: make build-online-engine-opt-v2
+      - name: Qualify candidate identity
+        run: python3 scripts/qualify-engine-opt-v2.py
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: engine-opt-v2-candidate
+          path: |
+            build/online-engine-opt-v2
+            build/test-results/engine-opt-v2
+          if-no-files-found: error
+          retention-days: 14
+
+  constituent-ab:
+    needs: build-candidate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 70
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.ALLFATHER_SOURCE_SHA }}
+      - name: Verify exact source checkout
+        run: test "$(git rev-parse HEAD)" = "$ALLFATHER_SOURCE_SHA"
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: engine-opt-v2-candidate
+          path: build/candidate-download
+      - name: Restore candidate executable bits
+        run: chmod +x build/candidate-download/online-engine-opt-v2/bin/*
+      - name: Install constituent build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential meson ninja-build pkg-config libprotobuf-dev protobuf-compiler zlib1g-dev libopenblas-dev
+      - name: Checkout pristine LC0 control
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: HMarcusWH/lc0
+          ref: 1322b362b09db5eb0830e726f5734d44119a1b46
+          path: build/pristine-lc0
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Verify pristine LC0 identity
+        run: |
+          test "$(git -C build/pristine-lc0 rev-parse HEAD)" = "1322b362b09db5eb0830e726f5734d44119a1b46"
+          test "$(git -C build/pristine-lc0 rev-parse HEAD^{tree})" = "c7ca6fd1558acd38a19202eaaf52946b14b2bc64"
+      - name: Build pristine LC0 with reference BLAS flags
+        run: |
+          cd build/pristine-lc0
+          ./build.sh release             -Dbuild_backends=true -Dblas=true -Dplain_cuda=false -Dcudnn=false             -Dopencl=false -Donnx=false -Dmetal=disabled -Dsycl=off -Dhip=false             -Dgtest=false -Db_lto=false -Dnative_arch=false -Dispc=false             -Dispc_native_only=false -Dpopcnt=false -Df16c=false -Dpext=false
+      - name: Checkout pristine Reckless control
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: HMarcusWH/Reckless
+          ref: 31d9cd6fd2bea6d9f72eeb35e0bac70daa295fb1
+          path: build/pristine-reckless
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Verify and build pristine Reckless
+        run: |
+          test "$(git -C build/pristine-reckless rev-parse HEAD)" = "31d9cd6fd2bea6d9f72eeb35e0bac70daa295fb1"
+          test "$(git -C build/pristine-reckless rev-parse HEAD^{tree})" = "88763d8e81ea45b938403f7f4feee990ad244c2d"
+          NET="$PWD/build/candidate-download/online-engine-opt-v2/networks/v60-7f587dfb.nnue"
+          cd build/pristine-reckless
+          EVALFILE="$NET" CARGO_ENCODED_RUSTFLAGS='-Ctarget-cpu=x86-64'             cargo build --release --no-default-features --target x86_64-unknown-linux-gnu
+      - name: Build non-PGO Stockfish control from same source
+        run: |
+          NET="$PWD/build/candidate-download/online-engine-opt-v2/networks/nn-134a887f4c8f.nnue"
+          ln -sfn "$NET" engines/stockfish/src/nn-134a887f4c8f.nnue
+          make -C engines/stockfish/src ARCH=x86-64 objclean
+          make -C engines/stockfish/src -j2 build ARCH=x86-64
+          cp engines/stockfish/src/stockfish build/stockfish-no-pgo
+      - name: Run constituent A/B benchmarks
+        run: |
+          mkdir -p build/test-results/engine-opt-ab
+          python3 scripts/engine-opt-ab.py             --family lc0             --left build/candidate-download/online-engine-opt-v2/bin/lc0             --left-label allfather-derived             --right build/pristine-lc0/build/release/lc0             --right-label pristine-upstream             --weights build/candidate-download/online-engine-opt-v2/networks/791556.pb.gz             --nodes 64 --warmup-nodes 64             --output build/test-results/engine-opt-ab/lc0-derived-vs-pristine.json
+          python3 scripts/engine-opt-ab.py             --family reckless             --left build/candidate-download/online-engine-opt-v2/bin/reckless             --left-label allfather-derived             --right build/pristine-reckless/target/x86_64-unknown-linux-gnu/release/reckless             --right-label pristine-upstream             --nodes 200000             --output build/test-results/engine-opt-ab/reckless-derived-vs-pristine.json
+          python3 scripts/engine-opt-ab.py             --family stockfish             --left build/candidate-download/online-engine-opt-v2/bin/stockfish             --left-label pgo             --right build/stockfish-no-pgo             --right-label no-pgo             --nodes 200000             --output build/test-results/engine-opt-ab/stockfish-pgo-vs-no-pgo.json
+          python3 scripts/engine-opt-hash-matrix.py             --family stockfish             --binary build/candidate-download/online-engine-opt-v2/bin/stockfish             --nodes 200000             --output build/test-results/engine-opt-ab/stockfish-hash-matrix.json
+          python3 scripts/engine-opt-hash-matrix.py             --family reckless             --binary build/candidate-download/online-engine-opt-v2/bin/reckless             --nodes 200000             --output build/test-results/engine-opt-ab/reckless-hash-matrix.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: engine-opt-v2-constituent-ab
+          path: build/test-results/engine-opt-ab
+          if-no-files-found: warn
+          retention-days: 14
+
+  hybrid-v2-real:
+    needs: build-candidate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.ALLFATHER_SOURCE_SHA }}
+      - name: Verify exact source checkout
+        run: test "$(git rev-parse HEAD)" = "$ALLFATHER_SOURCE_SHA"
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: engine-opt-v2-candidate
+          path: build/candidate-download
+      - name: Restore exact candidate bundle
+        run: |
+          test -d build/candidate-download/online-engine-opt-v2
+          rm -rf build/online-engine-opt-v2
+          mv build/candidate-download/online-engine-opt-v2 build/online-engine-opt-v2
+          chmod +x build/online-engine-opt-v2/bin/*
+      - name: Install runtime dependencies
+        run: sudo apt-get update && sudo apt-get install -y libopenblas-dev
+      - name: Exercise real-process G3-v2 authority
+        run: python3 scripts/qualify-online-hybrid-v2.py
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: engine-opt-v2-hybrid-evidence
+          path: |
+            build/test-results/online-hybrid-v2
+            build/replays-online-hybrid-v2
+          if-no-files-found: warn
+          retention-days: 14
+
+  lc0-runtime-matrix:
+    needs: build-candidate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.ALLFATHER_SOURCE_SHA }}
+      - name: Verify exact source checkout
+        run: test "$(git rev-parse HEAD)" = "$ALLFATHER_SOURCE_SHA"
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: engine-opt-v2-candidate
+          path: build/candidate-download
+      - name: Restore candidate executable bits
+        run: chmod +x build/candidate-download/online-engine-opt-v2/bin/*
+      - name: Install runtime dependencies
+        run: sudo apt-get update && sudo apt-get install -y libopenblas-dev
+      - name: Run real-network LC0 matrix
+        run: |
+          python3 scripts/engine-opt-matrix.py             --binary build/candidate-download/online-engine-opt-v2/bin/lc0             --weights build/candidate-download/online-engine-opt-v2/networks/791556.pb.gz             --output build/test-results/engine-opt-matrix/lc0.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: engine-opt-v2-lc0-matrix
+          path: build/test-results/engine-opt-matrix
+          if-no-files-found: warn
+          retention-days: 14
+
+  fastchess-source-tests-v2:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.ALLFATHER_SOURCE_SHA }}
+      - name: Verify exact source checkout
+        run: test "$(git rev-parse HEAD)" = "$ALLFATHER_SOURCE_SHA"
+      - name: Match pinned Fastchess source-test host
+        run: |
+          sudo sysctl -w vm.mmap_rnd_bits=28
+          g++ --version
+      - name: Run pinned Fastchess source tests
+        run: |
+          python3 -m tools.local_game.build_fastchess \
+            --source-test-only \
+            --attestation build/fastchess-source-test/attestation.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: engine-opt-v2-fastchess-source-test
+          path: build/fastchess-source-test/attestation.json
+          if-no-files-found: error
+          retention-days: 14
+
+  local1-v2:
+    needs: [build-candidate, hybrid-v2-real, fastchess-source-tests-v2]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 330
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.ALLFATHER_SOURCE_SHA }}
+      - name: Verify exact source checkout
+        run: |
+          test "$(git rev-parse HEAD)" = "$ALLFATHER_SOURCE_SHA"
+          echo "ALLFATHER_RUNNER_ENVIRONMENT=${{ runner.environment }}" >> "$GITHUB_ENV"
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: engine-opt-v2-candidate
+          path: build/candidate-download
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: engine-opt-v2-fastchess-source-test
+          path: build/fastchess-source-test
+      - name: Restore exact v2 bundle
+        run: |
+          test -d build/candidate-download/online-engine-opt-v2
+          rm -rf build/online-engine-opt-v2
+          mv build/candidate-download/online-engine-opt-v2 build/online-engine-opt-v2
+          chmod +x build/online-engine-opt-v2/bin/*
+      - name: Install lifecycle build/runtime dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential git meson ninja-build pkg-config \
+            libprotobuf-dev protobuf-compiler zlib1g-dev libopenblas-dev \
+            python3-pip python3-setuptools python3-wheel
+          python3 -m pip install --break-system-packages --no-build-isolation --no-deps \
+            --require-hashes -r qualification/local-game-requirements.txt
+      - name: Build pinned Fastchess against source-test attestation
+        run: make -f Makefile.local-game build-fastchess
+      - name: Run LOCAL-1 contract regressions
+        run: make -f Makefile.local-game test
+      - name: Qualify selected ENGINE-OPT-V2 full-game lifecycle
+        run: |
+          python3 -m tools.local_game.runner \
+            --mode required \
+            --policy qualification/local-full-game-v2.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: engine-opt-v2-local1
+          path: |
+            build/test-results/local-full-game
+            build/test-results/engine-opt-v2
+            build/test-results/online-hybrid-v2
+          if-no-files-found: warn
+          retention-days: 14
+
+  aggregate-qualification:
+    needs:
+      - static-contracts
+      - build-candidate
+      - constituent-ab
+      - hybrid-v2-real
+      - lc0-runtime-matrix
+      - local1-v2
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.ALLFATHER_SOURCE_SHA }}
+      - name: Verify exact source checkout
+        run: test "$(git rev-parse HEAD)" = "$ALLFATHER_SOURCE_SHA"
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: engine-opt-v2-*
+          path: build/engine-opt-artifacts
+          merge-multiple: false
+      - name: Aggregate exact-head optimization evidence
+        run: |
+          python3 scripts/qualify-engine-opt-evidence.py \
+            --root build/engine-opt-artifacts \
+            --output build/test-results/engine-opt-v2-aggregate/report.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: engine-opt-v2-aggregate
+          path: build/test-results/engine-opt-v2-aggregate
+          if-no-files-found: error
+          retention-days: 14

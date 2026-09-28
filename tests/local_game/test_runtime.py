@@ -58,6 +58,36 @@ class GenerationLifecycleTests(unittest.TestCase):
             for run in bundles.bundles:
                 self.assertFalse(verify_bundle_integrity(run), run)
 
+    def test_precreated_replay_slot_bypasses_clock_path_filesystem_setup(self):
+        with shell_fixture(settings={"prepare_budget_ms": 20}) as (
+            shell, manager, shadow, out, tmp
+        ):
+            self.assertIsNotNone(shadow)
+            wait_for(lambda: shadow.prepared_run_directory_ready(1), timeout=2)
+            with (
+                patch.object(
+                    shadow,
+                    "_make_run_dir_within_budget",
+                    side_effect=AssertionError("clock-path mkdir fallback was used"),
+                ),
+                patch.object(
+                    shadow,
+                    "_open_anchor_stream_within_budget",
+                    side_effect=AssertionError("clock-path anchor stream fallback was used"),
+                ),
+            ):
+                shell.handle_command("go movetime 500")
+                wait_for(lambda: len(terminals(out)) == 1, timeout=2)
+            wait_for(
+                lambda: len(list(tmp.glob("replays/*/manifest.json"))) == 1,
+                timeout=5,
+            )
+            bundles = discover_replay_bundles(tmp / "replays")
+            self.assertFalse(bundles.skipped)
+            self.assertEqual(len(bundles.bundles), 1)
+            self.assertFalse(verify_bundle_integrity(bundles.bundles[0]))
+            wait_for(lambda: shadow.prepared_run_directory_ready(2), timeout=2)
+
     def test_fault_evidence_retention_waits_for_replay_finalization(self):
         entered = threading.Event()
         release = threading.Event()

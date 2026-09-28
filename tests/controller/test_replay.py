@@ -224,6 +224,34 @@ class ReplayManifestTests(unittest.TestCase):
             self.assertEqual(manifest["disposition"]["run"], "completed")
             self.assertTrue((Path(tmp) / "manifest.json").is_file())
 
+    def test_preopened_stream_can_bind_after_directory_rename(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            prepared = root / "prepared"
+            prepared.mkdir()
+            writer = TelemetryStreamWriter(
+                path=prepared / "stockfish-anchor.jsonl",
+                instance="stockfish-anchor",
+                family="stockfish",
+                role="anchor",
+                adapter_factory=None,
+            )
+            final = root / "final"
+            prepared.replace(final)
+            final_path = final / "stockfish-anchor.jsonl"
+            writer.bind_prepared(
+                path=final_path,
+                adapter_factory=lambda _search_id: None,
+            )
+            self.assertEqual(writer.path, final_path)
+            with self.assertRaisesRegex(ReplayError, "already bound"):
+                writer.bind_prepared(
+                    path=final_path,
+                    adapter_factory=lambda _search_id: None,
+                )
+            writer.close()
+            self.assertTrue(final_path.is_file())
+
     def test_tampered_stream_fails_integrity_verification(self):
         with tempfile.TemporaryDirectory() as tmp:
             run_dir, manifest = single_run(Path(tmp))

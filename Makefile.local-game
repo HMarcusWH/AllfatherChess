@@ -1,5 +1,7 @@
 # Standalone LOCAL-1 entry point; production engine logic is unchanged.
-.PHONY: test source-test-fastchess build-fastchess build qualification soak soak-shard soak-aggregate verify
+.PHONY: test source-test-fastchess build-fastchess build qualification soak soak-shard soak-aggregate qualification-v2 soak-v2 soak-shard-v2 soak-aggregate-v2 verify
+
+V2_POLICY := qualification/local-full-game-v2.json
 
 test:
 	python3 -c 'import chess; assert chess.__version__ == "1.11.2"'
@@ -35,3 +37,19 @@ soak-aggregate:
 verify:
 	@test -n "$(CAMPAIGN)" || 		(echo 'Set CAMPAIGN=build/test-results/local-full-game/<id>' >&2; exit 2)
 	python3 -m tools.local_game.validate "$(CAMPAIGN)"
+
+qualification-v2: test build-fastchess
+	$(MAKE) build-online-engine-opt-v2
+	python3 -m tools.local_game.runner --mode required --policy $(V2_POLICY)
+
+soak-v2: test build-fastchess
+	$(MAKE) build-online-engine-opt-v2
+	python3 -m tools.local_game.runner --mode soak --policy $(V2_POLICY)
+
+soak-shard-v2: test build-fastchess
+	@test -n "$(SHARD)" -a -n "$(SHARDS)" || (echo 'Set SHARD=<zero-based-index> SHARDS=<count>' >&2; exit 2)
+	python3 -m tools.local_game.runner --mode soak --policy $(V2_POLICY) --shard-index "$(SHARD)" --shard-count "$(SHARDS)"
+
+soak-aggregate-v2:
+	@test -n "$(SHARD_ROOT)" || (echo 'Set SHARD_ROOT=<directory-containing-downloaded-shard-artifacts>' >&2; exit 2)
+	python3 -m tools.local_game.aggregate_soak "$(SHARD_ROOT)" --policy $(V2_POLICY) --output build/test-results/local-full-game-v2-soak-aggregate/report.json

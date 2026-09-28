@@ -1,11 +1,11 @@
 # AllfatherChess current build and release status
 
-**Status date:** 27 September 2026  
-**Authoritative main commit:** `524ec9b25c7f08d981ba7c88318d106e22586295`  
+**Status date:** 28 September 2026  
+**Authoritative main commit:** `b8bd0fdda4a7e67f6437a74e5373f69ef2c15c78`  
 **Merged milestone:** PR #41 / LOCAL-1 — full-game lifecycle qualification  
 **Qualified PR head:** `6fc6522f863e2a15c6d4c230fa558cbb993f867e`  
 **Tree identity:** both the qualified PR head and merge commit use tree `0a2095ba5dde83292a348cff2495d02bd4e05299`  
-**Current execution milestone:** ONLINE-3 — reproducible service package + pinned lichess-bot bridge  
+**Current execution milestone:** ENGINE-OPT-V2 / PR #44 — measured constituent/profile optimization before ONLINE-3  
 **Forward roadmap:** [ROADMAP.md](ROADMAP.md)  
 **Detailed deployment plan:** [ONLINE_RELEASE_PLAN.md](ONLINE_RELEASE_PLAN.md)
 
@@ -15,9 +15,7 @@ for current status and forward ordering.
 
 ## Current qualification evidence
 
-PR #41 merged as a normal two-parent merge. Its final qualified head and the merge commit
-have the same Git tree, so the exact content that passed qualification is the content now
-on `main`.
+PR #41 remains the qualified behavior baseline. PR #43 subsequently synchronized repository status/docs and merged as `b8bd0fdda4a7e67f6437a74e5373f69ef2c15c78` without changing the qualified chess/controller behavior. ENGINE-OPT-V2 is being developed separately in PR #44; its v2 selection is not yet a qualified replacement.
 
 | Workflow | Run | Result |
 | --- | ---: | --- |
@@ -132,24 +130,36 @@ not permission to erase their firewalls.
 
 ## Current critical path
 
-### 1. ONLINE-3 — reproducible package + pinned Lichess bridge — **NEXT**
+### 1. ENGINE-OPT-V2 / PR #44 — measured constituent/profile optimization — **NEXT**
+
+Keep the PR #41/LOCAL-1 v1 composition frozen as the control while measuring and repairing
+the execution profile. The v2 programme targets LC0 CPU cache/minibatch/prefetch/warmup,
+safe phase-specific specialist options, portable constituent build optimization and
+owner-specific resource reservation estimates. It preserves the n16 EXPLORE / n16 VERIFY /
+n32 staged-VERIFY intervention and does not change G3's fail-closed authority semantics.
+
+The checked-in v2 selection is provisional until the exact benchmark report is hash-bound,
+the real-process G3-v2 positive authority gate passes, and the complete v2 lifecycle is
+qualified.
+
+### 2. ONLINE-3 — reproducible package + pinned Lichess bridge
 
 Package the exact LOCAL-1-qualified composition, pin a tested `lichess-bot` revision,
 add immutable deployment/release manifests, restricted bridge configuration, operator
 documentation and fake-server startup/game-lifecycle smoke tests. Do not change chess policy
 to make packaging easier.
 
-### 2. ONLINE-4 — network/restart/reconciliation/rollback qualification
+### 3. ONLINE-4 — network/restart/reconciliation/rollback qualification
 
 Exercise disconnects, uncertain move submission, duplicate/out-of-order events, service
 restart, stale output, rate limits, storage pressure, stop-new-games and rollback.
 
-### 3. Release qualification
+### 4. Release qualification
 
 Aggregate the required qualification families into one always-present release gate and
 freeze exact source/binary/network/profile/model/bridge/package identities.
 
-### 4. ONLINE-RC
+### 5. ONLINE-RC
 
 Run the first restricted unrated bot canary only after the operational gates pass.
 

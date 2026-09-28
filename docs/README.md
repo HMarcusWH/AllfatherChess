@@ -1,7 +1,7 @@
 # AllfatherChess documentation map
 
-**Current main milestone:** PR #39 / M14-G3  
-**Current execution milestone:** LOCAL-1  
+**Current main milestone:** PR #41 / LOCAL-1 qualified; PR #43 status-synchronized main  
+**Current execution milestone:** PR #44 / ENGINE-OPT-V2 candidate  
 **Status authority:** [CURRENT_STATUS.md](CURRENT_STATUS.md)  
 **Forward roadmap:** [ROADMAP.md](ROADMAP.md)
 
@@ -12,6 +12,7 @@ historical design/audit material.
 
 - [CURRENT_STATUS.md](CURRENT_STATUS.md) — authoritative short-form repository state,
   qualification evidence, profile matrix and current gate.
+- [ENGINE_OPTIMIZATION.md](ENGINE_OPTIMIZATION.md) — ENGINE-OPT-V2 measurement, repair and promotion contract.
 - [ROADMAP.md](ROADMAP.md) — canonical forward execution order from LOCAL-1 to the first
   public canary, plus the parallel strength/optimization track.
 - [ONLINE_RELEASE_PLAN.md](ONLINE_RELEASE_PLAN.md) — detailed deployment audit and

@@ -42,8 +42,14 @@ def main() -> int:
                 "selected profile does not bind the frozen evidence summary")
         require(selection.get("selected")==evidence.get("selected"),
                 "selected profile differs from the frozen measurement decision")
-        require((evidence.get("measurement_source") or {}).get("workflow_run")==36363702414,
-                "unexpected ENGINE-OPT measurement workflow")
+        source_report=selection.get("source_report") or {}
+        measurement_source=evidence.get("measurement_source") or {}
+        selection_runs=source_report.get("workflow_runs")
+        evidence_runs=measurement_source.get("workflow_runs")
+        require(isinstance(selection_runs,list) and selection_runs,
+                "selected profile must bind one or more measurement workflows")
+        require(selection_runs==evidence_runs,
+                "selection and evidence disagree on measurement workflow lineage")
         bundle=ROOT/policy["bundle_root"]
         manifest=load_json(bundle/"build-manifest.json")
         source=git("rev-parse","HEAD")

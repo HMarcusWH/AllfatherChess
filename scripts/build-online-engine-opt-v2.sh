@@ -72,6 +72,7 @@ manifest={
         "policy_sha256":digest(policy_path),
         "runtime_config_sha256":digest(root/policy["runtime_config"]),
         "selection_sha256":digest(root/"qualification/engine-opt-v2-selection.json"),
+        "evidence_sha256":digest(root/"qualification/engine-opt-v2-evidence.json"),
         "derived_lock_sha256":digest(root/"qualification/engine-derived-lock.json"),
         "lc0_strength_lock_sha256":digest(root/"qualification/lc0-strength.lock.json"),
         "lc0_strength_profile_sha256":digest(root/"qualification/lc0-strength-profile.json"),

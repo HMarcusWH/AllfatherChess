@@ -1,8 +1,12 @@
 {
   "schema_version": 1,
   "profile_id": "engine-opt-v2-selection",
-  "status": "provisional",
-  "source_report": null,
+  "status": "selected",
+  "source_report": {
+    "path": "qualification/engine-opt-v2-evidence.json",
+    "workflow_run": 36363702414,
+    "measurement_source_commit": "72fe32567591804061b0489b1bb73743dc0f3c9d"
+  },
   "selected": {
     "stockfish": {
       "build_profile": "x86-64-pgo",
@@ -20,7 +24,7 @@
       "max_prefetch": 0,
       "adaptive_prefetch": false,
       "defect_telemetry": false,
-      "warmup_nodes": 64,
+      "warmup_nodes": null,
       "phase_multipv": {
         "EXPLORE": 1,
         "VERIFY": 3,
@@ -34,14 +38,14 @@
       "explore": {
         "stockfish": 100,
         "reckless": 100,
-        "lc0": 1600
+        "lc0": 400
       },
       "verify": {
         "stockfish": 100,
         "reckless": 100,
-        "lc0": 1600
+        "lc0": 400
       }
     }
   },
-  "claim_boundary": "Provisional conventional CPU repair candidate. Measurement may replace it; no strength or release promotion until status becomes selected and the source_report hash is frozen."
+  "claim_boundary": "Selected from the frozen ENGINE-OPT measurement evidence. This is a profile/build/resource selection, not an Elo, superiority, equal-compute, GPU, or deployment claim."
 }

@@ -27,6 +27,8 @@ def validate_reference(policy: dict[str,Any], selection: dict[str,Any], config: 
         require(selection.get("status")=="selected","ENGINE-OPT promotion requires a measured, frozen selection")
         require(isinstance(selection.get("source_report"),dict),"selected ENGINE-OPT profile must bind its benchmark report")
     require(policy.get("bundle_root")=="build/online-engine-opt-v2","unexpected v2 bundle root")
+    require(policy.get("evidence")=="qualification/engine-opt-v2-evidence.json",
+            "unexpected ENGINE-OPT evidence contract")
     require(config.get("mode")=="active","ENGINE-OPT reference must use active observation mode")
     instances=config.get("instances") or {}
     require(set(instances)=={"stockfish-anchor","stockfish-shadow","reckless-shadow","lc0-shadow"},"v2 instance set drift")
@@ -37,7 +39,7 @@ def validate_reference(policy: dict[str,Any], selection: dict[str,Any], config: 
         require(name in opts,f"v2 LC0 must bind {name} explicitly")
     require(opts["Backend"]=="blas","promoted v2 reference remains CPU-BLAS until GPU accounting is qualified")
     require(isinstance(opts["NNCacheSize"],int) and opts["NNCacheSize"]>0,"v2 LC0 cache must be explicitly nonzero")
-    require((lc0.get("warmup") or {}).get("reset_after") is True,"v2 LC0 warmup must reset state")
+    warmup=lc0.get("warmup")
     phases=lc0.get("phase_options") or {}
     require((phases.get("EXPLORE") or {}).get("MultiPV")==1,"LC0 EXPLORE must use MultiPV=1")
     require((phases.get("VERIFY") or {}).get("MultiPV")==3,"LC0 VERIFY must use MultiPV=3")
@@ -66,7 +68,13 @@ def validate_reference(policy: dict[str,Any], selection: dict[str,Any], config: 
     require(opts.get("MaxPrefetch")==lc0_selected.get("max_prefetch"),"LC0 MaxPrefetch differs from selection")
     require(opts.get("AdaptivePrefetch") is lc0_selected.get("adaptive_prefetch"),"LC0 AdaptivePrefetch differs from selection")
     require(opts.get("DefectTelemetry") is lc0_selected.get("defect_telemetry"),"LC0 DefectTelemetry differs from selection")
-    require((lc0.get("warmup") or {}).get("nodes")==lc0_selected.get("warmup_nodes"),"LC0 warmup differs from selection")
+    warmup_nodes=lc0_selected.get("warmup_nodes")
+    if warmup_nodes is None:
+        require(warmup is None,"LC0 warmup is enabled despite a no-warmup selection")
+    else:
+        require(isinstance(warmup,dict) and warmup.get("nodes")==warmup_nodes
+                and warmup.get("reset_after") is True,
+                "LC0 warmup differs from selection")
     require({phase:(phases.get(phase) or {}).get("MultiPV") for phase in ("EXPLORE","VERIFY","STAGED_VERIFY")}
             ==lc0_selected.get("phase_multipv"),"LC0 phase MultiPV differs from selection")
     require(routing.get("stage_cpu_ms_estimate_by_owner")==estimates.get("explore"),

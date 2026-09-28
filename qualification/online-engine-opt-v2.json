@@ -49,5 +49,6 @@
     "equal_compute": false,
     "deployed_bot": false,
     "gpu": false
-  }
+  },
+  "evidence": "qualification/engine-opt-v2-evidence.json"
 }

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "profile_id": "engine-opt-v2",
-  "status": "candidate",
+  "status": "selected-profile",
   "baseline": {
     "main_commit": "b8bd0fdda4a7e67f6437a74e5373f69ef2c15c78",
     "local1_qualified_head": "6fc6522f863e2a15c6d4c230fa558cbb993f867e",
@@ -56,6 +56,10 @@
       "adaptive_prefetch": [
         false,
         true
+      ],
+      "warmup_nodes": [
+        null,
+        64
       ]
     },
     "stockfish": {

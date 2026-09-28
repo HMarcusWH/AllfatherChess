@@ -11,6 +11,7 @@ POLICY=ROOT/"qualification/online-engine-opt-v2.json"
 SELECTION=ROOT/"qualification/engine-opt-v2-selection.json"
 CONFIG=ROOT/"config/allfather.online-engine-opt-v2.json"
 DERIVED=ROOT/"qualification/engine-derived-lock.json"
+EVIDENCE=ROOT/"qualification/engine-opt-v2-evidence.json"
 RESULT=ROOT/"build/test-results/engine-opt-v2/report.json"
 
 def sha(path: Path | str) -> str:
@@ -35,10 +36,14 @@ def main() -> int:
         selection=load_json(SELECTION)
         config=load_json(CONFIG)
         derived=load_json(DERIVED)
-        validate_reference(
-            policy,selection,config,
-            require_selected=False,
-        )
+        evidence=load_json(EVIDENCE)
+        validate_reference(policy,selection,config,require_selected=True)
+        require((selection.get("source_report") or {}).get("path")=="qualification/engine-opt-v2-evidence.json",
+                "selected profile does not bind the frozen evidence summary")
+        require(selection.get("selected")==evidence.get("selected"),
+                "selected profile differs from the frozen measurement decision")
+        require((evidence.get("measurement_source") or {}).get("workflow_run")==36363702414,
+                "unexpected ENGINE-OPT measurement workflow")
         bundle=ROOT/policy["bundle_root"]
         manifest=load_json(bundle/"build-manifest.json")
         source=git("rev-parse","HEAD")
@@ -55,6 +60,7 @@ def main() -> int:
             "policy_sha256":sha(POLICY),
             "runtime_config_sha256":sha(CONFIG),
             "selection_sha256":sha(SELECTION),
+            "evidence_sha256":sha(EVIDENCE),
             "derived_lock_sha256":sha(DERIVED),
             "lc0_strength_lock_sha256":sha(ROOT/"qualification/lc0-strength.lock.json"),
             "lc0_strength_profile_sha256":sha(ROOT/"qualification/lc0-strength-profile.json"),
@@ -102,6 +108,7 @@ def main() -> int:
             "derived_engine_trees":expected_trees,
             "passed":True,
             "promotion_ready":selection.get("status")=="selected",
+            "evidence_sha256":sha(EVIDENCE),
             "claim_boundary":{
                 "strength":False,"elo":False,"deployment":False,
             },

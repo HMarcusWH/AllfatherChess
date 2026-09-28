@@ -47,12 +47,12 @@
     "stage_cpu_ms_estimate_by_owner": {
       "stockfish": 100,
       "reckless": 100,
-      "lc0": 1600
+      "lc0": 400
     },
     "verify_stage_cpu_ms_estimate_by_owner": {
       "stockfish": 100,
       "reckless": 100,
-      "lc0": 1600
+      "lc0": 400
     }
   },
   "instances": {
@@ -157,12 +157,6 @@
         "STAGED_VERIFY": {
           "MultiPV": 3
         }
-      },
-      "warmup": {
-        "enabled": true,
-        "nodes": 64,
-        "position": "startpos",
-        "reset_after": true
       }
     }
   },

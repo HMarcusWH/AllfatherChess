@@ -168,6 +168,16 @@ class OrchestrationEvidenceContractTests(unittest.TestCase):
         with self.assertRaises(OrchestrationContractError):
             OrchestrationEvidence.from_dict(tampered)
 
+        hidden = copy.deepcopy(raw)
+        hidden["authorized_move"] = "e2e4"
+        with self.assertRaises(OrchestrationContractError):
+            OrchestrationEvidence.from_dict(hidden)
+
+        application_raw = application().as_dict()
+        application_raw.pop("application_id")
+        with self.assertRaises(OrchestrationContractError):
+            ProfileApplicationEvidence.from_dict(application_raw)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -225,3 +225,117 @@ jobs:
           path: build/test-results/engine-opt-matrix
           if-no-files-found: warn
           retention-days: 14
+
+  fastchess-source-tests-v2:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.ALLFATHER_SOURCE_SHA }}
+      - name: Verify exact source checkout
+        run: test "$(git rev-parse HEAD)" = "$ALLFATHER_SOURCE_SHA"
+      - name: Match pinned Fastchess source-test host
+        run: |
+          sudo sysctl -w vm.mmap_rnd_bits=28
+          g++ --version
+      - name: Run pinned Fastchess source tests
+        run: |
+          python3 -m tools.local_game.build_fastchess \
+            --source-test-only \
+            --attestation build/fastchess-source-test/attestation.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: engine-opt-v2-fastchess-source-test
+          path: build/fastchess-source-test/attestation.json
+          if-no-files-found: error
+          retention-days: 14
+
+  local1-v2:
+    needs: [build-candidate, hybrid-v2-real, fastchess-source-tests-v2]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 330
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.ALLFATHER_SOURCE_SHA }}
+      - name: Verify exact source checkout
+        run: |
+          test "$(git rev-parse HEAD)" = "$ALLFATHER_SOURCE_SHA"
+          echo "ALLFATHER_RUNNER_ENVIRONMENT=${{ runner.environment }}" >> "$GITHUB_ENV"
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: engine-opt-v2-candidate
+          path: build/candidate-download
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: engine-opt-v2-fastchess-source-test
+          path: build/fastchess-source-test
+      - name: Restore exact v2 bundle
+        run: |
+          test -d build/candidate-download/online-engine-opt-v2
+          rm -rf build/online-engine-opt-v2
+          mv build/candidate-download/online-engine-opt-v2 build/online-engine-opt-v2
+          chmod +x build/online-engine-opt-v2/bin/*
+      - name: Install lifecycle build/runtime dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential git meson ninja-build pkg-config \
+            libprotobuf-dev protobuf-compiler zlib1g-dev libopenblas-dev \
+            python3-pip python3-setuptools python3-wheel
+          python3 -m pip install --break-system-packages --no-build-isolation --no-deps \
+            --require-hashes -r qualification/local-game-requirements.txt
+      - name: Build pinned Fastchess against source-test attestation
+        run: make -f Makefile.local-game build-fastchess
+      - name: Run LOCAL-1 contract regressions
+        run: make -f Makefile.local-game test
+      - name: Qualify selected ENGINE-OPT-V2 full-game lifecycle
+        run: |
+          python3 -m tools.local_game.runner \
+            --mode required \
+            --policy qualification/local-full-game-v2.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: engine-opt-v2-local1
+          path: |
+            build/test-results/local-full-game
+            build/test-results/engine-opt-v2
+            build/test-results/online-hybrid-v2
+          if-no-files-found: warn
+          retention-days: 14
+
+  aggregate-qualification:
+    needs:
+      - static-contracts
+      - build-candidate
+      - constituent-ab
+      - hybrid-v2-real
+      - lc0-runtime-matrix
+      - local1-v2
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.ALLFATHER_SOURCE_SHA }}
+      - name: Verify exact source checkout
+        run: test "$(git rev-parse HEAD)" = "$ALLFATHER_SOURCE_SHA"
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: engine-opt-v2-*
+          path: build/engine-opt-artifacts
+          merge-multiple: false
+      - name: Aggregate exact-head optimization evidence
+        run: |
+          python3 scripts/qualify-engine-opt-evidence.py \
+            --root build/engine-opt-artifacts \
+            --output build/test-results/engine-opt-v2-aggregate/report.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: engine-opt-v2-aggregate
+          path: build/test-results/engine-opt-v2-aggregate
+          if-no-files-found: error
+          retention-days: 14

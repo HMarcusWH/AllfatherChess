@@ -26,6 +26,8 @@ SOLVER_FAMILIES = ("stockfish", "reckless", "lc0")
 ORCHESTRATION_PHASES = ("EXPLORE", "VERIFY", "STAGED_VERIFY", "REFINE")
 
 _SAFE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$")
+_INSTANCE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+_ENVIRONMENT_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,127}$")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _GIT_OID_RE = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
 
@@ -77,6 +79,33 @@ def _safe_id(value: Any, label: str) -> str:
         raise OrchestrationContractError(
             f"{label} must match {_SAFE_ID_RE.pattern}, got {value!r}"
         )
+    if "/" in value and any(part in ("", ".", "..") for part in value.split("/")):
+        raise OrchestrationContractError(
+            f"{label} may not contain empty, '.' or '..' path-like segments"
+        )
+    return value
+
+
+def _instance_id(value: Any, label: str) -> str:
+    if not isinstance(value, str) or _INSTANCE_RE.fullmatch(value) is None:
+        raise OrchestrationContractError(
+            f"{label} must match runtime instance identity {_INSTANCE_RE.pattern}, "
+            f"got {value!r}"
+        )
+    return value
+
+
+def _environment_name(value: Any, label: str) -> str:
+    if not isinstance(value, str) or _ENVIRONMENT_NAME_RE.fullmatch(value) is None:
+        raise OrchestrationContractError(
+            f"{label} must be a valid environment-variable name"
+        )
+    return value
+
+
+def _nul_free_string(value: Any, label: str) -> str:
+    if not isinstance(value, str) or "\x00" in value:
+        raise OrchestrationContractError(f"{label} must be a NUL-free string")
     return value
 
 
@@ -231,8 +260,8 @@ class ProcessIdentity:
                     f"environment[{index}] must be a (name, value) tuple"
                 )
             name, value = item
-            _safe_id(name, f"environment[{index}] name")
-            _nonempty_string(value, f"environment[{index}] value")
+            _environment_name(name, f"environment[{index}] name")
+            _nul_free_string(value, f"environment[{index}] value")
             names.append(name)
             normalized.append((name, value))
         if len(names) != len(set(names)):
@@ -329,6 +358,8 @@ class ProfileOption:
         name = _nonempty_string(self.name, "option name")
         if name != name.strip():
             raise OrchestrationContractError("option name may not have edge whitespace")
+        if any(ch in name for ch in ("\r", "\n", "\t")):
+            raise OrchestrationContractError("option name may not contain control whitespace")
         object.__setattr__(self, "name", name)
         object.__setattr__(
             self,
@@ -526,7 +557,7 @@ class CompositionBinding:
     concurrency_group: str
 
     def __post_init__(self) -> None:
-        _safe_id(self.instance, "composition instance")
+        _instance_id(self.instance, "composition instance")
         role = _enum(self.role, CompositionRole, "composition role")
         object.__setattr__(self, "role", role)
         _family(self.family)

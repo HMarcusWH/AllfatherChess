@@ -55,6 +55,16 @@ def validate_reference(policy: dict[str,Any], selection: dict[str,Any], config: 
     stockfish=chosen.get("stockfish") or {}
     reckless=chosen.get("reckless") or {}
     lc0_selected=chosen.get("lc0") or {}
+    qualification=selection.get("qualification") or {}
+    require(isinstance(lc0_selected.get("matrix_profile"),str) and lc0_selected.get("matrix_profile"),
+            "selected LC0 profile must bind an executable matrix_profile")
+    repeats=qualification.get("confirmation_repeats")
+    require(isinstance(repeats,int) and not isinstance(repeats,bool) and repeats >= 2,
+            "selected LC0 profile requires confirmation_repeats >= 2")
+    require(qualification.get("baseline_profile")=="v1-current-cold",
+            "ENGINE-OPT repeatability baseline drift")
+    require(qualification.get("corpus_cases")==8,
+            "ENGINE-OPT frozen corpus size drift")
     estimates=chosen.get("resource_estimates_ms") or {}
     for name in ("stockfish-anchor","stockfish-shadow"):
         require((instances[name].get("options") or {}).get("Hash")==stockfish.get("hash_mb"),

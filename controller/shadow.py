@@ -2214,10 +2214,18 @@ class ShadowRunCoordinator:
             self._closed = True
             active = self._run
             prepared = list(self._prepared_runs.values())
+            prepare_threads = list(self._prepare_threads.values())
             self._prepared_runs.clear()
             self._prepared_claimed.clear()
-        for prepared_dir in prepared:
-            self._discard_run_dir(prepared_dir)
+        for slot in prepared:
+            self._dispose_prepared_slot(slot)
+        for thread in prepare_threads:
+            thread.join(timeout=1.0)
+            if thread.is_alive():
+                self._diagnostic(
+                    "prepared replay worker did not finish during shutdown; "
+                    "it remains isolated in the sibling staging root"
+                )
         self._cleanup_prepared_root()
 
         timeout = None

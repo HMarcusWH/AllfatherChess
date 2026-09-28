@@ -49,6 +49,7 @@ jobs:
         run: |
           python3 -m compileall -q controller adapters tools scripts tests/engine_opt tests/controller/test_engine_opt_runtime.py
           python3 tests/engine_opt/test_contracts.py
+          python3 tests/engine_opt/test_ab.py
           python3 tests/controller/test_engine_opt_runtime.py
           python3 scripts/qualify-online-hybrid-v2.py --static
           for f in qualification/engine-opt-v2.json qualification/engine-opt-v2-selection.json qualification/engine-derived-lock.json qualification/online-engine-opt-v2.json qualification/online-hybrid-v2.json qualification/local-full-game-v2.json config/allfather.online-engine-opt-v2.json config/allfather.online-hybrid-v2.validation.json; do python3 -m json.tool "$f" >/dev/null; done
@@ -86,6 +87,78 @@ jobs:
             build/online-engine-opt-v2
             build/test-results/engine-opt-v2
           if-no-files-found: error
+          retention-days: 14
+
+  constituent-ab:
+    needs: build-candidate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 70
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.ALLFATHER_SOURCE_SHA }}
+      - name: Verify exact source checkout
+        run: test "$(git rev-parse HEAD)" = "$ALLFATHER_SOURCE_SHA"
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: engine-opt-v2-candidate
+          path: build/candidate-download
+      - name: Restore candidate executable bits
+        run: chmod +x build/candidate-download/online-engine-opt-v2/bin/*
+      - name: Install constituent build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential meson ninja-build pkg-config libprotobuf-dev protobuf-compiler zlib1g-dev libopenblas-dev
+      - name: Checkout pristine LC0 control
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: HMarcusWH/lc0
+          ref: 1322b362b09db5eb0830e726f5734d44119a1b46
+          path: build/pristine-lc0
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Verify pristine LC0 identity
+        run: |
+          test "$(git -C build/pristine-lc0 rev-parse HEAD)" = "1322b362b09db5eb0830e726f5734d44119a1b46"
+          test "$(git -C build/pristine-lc0 rev-parse HEAD^{tree})" = "c7ca6fd1558acd38a19202eaaf52946b14b2bc64"
+      - name: Build pristine LC0 with reference BLAS flags
+        run: |
+          cd build/pristine-lc0
+          ./build.sh release             -Dbuild_backends=true -Dblas=true -Dplain_cuda=false -Dcudnn=false             -Dopencl=false -Donnx=false -Dmetal=disabled -Dsycl=off -Dhip=false             -Dgtest=false -Db_lto=false -Dnative_arch=false -Dispc=false             -Dispc_native_only=false -Dpopcnt=false -Df16c=false -Dpext=false
+      - name: Checkout pristine Reckless control
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: HMarcusWH/Reckless
+          ref: 31d9cd6fd2bea6d9f72eeb35e0bac70daa295fb1
+          path: build/pristine-reckless
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Verify and build pristine Reckless
+        run: |
+          test "$(git -C build/pristine-reckless rev-parse HEAD)" = "31d9cd6fd2bea6d9f72eeb35e0bac70daa295fb1"
+          test "$(git -C build/pristine-reckless rev-parse HEAD^{tree})" = "88763d8e81ea45b938403f7f4feee990ad244c2d"
+          NET="$PWD/build/candidate-download/online-engine-opt-v2/networks/v60-7f587dfb.nnue"
+          cd build/pristine-reckless
+          EVALFILE="$NET" CARGO_ENCODED_RUSTFLAGS='-Ctarget-cpu=x86-64'             cargo build --release --no-default-features --target x86_64-unknown-linux-gnu
+      - name: Build non-PGO Stockfish control from same source
+        run: |
+          NET="$PWD/build/candidate-download/online-engine-opt-v2/networks/nn-134a887f4c8f.nnue"
+          ln -sfn "$NET" engines/stockfish/src/nn-134a887f4c8f.nnue
+          make -C engines/stockfish/src ARCH=x86-64 objclean
+          make -C engines/stockfish/src -j2 build ARCH=x86-64
+          cp engines/stockfish/src/stockfish build/stockfish-no-pgo
+      - name: Run constituent A/B benchmarks
+        run: |
+          mkdir -p build/test-results/engine-opt-ab
+          python3 scripts/engine-opt-ab.py             --family lc0             --left build/candidate-download/online-engine-opt-v2/bin/lc0             --left-label allfather-derived             --right build/pristine-lc0/build/release/lc0             --right-label pristine-upstream             --weights build/candidate-download/online-engine-opt-v2/networks/791556.pb.gz             --nodes 64 --warmup-nodes 64             --output build/test-results/engine-opt-ab/lc0-derived-vs-pristine.json
+          python3 scripts/engine-opt-ab.py             --family reckless             --left build/candidate-download/online-engine-opt-v2/bin/reckless             --left-label allfather-derived             --right build/pristine-reckless/target/x86_64-unknown-linux-gnu/release/reckless             --right-label pristine-upstream             --nodes 200000             --output build/test-results/engine-opt-ab/reckless-derived-vs-pristine.json
+          python3 scripts/engine-opt-ab.py             --family stockfish             --left build/candidate-download/online-engine-opt-v2/bin/stockfish             --left-label pgo             --right build/stockfish-no-pgo             --right-label no-pgo             --nodes 200000             --output build/test-results/engine-opt-ab/stockfish-pgo-vs-no-pgo.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: engine-opt-v2-constituent-ab
+          path: build/test-results/engine-opt-ab
+          if-no-files-found: warn
           retention-days: 14
 
   hybrid-v2-real:

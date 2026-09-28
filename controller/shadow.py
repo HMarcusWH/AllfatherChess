@@ -372,6 +372,13 @@ class RunContext:
 
 
 @dataclass
+class _PreparedReplaySlot:
+    generation: int
+    directory: Path
+    anchor_stream: TelemetryStreamWriter
+
+
+@dataclass
 class _ActiveRun:
     generation: int
     run: ReplayRun
@@ -477,7 +484,7 @@ class ShadowRunCoordinator:
             self.settings.replay_root.parent
             / f".{self.settings.replay_root.name}.prepared"
         )
-        self._prepared_runs: dict[int, Path] = {}
+        self._prepared_runs: dict[int, _PreparedReplaySlot] = {}
         self._prepared_claimed: set[int] = set()
         self._prepare_threads: dict[int, threading.Thread] = {}
         runtime.set_instance_observer(self._observe_line)

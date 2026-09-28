@@ -473,8 +473,16 @@ class ShadowRunCoordinator:
             self._build_engine_identities()
         )
         self._history: list[Path] = []
+        self._prepared_root = (
+            self.settings.replay_root.parent
+            / f".{self.settings.replay_root.name}.prepared"
+        )
+        self._prepared_runs: dict[int, Path] = {}
+        self._prepared_claimed: set[int] = set()
+        self._prepare_threads: dict[int, threading.Thread] = {}
         runtime.set_instance_observer(self._observe_line)
         runtime.set_shadow_exit_handler(self._on_shadow_exit)
+        self.prime_run_directory(1)
 
     # ------------------------------------------------------------------
     # identity helpers
@@ -714,6 +722,84 @@ class ShadowRunCoordinator:
                 return True
             return self._finalizing.get(active.generation) is active
 
+    def prepared_run_directory_ready(self, generation: int) -> bool:
+        with self._lock:
+            return generation in self._prepared_runs
+
+    def _cleanup_prepared_root(self) -> None:
+        try:
+            self._prepared_root.rmdir()
+        except OSError:
+            pass
+
+    def prime_run_directory(self, generation: int) -> None:
+        """Prepare one future replay directory off the decision path."""
+        if isinstance(generation, bool) or not isinstance(generation, int) or generation < 1:
+            raise ControllerRuntimeError("prepared replay generation must be a positive integer")
+        with self._lock:
+            if (
+                self._closed
+                or generation in self._prepared_claimed
+                or generation in self._prepared_runs
+                or generation in self._prepare_threads
+            ):
+                return
+            slot = self._prepared_root / f"g{generation:06d}-{uuid.uuid4().hex}"
+
+            def prepare() -> None:
+                error: str | None = None
+                try:
+                    self.settings.replay_root.mkdir(parents=True, exist_ok=True)
+                    self._prepared_root.mkdir(parents=True, exist_ok=True)
+                    slot.mkdir(exist_ok=False)
+                except Exception as exc:
+                    error = f"{type(exc).__name__}: {exc}"
+                keep = False
+                with self._lock:
+                    self._prepare_threads.pop(generation, None)
+                    if (
+                        error is None
+                        and not self._closed
+                        and generation not in self._prepared_claimed
+                        and generation not in self._prepared_runs
+                    ):
+                        self._prepared_runs[generation] = slot
+                        keep = True
+                if error is not None:
+                    self._diagnostic(
+                        f"prepared replay directory for generation {generation} failed: {error}"
+                    )
+                if not keep:
+                    self._discard_run_dir(slot)
+                    self._cleanup_prepared_root()
+
+            worker = threading.Thread(
+                target=prepare,
+                name=f"allfather-replay-prep-g{generation:06d}",
+                daemon=True,
+            )
+            self._prepare_threads[generation] = worker
+        worker.start()
+
+    def _claim_prepared_run_directory(self, generation: int, run_dir: Path) -> bool:
+        with self._lock:
+            self._prepared_claimed.add(generation)
+            slot = self._prepared_runs.pop(generation, None)
+        if slot is None:
+            return False
+        try:
+            slot.replace(run_dir)
+        except OSError as exc:
+            self._diagnostic(
+                f"prepared replay directory claim for generation {generation} failed: "
+                f"{type(exc).__name__}: {exc}"
+            )
+            self._discard_run_dir(slot)
+            return False
+        finally:
+            self._cleanup_prepared_root()
+        return True
+
     def prepare_run(self, *, generation: int, go_command: str, clock: ClockSearch | None = None) -> bool:
         """Create the run bundle and anchor stream *before* the anchor starts.
 
@@ -798,8 +884,11 @@ class ShadowRunCoordinator:
         now = _dt.datetime.now(_dt.timezone.utc)
         run_id = f"{now.strftime('%Y%m%dT%H%M%S%fZ')}-g{generation:06d}-{uuid.uuid4().hex[:8]}"
         run_dir = self.settings.replay_root / run_id
-        if not self._make_run_dir_within_budget(run_dir, prepare_deadline):
+        claimed_prepared = self._claim_prepared_run_directory(generation, run_dir)
+        if not claimed_prepared and not self._make_run_dir_within_budget(run_dir, prepare_deadline):
+            self.prime_run_directory(generation + 1)
             return False
+        self.prime_run_directory(generation + 1)
 
         run = ReplayRun(
             run_id=run_id,
@@ -2059,6 +2148,12 @@ class ShadowRunCoordinator:
         with self._lock:
             self._closed = True
             active = self._run
+            prepared = list(self._prepared_runs.values())
+            self._prepared_runs.clear()
+            self._prepared_claimed.clear()
+        for prepared_dir in prepared:
+            self._discard_run_dir(prepared_dir)
+        self._cleanup_prepared_root()
 
         timeout = None
         if self.runtime.config.online_time is not None:

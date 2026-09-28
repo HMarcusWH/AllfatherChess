@@ -25,7 +25,10 @@
         "EXPLORE": 1,
         "VERIFY": 3,
         "STAGED_VERIFY": 3
-      }
+      },
+      "uci_args": [
+        "--show-hidden"
+      ]
     },
     "resource_estimates_ms": {
       "explore": {

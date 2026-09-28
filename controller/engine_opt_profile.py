@@ -59,6 +59,7 @@ def validate_reference(policy: dict[str,Any], selection: dict[str,Any], config: 
                 f"{name} Hash differs from ENGINE-OPT selection")
     require((instances["reckless-shadow"].get("options") or {}).get("Hash")==reckless.get("hash_mb"),
             "Reckless Hash differs from ENGINE-OPT selection")
+    require(lc0.get("args")==lc0_selected.get("uci_args"),"LC0 argv/option visibility differs from selection")
     require(opts.get("Backend")==lc0_selected.get("backend"),"LC0 backend differs from ENGINE-OPT selection")
     require(opts.get("NNCacheSize")==lc0_selected.get("nn_cache_size"),"LC0 NNCacheSize differs from selection")
     require(opts.get("MinibatchSize")==lc0_selected.get("minibatch_size"),"LC0 MinibatchSize differs from selection")

@@ -22,3 +22,7 @@ The frozen v1 LC0 CPU reference uses BLAS with one BLAS thread, `NNCacheSize=0`,
 ## Claim boundary
 
 No benchmark row is an Elo or superiority result. GPU promotion, hard NN-evaluation suppression, upstream vendor refreshes, and new Stockfish/Reckless pruning algorithms are outside this PR.
+
+## LC0 research-option visibility
+
+The Allfather LC0 additions are intentionally marked LC0 `kProOnly`. The optimized v2 profile therefore launches LC0 with `--show-hidden` so `AdaptivePrefetch` and `DefectTelemetry` are explicitly advertised at the UCI boundary. This changes option visibility only; the selected profile still keeps both features disabled until measurement supports promotion.

@@ -123,7 +123,9 @@
       "role": "shadow",
       "binary": "build/online-engine-opt-v2/bin/lc0",
       "cwd": ".",
-      "args": [],
+      "args": [
+        "--show-hidden"
+      ],
       "environment": {
         "OPENBLAS_NUM_THREADS": "1",
         "GOTO_NUM_THREADS": "1",

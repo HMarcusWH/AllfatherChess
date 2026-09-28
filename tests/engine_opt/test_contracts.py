@@ -35,6 +35,11 @@ class EngineOptContractTests(unittest.TestCase):
     def test_selection_state_is_explicit(self):
         s=load_json(ROOT/"qualification/engine-opt-v2-selection.json")
         self.assertIn(s["status"],("provisional","selected"))
+        self.assertEqual(s["selected"]["lc0"]["matrix_profile"],"b7-p8-c256k-warm64")
+        self.assertEqual(s["selected"]["lc0"]["warmup_nodes"],64)
+        self.assertGreaterEqual(s["qualification"]["confirmation_repeats"],2)
+        self.assertEqual(s["qualification"]["baseline_profile"],"v1-current-cold")
+        self.assertEqual(s["qualification"]["corpus_cases"],8)
 
     def test_corpus_is_frozen_and_nonempty(self):
         rows=load_epd(ROOT/"tests/fixtures/engine_opt/positions.epd")

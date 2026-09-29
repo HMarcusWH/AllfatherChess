@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
-"""Classify whether a PR diff can affect legacy chess execution.
+"""Classify whether a diff can affect legacy chess execution.
 
-This is intentionally narrow. Only the J2 host-observation surface and its
-contract tests/workflow plumbing are eligible for control-plane-only treatment.
-Anything else is conservatively classified as runtime_affected.
+The classifier is intentionally fail-closed. Only two narrow evidence/control
+surfaces are exempt from expensive legacy requalification:
+- J2 host observation contracts;
+- J2-R qualification/evidence plumbing.
+
+Anything else is runtime_affected.
 """
 
 from __future__ import annotations
@@ -26,6 +29,25 @@ CONTROL_PLANE_ONLY = {
     ".github/workflows/full-game-qualification.yml",
 }
 
+QUALIFICATION_INFRA_ONLY = {
+    "controller/runtime_substrate.py",
+    "tests/controller/test_runtime_substrate.py",
+    "scripts/lc0-hardware-probe.py",
+    "scripts/online-hardware-probe.py",
+    "scripts/lc0-strength-profile-contract.py",
+    "scripts/qualify-online-profile.py",
+    "tools/engine_opt/report.py",
+    "scripts/engine-opt-matrix.py",
+    "scripts/qualify-online-hybrid-v2.py",
+    "tools/local_game/runner.py",
+    "tools/local_game/validate.py",
+    "scripts/qualify-engine-opt-evidence.py",
+    "qualification/engine-opt-v2-host-binding.json",
+    "tools/engine_opt/domain.py",
+    "tests/engine_opt/test_execution_domain.py",
+    "scripts/engine-opt-binary-diagnostic.py",
+}
+
 
 def classify(paths: list[str]) -> str:
     normalized = []
@@ -35,8 +57,13 @@ def classify(paths: list[str]) -> str:
         if value in ("", ".") or value.startswith("../"):
             return "runtime_affected"
         normalized.append(value)
-    if normalized and all(path in CONTROL_PLANE_ONLY for path in normalized):
+    if not normalized:
+        return "runtime_affected"
+    if all(path in CONTROL_PLANE_ONLY for path in normalized):
         return "control_plane_only"
+    allowed = CONTROL_PLANE_ONLY | QUALIFICATION_INFRA_ONLY
+    if all(path in allowed for path in normalized):
+        return "qualification_infra_only"
     return "runtime_affected"
 
 

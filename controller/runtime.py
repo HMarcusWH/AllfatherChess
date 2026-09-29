@@ -23,8 +23,6 @@ from adapters.telemetry import SUPPORTED_SCORE_TYPES
 from common.search_request import SearchRequestError, parse_position_command
 from controller.resource_measurement import ResourceMeasurementError, ResourceMeasurementSettings
 from controller.online_time import ClockSearch, OnlineTimeSettings, OnlineTimeError
-from controller.decision import canonical_digest
-from controller.resource_profile_catalog import ResourceProfileCatalog, ResourceProfileCatalogError
 from adapters.process.deferred_observer import DeferredObserver
 
 
@@ -297,6 +295,17 @@ def _resolve_binary(root: Path, raw: dict[str, object], name: str) -> Path:
             return matches[0]
 
     raise RuntimeError(f"backend {name}: binary not found: {direct}")
+
+
+def _canonical_digest(value: object) -> str:
+    encoded = json.dumps(
+        value,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        allow_nan=False,
+    )
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
 def _hash_file(path: Path) -> str | None:
@@ -1580,7 +1589,7 @@ class BackendManager:
 
     def bind_resource_catalog(
         self,
-        catalog: ResourceProfileCatalog,
+        catalog: "ResourceProfileCatalog",
         *,
         execution_domain_id: str,
         execution_domain_digest: str,
@@ -1592,6 +1601,11 @@ class BackendManager:
         Binding is identity/admissibility only. It cannot allocate compute or
         authorize an outward chess move.
         """
+        from controller.resource_profile_catalog import (
+            ResourceProfileCatalog,
+            ResourceProfileCatalogError,
+        )
+
         if not isinstance(catalog, ResourceProfileCatalog):
             raise RuntimeError("catalog must be ResourceProfileCatalog")
         with self._lock:
@@ -1717,7 +1731,7 @@ class BackendManager:
             "profile_id": profile_id,
             "profile_digest": profile.digest,
             "phase": phase,
-            "effective_options_digest": canonical_digest(current),
+            "effective_options_digest": _canonical_digest(current),
             "profile_catalog_digest": catalog.digest,
             "authority": {
                 "resource_profile": True,
@@ -1737,6 +1751,8 @@ class BackendManager:
 
     def configure_game_profile(self, instance: str, profile_id: str) -> dict[str, object]:
         """Stage one catalogued game-static profile while every engine is idle."""
+        from controller.resource_profile_catalog import ResourceProfileCatalogError
+
         catalog = self._catalog_required()
         self._require_healthy()
         if profile_id != self._bound_profile_id(instance):
@@ -1810,7 +1826,7 @@ class BackendManager:
         return {
             "profile_id": profile_id,
             "pending_game_reset": True,
-            "effective_options_digest": canonical_digest(expected),
+            "effective_options_digest": _canonical_digest(expected),
         }
 
     def configure_phase_profile(self, instance: str, phase: str) -> dict[str, object]:

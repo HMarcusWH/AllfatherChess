@@ -247,7 +247,7 @@ class HostCapabilitiesTests(unittest.TestCase):
             second.qualification_domain_id,
         )
 
-    def test_missing_topology_does_not_invent_physical_cores_or_domain(self):
+    def test_missing_topology_forms_distinct_incomplete_topology_domain(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             provider = synthetic_provider(root)
@@ -269,10 +269,13 @@ class HostCapabilitiesTests(unittest.TestCase):
         self.assertFalse(item.topology_complete)
         self.assertIsNone(item.physical_core_count)
         self.assertIsNone(item.smt_width)
-        self.assertFalse(item.qualification_domain_complete)
-        self.assertIsNone(item.qualification_domain_id)
+        self.assertTrue(item.qualification_domain_complete)
+        self.assertIsNotNone(item.qualification_domain_id)
+        material = item.qualification_domain_material
+        self.assertIsNotNone(material)
+        self.assertFalse(material["topology"]["complete"])
 
-    def test_missing_cpu_identity_or_numa_blocks_domain_not_capacity(self):
+    def test_missing_cpu_identity_blocks_domain_but_not_capacity(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             provider = synthetic_provider(root)
@@ -284,6 +287,24 @@ class HostCapabilitiesTests(unittest.TestCase):
         self.assertFalse(item.cpu_identity_complete)
         self.assertFalse(item.qualification_domain_complete)
         self.assertIsNone(item.qualification_domain_id)
+
+    def test_missing_numa_is_explicit_and_domain_remains_bound(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            provider = synthetic_provider(root)
+            node_root = root / "sys" / "devices" / "system" / "node"
+            for node in node_root.iterdir():
+                (node / "cpulist").unlink()
+            item = build_host_capabilities(
+                provider.observe_capabilities()
+            )
+        self.assertTrue(item.capacity_complete)
+        self.assertTrue(item.cpu_identity_complete)
+        self.assertFalse(item.numa_complete)
+        self.assertTrue(item.qualification_domain_complete)
+        material = item.qualification_domain_material
+        self.assertIsNotNone(material)
+        self.assertFalse(material["numa"]["complete"])
 
     def test_empty_affinity_cpuset_intersection_fails_capacity(self):
         with tempfile.TemporaryDirectory() as tmp:

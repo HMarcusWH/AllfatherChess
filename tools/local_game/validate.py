@@ -16,6 +16,7 @@ from .runner import schedule, command
 from .integrity import (_clock_ms, finite_metrics, input_paths, parse_go_limits,
                         verify_builds, verify_prerequisites, verify_probes,
                         verify_resource_claim, verify_session_commands)
+from tools.engine_opt.domain import candidate_bundle_identity, validate_execution_domain
 
 MOVE = re.compile(r"bestmove ([a-h][1-8][a-h][1-8][qrbn]?)(?: ponder [a-h][1-8][a-h][1-8][qrbn]?)?\Z")
 TIMELEFT = re.compile(r"(?<![A-Za-z0-9_])tl=(\d+)\.(\d{3})s(?![A-Za-z0-9_])")
@@ -412,6 +413,21 @@ def qualify(output: Path) -> dict:
         require(isinstance(policy_record, dict), "campaign policy identity missing")
         policy_file = verify_record(ROOT, policy_record)
         p = policy(path=policy_file)
+        if p.get("profile_id") == "local-full-game-v2":
+            execution_domain = validate_execution_domain(
+                m.get("execution_domain"),
+                expected_source_commit=m["source"]["commit"],
+            )
+            candidate_bundle = candidate_bundle_identity(
+                ROOT / p["bundle_root"],
+                expected_source_commit=m["source"]["commit"],
+            )
+            require(
+                m.get("candidate_bundle") == candidate_bundle,
+                "campaign candidate bundle binding differs from current bytes",
+            )
+            report["execution_domain"] = execution_domain
+            report["candidate_bundle"] = candidate_bundle
         full_schedule = schedule(p, m["mode"])
         shard = m.get("shard") or {"index": 0, "count": 1}
         require(type(shard.get("index")) is int and type(shard.get("count")) is int and

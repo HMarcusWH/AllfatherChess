@@ -161,6 +161,8 @@ class HostCapabilitiesTests(unittest.TestCase):
         self.assertTrue(capabilities.numa_complete)
         self.assertEqual(len(capabilities.numa_nodes), 1)
         self.assertIsNotNone(capabilities.qualification_domain_id)
+        self.assertIsNotNone(capabilities.qualification_domain_digest)
+        self.assertEqual(len(capabilities.qualification_domain_digest), 64)
         self.assertTrue(capabilities.capability_id.startswith("host-cap/"))
 
     def test_round_trip_and_digest_are_stable(self):
@@ -174,6 +176,10 @@ class HostCapabilitiesTests(unittest.TestCase):
         self.assertEqual(
             restored.qualification_domain_id,
             item.qualification_domain_id,
+        )
+        self.assertEqual(
+            restored.qualification_domain_digest,
+            item.qualification_domain_digest,
         )
 
     def test_capacity_change_changes_exact_digest(self):

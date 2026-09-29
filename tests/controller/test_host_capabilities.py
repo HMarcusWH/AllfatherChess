@@ -336,7 +336,7 @@ class HostCapabilitiesTests(unittest.TestCase):
             )
         raw = item.as_dict()
         forged = copy.deepcopy(raw)
-        forged["numa_complete"] = False
+        forged["cpu_identity_complete"] = False
         forged["qualification_domain_complete"] = True
         with self.assertRaises(OrchestrationContractError):
             HostCapabilities.from_dict(forged)

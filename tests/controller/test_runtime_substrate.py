@@ -58,6 +58,10 @@ class RuntimeSubstrateTests(unittest.TestCase):
         item = substrate(runner_image_version=None)
         self.assertFalse(item.complete)
 
+    def test_unknown_core_runtime_fact_is_incomplete(self):
+        self.assertFalse(substrate(os_id="unknown").complete)
+        self.assertFalse(substrate(libc_version="unknown").complete)
+
     def test_bool_clock_tick_and_authority_escalation_are_rejected(self):
         with self.assertRaises(OrchestrationContractError):
             substrate(clock_ticks_per_second=True)

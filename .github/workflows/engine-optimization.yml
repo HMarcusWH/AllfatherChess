@@ -87,9 +87,10 @@ jobs:
           python3 -m compileall -q controller adapters tools scripts tests/engine_opt tests/controller/test_engine_opt_runtime.py
           python3 tests/engine_opt/test_contracts.py
           python3 tests/engine_opt/test_ab.py
+          python3 tests/engine_opt/test_execution_domain.py
           python3 tests/controller/test_engine_opt_runtime.py
           python3 scripts/qualify-online-hybrid-v2.py --static
-          for f in qualification/engine-opt-v2.json qualification/engine-opt-v2-selection.json qualification/engine-opt-v2-evidence.json qualification/engine-derived-lock.json qualification/online-engine-opt-v2.json qualification/online-hybrid-v2.json qualification/local-full-game-v2.json config/allfather.online-engine-opt-v2.json config/allfather.online-hybrid-v2.validation.json; do python3 -m json.tool "$f" >/dev/null; done
+          for f in qualification/engine-opt-v2.json qualification/engine-opt-v2-selection.json qualification/engine-opt-v2-evidence.json qualification/engine-opt-v2-host-binding.json qualification/engine-derived-lock.json qualification/online-engine-opt-v2.json qualification/online-hybrid-v2.json qualification/local-full-game-v2.json config/allfather.online-engine-opt-v2.json config/allfather.online-hybrid-v2.validation.json; do python3 -m json.tool "$f" >/dev/null; done
           bash -n scripts/build-online-engine-opt-v2.sh
 
   build-candidate:
@@ -202,69 +203,6 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
-  hybrid-v2-real:
-    needs: build-candidate
-    runs-on: ubuntu-24.04
-    timeout-minutes: 45
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-        with:
-          ref: ${{ env.ALLFATHER_SOURCE_SHA }}
-      - name: Verify exact source checkout
-        run: test "$(git rev-parse HEAD)" = "$ALLFATHER_SOURCE_SHA"
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
-        with:
-          name: engine-opt-v2-candidate
-          path: build/candidate-download
-      - name: Restore exact candidate bundle
-        run: |
-          test -d build/candidate-download/online-engine-opt-v2
-          rm -rf build/online-engine-opt-v2
-          mv build/candidate-download/online-engine-opt-v2 build/online-engine-opt-v2
-          chmod +x build/online-engine-opt-v2/bin/*
-      - name: Install runtime dependencies
-        run: sudo apt-get update && sudo apt-get install -y libopenblas-dev
-      - name: Exercise real-process G3-v2 authority
-        run: python3 scripts/qualify-online-hybrid-v2.py
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        if: always()
-        with:
-          name: engine-opt-v2-hybrid-evidence
-          path: |
-            build/test-results/online-hybrid-v2
-            build/replays-online-hybrid-v2
-          if-no-files-found: warn
-          retention-days: 14
-
-  lc0-runtime-matrix:
-    needs: build-candidate
-    runs-on: ubuntu-24.04
-    timeout-minutes: 45
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-        with:
-          ref: ${{ env.ALLFATHER_SOURCE_SHA }}
-      - name: Verify exact source checkout
-        run: test "$(git rev-parse HEAD)" = "$ALLFATHER_SOURCE_SHA"
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
-        with:
-          name: engine-opt-v2-candidate
-          path: build/candidate-download
-      - name: Restore candidate executable bits
-        run: chmod +x build/candidate-download/online-engine-opt-v2/bin/*
-      - name: Install runtime dependencies
-        run: sudo apt-get update && sudo apt-get install -y libopenblas-dev
-      - name: Run real-network LC0 matrix
-        run: |
-          python3 scripts/engine-opt-matrix.py             --binary build/candidate-download/online-engine-opt-v2/bin/lc0             --weights build/candidate-download/online-engine-opt-v2/networks/791556.pb.gz             --output build/test-results/engine-opt-matrix/lc0.json
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        if: always()
-        with:
-          name: engine-opt-v2-lc0-matrix
-          path: build/test-results/engine-opt-matrix
-          if-no-files-found: warn
-          retention-days: 14
-
   fastchess-source-tests-v2:
     needs: impact
     if: ${{ needs.impact.outputs.impact != 'control_plane_only' }}
@@ -292,15 +230,16 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-  local1-v2:
-    needs: [build-candidate, hybrid-v2-real, fastchess-source-tests-v2]
+  profile-domain-qualification:
+    needs: [impact, build-candidate, fastchess-source-tests-v2]
+    if: ${{ needs.impact.outputs.impact != 'control_plane_only' }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 330
+    timeout-minutes: 360
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           ref: ${{ env.ALLFATHER_SOURCE_SHA }}
-      - name: Verify exact source checkout
+      - name: Verify exact source checkout and bind runner environment
         run: |
           test "$(git rev-parse HEAD)" = "$ALLFATHER_SOURCE_SHA"
           echo "ALLFATHER_RUNNER_ENVIRONMENT=${{ runner.environment }}" >> "$GITHUB_ENV"
@@ -312,13 +251,13 @@ jobs:
         with:
           name: engine-opt-v2-fastchess-source-test
           path: build/fastchess-source-test
-      - name: Restore exact v2 bundle
+      - name: Restore exact v2 candidate bundle
         run: |
           test -d build/candidate-download/online-engine-opt-v2
           rm -rf build/online-engine-opt-v2
           mv build/candidate-download/online-engine-opt-v2 build/online-engine-opt-v2
           chmod +x build/online-engine-opt-v2/bin/*
-      - name: Install lifecycle build/runtime dependencies
+      - name: Install one shared qualification substrate
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -327,24 +266,41 @@ jobs:
             python3-pip python3-setuptools python3-wheel
           python3 -m pip install --break-system-packages --no-build-isolation --no-deps \
             --require-hashes -r qualification/local-game-requirements.txt
+      - name: Capture one canonical execution domain
+        run: |
+          mkdir -p build/test-results/engine-opt-v2-profile-domain
+          python3 scripts/lc0-hardware-probe.py \
+            > build/test-results/engine-opt-v2-profile-domain/host-probe.json
+          python3 -m tools.engine_opt.domain capture \
+            --probe build/test-results/engine-opt-v2-profile-domain/host-probe.json \
+            --output build/test-results/engine-opt-v2-profile-domain/execution-domain.json
+          python3 -m tools.engine_opt.domain validate \
+            --input build/test-results/engine-opt-v2-profile-domain/execution-domain.json \
+            --expected-source-commit "$ALLFATHER_SOURCE_SHA"
+      - name: Run real-network LC0 matrix on the bound domain
+        run: |
+          python3 scripts/engine-opt-matrix.py \
+            --binary build/online-engine-opt-v2/bin/lc0 \
+            --weights build/online-engine-opt-v2/networks/791556.pb.gz \
+            --execution-domain build/test-results/engine-opt-v2-profile-domain/execution-domain.json \
+            --output build/test-results/engine-opt-v2-profile-domain/matrix/lc0.json
       - name: Build pinned Fastchess against source-test attestation
         run: make -f Makefile.local-game build-fastchess
       - name: Run LOCAL-1 contract regressions
         run: make -f Makefile.local-game test
-      - name: Qualify selected ENGINE-OPT-V2 full-game lifecycle
+      - name: Qualify G3-v2 and LOCAL-1-v2 on the same bound worker
         run: |
           python3 -m tools.local_game.runner \
             --mode required \
-            --policy qualification/local-full-game-v2.json
+            --policy qualification/local-full-game-v2.json \
+            --execution-domain build/test-results/engine-opt-v2-profile-domain/execution-domain.json \
+            --output build/test-results/engine-opt-v2-profile-domain/local1/campaign
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
-          name: engine-opt-v2-local1
-          path: |
-            build/test-results/local-full-game
-            build/test-results/engine-opt-v2
-            build/test-results/online-hybrid-v2
-          if-no-files-found: warn
+          name: engine-opt-v2-profile-domain
+          path: build/test-results/engine-opt-v2-profile-domain
+          if-no-files-found: error
           retention-days: 14
 
   aggregate-qualification:
@@ -352,9 +308,7 @@ jobs:
       - static-contracts
       - build-candidate
       - constituent-ab
-      - hybrid-v2-real
-      - lc0-runtime-matrix
-      - local1-v2
+      - profile-domain-qualification
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:

@@ -87,7 +87,7 @@ jobs:
           else
             git fetch --no-tags origin "$BASE_SHA"
             mapfile -t paths < <(git diff --name-only "$BASE_SHA" "$HEAD_SHA")
-            impact="$(python3 scripts/classify-qualification-impact.py "${paths[@]}")"
+            impact="$(python3 scripts/classify-qualification-impact.py --base-sha "$BASE_SHA" "${paths[@]}")"
           fi
           echo "impact=$impact" | tee -a "$GITHUB_OUTPUT"
 

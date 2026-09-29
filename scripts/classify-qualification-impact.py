@@ -24,6 +24,7 @@ ALWAYS_CONTROL_PLANE = {
     "tests/adapters/test_linux_host.py",
     "tests/controller/test_host_capabilities.py",
     "tests/controller/test_host_pressure.py",
+    "tests/test_hardware_probe_j2.py",
 }
 
 J2_BOOTSTRAP_ONLY = {

@@ -896,21 +896,31 @@ def build_host_capabilities(facts: LinuxHostFacts) -> HostCapabilities:
             )
             names = sorted({item.model_name for item in facts.cpu_identity})
             cpu_model_name = " | ".join(names)
-            microcodes = sorted(
-                {
-                    item.microcode
-                    for item in facts.cpu_identity
-                    if item.microcode is not None
-                }
-            )
-            cpu_microcode = (
-                microcodes[0] if len(microcodes) == 1 else None
-            )
-            if len(microcodes) > 1:
+
+            raw_microcodes = [
+                item.microcode for item in facts.cpu_identity
+            ]
+            nonnull_microcodes = {
+                value for value in raw_microcodes if value is not None
+            }
+            if len(nonnull_microcodes) > 1 or (
+                nonnull_microcodes
+                and any(value is None for value in raw_microcodes)
+            ):
+                cpu_identity_complete = False
                 faults.append("cpuinfo:heterogeneous-microcode")
+            elif nonnull_microcodes:
+                cpu_microcode = next(iter(nonnull_microcodes))
+
+            feature_vectors = {
+                tuple(item.flags) for item in facts.cpu_identity
+            }
             feature_sets = [set(item.flags) for item in facts.cpu_identity]
             intersection = set.intersection(*feature_sets)
             cpu_flags = tuple(sorted(intersection))
+            if len(feature_vectors) != 1:
+                cpu_identity_complete = False
+                faults.append("cpuinfo:heterogeneous-feature-flags")
             if not cpu_flags:
                 cpu_identity_complete = False
                 faults.append("cpuinfo:empty-feature-intersection")

@@ -26,14 +26,19 @@ def wait_bundle(root,known):
             if run.name not in known and (run/"route.json").is_file(): return run
         time.sleep(.03)
     raise ContractError("ONLINE-2 replay did not finalize")
-def hardware_probe():
-    out=subprocess.check_output([sys.executable,str(ROOT/"scripts/online-hardware-probe.py")],cwd=ROOT,text=True)
+def hardware_probe(binary: Path):
+    out=subprocess.check_output(
+      [sys.executable,str(ROOT/"scripts/online-hardware-probe.py"),"--binary",str(binary)],
+      cwd=ROOT,text=True
+    )
     data=json.loads(out); require(isinstance(data,dict),"hardware probe did not return object"); return data
 def validate_hardware(hw,mode,source_sha):
     require(hw.get("commit_sha")==source_sha,"hardware/source SHA mismatch")
     require(hw.get("system")=="Linux",f"ONLINE-2 requires Linux, got {hw.get('system')!r}")
     require(hw.get("architecture") in {"x86_64","amd64"},f"ONLINE-2 requires x86_64, got {hw.get('architecture')!r}")
     require(bool(hw.get("cpu_model")),"CPU model missing")
+    require(bool(hw.get("host_qualification_domain_id")),"host qualification domain missing")
+    require(bool(hw.get("runtime_substrate_id")),"runtime substrate identity missing")
     mem=hw.get("memory_bytes"); require(isinstance(mem,int) and not isinstance(mem,bool) and mem>0,"positive memory evidence missing")
     tc=hw.get("toolchain"); require(isinstance(tc,dict),"toolchain evidence missing")
     for name in ("gcc","g++","rustc","cargo","meson","ninja","pkg-config","protoc"):
@@ -126,7 +131,8 @@ def main():
     source_sha=subprocess.check_output(["git","rev-parse","HEAD"],cwd=ROOT,text=True).strip()
     require(manifest.get("source_commit")==source_sha,"bundle source differs from checkout")
     if os.environ.get("ALLFATHER_SOURCE_SHA"): require(os.environ["ALLFATHER_SOURCE_SHA"]==source_sha,"workflow source differs from checkout")
-    hw=hardware_probe(); validate_hardware(hw,args.mode,source_sha)
+    lc0_binary=(bundle_root/policy["builds"]["lc0"]["artifact"]).resolve()
+    hw=hardware_probe(lc0_binary); validate_hardware(hw,args.mode,source_sha)
     report=load_json(args.lc0_report); validate_lc0_reference(report,bundle,lock,source_sha)
     config=load_runtime_config(CONFIG_PATH); manager=BackendManager(config)
     try:

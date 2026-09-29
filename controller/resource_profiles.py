@@ -308,25 +308,45 @@ class ProcessIdentity:
 
 @dataclass(frozen=True)
 class QualificationIdentity:
-    """Evidence identity that licenses one frozen operating point."""
+    """Evidence identity that licenses one frozen operating point.
+
+    PR #49 established that qualification is bound to an execution domain,
+    which can be either a reusable host domain or one exact host observation.
+    A generic host-domain label is therefore insufficient.
+    """
 
     source_commit: str
     evidence_sha256: str
     evidence_id: str
-    host_domain: str
+    execution_domain_id: str
+    execution_domain_digest: str
+    binding_scope: str
 
     def __post_init__(self) -> None:
         _git_oid(self.source_commit, "source_commit")
         _sha256(self.evidence_sha256, "evidence_sha256")
         _safe_id(self.evidence_id, "evidence_id")
-        _safe_id(self.host_domain, "host_domain")
+        _safe_id(self.execution_domain_id, "execution_domain_id")
+        _sha256(self.execution_domain_digest, "execution_domain_digest")
+        if self.binding_scope not in ("exact_host_observation", "reusable_host_domain"):
+            raise OrchestrationContractError(
+                "qualification binding_scope must be exact_host_observation "
+                "or reusable_host_domain"
+            )
+        expected = f"exec-domain/{self.execution_domain_digest[:20]}"
+        if self.execution_domain_id != expected:
+            raise OrchestrationContractError(
+                "qualification execution_domain_id does not match its digest"
+            )
 
     def as_dict(self) -> dict[str, Any]:
         return {
             "source_commit": self.source_commit,
             "evidence_sha256": self.evidence_sha256,
             "evidence_id": self.evidence_id,
-            "host_domain": self.host_domain,
+            "execution_domain_id": self.execution_domain_id,
+            "execution_domain_digest": self.execution_domain_digest,
+            "binding_scope": self.binding_scope,
         }
 
     @classmethod
@@ -334,14 +354,23 @@ class QualificationIdentity:
         raw = _mapping(raw, "qualification identity")
         _reject_unknown(
             raw,
-            {"source_commit", "evidence_sha256", "evidence_id", "host_domain"},
+            {
+                "source_commit",
+                "evidence_sha256",
+                "evidence_id",
+                "execution_domain_id",
+                "execution_domain_digest",
+                "binding_scope",
+            },
             "qualification identity",
         )
         return cls(
             source_commit=raw.get("source_commit"),
             evidence_sha256=raw.get("evidence_sha256"),
             evidence_id=raw.get("evidence_id"),
-            host_domain=raw.get("host_domain"),
+            execution_domain_id=raw.get("execution_domain_id"),
+            execution_domain_digest=raw.get("execution_domain_digest"),
+            binding_scope=raw.get("binding_scope"),
         )
 
 

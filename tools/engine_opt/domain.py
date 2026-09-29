@@ -2,11 +2,67 @@
 
 from __future__ import annotations
 
-from typing import Mapping, Any
+from typing import Any, Mapping
+
+from controller.host_capabilities import HostCapabilities
+from controller.runtime_substrate import RuntimeSubstrate
 
 
 class ExecutionDomainError(ValueError):
     pass
+
+
+def _verified_domain(name: str, domain: Mapping[str, Any] | None):
+    if not isinstance(domain, Mapping):
+        raise ExecutionDomainError(f"{name}: execution-domain evidence missing")
+    if domain.get("complete") is not True:
+        raise ExecutionDomainError(
+            f"{name}: execution-domain evidence incomplete"
+        )
+
+    raw_host = domain.get("host_capabilities")
+    raw_runtime = domain.get("runtime_substrate")
+    if not isinstance(raw_host, Mapping):
+        raise ExecutionDomainError(
+            f"{name}: retained HostCapabilities object missing"
+        )
+    if not isinstance(raw_runtime, Mapping):
+        raise ExecutionDomainError(
+            f"{name}: retained RuntimeSubstrate object missing"
+        )
+
+    try:
+        host = HostCapabilities.from_dict(raw_host)
+        runtime = RuntimeSubstrate.from_dict(raw_runtime)
+    except Exception as exc:
+        raise ExecutionDomainError(
+            f"{name}: malformed retained execution-domain evidence: {exc}"
+        ) from exc
+
+    if domain.get("host_capability_id") != host.capability_id:
+        raise ExecutionDomainError(
+            f"{name}: host capability id does not match retained facts"
+        )
+    if (
+        domain.get("host_qualification_domain_id")
+        != host.qualification_domain_id
+    ):
+        raise ExecutionDomainError(
+            f"{name}: host qualification domain id does not match retained facts"
+        )
+    if domain.get("runtime_substrate_id") != runtime.runtime_substrate_id:
+        raise ExecutionDomainError(
+            f"{name}: runtime substrate id does not match retained facts"
+        )
+    if host.qualification_domain_id is None:
+        raise ExecutionDomainError(
+            f"{name}: host qualification domain is incomplete"
+        )
+    if runtime.runtime_substrate_id is None:
+        raise ExecutionDomainError(
+            f"{name}: runtime substrate is incomplete"
+        )
+    return host, runtime
 
 
 def require_same_execution_domain(
@@ -15,30 +71,17 @@ def require_same_execution_domain(
     if not named_domains:
         raise ExecutionDomainError("no execution-domain evidence supplied")
 
-    rows: list[tuple[str, str, str, str | None]] = []
+    rows = []
     for name, domain in named_domains.items():
-        if not isinstance(domain, Mapping):
-            raise ExecutionDomainError(f"{name}: execution-domain evidence missing")
-        if domain.get("complete") is not True:
-            raise ExecutionDomainError(f"{name}: execution-domain evidence incomplete")
-        host_id = domain.get("host_qualification_domain_id")
-        runtime_id = domain.get("runtime_substrate_id")
-        capability_id = domain.get("host_capability_id")
-        if not isinstance(host_id, str) or not host_id:
-            raise ExecutionDomainError(
-                f"{name}: host qualification domain id missing"
+        host, runtime = _verified_domain(name, domain)
+        rows.append(
+            (
+                name,
+                host.qualification_domain_id,
+                runtime.runtime_substrate_id,
+                host.capability_id,
             )
-        if not isinstance(runtime_id, str) or not runtime_id:
-            raise ExecutionDomainError(
-                f"{name}: runtime substrate id missing"
-            )
-        if capability_id is not None and (
-            not isinstance(capability_id, str) or not capability_id
-        ):
-            raise ExecutionDomainError(
-                f"{name}: malformed host capability id"
-            )
-        rows.append((name, host_id, runtime_id, capability_id))
+        )
 
     host_ids = {row[1] for row in rows}
     runtime_ids = {row[2] for row in rows}

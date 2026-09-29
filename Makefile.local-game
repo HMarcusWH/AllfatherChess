@@ -39,16 +39,18 @@ verify:
 	python3 -m tools.local_game.validate "$(CAMPAIGN)"
 
 qualification-v2: test build-fastchess
+	@test -n "$(EXECUTION_DOMAIN)" || (echo 'Set EXECUTION_DOMAIN=<path>' >&2; exit 2)
 	$(MAKE) build-online-engine-opt-v2
-	python3 -m tools.local_game.runner --mode required --policy $(V2_POLICY)
+	python3 -m tools.local_game.runner --mode required --policy $(V2_POLICY) --execution-domain "$(EXECUTION_DOMAIN)"
 
 soak-v2: test build-fastchess
+	@test -n "$(EXECUTION_DOMAIN)" || (echo 'Set EXECUTION_DOMAIN=<path>' >&2; exit 2)
 	$(MAKE) build-online-engine-opt-v2
-	python3 -m tools.local_game.runner --mode soak --policy $(V2_POLICY)
+	python3 -m tools.local_game.runner --mode soak --policy $(V2_POLICY) --execution-domain "$(EXECUTION_DOMAIN)"
 
 soak-shard-v2: test build-fastchess
-	@test -n "$(SHARD)" -a -n "$(SHARDS)" || (echo 'Set SHARD=<zero-based-index> SHARDS=<count>' >&2; exit 2)
-	python3 -m tools.local_game.runner --mode soak --policy $(V2_POLICY) --shard-index "$(SHARD)" --shard-count "$(SHARDS)"
+	@test -n "$(SHARD)" -a -n "$(SHARDS)" -a -n "$(EXECUTION_DOMAIN)" || (echo 'Set SHARD=<zero-based-index> SHARDS=<count> EXECUTION_DOMAIN=<path>' >&2; exit 2)
+	python3 -m tools.local_game.runner --mode soak --policy $(V2_POLICY) --execution-domain "$(EXECUTION_DOMAIN)" --shard-index "$(SHARD)" --shard-count "$(SHARDS)"
 
 soak-aggregate-v2:
 	@test -n "$(SHARD_ROOT)" || (echo 'Set SHARD_ROOT=<directory-containing-downloaded-shard-artifacts>' >&2; exit 2)

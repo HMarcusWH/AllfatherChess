@@ -1664,6 +1664,92 @@ class BackendManager:
                 binding_scope,
             )
 
+    def bind_resource_control(self, controller) -> None:
+        """Bind one J5 resource controller before process startup.
+
+        This does not choose a fallback or grant compute.  Unsupported/insufficient
+        hosts surface ResourceFallbackRequired to the caller.
+        """
+        from controller.resource_control import ResourceController
+
+        if not isinstance(controller, ResourceController):
+            raise RuntimeError("resource controller must be ResourceController")
+        with self._lock:
+            if self._started or self.backends:
+                raise RuntimeError("resource controller must be bound before runtime start")
+            if self._resource_control is not None:
+                raise RuntimeError("resource controller is already bound")
+            catalog = self._resource_catalog
+            composition_id = self._resource_composition_id
+        if catalog is None or composition_id is None:
+            raise RuntimeError("resource control requires a bound resource profile catalog")
+        composition = catalog.composition(composition_id)
+        if (
+            controller.composition.composition_id != composition.composition_id
+            or controller.composition.digest != composition.digest
+        ):
+            raise RuntimeError(
+                "resource controller composition differs from bound catalog composition"
+            )
+        controller.require_ready()
+        with self._lock:
+            self._resource_control = controller
+
+    def _resource_pid_map(self) -> dict[str, int]:
+        pids: dict[str, int] = {}
+        for name in self._startup_order:
+            process = self.backends.get(name)
+            if process is None or not process.alive or process.pid is None:
+                raise RuntimeError(
+                    f"resource-controlled composition lacks live PID for {name}"
+                )
+            pids[name] = process.pid
+        return pids
+
+    def _place_resource_instance(self, instance: str, process: UciProcess) -> None:
+        controller = self._resource_control
+        if controller is None:
+            return
+        pid = process.pid
+        if pid is None:
+            raise RuntimeError(
+                f"{instance}: process PID unavailable for resource placement"
+            )
+        evidence = controller.place_instance(instance, pid)
+        with self._lock:
+            self._resource_placement_states[instance] = evidence
+
+    def _finalize_resource_layout(self) -> None:
+        controller = self._resource_control
+        if controller is None:
+            return
+        states = controller.finalize_all(self._resource_pid_map())
+        with self._lock:
+            self._resource_placement_states = dict(states)
+
+    def verify_resource_layout(self) -> dict[str, object]:
+        """Re-observe the complete J5 layout without changing chess authority."""
+        controller = self._resource_control
+        if controller is None:
+            return {}
+        self._require_healthy()
+        states = controller.verify_all(self._resource_pid_map())
+        with self._lock:
+            self._resource_placement_states = dict(states)
+        return {
+            instance: state.as_dict()
+            for instance, state in sorted(states.items())
+        }
+
+    def resource_state(self, instance: str):
+        self.spec(instance)
+        with self._lock:
+            return self._resource_placement_states.get(instance)
+
+    def resource_state_digest(self, instance: str) -> str | None:
+        state = self.resource_state(instance)
+        return None if state is None else state.digest
+
     def _adopt_bound_startup_profiles(self) -> None:
         catalog = self._resource_catalog
         if catalog is None:

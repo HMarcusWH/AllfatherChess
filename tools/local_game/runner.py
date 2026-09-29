@@ -305,13 +305,14 @@ def run(mode: str, output: Path, *, shard_index: int = 0, shard_count: int = 1,
     manifest = {"schema_version": 1, "campaign_id": output.name, "mode": mode,
                 "shard": {"index": shard_index, "count": shard_count},
                 "source": source_id, "policy": file_record(policy_file),
-                "execution_domain": execution_domain,
-                "candidate_bundle": candidate_bundle,
                 "status": "running", "planned_jobs": expected,
                 "jobs": [], "failures": [], "prerequisites": [],
                 "host": {"system": list(os.uname()), "logical_cpus": os.cpu_count()},
                 "clock_regime": "same tournament clock; NOT equal aggregate compute",
                 "control": "allfather-anchor is one Stockfish process through the legacy native-clock shell"}
+    if execution_domain is not None:
+        manifest["execution_domain"] = execution_domain
+        manifest["candidate_bundle"] = candidate_bundle
     inputs = input_paths(p, policy_file)
     save(output / "manifest.json", manifest)
     try:

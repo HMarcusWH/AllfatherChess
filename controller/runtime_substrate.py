@@ -73,7 +73,15 @@ class PackageIdentity:
     version: str
 
     def __post_init__(self) -> None:
-        _safe_id(self.name, "package name")
+        if (
+            not isinstance(self.name, str)
+            or not self.name
+            or "\x00" in self.name
+            or any(ch.isspace() for ch in self.name)
+        ):
+            raise OrchestrationContractError(
+                "package name must be a non-empty NUL-free token"
+            )
         if not isinstance(self.version, str) or not self.version or "\x00" in self.version:
             raise OrchestrationContractError(
                 "package version must be a non-empty NUL-free string"

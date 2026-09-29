@@ -1,0 +1,159 @@
+name: LC0 artifact/domain diagnostic
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'tools/diagnostics/**'
+      - '.github/workflows/lc0-artifact-domain-diagnostic.yml'
+
+permissions:
+  contents: read
+
+env:
+  DIAGNOSTIC_HEAD_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+  SOURCE_A: 085420843b95f3f2dd206fc1c66bf642cbd49b6d
+  SOURCE_B: 5d566943a331d7d62fc02e8923c3ad9e4d7a0f2f
+
+concurrency:
+  group: lc0-artifact-domain-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contracts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.DIAGNOSTIC_HEAD_SHA }}
+      - name: Verify exact diagnostic source checkout
+        run: test "$(git rev-parse HEAD)" = "$DIAGNOSTIC_HEAD_SHA"
+      - name: Compile and test bounded diagnostic
+        run: |
+          python3 -m py_compile             tools/diagnostics/compare_lc0_artifact_domain.py             tools/diagnostics/test_lc0_artifact_domain.py
+          python3 tools/diagnostics/test_lc0_artifact_domain.py
+
+  artifact-domain-diagnostic:
+    needs: contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    steps:
+      - name: Checkout diagnostic implementation
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.DIAGNOSTIC_HEAD_SHA }}
+          fetch-depth: 1
+
+      - name: Verify exact diagnostic source checkout
+        run: test "$(git rev-parse HEAD)" = "$DIAGNOSTIC_HEAD_SHA"
+
+      - name: Checkout exact PR44 qualified head as A
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.SOURCE_A }}
+          path: source-a
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Checkout exact post-J2 main as B
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.SOURCE_B }}
+          path: source-b
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify A and B checkout identities
+        run: |
+          test "$(git -C source-a rev-parse HEAD)" = "$SOURCE_A"
+          test "$(git -C source-b rev-parse HEAD)" = "$SOURCE_B"
+
+      - name: Install one shared build/runtime substrate
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y             build-essential meson ninja-build pkg-config             libprotobuf-dev protobuf-compiler zlib1g-dev libopenblas-dev
+          echo "ALLFATHER_RUNNER_ENVIRONMENT=${{ runner.environment }}" >> "$GITHUB_ENV"
+
+      - name: Capture J2 host and runtime-substrate evidence
+        run: |
+          mkdir -p evidence
+          python3 scripts/lc0-hardware-probe.py > evidence/host.json
+          python3 -m json.tool evidence/host.json >/dev/null
+
+      - name: Seal A/B chess-profile source equivalence before search
+        run: |
+          python3 tools/diagnostics/compare_lc0_artifact_domain.py prove-surface             --source-a source-a             --source-b source-b             --expected-a "$SOURCE_A"             --expected-b "$SOURCE_B"             --output evidence/surface-proof.json
+
+      - name: Fetch and verify one frozen LC0 network
+        run: |
+          set -euo pipefail
+          python3 scripts/fetch-lc0-network.py --allow-candidate-size >/dev/null
+          mkdir -p evidence/network
+          cp build/artifacts/lc0/791556.pb.gz evidence/network/791556.pb.gz
+          python3 - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          lock=json.loads(Path("qualification/lc0-strength.lock.json").read_text())
+          path=Path("evidence/network/791556.pb.gz")
+          h=hashlib.sha256(path.read_bytes()).hexdigest()
+          expected=lock["network"]["sha256"]
+          if h != expected:
+              raise SystemExit(f"network SHA mismatch: {h} != {expected}")
+          if path.stat().st_size != lock["network"]["expected_size_bytes"]:
+              raise SystemExit("network size mismatch")
+          print(h)
+          PY
+
+      - name: Build A, B and fresh B rebuild C serially on this worker
+        run: |
+          set -euo pipefail
+          mkdir -p evidence/bin evidence/build
+
+          bash source-a/scripts/build-lc0-strength.sh 2>&1 | tee evidence/build/build-a.log
+          cp source-a/engines/lc0/build/release/lc0 evidence/bin/lc0-a
+          ldd evidence/bin/lc0-a > evidence/build/ldd-a.txt
+
+          bash source-b/scripts/build-lc0-strength.sh 2>&1 | tee evidence/build/build-b.log
+          cp source-b/engines/lc0/build/release/lc0 evidence/bin/lc0-b
+          ldd evidence/bin/lc0-b > evidence/build/ldd-b.txt
+
+          rm -rf source-b/engines/lc0/build/release
+          bash source-b/scripts/build-lc0-strength.sh 2>&1 | tee evidence/build/build-c.log
+          cp source-b/engines/lc0/build/release/lc0 evidence/bin/lc0-c
+          ldd evidence/bin/lc0-c > evidence/build/ldd-c.txt
+
+          chmod +x evidence/bin/lc0-a evidence/bin/lc0-b evidence/bin/lc0-c
+          sha256sum evidence/bin/lc0-a evidence/bin/lc0-b evidence/bin/lc0-c             | tee evidence/build/binaries.sha256
+
+      - name: Run unchanged A matrix
+        run: |
+          mkdir -p evidence/matrix
+          python3 source-a/scripts/engine-opt-matrix.py             --binary "$PWD/evidence/bin/lc0-a"             --weights "$PWD/evidence/network/791556.pb.gz"             --output "$PWD/evidence/matrix/matrix-a.json"             | tee evidence/matrix/matrix-a.stdout.txt
+
+      - name: Run unchanged B matrix
+        run: |
+          python3 source-b/scripts/engine-opt-matrix.py             --binary "$PWD/evidence/bin/lc0-b"             --weights "$PWD/evidence/network/791556.pb.gz"             --output "$PWD/evidence/matrix/matrix-b.json"             | tee evidence/matrix/matrix-b.stdout.txt
+
+      - name: Run unchanged matrix against fresh rebuild C
+        run: |
+          python3 source-b/scripts/engine-opt-matrix.py             --binary "$PWD/evidence/bin/lc0-c"             --weights "$PWD/evidence/network/791556.pb.gz"             --output "$PWD/evidence/matrix/matrix-c.json"             | tee evidence/matrix/matrix-c.stdout.txt
+
+      - name: Compare artifact bytes, repeatability and behavior
+        run: |
+          python3 tools/diagnostics/compare_lc0_artifact_domain.py compare             --surface-proof evidence/surface-proof.json             --host-report evidence/host.json             --matrix-a evidence/matrix/matrix-a.json             --matrix-b evidence/matrix/matrix-b.json             --matrix-c evidence/matrix/matrix-c.json             --binary-a evidence/bin/lc0-a             --binary-b evidence/bin/lc0-b             --binary-c evidence/bin/lc0-c             --weights evidence/network/791556.pb.gz             --expected-a "$SOURCE_A"             --expected-b "$SOURCE_B"             --output evidence/diagnostic-report.json
+          python3 -m json.tool evidence/diagnostic-report.json >/dev/null
+
+      - name: Upload complete diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: lc0-artifact-domain-diagnostic
+          path: |
+            evidence/host.json
+            evidence/surface-proof.json
+            evidence/build/**
+            evidence/matrix/**
+            evidence/diagnostic-report.json
+          if-no-files-found: warn
+          retention-days: 30

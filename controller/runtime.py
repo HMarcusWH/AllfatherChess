@@ -1477,8 +1477,394 @@ class BackendManager:
         with self._lock:
             return dict(self._effective_options.get(instance, spec.options))
 
+    def _catalog_required(self) -> ResourceProfileCatalog:
+        catalog = self._resource_catalog
+        if catalog is None:
+            raise RuntimeError("resource profile catalog is not bound")
+        return catalog
+
+    def _bound_profile_id(self, instance: str) -> str:
+        catalog = self._catalog_required()
+        composition_id = self._resource_composition_id
+        assert composition_id is not None
+        return catalog.profile_for_instance(
+            instance, composition_id=composition_id
+        ).profile_id
+
+    def _assert_profile_process_identity(
+        self,
+        instance: str,
+        profile_id: str,
+        *,
+        catalog: ResourceProfileCatalog | None = None,
+    ) -> None:
+        catalog = self._catalog_required() if catalog is None else catalog
+        profile = catalog.profile(profile_id)
+        spec = self.spec(instance)
+        identity = profile.process_identity
+        if spec.family != profile.family:
+            raise RuntimeError(
+                f"{instance}: runtime family {spec.family!r} differs from profile "
+                f"{profile.family!r}"
+            )
+        if _hash_file(spec.binary) != identity.binary_sha256:
+            raise RuntimeError(
+                f"{instance}: binary SHA does not match qualified profile"
+            )
+        if tuple(spec.args) != identity.args:
+            raise RuntimeError(f"{instance}: process argv differs from qualified profile")
+        if tuple(sorted(spec.environment.items())) != identity.environment:
+            raise RuntimeError(
+                f"{instance}: process environment differs from qualified profile"
+            )
+        for name, value in catalog.process_options(profile_id).items():
+            if spec.options.get(name) != value:
+                raise RuntimeError(
+                    f"{instance}: process-static option {name!r} differs from profile"
+                )
+        if identity.backend is not None and spec.options.get("Backend") != identity.backend:
+            raise RuntimeError(f"{instance}: backend differs from qualified profile")
+        for artifact in identity.artifacts:
+            if artifact.name != "network" or spec.family != "lc0":
+                raise RuntimeError(
+                    f"{instance}: runtime cannot independently attest artifact "
+                    f"{artifact.name!r}"
+                )
+            weights = spec.options.get("WeightsFile")
+            if not isinstance(weights, str) or not weights:
+                raise RuntimeError(f"{instance}: LC0 network path is missing")
+            path = Path(weights)
+            if not path.is_absolute():
+                path = spec.cwd / path
+            if _hash_file(path.resolve()) != artifact.sha256:
+                raise RuntimeError(
+                    f"{instance}: LC0 network SHA does not match qualified profile"
+                )
+
+    @staticmethod
+    def _warmup_dict(warmup: BackendWarmup | None) -> dict[str, object] | None:
+        if warmup is None:
+            return None
+        return {
+            "enabled": True,
+            "nodes": warmup.nodes,
+            "position": warmup.position,
+            "reset_after": warmup.reset_after,
+        }
+
+    def _assert_catalog_startup_contract(
+        self,
+        instance: str,
+        profile_id: str,
+        *,
+        catalog: ResourceProfileCatalog | None = None,
+    ) -> None:
+        catalog = self._catalog_required() if catalog is None else catalog
+        spec = self.spec(instance)
+        self._assert_profile_process_identity(instance, profile_id, catalog=catalog)
+        if dict(spec.options) != catalog.startup_options(profile_id):
+            raise RuntimeError(
+                f"{instance}: RuntimeConfig startup options differ from catalog profile"
+            )
+        if {
+            phase: dict(values)
+            for phase, values in sorted(spec.phase_options.items())
+        } != catalog.phase_options(profile_id):
+            raise RuntimeError(
+                f"{instance}: RuntimeConfig phase options differ from catalog profile"
+            )
+        if self._warmup_dict(spec.warmup) != catalog.warmup(profile_id):
+            raise RuntimeError(
+                f"{instance}: RuntimeConfig warmup differs from catalog profile"
+            )
+
+    def bind_resource_catalog(
+        self,
+        catalog: ResourceProfileCatalog,
+        *,
+        execution_domain_id: str,
+        execution_domain_digest: str,
+        binding_scope: str,
+        composition_id: str | None = None,
+    ) -> None:
+        """Bind one qualified catalog before starting any engine.
+
+        Binding is identity/admissibility only. It cannot allocate compute or
+        authorize an outward chess move.
+        """
+        if not isinstance(catalog, ResourceProfileCatalog):
+            raise RuntimeError("catalog must be ResourceProfileCatalog")
+        with self._lock:
+            if self._started or self.backends:
+                raise RuntimeError("resource catalog must be bound before runtime start")
+            if self._resource_catalog is not None:
+                raise RuntimeError("resource profile catalog is already bound")
+        chosen = catalog.composition(composition_id or catalog.default_composition_id)
+        if {item.instance for item in chosen.bindings} != set(self.config.backends):
+            raise RuntimeError(
+                "catalog composition instances differ from RuntimeConfig instances"
+            )
+        by_instance = {item.instance: item for item in chosen.bindings}
+        try:
+            for instance in sorted(self.config.backends):
+                binding = by_instance[instance]
+                spec = self.spec(instance)
+                expected_role = "anchor" if binding.role.value == "anchor" else "shadow"
+                if spec.role != expected_role or spec.family != binding.family:
+                    raise RuntimeError(
+                        f"{instance}: catalog role/family differs from RuntimeConfig"
+                    )
+                catalog.require_execution_domain(
+                    binding.profile_id,
+                    execution_domain_id=execution_domain_id,
+                    execution_domain_digest=execution_domain_digest,
+                    binding_scope=binding_scope,
+                )
+                self._assert_catalog_startup_contract(
+                    instance, binding.profile_id, catalog=catalog
+                )
+            qualification = chosen.qualification
+            if (
+                qualification.execution_domain_id != execution_domain_id
+                or qualification.execution_domain_digest != execution_domain_digest
+                or qualification.binding_scope != binding_scope
+            ):
+                raise RuntimeError(
+                    "composition qualification differs from supplied execution domain"
+                )
+        except ResourceProfileCatalogError as exc:
+            raise RuntimeError(str(exc)) from exc
+
+        with self._lock:
+            self._resource_catalog = catalog
+            self._resource_composition_id = chosen.composition_id
+            self._resource_execution_domain = (
+                execution_domain_id,
+                execution_domain_digest,
+                binding_scope,
+            )
+
+    def _adopt_bound_startup_profiles(self) -> None:
+        catalog = self._resource_catalog
+        if catalog is None:
+            return
+        composition_id = self._resource_composition_id
+        assert composition_id is not None
+        composition = catalog.composition(composition_id)
+        for binding in composition.bindings:
+            process = self.backends.get(binding.instance)
+            if process is None or not process.alive:
+                raise RuntimeError(
+                    f"{binding.instance}: bound profile process did not survive startup"
+                )
+            self._assert_catalog_startup_contract(binding.instance, binding.profile_id)
+            with self._lock:
+                observed = dict(
+                    self._effective_options.get(
+                        binding.instance, self.spec(binding.instance).options
+                    )
+                )
+            if observed != catalog.startup_options(binding.profile_id):
+                raise RuntimeError(
+                    f"{binding.instance}: startup effective options differ from catalog"
+                )
+            phases = catalog.phase_options(binding.profile_id)
+            with self._lock:
+                self._effective_profile_ids[binding.instance] = binding.profile_id
+                self._effective_profile_phases[binding.instance] = (
+                    "EXPLORE" if "EXPLORE" in phases else None
+                )
+
+    def effective_profile_id(self, instance: str) -> str | None:
+        self.spec(instance)
+        with self._lock:
+            return self._effective_profile_ids.get(instance)
+
+    def effective_profile(self, instance: str):
+        profile_id = self.effective_profile_id(instance)
+        if profile_id is None:
+            return None
+        return self._catalog_required().profile(profile_id)
+
+    def assert_effective_profile(self, instance: str) -> dict[str, object]:
+        """Assert the controller-commanded, ready-synchronized profile state.
+
+        UCI has no generic read-current-option command, so this attests the
+        successfully commanded state plus immutable process/artifact identity;
+        it is not engine-side option introspection.
+        """
+        catalog = self._catalog_required()
+        with self._lock:
+            if instance in self._pending_profile_ids:
+                raise RuntimeError(
+                    f"{instance}: game profile transition is pending ucinewgame"
+                )
+            profile_id = self._effective_profile_ids.get(instance)
+            phase = self._effective_profile_phases.get(instance)
+        if profile_id is None:
+            raise RuntimeError(f"{instance}: no effective catalog profile is sealed")
+        self._assert_profile_process_identity(instance, profile_id)
+        expected = catalog.startup_options(profile_id)
+        if phase is not None:
+            expected.update(catalog.phase_options(profile_id).get(phase, {}))
+        current = self.effective_options(instance)
+        if current != expected:
+            raise RuntimeError(
+                f"{instance}: commanded effective options differ from sealed profile"
+            )
+        profile = catalog.profile(profile_id)
+        return {
+            "profile_id": profile_id,
+            "profile_digest": profile.digest,
+            "phase": phase,
+            "effective_options_digest": canonical_digest(current),
+            "profile_catalog_digest": catalog.digest,
+            "authority": {
+                "resource_profile": True,
+                "resource_authorization": False,
+                "outward_move": False,
+            },
+        }
+
+    def _require_profile_transition_sealed(self) -> None:
+        with self._lock:
+            pending = sorted(self._pending_profile_ids)
+        if pending:
+            raise RuntimeError(
+                "game profile transition requires synchronized ucinewgame before search: "
+                + ", ".join(pending)
+            )
+
+    def configure_game_profile(self, instance: str, profile_id: str) -> dict[str, object]:
+        """Stage one catalogued game-static profile while every engine is idle."""
+        catalog = self._catalog_required()
+        self._require_healthy()
+        if profile_id != self._bound_profile_id(instance):
+            raise RuntimeError(
+                "J4 does not switch compositions; profile must match the bound composition"
+            )
+        domain = self._resource_execution_domain
+        assert domain is not None
+        try:
+            catalog.require_execution_domain(
+                profile_id,
+                execution_domain_id=domain[0],
+                execution_domain_digest=domain[1],
+                binding_scope=domain[2],
+            )
+        except ResourceProfileCatalogError as exc:
+            raise RuntimeError(str(exc)) from exc
+        if any(process.active_search for process in self.backends.values()):
+            raise RuntimeError("game profile changes require every managed engine to be idle")
+        process = self.backends.get(instance)
+        if process is None or not process.alive:
+            raise RuntimeError(f"{instance}: profile process is unavailable")
+        self._assert_profile_process_identity(instance, profile_id)
+
+        expected = catalog.startup_options(profile_id)
+        current = self.effective_options(instance)
+        protected = set(catalog.process_options(profile_id))
+        protected.update(dict(catalog.runtime_metadata(profile_id).frozen_options))
+        for name in protected:
+            if current.get(name) != expected.get(name):
+                raise RuntimeError(
+                    f"{instance}: process/frozen option {name!r} drifted; refusing mutation"
+                )
+        mutable = set(catalog.game_options(profile_id))
+        mutable.update(catalog.phase_options(profile_id).get("EXPLORE", {}))
+        changed = {
+            name: expected[name]
+            for name in mutable
+            if current.get(name) != expected.get(name)
+        }
+        try:
+            if changed:
+                process.configure_idle(changed)
+            warmup = catalog.warmup(profile_id)
+            if warmup is not None:
+                self._warmup_backend(
+                    instance,
+                    process,
+                    BackendWarmup(
+                        nodes=int(warmup["nodes"]),
+                        position=str(warmup["position"]),
+                        reset_after=bool(warmup["reset_after"]),
+                    ),
+                )
+        except UciProcessError as exc:
+            if self.spec(instance).role == "shadow":
+                self.record_shadow_failure(
+                    instance, f"game profile application failed: {exc}"
+                )
+            else:
+                self._notify_failure(
+                    f"game profile application failed for {instance}: {exc}", None
+                )
+            raise RuntimeError(str(exc)) from exc
+        with self._lock:
+            self._effective_options[instance] = dict(expected)
+            self._pending_profile_ids[instance] = profile_id
+            self._pending_profile_phases[instance] = (
+                "EXPLORE" if "EXPLORE" in catalog.phase_options(profile_id) else None
+            )
+        return {
+            "profile_id": profile_id,
+            "pending_game_reset": True,
+            "effective_options_digest": canonical_digest(expected),
+        }
+
+    def configure_phase_profile(self, instance: str, phase: str) -> dict[str, object]:
+        """Apply one catalog-declared search-dynamic phase overlay while idle."""
+        catalog = self._catalog_required()
+        self._require_healthy()
+        self._require_profile_transition_sealed()
+        if phase not in PHASE_OPTION_NAMES:
+            raise RuntimeError(f"unsupported profile phase: {phase!r}")
+        profile_id = self.effective_profile_id(instance)
+        if profile_id is None:
+            raise RuntimeError(f"{instance}: no effective catalog profile is sealed")
+        phase_options = catalog.phase_options(profile_id)
+        if phase not in phase_options:
+            raise RuntimeError(
+                f"{instance}: profile {profile_id!r} does not declare phase {phase}"
+            )
+        process = self.backends.get(instance)
+        if process is None or not process.alive:
+            raise RuntimeError(f"{instance}: profile process is unavailable")
+        if process.active_search:
+            raise RuntimeError(f"{instance}: phase profile requires an idle process")
+        current = self.effective_options(instance)
+        desired = dict(current)
+        desired.update(phase_options[phase])
+        changed = {
+            key: value
+            for key, value in phase_options[phase].items()
+            if current.get(key) != value
+        }
+        try:
+            if changed:
+                process.configure_idle(changed)
+        except UciProcessError as exc:
+            if self.spec(instance).role == "shadow":
+                self.record_shadow_failure(
+                    instance, f"{phase} profile synchronization failed: {exc}"
+                )
+            else:
+                self._notify_failure(
+                    f"{phase} profile synchronization failed for {instance}: {exc}", None
+                )
+            raise RuntimeError(str(exc)) from exc
+        with self._lock:
+            self._effective_options[instance] = dict(desired)
+            self._effective_profile_phases[instance] = phase
+        return self.assert_effective_profile(instance)
+
     def configure_shadow_phase(self, instance: str, phase: str) -> dict[str, object]:
-        """Apply the declared idle UCI option state for one shadow phase."""
+        """Compatibility wrapper for the pre-catalog phase-option path."""
+        if self._resource_catalog is not None:
+            self.configure_phase_profile(instance, phase)
+            return self.effective_options(instance)
+
         spec = self.spec(instance)
         if spec.role != "shadow":
             raise RuntimeError(f"phase configuration requires a shadow instance: {instance!r}")

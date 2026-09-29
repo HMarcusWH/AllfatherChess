@@ -133,9 +133,14 @@ def run_search(
     return bestmove[0], events
 
 
-def hardware_probe() -> dict:
+def hardware_probe(binary: Path) -> dict:
     raw = subprocess.check_output(
-        [sys.executable, str(ROOT / "scripts" / "lc0-hardware-probe.py")],
+        [
+            sys.executable,
+            str(ROOT / "scripts" / "lc0-hardware-probe.py"),
+            "--binary",
+            str(binary),
+        ],
         text=True,
     )
     data = json.loads(raw)
@@ -185,7 +190,7 @@ def main() -> int:
         "sha256": sha256_file(binary),
     }
 
-    hardware = hardware_probe()
+    hardware = hardware_probe(binary)
     policy = profile["hardware_policy"]
     if hardware.get("commit_sha") != source_sha:
         raise ContractError(
@@ -199,6 +204,10 @@ def main() -> int:
         )
     if hardware.get("runner_environment") != "github-hosted":
         raise ContractError("reference qualification requires a GitHub-hosted runner")
+    if not hardware.get("host_qualification_domain_id"):
+        raise ContractError("host qualification domain is incomplete")
+    if not hardware.get("runtime_substrate_id"):
+        raise ContractError("runtime substrate identity is incomplete")
     if hardware.get("system") != "Linux":
         raise ContractError(f"reference qualification requires Linux, got {hardware.get('system')!r}")
     os_release = hardware.get("os_release")

@@ -16,6 +16,7 @@ from .common import (ARMS, ROOT, contained, file_record, load, policy, require,
                      safe_copy_regular_tree, save, sha, source_identity,
                      terminate_token_processes, verify_record)
 from .integrity import input_paths, verify_builds
+from tools.engine_opt.report import execution_identity
 
 
 def schedule(p: dict, mode: str) -> list[dict]:
@@ -258,6 +259,15 @@ def run(mode: str, output: Path, *, shard_index: int = 0, shard_count: int = 1,
                    else policy_path if policy_path.is_absolute() else ROOT / policy_path).resolve()
     p = policy(path=policy_file)
     source = load(ROOT / p["source_runtime"])
+    execution_domain = None
+    bundle_root = p.get("bundle_root")
+    if isinstance(bundle_root, str) and bundle_root:
+        lc0_binary = (ROOT / bundle_root / "bin" / "lc0").resolve()
+        execution_domain = execution_identity(lc0_binary)
+        require(
+            execution_domain.get("complete") is True,
+            "LOCAL-1 execution-domain evidence is incomplete",
+        )
     full_schedule = schedule(p, mode)
     require(type(shard_index) is int and type(shard_count) is int and
             shard_count >= 1 and 0 <= shard_index < shard_count,
@@ -275,6 +285,7 @@ def run(mode: str, output: Path, *, shard_index: int = 0, shard_count: int = 1,
                 "status": "running", "planned_jobs": expected,
                 "jobs": [], "failures": [], "prerequisites": [],
                 "host": {"system": list(os.uname()), "logical_cpus": os.cpu_count()},
+                "execution_domain": execution_domain,
                 "clock_regime": "same tournament clock; NOT equal aggregate compute",
                 "control": "allfather-anchor is one Stockfish process through the legacy native-clock shell"}
     inputs = input_paths(p, policy_file)

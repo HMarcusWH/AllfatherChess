@@ -11,6 +11,7 @@ from controller.replay import discover_replay_bundles,load_manifest,verify_bundl
 from controller.counterfactual import verify_counterfactual_integrity
 from controller.final_decision import load_final_decision_artifact,verify_final_decision_integrity
 from tests.harness.uci_session import UciSession
+from tools.engine_opt.report import execution_identity
 
 POLICY=ROOT/"qualification/online-hybrid-v2.json"
 REFERENCE_POLICY=ROOT/"qualification/online-engine-opt-v2.json"
@@ -95,8 +96,13 @@ def main(*,static_only:bool=False)->int:
         require((manifest.get("outward_decision") or {}).get("emitted_move")==moves[0],f"{label}: manifest/UCI move mismatch")
         winner=record; break
     require(winner is not None,"no predeclared ENGINE-OPT real-backend case demonstrated non-anchor HYBRID "+json.dumps(records,sort_keys=True))
+    lc0_instance=config["shadow"]["instance_by_owner"]["lc0"]
+    lc0_binary=(ROOT/config["instances"][lc0_instance]["binary"]).resolve()
+    execution=execution_identity(lc0_binary)
+    require(execution.get("complete") is True,"G3-v2 execution-domain evidence is incomplete")
     RESULT.mkdir(parents=True,exist_ok=True)
-    report={"schema_version":1,"profile_id":policy["profile_id"],"passed":True,"positive_case":winner,"cases":records,
+    report={"schema_version":2,"profile_id":policy["profile_id"],"passed":True,"positive_case":winner,"cases":records,
+            "execution_domain":execution,
             "claim":"G3-v2 authority integration only; no Elo, superiority, or deployment claim."}
     (RESULT/"report.json").write_text(json.dumps(report,indent=2,sort_keys=True)+"\n",encoding="utf-8")
     print("G3-v2 qualification passed:",json.dumps(report,sort_keys=True)); return 0

@@ -7,11 +7,13 @@ import json
 import os
 import platform
 import subprocess
+import sys
 from pathlib import Path
 
-from controller.host_capabilities import discover_host_capabilities
-
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+
+from controller.host_capabilities import discover_host_capabilities
 
 BUILD_PACKAGES = (
     "meson",

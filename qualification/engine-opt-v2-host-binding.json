@@ -42,5 +42,20 @@
     "elo": false,
     "equal_compute": false,
     "deployment": false
+  },
+  "current_domain_bound_qualification": {
+    "pull_request": 49,
+    "qualified_head": "3de528e5a1a5a3609e0c293a80296ddc4a006875",
+    "merge_commit": "0ff86cc53d336780fa0d0566fe0ee414a7b70f3b",
+    "aggregate_workflow_run": 36589207658,
+    "aggregate_artifact_id": 11047727810,
+    "aggregate_artifact_sha256": "efd4f3b0ba3d119ad558d3b81072f3e5f9e81aa1b34d627c6ba890d64303f35b",
+    "aggregate_report_sha256": "b4f1de8f4ae338ba19350acdddf570c43b55fa08d7274e791c1a4eeab5bf6943",
+    "qualification_disposition": "QUALIFIED_EXACT_HOST_ONLY",
+    "binding_scope": "exact_host_observation",
+    "execution_domain_id": "exec-domain/9284bde03da0ebd1677f",
+    "execution_domain_digest": "9284bde03da0ebd1677fafa4a5078c00cc842f0b3b5ea8079c6f7989189199af",
+    "generic_host_portability_established": false,
+    "note": "This is the first post-J2 qualification whose LC0 matrix, G3-v2 authority evidence, LOCAL-1-v2 lifecycle evidence and candidate artifact identity were all bound to one reconstructed execution domain."
   }
 }

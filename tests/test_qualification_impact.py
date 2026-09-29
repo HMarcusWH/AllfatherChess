@@ -21,6 +21,22 @@ class QualificationImpactTests(unittest.TestCase):
         paths = sorted(module.CONTROL_PLANE_ONLY)
         self.assertEqual(module.classify(paths), "control_plane_only")
 
+    def test_execution_domain_repair_surface_is_qualification_only(self):
+        paths = sorted(module.QUALIFICATION_INFRA_ONLY)
+        self.assertEqual(
+            module.classify(paths),
+            "qualification_infra_only",
+        )
+        mixed = [
+            "controller/host_capabilities.py",
+            "controller/runtime_substrate.py",
+            ".github/workflows/engine-optimization.yml",
+        ]
+        self.assertEqual(
+            module.classify(mixed),
+            "qualification_infra_only",
+        )
+
     def test_runtime_controller_change_is_not_exempt(self):
         self.assertEqual(
             module.classify(["controller/runtime.py"]),

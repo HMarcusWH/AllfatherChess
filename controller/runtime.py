@@ -1819,12 +1819,18 @@ class BackendManager:
                 f"{instance}: commanded effective options differ from sealed profile"
             )
         profile = catalog.profile(profile_id)
+        resource_digest = self.resource_state_digest(instance)
+        if self._resource_control is not None and resource_digest is None:
+            raise RuntimeError(
+                f"{instance}: bound resource controller has no verified placement state"
+            )
         return {
             "profile_id": profile_id,
             "profile_digest": profile.digest,
             "phase": phase,
             "effective_options_digest": _canonical_digest(current),
             "profile_catalog_digest": catalog.digest,
+            "resource_state_digest": resource_digest,
             "authority": {
                 "resource_profile": True,
                 "resource_authorization": False,

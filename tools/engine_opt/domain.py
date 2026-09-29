@@ -43,8 +43,22 @@ def sha256_file(path: Path | str) -> str:
 
 
 def _json_object(path: Path | str) -> dict[str, Any]:
+    def reject_constant(value: str):
+        raise ExecutionDomainError(f"{path}: non-finite JSON constant: {value}")
+
+    def unique_object(pairs):
+        out: dict[str, Any] = {}
+        for key, value in pairs:
+            require(key not in out, f"{path}: duplicate JSON key: {key}")
+            out[key] = value
+        return out
+
     try:
-        value = json.loads(Path(path).read_text(encoding="utf-8"))
+        value = json.loads(
+            Path(path).read_text(encoding="utf-8"),
+            parse_constant=reject_constant,
+            object_pairs_hook=unique_object,
+        )
     except (OSError, json.JSONDecodeError) as exc:
         raise ExecutionDomainError(f"{path}: cannot load JSON: {exc}") from exc
     require(isinstance(value, dict), f"{path}: JSON root must be an object")
@@ -159,8 +173,31 @@ def validate_execution_domain(
     require(raw.get("schema_version") == 1, "unsupported execution-domain schema")
     require(raw.get("version") == EXECUTION_DOMAIN_VERSION, "unsupported execution-domain version")
 
+    allowed = {
+        "schema_version",
+        "version",
+        "binding_scope",
+        "source_commit",
+        "host_capabilities",
+        "host_capability_id",
+        "host_capability_digest",
+        "host_qualification_domain_complete",
+        "host_qualification_domain_id",
+        "host_qualification_domain_digest",
+        "runtime_substrate",
+        "runtime_substrate_complete",
+        "runtime_substrate_id",
+        "runtime_substrate_digest",
+        "execution_domain_id",
+        "execution_domain_digest",
+        "generic_host_portability_eligible",
+        "claim_boundary",
+        "content_sha256",
+    }
+    require(set(raw) == allowed, "execution-domain fields differ from frozen schema")
+
     content_sha = raw.get("content_sha256")
-    require(isinstance(content_sha, str) and len(content_sha) == 64, "execution-domain seal missing")
+    require(isinstance(content_sha, str) and re.fullmatch(r"[0-9a-f]{64}", content_sha) is not None, "execution-domain seal missing")
     core = dict(raw)
     core.pop("content_sha256", None)
     require(canonical_digest(core) == content_sha, "execution-domain seal does not verify")

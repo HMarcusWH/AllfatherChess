@@ -114,8 +114,9 @@ def main()->int:
         if per_repeat:
             summaries[profile]=per_repeat[0]
     payload={
-      "schema_version":1,"kind":"lc0-cpu-runtime-matrix","source":source_identity(ROOT),
-      "host":host_identity(),"binary":{"path":str(args.binary),"sha256":sha256(args.binary)},
+      "schema_version":1,"kind":"lc0-cpu-runtime-matrix","source":source,
+      "host":host_identity(),"execution_domain":execution_domain,
+      "binary":{"path":str(args.binary),"sha256":sha256(args.binary)},
       "weights":{"path":str(args.weights),"sha256":sha256(args.weights)},
       "uci_args":["--show-hidden"],"nodes":args.nodes,"deadline_ms":args.deadline_ms,
       "profiles":[name for name,_,_ in PROFILES],"rows":rows,"summaries":summaries,

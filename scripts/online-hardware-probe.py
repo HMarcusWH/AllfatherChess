@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Record host/toolchain identity for ONLINE-2 qualification."""
 from __future__ import annotations
-import json,os,platform,subprocess
+import json,os,platform,subprocess,sys
 from pathlib import Path
-from controller.host_capabilities import discover_host_capabilities
 ROOT=Path(__file__).resolve().parent.parent
+sys.path.insert(0,str(ROOT))
+from controller.host_capabilities import discover_host_capabilities
 def command(*args):
     try: return subprocess.check_output(args,text=True,stderr=subprocess.DEVNULL).strip()
     except (OSError,subprocess.CalledProcessError): return None

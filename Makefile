@@ -75,12 +75,14 @@ orchestration-host-tests:
 	python3 tests/adapters/test_linux_host.py
 	python3 tests/controller/test_host_capabilities.py
 	python3 tests/controller/test_host_pressure.py
+	python3 tests/test_hardware_probe_j2.py
 	python3 tests/test_qualification_impact.py
 
 controller-tests:
 	python3 tests/adapters/test_linux_host.py
 	python3 tests/controller/test_host_capabilities.py
 	python3 tests/controller/test_host_pressure.py
+	python3 tests/test_hardware_probe_j2.py
 	python3 tests/test_qualification_impact.py
 	python3 tests/controller/test_resource_profiles.py
 	python3 tests/controller/test_game_environment.py

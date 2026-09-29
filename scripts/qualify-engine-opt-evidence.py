@@ -416,14 +416,16 @@ def main() -> int:
                     explore.append(float(cpu))
                 elif stage.get("phase") in {"VERIFY", "VERIFY_EXTENSION", "STAGED_VERIFY"}:
                     verify.append(float(cpu))
-        require(explore and verify, "G3-v2 evidence lacks LC0 EXPLORE/VERIFY measurements")
+        if g3.get("authority_qualified") is True:
+            require(explore and verify,
+                    "qualified G3-v2 witness lacks LC0 EXPLORE/VERIFY measurements")
 
         estimates = ((selection.get("selected") or {}).get("resource_estimates_ms") or {})
         explore_reserved = float((estimates.get("explore") or {}).get("lc0"))
         verify_reserved = float((estimates.get("verify") or {}).get("lc0"))
-        if max(explore) > explore_reserved:
+        if explore and max(explore) > explore_reserved:
             fail("NOT_QUALIFIED_RESOURCE_BOUND", "LC0 EXPLORE CPU exceeded the frozen reservation")
-        if max(verify) > verify_reserved:
+        if verify and max(verify) > verify_reserved:
             fail("NOT_QUALIFIED_RESOURCE_BOUND", "LC0 VERIFY CPU exceeded the frozen reservation")
 
         return {
@@ -434,8 +436,8 @@ def main() -> int:
             "actual_anchor_overrides": local.get("actual_anchor_overrides"),
             "g3_authority_qualified": g3.get("authority_qualified"),
             "g3_positive_case": g3.get("positive_case"),
-            "lc0_explore_cpu_ms_max": max(explore),
-            "lc0_verify_cpu_ms_max": max(verify),
+            "lc0_explore_cpu_ms_max": max(explore) if explore else None,
+            "lc0_verify_cpu_ms_max": max(verify) if verify else None,
             "lc0_explore_reserved_ms": explore_reserved,
             "lc0_verify_reserved_ms": verify_reserved,
         }

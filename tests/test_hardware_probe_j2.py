@@ -50,6 +50,20 @@ class HardwareProbeJ2Tests(unittest.TestCase):
         self.assertIs(type(ticks), int)
         self.assertGreater(ticks, 0)
 
+        substrate = data.get("runtime_substrate")
+        self.assertIsInstance(substrate, dict)
+        self.assertEqual(substrate.get("authority"), {
+            "resource_context": True,
+            "resource_authorization": False,
+            "outward_move": False,
+        })
+        substrate_id = data.get("runtime_substrate_id")
+        substrate_digest = data.get("runtime_substrate_digest")
+        self.assertRegex(
+            substrate_id, r"^runtime-substrate/[0-9a-f]{20}$"
+        )
+        self.assertRegex(substrate_digest, r"^[0-9a-f]{64}$")
+
         commit = data.get("commit_sha")
         self.assertIsInstance(commit, str)
         self.assertRegex(commit, r"^[0-9a-f]{40}$")

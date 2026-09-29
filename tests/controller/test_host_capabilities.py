@@ -125,6 +125,18 @@ class HostCapabilitiesTests(unittest.TestCase):
         self.assertIsNone(item.allowed_cpus)
         self.assertEqual(item.host_class, "unknown")
 
+    def test_capacity_complete_cannot_be_forged(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            item = build_host_capabilities(
+                synthetic_provider(Path(tmp)).observe_capabilities()
+            )
+        raw = item.as_dict()
+        forged = copy.deepcopy(raw)
+        forged["allowed_cpus"] = None
+        forged["capacity_complete"] = True
+        with self.assertRaises(OrchestrationContractError):
+            HostCapabilities.from_dict(forged)
+
     def test_unknown_serialized_field_or_authority_escalation_is_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
             item = build_host_capabilities(

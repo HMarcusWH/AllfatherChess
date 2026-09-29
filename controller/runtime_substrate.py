@@ -180,6 +180,7 @@ class RuntimeSubstrate:
             and self.libc_version != "unknown"
             and set(package_names) >= set(_DEFAULT_PACKAGES)
             and self.linked_libraries
+            and not self.faults
         )
         if self.complete != expected_complete:
             raise OrchestrationContractError(

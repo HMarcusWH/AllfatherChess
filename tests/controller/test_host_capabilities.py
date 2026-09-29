@@ -224,6 +224,63 @@ class HostCapabilitiesTests(unittest.TestCase):
             intel.qualification_domain_id,
         )
 
+    def test_heterogeneous_effective_cpu_flags_block_domain(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            provider = synthetic_provider(root)
+            text = (root / "proc" / "cpuinfo").read_text(encoding="utf-8")
+            # Remove AVX2 from exactly one effective CPU block.
+            blocks = text.strip().split("\n\n")
+            blocks[1] = blocks[1].replace(
+                "flags: fpu sse sse2 avx avx2",
+                "flags: fpu sse sse2 avx",
+            )
+            (root / "proc" / "cpuinfo").write_text(
+                "\n\n".join(blocks) + "\n",
+                encoding="utf-8",
+            )
+            item = build_host_capabilities(
+                provider.observe_capabilities()
+            )
+        self.assertFalse(item.cpu_identity_complete)
+        self.assertFalse(item.qualification_domain_complete)
+        self.assertIsNone(item.qualification_domain_id)
+        self.assertTrue(
+            any(
+                "heterogeneous-feature-flags" in fault
+                for fault in item.faults
+            )
+        )
+
+    def test_heterogeneous_microcode_blocks_domain(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            provider = synthetic_provider(root)
+            text = (root / "proc" / "cpuinfo").read_text(encoding="utf-8")
+            blocks = text.strip().split("\n\n")
+            blocks[0] += "\nmicrocode: 0x1"
+            blocks[1] += "\nmicrocode: 0x2"
+            blocks[2] += "\nmicrocode: 0x1"
+            blocks[3] += "\nmicrocode: 0x1"
+            for index in range(4, len(blocks)):
+                blocks[index] += "\nmicrocode: 0x1"
+            (root / "proc" / "cpuinfo").write_text(
+                "\n\n".join(blocks) + "\n",
+                encoding="utf-8",
+            )
+            item = build_host_capabilities(
+                provider.observe_capabilities()
+            )
+        self.assertFalse(item.cpu_identity_complete)
+        self.assertFalse(item.qualification_domain_complete)
+        self.assertIsNone(item.qualification_domain_id)
+        self.assertTrue(
+            any(
+                "heterogeneous-microcode" in fault
+                for fault in item.faults
+            )
+        )
+
     def test_cgroup_path_name_changes_exact_id_but_not_domain(self):
         with (
             tempfile.TemporaryDirectory() as first_tmp,

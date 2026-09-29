@@ -8,6 +8,7 @@ from tools.engine_opt.corpus import load_epd
 from tools.engine_opt.runner import run_case
 from tools.engine_opt.compare import summarize
 from tools.engine_opt.report import host_identity,source_identity,sha256,write_report
+from tools.engine_opt.domain import load_execution_domain
 
 PROFILES=(
  ("v1-current-cold",{"NNCacheSize":0,"MinibatchSize":32,"MaxPrefetch":32,"AdaptivePrefetch":False},None),

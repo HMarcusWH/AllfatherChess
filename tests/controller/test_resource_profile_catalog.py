@@ -17,6 +17,7 @@ from controller.resource_profile_catalog import (
     ResourceProfileCatalogError,
     load_resource_profile_catalog,
 )
+from controller.resource_profiles import OrchestrationContractError
 
 
 CATALOG = ROOT / "qualification/resource-profile-catalog-v1.json"
@@ -123,7 +124,7 @@ class ResourceProfileCatalogTests(unittest.TestCase):
     def test_unknown_hidden_field_is_rejected(self):
         raw = load(CATALOG)
         raw["authorized_move"] = "e2e4"
-        with self.assertRaises(ResourceProfileCatalogError):
+        with self.assertRaises(OrchestrationContractError):
             ResourceProfileCatalog.from_dict(raw)
 
     def test_one_unit_profile_or_policy_drift_breaks_v2_equivalence(self):

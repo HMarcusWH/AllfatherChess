@@ -15,6 +15,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
+from adapters.resource.linux_affinity import LinuxAffinityError, LinuxAffinityProvider
+from controller.decision import canonical_digest
+from controller.host_capabilities import HOST_CAPABILITIES_VERSION, HostCapabilities, NumaNodeObservation
+from controller.resource_control import ResourceControlError, ResourceController
 from controller.resource_profile_catalog import ResourceProfileCatalog
 from controller.runtime import BackendManager, RuntimeError
 from tests.controller.test_shadow_runtime import write_shadow_config
@@ -258,6 +262,55 @@ def make_catalog(config_path: Path, *, binary_override: str | None = None) -> Re
     return ResourceProfileCatalog.from_dict(raw)
 
 
+def observed_host() -> HostCapabilities:
+    flags = ("avx", "avx2", "fpu", "sse", "sse2")
+    cpus = (0, 1, 2, 3)
+    return HostCapabilities(
+        version=HOST_CAPABILITIES_VERSION,
+        provider_id="linux-host-v2",
+        platform="linux",
+        architecture="x86_64",
+        os_visible_logical_cpus=4,
+        affinity_cpus=cpus,
+        cgroup_cpuset_effective=cpus,
+        allowed_cpus=cpus,
+        cpu_vendor_id="AuthenticAMD",
+        cpu_family=25,
+        cpu_model=1,
+        cpu_stepping=1,
+        cpu_model_name="AMD test",
+        cpu_microcode="0x1",
+        cpu_flags_intersection=flags,
+        cpu_feature_digest=canonical_digest(list(flags)),
+        cpu_identity_complete=True,
+        cpu_quota_status="unknown",
+        cpu_quota_equivalents=None,
+        cpu_quota_observations=(),
+        physical_core_count=4,
+        smt_width=1,
+        topology_complete=True,
+        numa_nodes=(NumaNodeObservation(0, cpus),),
+        numa_complete=True,
+        physical_memory_bytes=8 * 1024**3,
+        cgroup_memory_status="unknown",
+        cgroup_memory_limit_bytes=None,
+        effective_memory_limit_bytes=8 * 1024**3,
+        memory_limit_observations=(),
+        accelerator_detection_complete=False,
+        accelerators=(),
+        capacity_complete=False,
+        qualification_domain_complete=False,
+        faults=("cpu.max:root:OSError:2",),
+    )
+
+
+class FailingObservedProvider:
+    provider_id = "failing-observed-v1"
+
+    def inspect_tree_affinity(self, pid: int):
+        raise LinuxAffinityError("synthetic placement observation failure")
+
+
 class RuntimeProfileTests(unittest.TestCase):
     def bind(self, manager: BackendManager, catalog: ResourceProfileCatalog) -> None:
         manager.bind_resource_catalog(
@@ -425,6 +478,70 @@ class RuntimeProfileTests(unittest.TestCase):
                     manager.assert_effective_profile("lc0-shadow")
             finally:
                 manager.close()
+
+    def test_observed_resource_control_binds_verified_state_to_profiles(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config = prepare_config(Path(tmp))
+            manager = BackendManager.from_path(config)
+            catalog = make_catalog(config)
+            self.bind(manager, catalog)
+            control = ResourceController.from_catalog(
+                host=observed_host(),
+                catalog=catalog,
+                provider=LinuxAffinityProvider(),
+            )
+            manager.bind_resource_control(control)
+            manager.start()
+            try:
+                for instance in manager.config.backends:
+                    state = manager.resource_state(instance)
+                    self.assertIsNotNone(state)
+                    assert state is not None
+                    self.assertFalse(state.enforced)
+                    assertion = manager.assert_effective_profile(instance)
+                    self.assertEqual(
+                        assertion["resource_state_digest"],
+                        state.digest,
+                    )
+                verified = manager.verify_resource_layout()
+                self.assertEqual(set(verified), set(manager.config.backends))
+            finally:
+                manager.close()
+
+    def test_resource_control_failure_aborts_composition_before_profile_seal(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config = prepare_config(Path(tmp))
+            manager = BackendManager.from_path(config)
+            catalog = make_catalog(config)
+            self.bind(manager, catalog)
+            control = ResourceController.from_catalog(
+                host=observed_host(),
+                catalog=catalog,
+                provider=FailingObservedProvider(),
+            )
+            manager.bind_resource_control(control)
+            with self.assertRaises(ResourceControlError):
+                manager.start()
+            self.assertIsNone(manager.effective_profile_id("stockfish-anchor"))
+            self.assertIsNone(manager.resource_state("stockfish-anchor"))
+
+    def test_close_discards_pid_bound_resource_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config = prepare_config(Path(tmp))
+            manager = BackendManager.from_path(config)
+            catalog = make_catalog(config)
+            self.bind(manager, catalog)
+            manager.bind_resource_control(
+                ResourceController.from_catalog(
+                    host=observed_host(),
+                    catalog=catalog,
+                    provider=LinuxAffinityProvider(),
+                )
+            )
+            manager.start()
+            self.assertIsNotNone(manager.resource_state_digest("stockfish-anchor"))
+            manager.close()
+            self.assertIsNone(manager.resource_state("stockfish-anchor"))
 
     def test_legacy_runtime_requires_no_catalog(self):
         with tempfile.TemporaryDirectory() as tmp:

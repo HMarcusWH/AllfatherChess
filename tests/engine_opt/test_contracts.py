@@ -41,6 +41,21 @@ class EngineOptContractTests(unittest.TestCase):
         self.assertEqual(s["qualification"]["baseline_profile"],"v1-current-cold")
         self.assertEqual(s["qualification"]["corpus_cases"],8)
 
+    def test_historical_host_binding_is_explicitly_legacy_unbound(self):
+        binding=load_json(ROOT/"qualification/engine-opt-v2-host-binding.json")
+        self.assertEqual(binding["profile_id"],"engine-opt-v2")
+        self.assertEqual(
+            binding["historical_qualification"]["qualified_head"],
+            "085420843b95f3f2dd206fc1c66bf642cbd49b6d",
+        )
+        self.assertEqual(binding["host_binding"]["qualification_domain"],"legacy_unbound")
+        self.assertEqual(binding["host_binding"]["runtime_substrate"],"legacy_unbound")
+        self.assertFalse(binding["host_binding"]["generic_host_portability_established"])
+        self.assertFalse(binding["host_binding"]["selection_eligible_on_unmatched_host"])
+        self.assertEqual(binding["post_j2_diagnostic"]["pull_request"],48)
+        self.assertEqual(binding["post_j2_diagnostic"]["diagnosis"],"WITHIN_BINARY_INSTABILITY")
+        self.assertFalse(binding["claim_boundary"]["generic_host_portability_established"])
+
     def test_corpus_is_frozen_and_nonempty(self):
         rows=load_epd(ROOT/"tests/fixtures/engine_opt/positions.epd")
         self.assertGreaterEqual(len(rows),8)

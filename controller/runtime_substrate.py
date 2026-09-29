@@ -165,12 +165,12 @@ class RuntimeSubstrate:
         if not isinstance(self.complete, bool):
             raise OrchestrationContractError("runtime substrate complete must be boolean")
         expected_complete = bool(
-            self.os_id
-            and self.os_version
-            and self.kernel_release
-            and self.libc_name
-            and self.libc_version
-            and self.packages
+            self.os_id != "unknown"
+            and self.os_version != "unknown"
+            and self.kernel_release != "unknown"
+            and self.libc_name != "unknown"
+            and self.libc_version != "unknown"
+            and set(package_names) >= set(_DEFAULT_PACKAGES)
             and self.linked_libraries
         )
         if self.complete != expected_complete:

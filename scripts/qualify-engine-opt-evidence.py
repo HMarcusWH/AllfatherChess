@@ -159,6 +159,10 @@ def main() -> int:
         candidate = report.get("candidate_bundle")
         require(isinstance(candidate, dict), "candidate bundle identity missing from report")
         require(candidate.get("source_commit") == source, "candidate bundle source is not exact head")
+        require(
+            report.get("bundle_manifest_sha256") == candidate.get("build_manifest_sha256"),
+            "candidate report/build-manifest identity is internally inconsistent",
+        )
         return {
             "bundle": candidate,
             "bundle_manifest_sha256": report.get("bundle_manifest_sha256"),

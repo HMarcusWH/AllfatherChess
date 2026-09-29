@@ -10,6 +10,7 @@ from __future__ import annotations
 import math
 import os
 import platform as _platform
+import re
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Callable
@@ -47,6 +48,23 @@ class CpuTopologyFact:
 
 
 @dataclass(frozen=True)
+class CpuIdentityFact:
+    cpu: int
+    vendor_id: str
+    family: int
+    model: int
+    stepping: int
+    model_name: str
+    flags: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class NumaNodeFact:
+    node_id: int
+    cpus: tuple[int, ...]
+
+
+@dataclass(frozen=True)
 class PsiLineFact:
     kind: str
     avg10: float
@@ -77,6 +95,10 @@ class LinuxHostFacts:
     physical_memory_bytes: int | None
     topology: tuple[CpuTopologyFact, ...]
     topology_complete: bool
+    cpu_identity: tuple[CpuIdentityFact, ...]
+    cpu_identity_complete: bool
+    numa_nodes: tuple[NumaNodeFact, ...]
+    numa_complete: bool
     faults: tuple[str, ...]
 
 
@@ -94,7 +116,8 @@ class LinuxPressureFacts:
 class LinuxHostProvider:
     """Observe effective Linux host facts without third-party dependencies."""
 
-    provider_id = "linux-host-v1"
+    provider_id = "linux-host-v2"
+    _NODE_RE = re.compile(r"^node([0-9]+)$")
 
     def __init__(
         self,
@@ -165,7 +188,9 @@ class LinuxHostProvider:
         if quota_raw == "max":
             return None, period
         if not quota_raw.isdigit() or int(quota_raw) <= 0:
-            raise LinuxHostProviderError("cpu.max quota must be 'max' or positive integer")
+            raise LinuxHostProviderError(
+                "cpu.max quota must be 'max' or positive integer"
+            )
         return int(quota_raw), period
 
     @staticmethod
@@ -213,9 +238,74 @@ class LinuxHostProvider:
             unit = parts[2].lower() if len(parts) > 2 else "b"
             scale = {"b": 1, "kb": 1024, "mb": 1024**2, "gb": 1024**3}.get(unit)
             if scale is None:
-                raise LinuxHostProviderError(f"unsupported MemTotal unit: {unit!r}")
+                raise LinuxHostProviderError(
+                    f"unsupported MemTotal unit: {unit!r}"
+                )
             return value * scale
         raise LinuxHostProviderError("MemTotal missing from meminfo")
+
+    @staticmethod
+    def parse_cpuinfo(text: str) -> tuple[CpuIdentityFact, ...]:
+        rows: list[CpuIdentityFact] = []
+        seen: set[int] = set()
+        blocks = [block for block in text.split("\n\n") if block.strip()]
+        if not blocks:
+            raise LinuxHostProviderError("/proc/cpuinfo contains no processor blocks")
+        for block in blocks:
+            fields: dict[str, str] = {}
+            for line in block.splitlines():
+                if ":" not in line:
+                    continue
+                key, value = line.split(":", 1)
+                fields[key.strip().lower()] = value.strip()
+            if "processor" not in fields:
+                continue
+            if not fields["processor"].isdigit():
+                raise LinuxHostProviderError("cpuinfo processor id is not numeric")
+            cpu = int(fields["processor"])
+            if cpu in seen:
+                raise LinuxHostProviderError(f"duplicate cpuinfo processor id: {cpu}")
+            seen.add(cpu)
+            required = {
+                "vendor_id": "vendor_id",
+                "cpu family": "family",
+                "model": "model",
+                "stepping": "stepping",
+                "model name": "model_name",
+            }
+            missing = [source for source in required if not fields.get(source)]
+            if missing:
+                raise LinuxHostProviderError(
+                    f"cpuinfo processor {cpu} missing fields: {missing}"
+                )
+            numeric: dict[str, int] = {}
+            for source in ("cpu family", "model", "stepping"):
+                raw = fields[source]
+                if not raw.isdigit():
+                    raise LinuxHostProviderError(
+                        f"cpuinfo processor {cpu} has non-numeric {source}"
+                    )
+                numeric[source] = int(raw)
+            flags_raw = fields.get("flags") or fields.get("features") or ""
+            flags = tuple(sorted(set(flags_raw.split())))
+            if not flags:
+                raise LinuxHostProviderError(
+                    f"cpuinfo processor {cpu} has no feature flags"
+                )
+            rows.append(
+                CpuIdentityFact(
+                    cpu=cpu,
+                    vendor_id=fields["vendor_id"],
+                    family=numeric["cpu family"],
+                    model=numeric["model"],
+                    stepping=numeric["stepping"],
+                    model_name=fields["model name"],
+                    flags=flags,
+                )
+            )
+        if not rows:
+            raise LinuxHostProviderError("/proc/cpuinfo has no usable processor records")
+        return tuple(sorted(rows, key=lambda item: item.cpu))
 
     @staticmethod
     def parse_psi(text: str) -> PsiFact:
@@ -248,7 +338,9 @@ class LinuxHostProvider:
                 except ValueError as exc:
                     raise LinuxHostProviderError(f"invalid PSI {key}") from exc
                 if not math.isfinite(number) or number < 0:
-                    raise LinuxHostProviderError(f"PSI {key} must be finite/non-negative")
+                    raise LinuxHostProviderError(
+                        f"PSI {key} must be finite/non-negative"
+                    )
                 avgs.append(0.0 if number == 0.0 else number)
             if not values["total"].isdigit():
                 raise LinuxHostProviderError("PSI total must be non-negative integer")
@@ -310,6 +402,79 @@ class LinuxHostProvider:
         except Exception as exc:
             return None, self._stable_fault("proc-self-cgroup", exc)
 
+    def _observe_cpu_identity(
+        self, candidate_cpus: tuple[int, ...] | None, faults: list[str]
+    ) -> tuple[tuple[CpuIdentityFact, ...], bool]:
+        if candidate_cpus is None:
+            return (), False
+        text, fault = self._read_text(self.proc_root / "cpuinfo", "cpuinfo")
+        if text is None:
+            if fault:
+                faults.append(fault)
+            return (), False
+        try:
+            all_rows = self.parse_cpuinfo(text)
+        except Exception as exc:
+            faults.append(self._stable_fault("cpuinfo", exc))
+            return (), False
+        by_cpu = {row.cpu: row for row in all_rows}
+        rows = tuple(by_cpu[cpu] for cpu in candidate_cpus if cpu in by_cpu)
+        complete = len(rows) == len(candidate_cpus)
+        if not complete:
+            faults.append("cpuinfo:incomplete-for-effective-cpuset")
+        return rows, complete
+
+    def _observe_numa(
+        self, candidate_cpus: tuple[int, ...] | None, faults: list[str]
+    ) -> tuple[tuple[NumaNodeFact, ...], bool]:
+        if candidate_cpus is None:
+            return (), False
+        node_root = self.sys_root / "devices" / "system" / "node"
+        try:
+            entries = sorted(node_root.iterdir(), key=lambda path: path.name)
+        except OSError as exc:
+            faults.append(self._stable_fault("numa", exc))
+            return (), False
+
+        candidate = set(candidate_cpus)
+        nodes: list[NumaNodeFact] = []
+        seen: set[int] = set()
+        complete = True
+        for entry in entries:
+            match = self._NODE_RE.fullmatch(entry.name)
+            if match is None or not entry.is_dir():
+                continue
+            text, fault = self._read_text(entry / "cpulist", f"numa:{entry.name}")
+            if text is None:
+                complete = False
+                if fault:
+                    faults.append(fault)
+                continue
+            try:
+                cpus = tuple(
+                    cpu for cpu in self.parse_cpu_list(text) if cpu in candidate
+                )
+            except Exception as exc:
+                complete = False
+                faults.append(self._stable_fault(f"numa:{entry.name}", exc))
+                continue
+            if not cpus:
+                continue
+            overlap = seen.intersection(cpus)
+            if overlap:
+                complete = False
+                faults.append(
+                    f"numa:{entry.name}:overlapping-effective-cpus:{sorted(overlap)}"
+                )
+            seen.update(cpus)
+            nodes.append(NumaNodeFact(int(match.group(1)), tuple(sorted(cpus))))
+        if seen != candidate:
+            complete = False
+            faults.append("numa:effective-cpuset-not-fully-mapped")
+        if not nodes:
+            complete = False
+        return tuple(sorted(nodes, key=lambda item: item.node_id)), complete
+
     def observe_capabilities(self) -> LinuxHostFacts:
         faults: list[str] = []
 
@@ -320,7 +485,9 @@ class LinuxHostProvider:
             if not isinstance(platform_raw, str) or not platform_raw:
                 raise LinuxHostProviderError("platform reader returned invalid platform")
             if not isinstance(arch_raw, str) or not arch_raw:
-                raise LinuxHostProviderError("platform reader returned invalid architecture")
+                raise LinuxHostProviderError(
+                    "platform reader returned invalid architecture"
+                )
             platform_name = platform_raw.lower()
             architecture = arch_raw.lower()
         except Exception as exc:
@@ -329,8 +496,14 @@ class LinuxHostProvider:
         visible: int | None = None
         try:
             raw_count = self._cpu_count_reader()
-            if isinstance(raw_count, bool) or not isinstance(raw_count, int) or raw_count <= 0:
-                raise LinuxHostProviderError("os cpu count must be positive integer")
+            if (
+                isinstance(raw_count, bool)
+                or not isinstance(raw_count, int)
+                or raw_count <= 0
+            ):
+                raise LinuxHostProviderError(
+                    "os cpu count must be positive integer"
+                )
             visible = raw_count
         except Exception as exc:
             faults.append(self._stable_fault("os-cpu-count", exc))
@@ -341,10 +514,15 @@ class LinuxHostProvider:
             if raw_affinity is None:
                 raise LinuxHostProviderError("affinity unavailable")
             values = tuple(raw_affinity)
-            if any(isinstance(cpu, bool) or not isinstance(cpu, int) or cpu < 0 for cpu in values):
+            if any(
+                isinstance(cpu, bool) or not isinstance(cpu, int) or cpu < 0
+                for cpu in values
+            ):
                 raise LinuxHostProviderError("affinity contains invalid CPU id")
             if len(values) != len(set(values)) or not values:
-                raise LinuxHostProviderError("affinity must be non-empty and unique")
+                raise LinuxHostProviderError(
+                    "affinity must be non-empty and unique"
+                )
             affinity = tuple(sorted(values))
         except Exception as exc:
             faults.append(self._stable_fault("affinity", exc))
@@ -386,7 +564,9 @@ class LinuxHostProvider:
                 faults.append(cpuset_fault)
 
             for label, path in chain:
-                cpu_text, cpu_fault = self._read_text(path / "cpu.max", f"cpu.max:{label}")
+                cpu_text, cpu_fault = self._read_text(
+                    path / "cpu.max", f"cpu.max:{label}"
+                )
                 if cpu_text is None:
                     cpu_complete = False
                     if cpu_fault:
@@ -397,7 +577,9 @@ class LinuxHostProvider:
                         cpu_chain.append(CpuMaxFact(label, quota, period))
                     except Exception as exc:
                         cpu_complete = False
-                        faults.append(self._stable_fault(f"cpu.max:{label}", exc))
+                        faults.append(
+                            self._stable_fault(f"cpu.max:{label}", exc)
+                        )
 
                 mem_text, mem_fault = self._read_text(
                     path / "memory.max", f"memory.max:{label}"
@@ -409,14 +591,20 @@ class LinuxHostProvider:
                 else:
                     try:
                         mem_chain.append(
-                            MemoryMaxFact(label, self.parse_memory_limit(mem_text))
+                            MemoryMaxFact(
+                                label, self.parse_memory_limit(mem_text)
+                            )
                         )
                     except Exception as exc:
                         mem_complete = False
-                        faults.append(self._stable_fault(f"memory.max:{label}", exc))
+                        faults.append(
+                            self._stable_fault(f"memory.max:{label}", exc)
+                        )
 
         physical_memory: int | None = None
-        meminfo, meminfo_fault = self._read_text(self.proc_root / "meminfo", "meminfo")
+        meminfo, meminfo_fault = self._read_text(
+            self.proc_root / "meminfo", "meminfo"
+        )
         if meminfo is None:
             if meminfo_fault:
                 faults.append(meminfo_fault)
@@ -430,12 +618,16 @@ class LinuxHostProvider:
         if affinity is not None and cpuset is not None:
             intersection = tuple(sorted(set(affinity).intersection(cpuset)))
             if not intersection:
-                faults.append("allowed-cpus:contradiction:affinity-cpuset-empty")
+                faults.append(
+                    "allowed-cpus:contradiction:affinity-cpuset-empty"
+                )
                 candidate_cpus = None
             else:
                 candidate_cpus = intersection
         else:
-            candidate_cpus = affinity if affinity is not None else cpuset
+            candidate_cpus = (
+                affinity if affinity is not None else cpuset
+            )
 
         topology: list[CpuTopologyFact] = []
         topology_complete = candidate_cpus is not None
@@ -450,8 +642,14 @@ class LinuxHostProvider:
                     / "topology"
                 )
                 values: dict[str, str] = {}
-                for key in ("physical_package_id", "core_id", "thread_siblings_list"):
-                    text, fault = self._read_text(root / key, f"topology:{cpu}:{key}")
+                for key in (
+                    "physical_package_id",
+                    "core_id",
+                    "thread_siblings_list",
+                ):
+                    text, fault = self._read_text(
+                        root / key, f"topology:{cpu}:{key}"
+                    )
                     if text is None:
                         topology_complete = False
                         if fault:
@@ -465,17 +663,30 @@ class LinuxHostProvider:
                     core = int(values["core_id"].strip())
                     if package < 0 or core < 0:
                         raise LinuxHostProviderError("negative topology id")
-                    siblings = self.parse_cpu_list(values["thread_siblings_list"])
+                    siblings = self.parse_cpu_list(
+                        values["thread_siblings_list"]
+                    )
                     if cpu not in siblings:
-                        raise LinuxHostProviderError("CPU absent from thread sibling set")
+                        raise LinuxHostProviderError(
+                            "CPU absent from thread sibling set"
+                        )
                     topology.append(
                         CpuTopologyFact(cpu, package, core, siblings)
                     )
                 except Exception as exc:
                     topology_complete = False
-                    faults.append(self._stable_fault(f"topology:{cpu}", exc))
+                    faults.append(
+                        self._stable_fault(f"topology:{cpu}", exc)
+                    )
         else:
             topology_complete = False
+
+        cpu_identity, cpu_identity_complete = self._observe_cpu_identity(
+            candidate_cpus, faults
+        )
+        numa_nodes, numa_complete = self._observe_numa(
+            candidate_cpus, faults
+        )
 
         return LinuxHostFacts(
             provider_id=self.provider_id,
@@ -491,9 +702,15 @@ class LinuxHostProvider:
             memory_max_complete=mem_complete and bool(chain),
             physical_memory_bytes=physical_memory,
             topology=tuple(sorted(topology, key=lambda item: item.cpu)),
-            topology_complete=topology_complete
-            and candidate_cpus is not None
-            and len(topology) == len(candidate_cpus),
+            topology_complete=(
+                topology_complete
+                and candidate_cpus is not None
+                and len(topology) == len(candidate_cpus)
+            ),
+            cpu_identity=cpu_identity,
+            cpu_identity_complete=cpu_identity_complete,
+            numa_nodes=numa_nodes,
+            numa_complete=numa_complete,
             faults=tuple(faults),
         )
 
@@ -512,7 +729,9 @@ class LinuxHostProvider:
                 faults.append(self._stable_fault(label, exc))
                 return None
 
-        system_cpu = read_psi(self.proc_root / "pressure" / "cpu", "psi:system:cpu")
+        system_cpu = read_psi(
+            self.proc_root / "pressure" / "cpu", "psi:system:cpu"
+        )
         system_memory = read_psi(
             self.proc_root / "pressure" / "memory", "psi:system:memory"
         )
@@ -527,7 +746,9 @@ class LinuxHostProvider:
         if membership is not None:
             try:
                 leaf = self._resolve_cgroup_path(membership)
-                cgroup_cpu = read_psi(leaf / "cpu.pressure", "psi:cgroup:cpu")
+                cgroup_cpu = read_psi(
+                    leaf / "cpu.pressure", "psi:cgroup:cpu"
+                )
                 cgroup_memory = read_psi(
                     leaf / "memory.pressure", "psi:cgroup:memory"
                 )
@@ -545,7 +766,9 @@ class LinuxHostProvider:
                         )
                     memory_current = int(raw)
             except Exception as exc:
-                faults.append(self._stable_fault("cgroup-pressure", exc))
+                faults.append(
+                    self._stable_fault("cgroup-pressure", exc)
+                )
 
         return LinuxPressureFacts(
             provider_id=self.provider_id,

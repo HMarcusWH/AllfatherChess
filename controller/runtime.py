@@ -2056,6 +2056,7 @@ class BackendManager:
                         except Exception:  # pragma: no cover - best effort
                             pass
             self.ready_all()
+            self._adopt_bound_startup_profiles()
             # ONLINE quiesce deadlines are passed explicitly to stop/search
             # operations. They must not redefine the process-wide UCI protocol
             # timeout: real BLAS LC0 can legitimately spend more than the
@@ -2165,9 +2166,14 @@ class BackendManager:
             lambda name, process: process.set_option("UCI_Chess960", enabled),
             label="UCI_Chess960 synchronization",
         )
+        self.ready_all()
         with self._lock:
             self._chess960 = bool(enabled)
-        self.ready_all()
+            for name, process in self.backends.items():
+                if process.alive:
+                    self._effective_options.setdefault(
+                        name, dict(self.spec(name).options)
+                    )["UCI_Chess960"] = bool(enabled)
 
     def new_game(self) -> None:
         self._require_healthy()
@@ -2175,9 +2181,18 @@ class BackendManager:
         with self._lock:
             self._position_command = None
         self.ready_all()
+        with self._lock:
+            for instance, profile_id in list(self._pending_profile_ids.items()):
+                self._effective_profile_ids[instance] = profile_id
+                self._effective_profile_phases[instance] = self._pending_profile_phases.get(
+                    instance
+                )
+            self._pending_profile_ids.clear()
+            self._pending_profile_phases.clear()
 
     def set_position(self, command: str) -> None:
         self._require_healthy()
+        self._require_profile_transition_sealed()
         self._for_each_instance(
             lambda name, process: process.send_position(command),
             label="position synchronization",
@@ -2429,6 +2444,7 @@ class BackendManager:
         on_observation_end: Callable[[int, str, int], None] | None = None,
     ) -> None:
         self._require_healthy()
+        self._require_profile_transition_sealed()
         if clock is not None:
             with self._lock:
                 previous = self._online_clock
@@ -2522,6 +2538,7 @@ class BackendManager:
         Only that outcome proves that no engine work occurred. Process/health
         failures remain distinct evidence and still quarantine the worker.
         """
+        self._require_profile_transition_sealed()
         spec = self.spec(instance)
         if spec.role != "shadow":
             raise RuntimeError(f"instance {instance!r} is not a shadow worker")
@@ -2633,3 +2650,7 @@ class BackendManager:
         finally:
             with self._lock:
                 self._started = False
+                self._effective_profile_ids.clear()
+                self._effective_profile_phases.clear()
+                self._pending_profile_ids.clear()
+                self._pending_profile_phases.clear()

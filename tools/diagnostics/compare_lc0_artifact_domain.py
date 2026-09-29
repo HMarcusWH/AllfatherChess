@@ -513,9 +513,13 @@ def validate_host_report(raw: dict[str, Any]) -> dict[str, Any]:
     except Exception as exc:
         raise DiagnosticError(f"host/substrate reconstruction failed: {exc}") from exc
 
-    require(host.qualification_domain_complete, "host qualification domain incomplete")
-    require(host.qualification_domain_id is not None, "host qualification domain id missing")
-    require(host.qualification_domain_digest is not None, "host qualification domain digest missing")
+    # This PR is a same-worker diagnostic, not a reusable-host qualification.
+    # A hosted runner may expose enough exact capability evidence to identify the
+    # concrete worker while still leaving the reusable qualification domain
+    # incomplete (for example when ancestor cgroup limit files are unavailable).
+    # Preserve that incompleteness as evidence instead of fabricating a domain or
+    # blocking the artifact-vs-domain experiment.  PR #49 remains responsible
+    # for repairing reusable execution-domain qualification.
     require(runtime.complete, "runtime substrate incomplete")
 
     require(
@@ -540,14 +544,30 @@ def validate_host_report(raw: dict[str, Any]) -> dict[str, Any]:
         "runtime substrate digest does not independently reconstruct",
     )
 
-    require(
-        _HOST_DOMAIN.fullmatch(host.qualification_domain_id) is not None,
-        "host domain id shape invalid",
-    )
-    require(
-        _HEX64.fullmatch(host.qualification_domain_digest) is not None,
-        "host domain digest shape invalid",
-    )
+    if host.qualification_domain_complete:
+        require(
+            host.qualification_domain_id is not None,
+            "complete host qualification domain lacks id",
+        )
+        require(
+            host.qualification_domain_digest is not None,
+            "complete host qualification domain lacks digest",
+        )
+        require(
+            _HOST_DOMAIN.fullmatch(host.qualification_domain_id) is not None,
+            "host domain id shape invalid",
+        )
+        require(
+            _HEX64.fullmatch(host.qualification_domain_digest) is not None,
+            "host domain digest shape invalid",
+        )
+    else:
+        require(
+            host.qualification_domain_id is None
+            and host.qualification_domain_digest is None,
+            "incomplete host domain may not carry a fabricated identity",
+        )
+
     require(
         _RUNTIME_ID.fullmatch(runtime.substrate_id) is not None,
         "runtime substrate id shape invalid",
@@ -565,8 +585,12 @@ def validate_host_report(raw: dict[str, Any]) -> dict[str, Any]:
     canonical = json.dumps(raw, sort_keys=True, separators=(",", ":"), allow_nan=False)
     return {
         "host_capability_id": host.capability_id,
+        "host_capacity_complete": host.capacity_complete,
+        "host_qualification_domain_complete": host.qualification_domain_complete,
         "host_qualification_domain_id": host.qualification_domain_id,
         "host_qualification_domain_digest": host.qualification_domain_digest,
+        "host_faults": list(host.faults),
+        "runtime_substrate_complete": runtime.complete,
         "runtime_substrate_id": runtime.substrate_id,
         "runtime_substrate_digest": runtime.digest,
         "clock_ticks_per_second": ticks,

@@ -7,6 +7,11 @@ import re
 import subprocess
 
 from .common import ROOT, load, require, sha, verify_record, contained, runtime_config
+from tools.engine_opt.domain import (
+    candidate_bundle_identity,
+    require_same_execution_domain,
+    validate_execution_domain,
+)
 
 
 def input_paths(p: dict, policy_path: Path | None = None) -> list[Path]:
@@ -85,7 +90,18 @@ def verify_prerequisites(output: Path, source: dict, p: dict | None = None) -> N
         for row in declared:
             label = row["id"]
             report = load(root / f"{label}.json")
-            require(report.get("passed") is True, f"{label}: prerequisite report did not pass")
+            if label == "g3-v2":
+                require(report.get("evidence_valid") is True,
+                        f"{label}: prerequisite evidence is invalid")
+            elif label == "engine-opt-v2":
+                require(
+                    report.get("passed") is True
+                    and report.get("candidate_identity_valid") is True,
+                    f"{label}: candidate identity prerequisite did not validate",
+                )
+            else:
+                require(report.get("passed") is True,
+                        f"{label}: prerequisite report did not pass")
             reports[label] = report
             if row.get("retain_case_replays", False):
                 run_ids = [case.get("run_id") for case in report.get("cases", [])]
@@ -120,8 +136,43 @@ def verify_prerequisites(output: Path, source: dict, p: dict | None = None) -> N
                         f"{label}: retained positive decision disagrees with report",
                     )
         engine = reports.get("engine-opt-v2")
-        require(isinstance(engine, dict) and engine.get("promotion_ready") is True,
-                "ENGINE-OPT-V2 selection is not measured/frozen for promotion")
+        require(
+            isinstance(engine, dict)
+            and engine.get("candidate_identity_valid") is True
+            and engine.get("passed") is True,
+            "ENGINE-OPT-V2 candidate identity is not valid",
+        )
+        if p.get("profile_id") == "local-full-game-v2":
+            manifest = load(output / "manifest.json")
+            campaign_domain = validate_execution_domain(
+                manifest.get("execution_domain"),
+                expected_source_commit=source["commit"],
+            )
+            candidate = candidate_bundle_identity(
+                ROOT / p["bundle_root"],
+                expected_source_commit=source["commit"],
+            )
+            require(
+                manifest.get("candidate_bundle") == candidate,
+                "LOCAL-1-v2 manifest candidate bundle binding differs from bytes",
+            )
+            require(
+                engine.get("candidate_bundle") == candidate,
+                "ENGINE-OPT-V2 prerequisite candidate binding differs from campaign",
+            )
+            g3 = reports.get("g3-v2")
+            require(isinstance(g3, dict), "G3-v2 prerequisite report missing")
+            require(
+                g3.get("candidate_bundle") == candidate,
+                "G3-v2 candidate binding differs from campaign",
+            )
+            require_same_execution_domain(
+                {
+                    "local1_campaign": campaign_domain,
+                    "g3_v2": g3.get("execution_domain"),
+                },
+                expected_source_commit=source["commit"],
+            )
         return
     lc0, online, g3 = (load(root / f"{label}.json") for label in ("lc0", "online2", "g3"))
     build = load(ROOT / "build/online-cpu-reference/build-manifest.json")

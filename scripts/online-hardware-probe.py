@@ -6,6 +6,7 @@ from pathlib import Path
 ROOT=Path(__file__).resolve().parent.parent
 sys.path.insert(0,str(ROOT))
 from controller.host_capabilities import discover_host_capabilities
+from controller.runtime_substrate import RuntimeSubstrate
 def command(*args):
     try: return subprocess.check_output(args,text=True,stderr=subprocess.DEVNULL).strip()
     except (OSError,subprocess.CalledProcessError): return None
@@ -33,6 +34,20 @@ def os_release():
 def probe():
     release=os_release(); runner_environment=os.environ.get("ALLFATHER_RUNNER_ENVIRONMENT")
     capabilities=discover_host_capabilities()
+    openblas_package=command("dpkg-query","-W","-f=${Package}=${Version}","libopenblas-dev")
+    libc_name,libc_version=platform.libc_ver()
+    substrate=RuntimeSubstrate.from_observation(
+      os_id=release.get("ID") or "unknown",
+      os_version_id=release.get("VERSION_ID") or "unknown",
+      kernel_release=platform.release(),
+      architecture=platform.machine(),
+      libc_name=libc_name or "unknown",
+      libc_version=libc_version or "unknown",
+      python_version=platform.python_version(),
+      runner_image_os=os.environ.get("ImageOS"),
+      runner_image_version=os.environ.get("ImageVersion"),
+      openblas_package=openblas_package,
+      clock_ticks_per_second=os.sysconf("SC_CLK_TCK"))
     ref=(os.environ.get("GITHUB_ACTIONS")=="true" and runner_environment=="github-hosted"
          and platform.system()=="Linux" and release.get("ID")=="ubuntu" and release.get("VERSION_ID")=="24.04")
     return {
@@ -48,12 +63,16 @@ def probe():
         "pkg-config":("pkg-config","--version"),"protoc":("protoc","--version")}.items()},
       "packages":{name:command("dpkg-query","-W","-f=${Package}=${Version}",name) for name in (
         "meson","ninja-build","pkg-config","libprotobuf-dev","protobuf-compiler","zlib1g-dev","libopenblas-dev")},
+      "openblas_package":openblas_package,
       "runner_image":{"image_os":os.environ.get("ImageOS"),"image_version":os.environ.get("ImageVersion")},
       "resource_measurement":{"clock_ticks_per_second":os.sysconf("SC_CLK_TCK")},
       "host_capabilities":capabilities.as_dict(),
       "host_capability_id":capabilities.capability_id,
       "host_qualification_domain_id":capabilities.qualification_domain_id,
       "host_qualification_domain_digest":capabilities.qualification_domain_digest,
+      "runtime_substrate":substrate.as_dict(),
+      "runtime_substrate_id":substrate.substrate_id,
+      "runtime_substrate_digest":substrate.digest,
       "commit_sha":command("git","-C",str(ROOT),"rev-parse","HEAD"),
     }
 def main():

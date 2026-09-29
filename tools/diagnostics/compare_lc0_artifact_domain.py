@@ -59,7 +59,7 @@ SURFACE_PATHS = (
 _HEX64 = re.compile(r"^[0-9a-f]{64}$")
 _HOST_DOMAIN = re.compile(r"^host-domain/[0-9a-f]{20}$")
 _RUNTIME_ID = re.compile(r"^runtime-substrate/[0-9a-f]{20}$")
-_BUILD_ID = re.compile(r"\\+git\\.([0-9a-f]{7,40})\\b")
+_BUILD_ID = re.compile(r"\+git\.([0-9a-f]{7,40})\b")
 
 
 class DiagnosticError(RuntimeError):

@@ -306,6 +306,19 @@ class HostCapabilities:
 
         if not isinstance(self.capacity_complete, bool):
             raise OrchestrationContractError("capacity_complete must be boolean")
+        expected_capacity_complete = bool(
+            self.platform != "unknown"
+            and self.architecture != "unknown"
+            and self.allowed_cpus is not None
+            and self.cpu_quota_status != "unknown"
+            and self.cgroup_memory_status != "unknown"
+            and self.effective_memory_limit_bytes is not None
+            and self.effective_memory_limit_bytes > 0
+        )
+        if self.capacity_complete != expected_capacity_complete:
+            raise OrchestrationContractError(
+                "capacity_complete does not match the declared capacity facts"
+            )
         object.__setattr__(self, "faults", _fault_tuple(self.faults, "host faults"))
 
     def as_dict(self) -> dict[str, Any]:
@@ -552,6 +565,7 @@ def build_host_capabilities(facts: LinuxHostFacts) -> HostCapabilities:
         and cpu_quota_status != "unknown"
         and cgroup_memory_status != "unknown"
         and effective_memory is not None
+        and effective_memory > 0
     )
 
     return HostCapabilities(

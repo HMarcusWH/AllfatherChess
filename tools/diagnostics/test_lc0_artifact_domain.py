@@ -410,6 +410,15 @@ class ComparatorTests(unittest.TestCase):
         self.assertTrue(result["runtime_substrate_complete"])
         self.assertIn("cpu.max:root:OSError:2", result["host_faults"])
 
+    def test_actual_lc0_git_build_identifier_is_accepted(self):
+        doc = matrix(source=EXPECTED_A, binary_hash="a" * 64)
+        identity = extract_lc0_identity(doc, expected_commit=EXPECTED_A)
+        self.assertEqual(identity["git_build_id"], EXPECTED_A[:7])
+        self.assertEqual(
+            identity["uci_name"],
+            f"Lc0 v0.31.0+git.{EXPECTED_A[:7]}",
+        )
+
     def test_malformed_lc0_build_identifier_fails_closed(self):
         doc = matrix(
             source=EXPECTED_A,

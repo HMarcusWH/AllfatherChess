@@ -403,6 +403,8 @@ def qualify(output: Path) -> dict:
     errors = report["errors"]
     try:
         m = load(output / "manifest.json")
+        if m.get("execution_domain") is not None:
+            report["execution_domain"] = m.get("execution_domain")
         require(m.get("campaign_id") == output.name,
                 "manifest campaign_id does not match campaign directory")
         if m["status"] != "completed" or m["failures"]:

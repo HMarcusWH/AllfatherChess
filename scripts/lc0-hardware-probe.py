@@ -1,15 +1,22 @@
 #!/usr/bin/env python3
-"""Record the hardware/software environment for an LC0 qualification run."""
+"""Record the host and runtime substrate for an LC0 qualification run."""
 
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import platform
 import subprocess
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+
+from controller.host_capabilities import discover_host_capabilities
+from controller.runtime_substrate import capture_runtime_substrate
+
 
 BUILD_PACKAGES = (
     "meson",
@@ -24,29 +31,11 @@ BUILD_PACKAGES = (
 
 def command(*args: str) -> str | None:
     try:
-        return subprocess.check_output(args, text=True, stderr=subprocess.DEVNULL).strip()
+        return subprocess.check_output(
+            args, text=True, stderr=subprocess.DEVNULL
+        ).strip()
     except (OSError, subprocess.CalledProcessError):
         return None
-
-
-def cpu_model() -> str | None:
-    path = Path("/proc/cpuinfo")
-    if path.is_file():
-        for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
-            if line.lower().startswith("model name") and ":" in line:
-                return line.split(":", 1)[1].strip()
-    return platform.processor() or None
-
-
-def memory_bytes() -> int | None:
-    path = Path("/proc/meminfo")
-    if path.is_file():
-        for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
-            if line.startswith("MemTotal:"):
-                fields = line.split()
-                if len(fields) >= 2 and fields[1].isdigit():
-                    return int(fields[1]) * 1024
-    return None
 
 
 def os_release() -> dict[str, str]:
@@ -54,7 +43,9 @@ def os_release() -> dict[str, str]:
     if not path.is_file():
         return {}
     result: dict[str, str] = {}
-    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+    for line in path.read_text(
+        encoding="utf-8", errors="replace"
+    ).splitlines():
         if "=" not in line or line.lstrip().startswith("#"):
             continue
         key, value = line.split("=", 1)
@@ -62,7 +53,7 @@ def os_release() -> dict[str, str]:
     return result
 
 
-def main() -> int:
+def build_report(binary: Path | None) -> dict:
     release = os_release()
     runner_environment = os.environ.get("ALLFATHER_RUNNER_ENVIRONMENT")
     is_reference_runner = (
@@ -72,8 +63,14 @@ def main() -> int:
         and release.get("ID") == "ubuntu"
         and release.get("VERSION_ID") == "24.04"
     )
-    report = {
-        "schema_version": 1,
+
+    capabilities = discover_host_capabilities()
+    runtime = None
+    if binary is not None and binary.is_file():
+        runtime = capture_runtime_substrate(binary)
+
+    return {
+        "schema_version": 2,
         "runner_class": (
             "github-hosted-ubuntu-24.04-cpu-reference"
             if is_reference_runner
@@ -87,9 +84,9 @@ def main() -> int:
         "system": platform.system(),
         "release": platform.release(),
         "architecture": platform.machine(),
-        "cpu_model": cpu_model(),
+        "cpu_model": capabilities.cpu_model_name,
         "logical_cpus": os.cpu_count(),
-        "memory_bytes": memory_bytes(),
+        "memory_bytes": capabilities.physical_memory_bytes,
         "packages": {
             package: command(
                 "dpkg-query", "-W", "-f=${Package}=${Version}", package
@@ -109,12 +106,34 @@ def main() -> int:
             "image_version": os.environ.get("ImageVersion"),
         },
         "openblas_package": command(
-            "dpkg-query", "-W", "-f=${Package}=${Version}", "libopenblas-dev"
+            "dpkg-query",
+            "-W",
+            "-f=${Package}=${Version}",
+            "libopenblas-dev",
         ),
         "python": platform.python_version(),
         "commit_sha": command("git", "-C", str(ROOT), "rev-parse", "HEAD"),
+        "host_capabilities": capabilities.as_dict(),
+        "host_capability_id": capabilities.capability_id,
+        "host_qualification_domain_id": capabilities.qualification_domain_id,
+        "runtime_substrate": (
+            None if runtime is None else runtime.as_dict()
+        ),
+        "runtime_substrate_id": (
+            None if runtime is None else runtime.runtime_substrate_id
+        ),
     }
-    print(json.dumps(report, indent=2, sort_keys=True))
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--binary", type=Path)
+    args = parser.parse_args()
+    binary = args.binary
+    if binary is None:
+        candidate = ROOT / "engines" / "lc0" / "build" / "release" / "lc0"
+        binary = candidate if candidate.is_file() else None
+    print(json.dumps(build_report(binary), indent=2, sort_keys=True))
     return 0
 
 

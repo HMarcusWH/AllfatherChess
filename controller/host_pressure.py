@@ -157,6 +157,22 @@ class HostPressure:
             raise OrchestrationContractError("system_complete must be boolean")
         if not isinstance(self.cgroup_complete, bool):
             raise OrchestrationContractError("cgroup_complete must be boolean")
+        expected_system_complete = (
+            self.system_cpu is not None and self.system_memory is not None
+        )
+        expected_cgroup_complete = (
+            self.cgroup_cpu is not None
+            and self.cgroup_memory is not None
+            and self.memory_current_bytes is not None
+        )
+        if self.system_complete != expected_system_complete:
+            raise OrchestrationContractError(
+                "system_complete does not match pressure observations"
+            )
+        if self.cgroup_complete != expected_cgroup_complete:
+            raise OrchestrationContractError(
+                "cgroup_complete does not match pressure observations"
+            )
         object.__setattr__(self, "faults", _fault_tuple(self.faults))
 
     def as_dict(self) -> dict[str, Any]:

@@ -16,6 +16,7 @@ from .common import (ARMS, ROOT, contained, file_record, load, policy, require,
                      safe_copy_regular_tree, save, sha, source_identity,
                      terminate_token_processes, verify_record)
 from .integrity import input_paths, verify_builds
+from tools.engine_opt.domain import candidate_bundle_identity, load_execution_domain
 
 
 def schedule(p: dict, mode: str) -> list[dict]:
@@ -83,7 +84,7 @@ def command(job: dict, directory: Path, p: dict, source: dict, fastchess: Path, 
     return argv
 
 
-def bounded(argv: list[str], cwd: Path, log: Path, timeout: int) -> dict:
+def bounded(argv: list[str], cwd: Path, log: Path, timeout: int, *, extra_environment: dict[str, str] | None = None) -> dict:
     """Run one bounded command and clean every live descendant it spawned.
 
     Ownership is inherited through an environment token rather than inferred
@@ -94,6 +95,8 @@ def bounded(argv: list[str], cwd: Path, log: Path, timeout: int) -> dict:
     started = time.monotonic_ns()
     token = uuid.uuid4().hex
     environment = os.environ.copy()
+    if extra_environment:
+        environment.update(extra_environment)
     environment["ALLFATHER_LOCAL1_PROCESS_TOKEN"] = token
     result = {
         "argv": argv,
@@ -164,7 +167,7 @@ def retain_report_runs(source_root: Path, destination: Path, run_ids: list[str],
         safe_copy_regular_tree(source, destination / run_id)
 
 
-def prerequisites(output: Path, p: dict) -> list[dict]:
+def prerequisites(output: Path, p: dict, execution_domain_path: Path | None = None) -> list[dict]:
     """Run the prerequisite family declared by the selected lifecycle policy."""
     declared = p.get("prerequisites")
     if declared is not None:
@@ -190,7 +193,20 @@ def prerequisites(output: Path, p: dict) -> list[dict]:
                 )
             report=ROOT / report_name
             report.unlink(missing_ok=True)
-            result=bounded([sys.executable, script], ROOT, output / f"{label}.log", 1200)
+            argv=[sys.executable, script]
+            if label == "g3-v2":
+                argv.append("--record-disposition")
+            domain_env = (
+                {"ALLFATHER_EXECUTION_DOMAIN_PATH": str(execution_domain_path)}
+                if execution_domain_path is not None else None
+            )
+            result=bounded(
+                argv,
+                ROOT,
+                output / f"{label}.log",
+                1200,
+                extra_environment=domain_env,
+            )
             records.append({"id": label, **result})
             save(output / "prerequisites.json", records)
             require(result["returncode"] == 0 and not result["timed_out"], f"{label} prerequisite failed")
@@ -249,7 +265,7 @@ def prerequisites(output: Path, p: dict) -> list[dict]:
     return records
 
 def run(mode: str, output: Path, *, shard_index: int = 0, shard_count: int = 1,
-        policy_path: Path | None = None) -> int:
+        policy_path: Path | None = None, execution_domain_path: Path | None = None) -> int:
     require(sys.platform == "linux", "LOCAL-1 reference requires Linux procfs")
     require(not any(c.isspace() for c in str(ROOT)), "reference checkout path must have no whitespace")
     require(output.resolve().is_relative_to(ROOT / "build"), "campaign output must be inside build/")
@@ -258,6 +274,23 @@ def run(mode: str, output: Path, *, shard_index: int = 0, shard_count: int = 1,
                    else policy_path if policy_path.is_absolute() else ROOT / policy_path).resolve()
     p = policy(path=policy_file)
     source = load(ROOT / p["source_runtime"])
+    source_id = source_identity()
+    execution_domain = None
+    candidate_bundle = None
+    if p.get("profile_id") == "local-full-game-v2":
+        require(execution_domain_path is not None,
+                "LOCAL-1-v2 requires canonical execution-domain evidence")
+        execution_domain_path = execution_domain_path.resolve()
+        require(execution_domain_path.is_file(),
+                "LOCAL-1-v2 execution-domain file is missing")
+        execution_domain = load_execution_domain(
+            execution_domain_path,
+            expected_source_commit=source_id["commit"],
+        )
+        candidate_bundle = candidate_bundle_identity(
+            ROOT / p["bundle_root"],
+            expected_source_commit=source_id["commit"],
+        )
     full_schedule = schedule(p, mode)
     require(type(shard_index) is int and type(shard_count) is int and
             shard_count >= 1 and 0 <= shard_index < shard_count,
@@ -271,12 +304,15 @@ def run(mode: str, output: Path, *, shard_index: int = 0, shard_count: int = 1,
         expected = full_schedule
     manifest = {"schema_version": 1, "campaign_id": output.name, "mode": mode,
                 "shard": {"index": shard_index, "count": shard_count},
-                "source": source_identity(), "policy": file_record(policy_file),
+                "source": source_id, "policy": file_record(policy_file),
                 "status": "running", "planned_jobs": expected,
                 "jobs": [], "failures": [], "prerequisites": [],
                 "host": {"system": list(os.uname()), "logical_cpus": os.cpu_count()},
                 "clock_regime": "same tournament clock; NOT equal aggregate compute",
                 "control": "allfather-anchor is one Stockfish process through the legacy native-clock shell"}
+    if execution_domain is not None:
+        manifest["execution_domain"] = execution_domain
+        manifest["candidate_bundle"] = candidate_bundle
     inputs = input_paths(p, policy_file)
     save(output / "manifest.json", manifest)
     try:
@@ -285,7 +321,7 @@ def run(mode: str, output: Path, *, shard_index: int = 0, shard_count: int = 1,
         fastchess = verify_builds(manifest["source"], p)
         pre = output / "prerequisites"
         pre.mkdir()
-        manifest["prerequisites"] = prerequisites(pre, p)
+        manifest["prerequisites"] = prerequisites(pre, p, execution_domain_path)
         from .probes import run_probes
         manifest["rule_probes"] = run_probes(output / "rule-probes", source)
         from .faults import run_faults
@@ -337,11 +373,13 @@ def main() -> int:
     parser.add_argument("--shard-index", type=int, default=0)
     parser.add_argument("--shard-count", type=int, default=1)
     parser.add_argument("--policy", type=Path)
+    parser.add_argument("--execution-domain", type=Path)
     args = parser.parse_args()
     output = args.output or ROOT / "build/test-results/local-full-game" / f"{time.time_ns()}-{uuid.uuid4().hex[:8]}"
     return run(args.mode, output.resolve(),
                shard_index=args.shard_index, shard_count=args.shard_count,
-               policy_path=args.policy)
+               policy_path=args.policy,
+               execution_domain_path=args.execution_domain)
 
 
 if __name__ == "__main__":

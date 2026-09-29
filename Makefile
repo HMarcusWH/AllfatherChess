@@ -46,18 +46,20 @@ regime-contract:
 
 engine-opt-tests:
 	python3 tests/engine_opt/test_contracts.py
+	python3 tests/engine_opt/test_execution_domain.py
 	python3 tests/controller/test_engine_opt_runtime.py
 
 engine-opt-matrix:
-	@test -n "$(LC0_BIN)" -a -n "$(LC0_WEIGHTS)" || (echo "Set LC0_BIN=<path> LC0_WEIGHTS=<path>" >&2; exit 2)
-	python3 scripts/engine-opt-matrix.py --binary "$(LC0_BIN)" --weights "$(LC0_WEIGHTS)" --output build/test-results/engine-opt-matrix/lc0.json
+	@test -n "$(LC0_BIN)" -a -n "$(LC0_WEIGHTS)" -a -n "$(EXECUTION_DOMAIN)" || (echo "Set LC0_BIN=<path> LC0_WEIGHTS=<path> EXECUTION_DOMAIN=<path>" >&2; exit 2)
+	python3 scripts/engine-opt-matrix.py --binary "$(LC0_BIN)" --weights "$(LC0_WEIGHTS)" --execution-domain "$(EXECUTION_DOMAIN)" --output build/test-results/engine-opt-matrix/lc0.json
 
 build-online-engine-opt-v2:
 	bash scripts/build-online-engine-opt-v2.sh
 
 engine-opt-v2-contract:
 	python3 scripts/qualify-engine-opt-v2.py
-	python3 scripts/qualify-online-hybrid-v2.py
+	@test -n "$(EXECUTION_DOMAIN)" || (echo "Set EXECUTION_DOMAIN=<path>" >&2; exit 2)
+	ALLFATHER_EXECUTION_DOMAIN_PATH="$(EXECUTION_DOMAIN)" python3 scripts/qualify-online-hybrid-v2.py
 
 run-allfather-engine-opt-v2:
 	python3 -m controller --config config/allfather.online-engine-opt-v2.json

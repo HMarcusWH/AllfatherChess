@@ -8,6 +8,7 @@ from tools.engine_opt.corpus import load_epd
 from tools.engine_opt.runner import run_case
 from tools.engine_opt.compare import summarize
 from tools.engine_opt.report import host_identity,source_identity,sha256,write_report
+from tools.engine_opt.domain import load_execution_domain
 
 PROFILES=(
  ("v1-current-cold",{"NNCacheSize":0,"MinibatchSize":32,"MaxPrefetch":32,"AdaptivePrefetch":False},None),
@@ -49,12 +50,18 @@ def main()->int:
     ap.add_argument("--binary",type=Path,required=True)
     ap.add_argument("--weights",type=Path,required=True)
     ap.add_argument("--output",type=Path,required=True)
+    ap.add_argument("--execution-domain",type=Path,required=True)
     ap.add_argument("--nodes",type=int,default=16)
     ap.add_argument("--deadline-ms",type=float,default=3500.0)
     ap.add_argument("--selection",type=Path,default=ROOT/"qualification/engine-opt-v2-selection.json")
     ap.add_argument("--quick",action="store_true")
     args=ap.parse_args()
     selected_profile,baseline_profile,confirmation_repeats=load_selection(args.selection)
+    source=source_identity(ROOT)
+    execution_domain=load_execution_domain(
+        args.execution_domain,
+        expected_source_commit=source["commit"],
+    )
     cases=load_epd(ROOT/"tests/fixtures/engine_opt/positions.epd")
     cases=cases[:3] if args.quick else cases
     if args.quick:
@@ -107,8 +114,9 @@ def main()->int:
         if per_repeat:
             summaries[profile]=per_repeat[0]
     payload={
-      "schema_version":1,"kind":"lc0-cpu-runtime-matrix","source":source_identity(ROOT),
-      "host":host_identity(),"binary":{"path":str(args.binary),"sha256":sha256(args.binary)},
+      "schema_version":1,"kind":"lc0-cpu-runtime-matrix","source":source,
+      "host":host_identity(),"execution_domain":execution_domain,
+      "binary":{"path":str(args.binary),"sha256":sha256(args.binary)},
       "weights":{"path":str(args.weights),"sha256":sha256(args.weights)},
       "uci_args":["--show-hidden"],"nodes":args.nodes,"deadline_ms":args.deadline_ms,
       "profiles":[name for name,_,_ in PROFILES],"rows":rows,"summaries":summaries,

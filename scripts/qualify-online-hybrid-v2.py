@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Real-process G3-v2 authority qualification on the ENGINE-OPT-V2 CPU bundle."""
 from __future__ import annotations
-import argparse,json,re,sys,time
+import argparse,json,os,re,sys,time
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT))
@@ -11,6 +11,7 @@ from controller.replay import discover_replay_bundles,load_manifest,verify_bundl
 from controller.counterfactual import verify_counterfactual_integrity
 from controller.final_decision import load_final_decision_artifact,verify_final_decision_integrity
 from tests.harness.uci_session import UciSession
+from tools.engine_opt.domain import candidate_bundle_identity,load_execution_domain
 
 POLICY=ROOT/"qualification/online-hybrid-v2.json"
 REFERENCE_POLICY=ROOT/"qualification/online-engine-opt-v2.json"
@@ -39,10 +40,17 @@ def wait_bundle(root:Path,known:set[str])->Path:
         time.sleep(.05)
     raise QualificationError("G3-v2 replay/final decision did not finalize")
 
-def main(*,static_only:bool=False)->int:
+def main(*,static_only:bool=False,record_disposition:bool=False)->int:
     policy,config=static_contract()
     if static_only:
         print(json.dumps({"profile_id":policy["profile_id"],"static_contract":True,"passed":True},sort_keys=True)); return 0
+    domain_path=os.environ.get("ALLFATHER_EXECUTION_DOMAIN_PATH")
+    require(isinstance(domain_path,str) and domain_path,"G3-v2 execution-domain path is not bound")
+    execution_domain=load_execution_domain(Path(domain_path))
+    candidate_bundle=candidate_bundle_identity(
+        ROOT/"build/online-engine-opt-v2",
+        expected_source_commit=execution_domain["source_commit"],
+    )
     replay_root=ROOT/config["shadow"]["replay_root"]
     known={p.name for p in discover_replay_bundles(replay_root).bundles}
     cases=policy.get("positive_cases"); requirement=policy.get("positive_requirement") or {}
@@ -94,17 +102,53 @@ def main(*,static_only:bool=False)->int:
         outcome=manifest.get("clock_outcome") or {}; require(outcome.get("output_within_deadline") is True,f"{label}: hard deadline missed")
         require((manifest.get("outward_decision") or {}).get("emitted_move")==moves[0],f"{label}: manifest/UCI move mismatch")
         winner=record; break
-    require(winner is not None,"no predeclared ENGINE-OPT real-backend case demonstrated non-anchor HYBRID "+json.dumps(records,sort_keys=True))
+    authority_qualified=winner is not None
+    failures=[] if authority_qualified else [
+        "no predeclared real-backend case demonstrated the frozen non-anchor HYBRID authority requirement"
+    ]
     RESULT.mkdir(parents=True,exist_ok=True)
-    report={"schema_version":1,"profile_id":policy["profile_id"],"passed":True,"positive_case":winner,"cases":records,
-            "claim":"G3-v2 authority integration only; no Elo, superiority, or deployment claim."}
-    (RESULT/"report.json").write_text(json.dumps(report,indent=2,sort_keys=True)+"\n",encoding="utf-8")
-    print("G3-v2 qualification passed:",json.dumps(report,sort_keys=True)); return 0
+    report={
+        "schema_version":1,
+        "profile_id":policy["profile_id"],
+        "source_commit":execution_domain["source_commit"],
+        "evidence_valid":True,
+        "authority_qualified":authority_qualified,
+        "passed":authority_qualified,
+        "positive_case":winner,
+        "cases":records,
+        "qualification_failures":failures,
+        "execution_domain":execution_domain,
+        "candidate_bundle":candidate_bundle,
+        "claim_boundary":{
+            "hybrid_authority":authority_qualified,
+            "strength":False,
+            "elo":False,
+            "equal_compute":False,
+            "deployment":False,
+        },
+        "claim":"G3-v2 authority integration only; no Elo, superiority, equal-compute, or deployment claim.",
+    }
+    (RESULT/"report.json").write_text(json.dumps(report,indent=2,sort_keys=True,allow_nan=False)+"\n",encoding="utf-8")
+    print("G3-v2 qualification disposition:",json.dumps(report,sort_keys=True))
+    return 0 if authority_qualified or record_disposition else 1
 
 if __name__=="__main__":
-    parser=argparse.ArgumentParser(description=__doc__); parser.add_argument("--static",action="store_true"); args=parser.parse_args()
-    try: raise SystemExit(main(static_only=args.static))
+    parser=argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--static",action="store_true")
+    parser.add_argument("--record-disposition",action="store_true")
+    args=parser.parse_args()
+    try:
+        raise SystemExit(main(static_only=args.static,record_disposition=args.record_disposition))
     except Exception as exc:
         RESULT.mkdir(parents=True,exist_ok=True)
+        failure={
+            "schema_version":1,
+            "profile_id":"online-hybrid-v2",
+            "evidence_valid":False,
+            "authority_qualified":False,
+            "passed":False,
+            "error":f"{type(exc).__name__}: {exc}",
+        }
+        (RESULT/"report.json").write_text(json.dumps(failure,indent=2,sort_keys=True)+"\n",encoding="utf-8")
         (RESULT/"failure.txt").write_text(f"{type(exc).__name__}: {exc}\n",encoding="utf-8")
         raise

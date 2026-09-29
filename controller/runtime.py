@@ -1398,6 +1398,12 @@ class BackendManager:
         self._pending_profile_ids: dict[str, str] = {}
         self._pending_profile_phases: dict[str, str | None] = {}
 
+        # J5 resource placement is also opt-in.  Binding a catalog does not
+        # imply affinity enforcement; the frozen seed composition remains
+        # observed-only until a later qualified profile requires more.
+        self._resource_control = None
+        self._resource_placement_states: dict[str, object] = {}
+
         # Provenance is captured here, before `start()` launches anything. It
         # used to be computed when the shadow coordinator was constructed --
         # after every process was already running -- so a config or binary

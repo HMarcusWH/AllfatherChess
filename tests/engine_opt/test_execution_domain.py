@@ -169,6 +169,16 @@ class ExecutionDomainTests(unittest.TestCase):
         with self.assertRaises(ExecutionDomainError):
             validate_execution_domain(bad, expected_source_commit=SOURCE)
 
+    def test_unknown_field_fails_closed(self):
+        domain = execution_domain_from_probe(probe())
+        bad = copy.deepcopy(domain)
+        bad["hidden_authority"] = True
+        core = dict(bad)
+        core.pop("content_sha256")
+        bad["content_sha256"] = canonical_digest(core)
+        with self.assertRaises(ExecutionDomainError):
+            validate_execution_domain(bad, expected_source_commit=SOURCE)
+
     def test_source_mismatch_fails(self):
         domain = execution_domain_from_probe(probe())
         with self.assertRaises(ExecutionDomainError):

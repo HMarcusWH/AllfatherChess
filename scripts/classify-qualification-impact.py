@@ -21,9 +21,11 @@ ALWAYS_CONTROL_PLANE = {
     "adapters/resource/linux_host.py",
     "controller/host_capabilities.py",
     "controller/host_pressure.py",
+    "controller/runtime_substrate.py",
     "tests/adapters/test_linux_host.py",
     "tests/controller/test_host_capabilities.py",
     "tests/controller/test_host_pressure.py",
+    "tests/controller/test_runtime_substrate.py",
     "tests/test_hardware_probe_j2.py",
 }
 

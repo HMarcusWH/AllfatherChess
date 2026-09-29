@@ -1719,6 +1719,32 @@ class BackendManager:
         with self._lock:
             self._resource_placement_states[instance] = evidence
 
+    def _finalize_resource_instance(self, instance: str, process: UciProcess) -> None:
+        controller = self._resource_control
+        if controller is None:
+            return
+        pid = process.pid
+        if pid is None:
+            raise RuntimeError(
+                f"{instance}: process PID unavailable for resource verification"
+            )
+        evidence = controller.finalize_instance(instance, pid)
+        with self._lock:
+            self._resource_placement_states[instance] = evidence
+
+    def _verify_resource_instance(self, instance: str, process: UciProcess) -> None:
+        controller = self._resource_control
+        if controller is None:
+            return
+        pid = process.pid
+        if pid is None:
+            raise RuntimeError(
+                f"{instance}: process PID unavailable for resource verification"
+            )
+        evidence = controller.verify_instance(instance, pid)
+        with self._lock:
+            self._resource_placement_states[instance] = evidence
+
     def _finalize_resource_layout(self) -> None:
         controller = self._resource_control
         if controller is None:

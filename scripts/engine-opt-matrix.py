@@ -49,12 +49,18 @@ def main()->int:
     ap.add_argument("--binary",type=Path,required=True)
     ap.add_argument("--weights",type=Path,required=True)
     ap.add_argument("--output",type=Path,required=True)
+    ap.add_argument("--execution-domain",type=Path,required=True)
     ap.add_argument("--nodes",type=int,default=16)
     ap.add_argument("--deadline-ms",type=float,default=3500.0)
     ap.add_argument("--selection",type=Path,default=ROOT/"qualification/engine-opt-v2-selection.json")
     ap.add_argument("--quick",action="store_true")
     args=ap.parse_args()
     selected_profile,baseline_profile,confirmation_repeats=load_selection(args.selection)
+    source=source_identity(ROOT)
+    execution_domain=load_execution_domain(
+        args.execution_domain,
+        expected_source_commit=source["commit"],
+    )
     cases=load_epd(ROOT/"tests/fixtures/engine_opt/positions.epd")
     cases=cases[:3] if args.quick else cases
     if args.quick:

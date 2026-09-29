@@ -2141,11 +2141,17 @@ class BackendManager:
                     )
                     self.backends[name] = process
                     process.start()
+                    self._place_resource_instance(name, process)
                     process.configure(spec.options)
                     self._effective_options[name] = dict(spec.options)
                     if spec.warmup is not None:
                         self._warmup_backend(name, process, spec.warmup)
                 except Exception as exc:
+                    if self._resource_control is not None:
+                        # A selected resource-controlled composition is atomic:
+                        # silently dropping one specialist would falsify the
+                        # layout/profile claim rather than merely lose evidence.
+                        raise
                     if spec.role in AUTHORITY_ROLES:
                         raise
                     # An observational worker that dies during `uci`, times out,
@@ -2164,6 +2170,7 @@ class BackendManager:
                         except Exception:  # pragma: no cover - best effort
                             pass
             self.ready_all()
+            self._finalize_resource_layout()
             self._adopt_bound_startup_profiles()
             # ONLINE quiesce deadlines are passed explicitly to stop/search
             # operations. They must not redefine the process-wide UCI protocol
@@ -2172,7 +2179,9 @@ class BackendManager:
             # ucinewgame/isready barrier.
         except Exception as exc:
             self.close()
-            if isinstance(exc, RuntimeError):
+            from controller.resource_control import ResourceControlError
+
+            if isinstance(exc, (RuntimeError, ResourceControlError)):
                 raise
             raise RuntimeError(f"backend startup failed: {exc}") from exc
 

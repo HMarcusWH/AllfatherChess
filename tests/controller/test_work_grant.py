@@ -30,6 +30,8 @@ SHA_B = "b" * 64
 SHA_C = "c" * 64
 SHA_D = "d" * 64
 COMMIT = "1" * 40
+DOMAIN_DIGEST = "e" * 64
+DOMAIN_ID = f"exec-domain/{DOMAIN_DIGEST[:20]}"
 
 
 def profile(
@@ -63,7 +65,9 @@ def profile(
             source_commit=COMMIT,
             evidence_sha256=SHA_C,
             evidence_id="evidence-v1",
-            host_domain="cpu-x86_64",
+            execution_domain_id=DOMAIN_ID,
+            execution_domain_digest=DOMAIN_DIGEST,
+            binding_scope="exact_host_observation",
         ),
     )
 

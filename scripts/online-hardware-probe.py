@@ -3,6 +3,7 @@
 from __future__ import annotations
 import json,os,platform,subprocess
 from pathlib import Path
+from controller.host_capabilities import discover_host_capabilities
 ROOT=Path(__file__).resolve().parent.parent
 def command(*args):
     try: return subprocess.check_output(args,text=True,stderr=subprocess.DEVNULL).strip()
@@ -30,6 +31,7 @@ def os_release():
     return out
 def probe():
     release=os_release(); runner_environment=os.environ.get("ALLFATHER_RUNNER_ENVIRONMENT")
+    capabilities=discover_host_capabilities()
     ref=(os.environ.get("GITHUB_ACTIONS")=="true" and runner_environment=="github-hosted"
          and platform.system()=="Linux" and release.get("ID")=="ubuntu" and release.get("VERSION_ID")=="24.04")
     return {
@@ -46,6 +48,11 @@ def probe():
       "packages":{name:command("dpkg-query","-W","-f=${Package}=${Version}",name) for name in (
         "meson","ninja-build","pkg-config","libprotobuf-dev","protobuf-compiler","zlib1g-dev","libopenblas-dev")},
       "runner_image":{"image_os":os.environ.get("ImageOS"),"image_version":os.environ.get("ImageVersion")},
+      "resource_measurement":{"clock_ticks_per_second":os.sysconf("SC_CLK_TCK")},
+      "host_capabilities":capabilities.as_dict(),
+      "host_capability_id":capabilities.capability_id,
+      "host_qualification_domain_id":capabilities.qualification_domain_id,
+      "host_qualification_domain_digest":capabilities.qualification_domain_digest,
       "commit_sha":command("git","-C",str(ROOT),"rev-parse","HEAD"),
     }
 def main():

@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "profile_id": "engine-opt-v2",
+  "status": "historically_qualified_legacy_unbound",
+  "historical_qualification": {
+    "pull_request": 44,
+    "qualified_head": "085420843b95f3f2dd206fc1c66bf642cbd49b6d",
+    "merge_commit": "7248f25fc64be4d04a78ec2b1f0c9de2986a11a5",
+    "shared_tree": "80fae798aed99a5e37fcfb7fce321a7e01a2fc56",
+    "aggregate_workflow_run": 36458789423,
+    "aggregate_artifact_id": 10990541766,
+    "aggregate_artifact_sha256": "080678710a7df45a44d008df5ef484fbcfa3c01911d1a50a5cb0a96cbc3b07d1"
+  },
+  "host_binding": {
+    "qualification_domain": "legacy_unbound",
+    "runtime_substrate": "legacy_unbound",
+    "portable_to_arbitrary_host": false,
+    "selection_eligible_on_unmatched_host": false,
+    "reason": "PR #44 retained exact-head qualification evidence but its claim-bearing runtime artifacts did not preserve enough CPU microarchitecture/runtime-substrate identity to reconstruct a reusable host qualification domain. Later reruns demonstrated different LC0 bestmoves and resource cost on nominally identical github-hosted Ubuntu 24.04 four-CPU workers."
+  },
+  "claim_boundary": {
+    "historical_qualification_retained": true,
+    "generic_host_portability_established": false,
+    "strength": false,
+    "elo": false,
+    "equal_compute": false,
+    "deployment": false
+  }
+}

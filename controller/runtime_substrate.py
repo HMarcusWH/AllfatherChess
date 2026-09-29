@@ -87,7 +87,13 @@ class RuntimeSubstrate:
         if not isinstance(self.complete, bool):
             raise OrchestrationContractError("complete must be boolean")
         expected_complete = bool(
-            self.runner_image_os
+            self.os_id != "unknown"
+            and self.os_version_id != "unknown"
+            and self.kernel_release != "unknown"
+            and self.architecture != "unknown"
+            and self.libc_name != "unknown"
+            and self.libc_version != "unknown"
+            and self.runner_image_os
             and self.runner_image_version
             and self.openblas_package
         )
@@ -201,7 +207,13 @@ class RuntimeSubstrate:
             openblas_package=openblas_package,
             clock_ticks_per_second=clock_ticks_per_second,
             complete=bool(
-                runner_image_os
+                os_id != "unknown"
+                and os_version_id != "unknown"
+                and kernel_release != "unknown"
+                and architecture != "unknown"
+                and libc_name != "unknown"
+                and libc_version != "unknown"
+                and runner_image_os
                 and runner_image_version
                 and openblas_package
             ),

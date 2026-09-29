@@ -33,6 +33,8 @@ SHA_A = "a" * 64
 SHA_B = "b" * 64
 SHA_C = "c" * 64
 COMMIT = "1" * 40
+DOMAIN_DIGEST = "d" * 64
+DOMAIN_ID = f"exec-domain/{DOMAIN_DIGEST[:20]}"
 
 
 def qualification() -> QualificationIdentity:
@@ -40,7 +42,9 @@ def qualification() -> QualificationIdentity:
         source_commit=COMMIT,
         evidence_sha256=SHA_C,
         evidence_id="engine-opt-v2",
-        host_domain="cpu-x86_64",
+        execution_domain_id=DOMAIN_ID,
+        execution_domain_digest=DOMAIN_DIGEST,
+        binding_scope="exact_host_observation",
     )
 
 
@@ -110,6 +114,28 @@ def profile(
 
 
 class ResourceProfileContractTests(unittest.TestCase):
+    def test_qualification_identity_rejects_domain_scope_or_digest_drift(self):
+        item = qualification()
+        self.assertEqual(QualificationIdentity.from_dict(item.as_dict()), item)
+        with self.assertRaises(OrchestrationContractError):
+            QualificationIdentity(
+                source_commit=COMMIT,
+                evidence_sha256=SHA_C,
+                evidence_id="engine-opt-v2",
+                execution_domain_id=DOMAIN_ID,
+                execution_domain_digest=DOMAIN_DIGEST,
+                binding_scope="portable-ish",
+            )
+        with self.assertRaises(OrchestrationContractError):
+            QualificationIdentity(
+                source_commit=COMMIT,
+                evidence_sha256=SHA_C,
+                evidence_id="engine-opt-v2",
+                execution_domain_id="exec-domain/fabricated",
+                execution_domain_digest=DOMAIN_DIGEST,
+                binding_scope="exact_host_observation",
+            )
+
     def test_round_trip_and_digest_are_canonical(self):
         first = profile()
         restored = EngineResourceProfile.from_dict(first.as_dict())

@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-"""Tests for the narrow legacy-qualification impact classifier."""
+"""Tests for the fail-closed legacy-qualification impact classifier."""
 
 from __future__ import annotations
 
 import importlib.util
-import sys
 import unittest
 from pathlib import Path
 
@@ -17,9 +16,40 @@ spec.loader.exec_module(module)
 
 
 class QualificationImpactTests(unittest.TestCase):
-    def test_current_j2_surface_is_control_plane_only(self):
-        paths = sorted(module.CONTROL_PLANE_ONLY)
-        self.assertEqual(module.classify(paths), "control_plane_only")
+    def test_host_observation_surface_remains_control_plane_only(self):
+        paths = sorted(module.ALWAYS_CONTROL_PLANE)
+        self.assertEqual(
+            module.classify(paths),
+            "control_plane_only",
+        )
+
+    def test_exact_j2_bootstrap_may_include_ci_plumbing(self):
+        paths = sorted(
+            module.ALWAYS_CONTROL_PLANE | module.J2_BOOTSTRAP_ONLY
+        )
+        self.assertEqual(
+            module.classify(
+                paths,
+                base_sha=module.J2_BOOTSTRAP_BASE_SHA,
+            ),
+            "control_plane_only",
+        )
+
+    def test_workflow_or_makefile_edits_are_not_future_exemptions(self):
+        for path in (
+            ".github/workflows/engine-optimization.yml",
+            ".github/workflows/full-game-qualification.yml",
+            "Makefile",
+            "scripts/classify-qualification-impact.py",
+        ):
+            with self.subTest(path=path):
+                self.assertEqual(
+                    module.classify(
+                        [path],
+                        base_sha="0" * 40,
+                    ),
+                    "runtime_affected",
+                )
 
     def test_runtime_controller_change_is_not_exempt(self):
         self.assertEqual(
@@ -53,7 +83,8 @@ class QualificationImpactTests(unittest.TestCase):
                 [
                     "controller/host_capabilities.py",
                     "controller/runtime.py",
-                ]
+                ],
+                base_sha=module.J2_BOOTSTRAP_BASE_SHA,
             ),
             "runtime_affected",
         )

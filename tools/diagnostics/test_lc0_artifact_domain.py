@@ -13,6 +13,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
+from controller.decision import canonical_digest
+from controller.host_capabilities import (
+    HOST_CAPABILITIES_VERSION,
+    HostCapabilities,
+    NumaNodeObservation,
+)
+from controller.runtime_substrate import RuntimeSubstrate
+
 from tools.diagnostics.compare_lc0_artifact_domain import (
     DiagnosticError,
     EXPECTED_A,
@@ -36,6 +44,70 @@ PROFILES = [
     "other-profile",
 ]
 CASES = [f"case-{idx}" for idx in range(8)]
+
+
+def incomplete_but_valid_host_report() -> dict:
+    flags = ("avx", "avx2", "fpu", "sse", "sse2")
+    host = HostCapabilities(
+        version=HOST_CAPABILITIES_VERSION,
+        provider_id="linux-host-v2",
+        platform="linux",
+        architecture="x86_64",
+        os_visible_logical_cpus=4,
+        affinity_cpus=(0, 1, 2, 3),
+        cgroup_cpuset_effective=(0, 1, 2, 3),
+        allowed_cpus=(0, 1, 2, 3),
+        cpu_vendor_id="AuthenticAMD",
+        cpu_family=25,
+        cpu_model=1,
+        cpu_stepping=1,
+        cpu_model_name="AMD test",
+        cpu_microcode="0xffffffff",
+        cpu_flags_intersection=flags,
+        cpu_feature_digest=canonical_digest(list(flags)),
+        cpu_identity_complete=True,
+        cpu_quota_status="unknown",
+        cpu_quota_equivalents=None,
+        cpu_quota_observations=(),
+        physical_core_count=2,
+        smt_width=2,
+        topology_complete=True,
+        numa_nodes=(NumaNodeObservation(0, (0, 1, 2, 3)),),
+        numa_complete=True,
+        physical_memory_bytes=16 * 1024**3,
+        cgroup_memory_status="unknown",
+        cgroup_memory_limit_bytes=None,
+        effective_memory_limit_bytes=16 * 1024**3,
+        memory_limit_observations=(),
+        accelerator_detection_complete=False,
+        accelerators=(),
+        capacity_complete=False,
+        qualification_domain_complete=False,
+        faults=("cpu.max:root:OSError:2", "memory.max:root:OSError:2"),
+    )
+    runtime = RuntimeSubstrate.from_observation(
+        os_id="ubuntu",
+        os_version_id="24.04",
+        kernel_release="6.17.0-test",
+        architecture="x86_64",
+        libc_name="glibc",
+        libc_version="2.39",
+        python_version="3.12.3",
+        runner_image_os="ubuntu24",
+        runner_image_version="20260920.314.1",
+        openblas_package="libopenblas-dev=0.3.26",
+        clock_ticks_per_second=100,
+    )
+    return {
+        "host_capabilities": host.as_dict(),
+        "host_capability_id": host.capability_id,
+        "host_qualification_domain_id": host.qualification_domain_id,
+        "host_qualification_domain_digest": host.qualification_domain_digest,
+        "runtime_substrate": runtime.as_dict(),
+        "runtime_substrate_id": runtime.substrate_id,
+        "runtime_substrate_digest": runtime.digest,
+        "resource_measurement": {"clock_ticks_per_second": 100},
+    }
 
 
 def matrix(
@@ -318,7 +390,7 @@ class ComparatorTests(unittest.TestCase):
             raw = json.loads(path.read_text(encoding="utf-8"))
         self.assertEqual(raw["content_sha256"], _core_digest(raw))
 
-    def test_incomplete_host_report_fails_closed(self):
+    def test_malformed_host_report_fails_closed(self):
         with self.assertRaises(DiagnosticError):
             validate_host_report(
                 {
@@ -327,6 +399,16 @@ class ComparatorTests(unittest.TestCase):
                     "resource_measurement": {"clock_ticks_per_second": 100},
                 }
             )
+
+    def test_valid_incomplete_domain_is_preserved_not_fabricated(self):
+        report = incomplete_but_valid_host_report()
+        result = validate_host_report(report)
+        self.assertFalse(result["host_capacity_complete"])
+        self.assertFalse(result["host_qualification_domain_complete"])
+        self.assertIsNone(result["host_qualification_domain_id"])
+        self.assertIsNone(result["host_qualification_domain_digest"])
+        self.assertTrue(result["runtime_substrate_complete"])
+        self.assertIn("cpu.max:root:OSError:2", result["host_faults"])
 
     def test_malformed_lc0_build_identifier_fails_closed(self):
         doc = matrix(

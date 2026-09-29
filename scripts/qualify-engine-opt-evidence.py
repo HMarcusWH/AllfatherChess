@@ -105,6 +105,7 @@ def main() -> int:
             "selected_max_wall_ms":observed_max,
             "native_work_vectors":[r.get("native_work_values") for r in selected_rows],
             "selected_max_cpu_ms":max(float(r.get("max_cpu_ms") or 0.0) for r in selected_rows),
+            "execution_domain":matrix.get("execution_domain"),
         }
 
     def check_ab():
@@ -168,7 +169,8 @@ def main() -> int:
         require(max(verify)<=vr,"selected LC0 VERIFY reservation is below measured CPU")
         return {"case":p.get("case"),"anchor_move":p.get("anchor_move"),"emitted_move":p.get("emitted_move"),
                 "lc0_explore_cpu_ms_max":max(explore),"lc0_verify_cpu_ms_max":max(verify),
-                "lc0_explore_reserved_ms":er,"lc0_verify_reserved_ms":vr}
+                "lc0_explore_reserved_ms":er,"lc0_verify_reserved_ms":vr,
+                "execution_domain":d.get("execution_domain")}
 
     def check_local1():
         found=[]
@@ -184,10 +186,36 @@ def main() -> int:
         manifests=sorted(path.parent.glob("manifest.json")); require(len(manifests)==1,"LOCAL-1-v2 campaign manifest missing")
         require((load(manifests[0]).get("source") or {}).get("commit")==source,"LOCAL-1-v2 source is not exact head")
         return {"campaign_id":d.get("campaign_id"),"validated_games":d.get("validated_games"),
-                "authority_counts":d.get("authority_counts"),"actual_anchor_overrides":d.get("actual_anchor_overrides")}
+                "authority_counts":d.get("authority_counts"),"actual_anchor_overrides":d.get("actual_anchor_overrides"),
+                "execution_domain":d.get("execution_domain")}
+
+    def check_execution_domain():
+        names=("lc0","hybrid","local1_v2")
+        rows=[]
+        for name in names:
+            require(name in details,f"{name} evidence missing before execution-domain gate")
+            domain=(details[name].get("execution_domain") or {})
+            require(domain.get("complete") is True,f"{name} execution-domain evidence is incomplete")
+            host_id=domain.get("host_qualification_domain_id")
+            runtime_id=domain.get("runtime_substrate_id")
+            require(isinstance(host_id,str) and host_id,f"{name} host qualification domain missing")
+            require(isinstance(runtime_id,str) and runtime_id,f"{name} runtime substrate id missing")
+            rows.append((name,host_id,runtime_id))
+        require(len({row[1] for row in rows})==1,
+                "claim-bearing runtime evidence spans multiple host qualification domains")
+        require(len({row[2] for row in rows})==1,
+                "claim-bearing runtime evidence spans multiple runtime substrates")
+        return {
+            "host_qualification_domain_id":rows[0][1],
+            "runtime_substrate_id":rows[0][2],
+            "members":[{"name":name,"host_qualification_domain_id":host_id,
+                        "runtime_substrate_id":runtime_id}
+                       for name,host_id,runtime_id in rows],
+        }
 
     gate("lc0",check_lc0); gate("constituent_ab",check_ab); gate("candidate",check_candidate)
     gate("hybrid",check_hybrid); gate("local1_v2",check_local1)
+    gate("execution_domain",check_execution_domain)
     passed=not errors
     report={"schema_version":1,"profile_id":"engine-opt-v2-aggregate","source_commit":source,"passed":passed,
             "errors":errors,"details":details,

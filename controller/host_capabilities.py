@@ -868,6 +868,8 @@ def build_host_capabilities(facts: LinuxHostFacts) -> HostCapabilities:
     cpu_family: int | None = None
     cpu_model: int | None = None
     cpu_stepping: int | None = None
+    cpu_model_name: str | None = None
+    cpu_microcode: str | None = None
     cpu_flags: tuple[str, ...] = ()
     cpu_feature_digest: str | None = None
     cpu_identity_complete = bool(

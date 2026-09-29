@@ -36,6 +36,43 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  impact:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      impact: ${{ steps.classify.outputs.impact }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.ALLFATHER_SOURCE_SHA }}
+          fetch-depth: 0
+      - id: classify
+        name: Classify legacy qualification impact
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if [ "$EVENT_NAME" = "workflow_dispatch" ] || [ -z "$BASE_SHA" ] || [ "$BASE_SHA" = "0000000000000000000000000000000000000000" ]; then
+            impact="runtime_affected"
+          else
+            git fetch --no-tags origin "$BASE_SHA"
+            mapfile -t paths < <(git diff --name-only "$BASE_SHA" "$ALLFATHER_SOURCE_SHA")
+            impact="$(python3 scripts/classify-qualification-impact.py "${paths[@]}")"
+          fi
+          echo "impact=$impact" | tee -a "$GITHUB_OUTPUT"
+
+  control-plane-contracts:
+    needs: impact
+    if: ${{ needs.impact.outputs.impact == 'control_plane_only' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.ALLFATHER_SOURCE_SHA }}
+      - name: Validate J2 host-observation contracts
+        run: make orchestration-host-tests
+
   static-contracts:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -56,6 +93,8 @@ jobs:
           bash -n scripts/build-online-engine-opt-v2.sh
 
   build-candidate:
+    needs: impact
+    if: ${{ needs.impact.outputs.impact != 'control_plane_only' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 70
     steps:
@@ -227,6 +266,8 @@ jobs:
           retention-days: 14
 
   fastchess-source-tests-v2:
+    needs: impact
+    if: ${{ needs.impact.outputs.impact != 'control_plane_only' }}
     runs-on: ubuntu-22.04
     timeout-minutes: 30
     steps:

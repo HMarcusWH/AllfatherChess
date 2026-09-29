@@ -3,6 +3,7 @@
 from __future__ import annotations
 import argparse,json,math,subprocess
 from pathlib import Path
+from tools.engine_opt.domain import require_same_execution_domain
 
 class QualificationError(RuntimeError):
     pass
@@ -190,28 +191,11 @@ def main() -> int:
                 "execution_domain":d.get("execution_domain")}
 
     def check_execution_domain():
-        names=("lc0","hybrid","local1_v2")
-        rows=[]
-        for name in names:
-            require(name in details,f"{name} evidence missing before execution-domain gate")
-            domain=(details[name].get("execution_domain") or {})
-            require(domain.get("complete") is True,f"{name} execution-domain evidence is incomplete")
-            host_id=domain.get("host_qualification_domain_id")
-            runtime_id=domain.get("runtime_substrate_id")
-            require(isinstance(host_id,str) and host_id,f"{name} host qualification domain missing")
-            require(isinstance(runtime_id,str) and runtime_id,f"{name} runtime substrate id missing")
-            rows.append((name,host_id,runtime_id))
-        require(len({row[1] for row in rows})==1,
-                "claim-bearing runtime evidence spans multiple host qualification domains")
-        require(len({row[2] for row in rows})==1,
-                "claim-bearing runtime evidence spans multiple runtime substrates")
-        return {
-            "host_qualification_domain_id":rows[0][1],
-            "runtime_substrate_id":rows[0][2],
-            "members":[{"name":name,"host_qualification_domain_id":host_id,
-                        "runtime_substrate_id":runtime_id}
-                       for name,host_id,runtime_id in rows],
-        }
+        return require_same_execution_domain({
+            "lc0": (details.get("lc0") or {}).get("execution_domain"),
+            "hybrid": (details.get("hybrid") or {}).get("execution_domain"),
+            "local1_v2": (details.get("local1_v2") or {}).get("execution_domain"),
+        })
 
     gate("lc0",check_lc0); gate("constituent_ab",check_ab); gate("candidate",check_candidate)
     gate("hybrid",check_hybrid); gate("local1_v2",check_local1)

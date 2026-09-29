@@ -7,6 +7,7 @@ sys.path.insert(0,str(ROOT))
 from controller.engine_opt_profile import (
     EngineOptProfileError, load_json, validate_reference,
 )
+from tools.engine_opt.domain import candidate_bundle_identity
 POLICY=ROOT/"qualification/online-engine-opt-v2.json"
 SELECTION=ROOT/"qualification/engine-opt-v2-selection.json"
 CONFIG=ROOT/"config/allfather.online-engine-opt-v2.json"
@@ -54,6 +55,10 @@ def main() -> int:
         manifest=load_json(bundle/"build-manifest.json")
         source=git("rev-parse","HEAD")
         source_tree=git("rev-parse","HEAD^{tree}")
+        candidate_identity=candidate_bundle_identity(
+            bundle,
+            expected_source_commit=source,
+        )
         require(manifest.get("profile_id")==policy["profile_id"],
                 "v2 bundle profile mismatch")
         require(manifest.get("source_commit")==source,
@@ -113,7 +118,10 @@ def main() -> int:
             "contracts":expected_contracts,
             "derived_engine_trees":expected_trees,
             "passed":True,
-            "promotion_ready":selection.get("status")=="selected",
+            "candidate_identity_valid":True,
+            "promotion_ready":False,
+            "promotion_requires":"execution-domain-bound aggregate qualification",
+            "candidate_bundle":candidate_identity,
             "evidence_sha256":sha(EVIDENCE),
             "claim_boundary":{
                 "strength":False,"elo":False,"deployment":False,
@@ -122,7 +130,7 @@ def main() -> int:
     except Exception as exc:
         report={
             "schema_version":1,"profile_id":"engine-opt-v2",
-            "passed":False,"promotion_ready":False,
+            "passed":False,"candidate_identity_valid":False,"promotion_ready":False,
             "error":f"{type(exc).__name__}: {exc}",
         }
     RESULT.parent.mkdir(parents=True,exist_ok=True)

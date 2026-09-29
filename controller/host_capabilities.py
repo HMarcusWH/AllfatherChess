@@ -772,11 +772,18 @@ class HostCapabilities:
         }
 
     @property
-    def qualification_domain_id(self) -> str | None:
+    def qualification_domain_digest(self) -> str | None:
         material = self.qualification_domain_material
         if material is None:
             return None
-        return f"host-domain/{canonical_digest(material)[:20]}"
+        return canonical_digest(material)
+
+    @property
+    def qualification_domain_id(self) -> str | None:
+        digest = self.qualification_domain_digest
+        if digest is None:
+            return None
+        return f"host-domain/{digest[:20]}"
 
     @property
     def host_class(self) -> str:

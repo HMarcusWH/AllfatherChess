@@ -1931,6 +1931,7 @@ class BackendManager:
                         reset_after=bool(warmup["reset_after"]),
                     ),
                 )
+            self._finalize_resource_instance(instance, process)
         except UciProcessError as exc:
             if self.spec(instance).role == "shadow":
                 self.record_shadow_failure(
@@ -1984,6 +1985,7 @@ class BackendManager:
         try:
             if changed:
                 process.configure_idle(changed)
+            self._verify_resource_instance(instance, process)
         except UciProcessError as exc:
             if self.spec(instance).role == "shadow":
                 self.record_shadow_failure(
@@ -2330,6 +2332,8 @@ class BackendManager:
         with self._lock:
             self._position_command = None
         self.ready_all()
+        if self._resource_control is not None:
+            self.verify_resource_layout()
         with self._lock:
             for instance, profile_id in list(self._pending_profile_ids.items()):
                 self._effective_profile_ids[instance] = profile_id
@@ -2797,9 +2801,13 @@ class BackendManager:
                 if process is not None:
                     process.close()
         finally:
+            controller = self._resource_control
+            if controller is not None:
+                controller.reset_runtime_state()
             with self._lock:
                 self._started = False
                 self._effective_profile_ids.clear()
                 self._effective_profile_phases.clear()
                 self._pending_profile_ids.clear()
                 self._pending_profile_phases.clear()
+                self._resource_placement_states.clear()

@@ -55,6 +55,7 @@ class CpuIdentityFact:
     model: int
     stepping: int
     model_name: str
+    microcode: str | None
     flags: tuple[str, ...]
 
 
@@ -300,6 +301,7 @@ class LinuxHostProvider:
                     model=numeric["model"],
                     stepping=numeric["stepping"],
                     model_name=fields["model name"],
+                    microcode=fields.get("microcode") or None,
                     flags=flags,
                 )
             )

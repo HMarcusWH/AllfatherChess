@@ -683,3 +683,7 @@ class ResourceController:
     def resource_state_digest(self, instance: str) -> str | None:
         evidence = self.resource_state(instance)
         return None if evidence is None else evidence.digest
+
+    def reset_runtime_state(self) -> None:
+        """Discard PID/task evidence while retaining the immutable host/layout plan."""
+        self._state.clear()

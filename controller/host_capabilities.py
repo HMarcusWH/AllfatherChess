@@ -244,6 +244,7 @@ class HostCapabilities:
     cpu_model: int | None
     cpu_stepping: int | None
     cpu_model_name: str | None
+    cpu_microcode: str | None
     cpu_flags_intersection: tuple[str, ...]
     cpu_feature_digest: str | None
     cpu_identity_complete: bool
@@ -290,7 +291,7 @@ class HostCapabilities:
                 self, name, _cpu_tuple(getattr(self, name), name)
             )
 
-        for name in ("cpu_vendor_id", "cpu_model_name"):
+        for name in ("cpu_vendor_id", "cpu_model_name", "cpu_microcode"):
             value = getattr(self, name)
             if value is not None and (
                 not isinstance(value, str) or not value or "\x00" in value
@@ -499,10 +500,7 @@ class HostCapabilities:
                 "qualification_domain_complete must be boolean"
             )
         expected_domain_complete = bool(
-            self.capacity_complete
-            and self.cpu_identity_complete
-            and self.topology_complete
-            and self.numa_complete
+            self.capacity_complete and self.cpu_identity_complete
         )
         if self.qualification_domain_complete != expected_domain_complete:
             raise OrchestrationContractError(
@@ -536,6 +534,7 @@ class HostCapabilities:
             "cpu_model": self.cpu_model,
             "cpu_stepping": self.cpu_stepping,
             "cpu_model_name": self.cpu_model_name,
+            "cpu_microcode": self.cpu_microcode,
             "cpu_flags_intersection": list(self.cpu_flags_intersection),
             "cpu_feature_digest": self.cpu_feature_digest,
             "cpu_identity_complete": self.cpu_identity_complete,
@@ -591,6 +590,7 @@ class HostCapabilities:
             "cpu_model",
             "cpu_stepping",
             "cpu_model_name",
+            "cpu_microcode",
             "cpu_flags_intersection",
             "cpu_feature_digest",
             "cpu_identity_complete",
@@ -668,6 +668,7 @@ class HostCapabilities:
             cpu_model=raw.get("cpu_model"),
             cpu_stepping=raw.get("cpu_stepping"),
             cpu_model_name=raw.get("cpu_model_name"),
+            cpu_microcode=raw.get("cpu_microcode"),
             cpu_flags_intersection=tuple(flags),
             cpu_feature_digest=raw.get("cpu_feature_digest"),
             cpu_identity_complete=raw.get("cpu_identity_complete"),
@@ -723,13 +724,19 @@ class HostCapabilities:
         assert self.cpu_model is not None
         assert self.cpu_stepping is not None
         assert self.cpu_feature_digest is not None
-        assert self.physical_core_count is not None
-        assert self.smt_width is not None
         assert self.effective_memory_limit_bytes is not None
 
         memory_mib = self.effective_memory_limit_bytes // (1024 * 1024)
-        memory_class_mib = (memory_mib // 1024) * 1024
-        numa_counts = sorted(len(node.cpus) for node in self.numa_nodes)
+        memory_class_mib = (
+            memory_mib
+            if memory_mib < 256
+            else (memory_mib // 256) * 256
+        )
+        numa_counts = (
+            sorted(len(node.cpus) for node in self.numa_nodes)
+            if self.numa_complete
+            else []
+        )
         return {
             "schema_version": 1,
             "platform": self.platform,
@@ -739,13 +746,22 @@ class HostCapabilities:
                 "family": self.cpu_family,
                 "model": self.cpu_model,
                 "stepping": self.cpu_stepping,
+                "microcode": self.cpu_microcode,
                 "feature_digest": self.cpu_feature_digest,
                 "allowed_logical_cpus": len(self.allowed_cpus),
-                "physical_cores": self.physical_core_count,
-                "smt_width": self.smt_width,
+            },
+            "topology": {
+                "complete": self.topology_complete,
+                "physical_cores": (
+                    self.physical_core_count if self.topology_complete else None
+                ),
+                "smt_width": self.smt_width if self.topology_complete else None,
             },
             "numa": {
-                "node_count": len(self.numa_nodes),
+                "complete": self.numa_complete,
+                "node_count": (
+                    len(self.numa_nodes) if self.numa_complete else None
+                ),
                 "logical_cpu_counts": numa_counts,
             },
             "limits": {
@@ -852,7 +868,6 @@ def build_host_capabilities(facts: LinuxHostFacts) -> HostCapabilities:
     cpu_family: int | None = None
     cpu_model: int | None = None
     cpu_stepping: int | None = None
-    cpu_model_name: str | None = None
     cpu_flags: tuple[str, ...] = ()
     cpu_feature_digest: str | None = None
     cpu_identity_complete = bool(
@@ -879,6 +894,18 @@ def build_host_capabilities(facts: LinuxHostFacts) -> HostCapabilities:
             )
             names = sorted({item.model_name for item in facts.cpu_identity})
             cpu_model_name = " | ".join(names)
+            microcodes = sorted(
+                {
+                    item.microcode
+                    for item in facts.cpu_identity
+                    if item.microcode is not None
+                }
+            )
+            cpu_microcode = (
+                microcodes[0] if len(microcodes) == 1 else None
+            )
+            if len(microcodes) > 1:
+                faults.append("cpuinfo:heterogeneous-microcode")
             feature_sets = [set(item.flags) for item in facts.cpu_identity]
             intersection = set.intersection(*feature_sets)
             cpu_flags = tuple(sorted(intersection))
@@ -945,10 +972,7 @@ def build_host_capabilities(facts: LinuxHostFacts) -> HostCapabilities:
         and effective_memory > 0
     )
     qualification_domain_complete = bool(
-        capacity_complete
-        and cpu_identity_complete
-        and topology_complete
-        and numa_complete
+        capacity_complete and cpu_identity_complete
     )
 
     return HostCapabilities(
@@ -965,6 +989,7 @@ def build_host_capabilities(facts: LinuxHostFacts) -> HostCapabilities:
         cpu_model=cpu_model,
         cpu_stepping=cpu_stepping,
         cpu_model_name=cpu_model_name,
+        cpu_microcode=cpu_microcode,
         cpu_flags_intersection=cpu_flags,
         cpu_feature_digest=cpu_feature_digest,
         cpu_identity_complete=cpu_identity_complete,

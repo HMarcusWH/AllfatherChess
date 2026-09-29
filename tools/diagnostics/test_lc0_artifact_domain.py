@@ -135,7 +135,10 @@ class ComparatorTests(unittest.TestCase):
         self.assertTrue(result["signals"]["b_vs_c_binary_bytes_equal"])
 
     def test_artifact_correlated_drift(self):
-        change = {(PROFILES[1], 0, CASES[0]): "h2h3"}
+        change = {
+            (PROFILES[1], repeat, CASES[0]): "h2h3"
+            for repeat in range(3)
+        }
         a = matrix(source=EXPECTED_A, binary_hash="a" * 64)
         b = matrix(source=EXPECTED_B, binary_hash="b" * 64, bestmove_overrides=change)
         c = matrix(source=EXPECTED_B, binary_hash="b" * 64, bestmove_overrides=change)
@@ -183,7 +186,10 @@ class ComparatorTests(unittest.TestCase):
         )
 
     def test_native_work_drift_is_separate_from_bestmove_drift(self):
-        native = {(PROFILES[1], 0, CASES[0]): 99}
+        native = {
+            (PROFILES[1], repeat, CASES[0]): 99
+            for repeat in range(3)
+        }
         a = matrix(source=EXPECTED_A, binary_hash="a" * 64)
         b = matrix(source=EXPECTED_B, binary_hash="b" * 64, native_overrides=native)
         c = matrix(source=EXPECTED_B, binary_hash="b" * 64, native_overrides=native)
@@ -194,7 +200,10 @@ class ComparatorTests(unittest.TestCase):
         self.assertTrue(result["signals"]["a_vs_b_native_work_drift"])
 
     def test_selected_and_baseline_are_reported_separately(self):
-        change = {(PROFILES[1], 0, CASES[0]): "h2h3"}
+        change = {
+            (PROFILES[1], repeat, CASES[0]): "h2h3"
+            for repeat in range(3)
+        }
         a = matrix(source=EXPECTED_A, binary_hash="a" * 64)
         b = matrix(source=EXPECTED_B, binary_hash="b" * 64, bestmove_overrides=change)
         c = matrix(source=EXPECTED_B, binary_hash="b" * 64, bestmove_overrides=change)
@@ -205,7 +214,10 @@ class ComparatorTests(unittest.TestCase):
         self.assertFalse(result["cross_build"]["a_vs_b"]["selected"]["bestmove_equivalent"])
 
     def test_baseline_drift_is_visible(self):
-        change = {(PROFILES[0], 0, CASES[0]): "h2h3"}
+        change = {
+            (PROFILES[0], repeat, CASES[0]): "h2h3"
+            for repeat in range(3)
+        }
         a = matrix(source=EXPECTED_A, binary_hash="a" * 64)
         b = matrix(source=EXPECTED_B, binary_hash="b" * 64, bestmove_overrides=change)
         c = matrix(source=EXPECTED_B, binary_hash="b" * 64, bestmove_overrides=change)

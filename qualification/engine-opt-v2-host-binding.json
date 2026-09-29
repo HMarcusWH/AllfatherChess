@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "profile_id": "engine-opt-v2",
+  "status": "historically_qualified_legacy_unbound",
+  "historical_qualification": {
+    "pull_request": 44,
+    "qualified_head": "085420843b95f3f2dd206fc1c66bf642cbd49b6d",
+    "merge_commit": "7248f25fc64be4d04a78ec2b1f0c9de2986a11a5",
+    "shared_tree": "80fae798aed99a5e37fcfb7fce321a7e01a2fc56",
+    "aggregate_workflow_run": 36458789423,
+    "aggregate_artifact_id": 10990541766,
+    "aggregate_artifact_sha256": "080678710a7df45a44d008df5ef484fbcfa3c01911d1a50a5cb0a96cbc3b07d1"
+  },
+  "host_binding": {
+    "qualification_domain": "legacy_unbound",
+    "runtime_substrate": "legacy_unbound",
+    "generic_host_portability_established": false,
+    "selection_eligible_on_unmatched_host": false,
+    "reason": "PR #44 retained exact-head qualification evidence but its claim-bearing runtime artifacts did not retain a reconstructable J2 execution-domain identity."
+  },
+  "post_j2_diagnostic": {
+    "pull_request": 48,
+    "merge_commit": "ebbb0cfa45c452a04a223ecf5782c2cdf7388aa5",
+    "workflow_run": 36568210351,
+    "artifact_id": 11033537340,
+    "artifact_sha256": "73884ad349d923ba31661a411d74f3c6fe1c9cb7901c296eda0483fb5510ab5d",
+    "diagnosis": "WITHIN_BINARY_INSTABILITY",
+    "source_surface_equivalent": true,
+    "b_c_binary_bytes_equal": true,
+    "a_vs_b_bestmove_drift": true,
+    "b_vs_c_bestmove_drift": false,
+    "selected_profile_bestmove_repeatable_each_build": true,
+    "selected_profile_native_work_repeatable_each_build": false,
+    "host_binding_scope": "exact_host_observation",
+    "generic_host_portability_established": false,
+    "note": "The same-worker diagnostic separated LC0 build-identifier/artifact-byte differences from runtime behavior. A differed in bytes from B/C, B and C were byte-identical, and the retained selected profile still showed execution-sensitive behavior/native-work instability. This does not retroactively bind PR #44 to a modern host domain."
+  },
+  "claim_boundary": {
+    "historical_qualification_retained": true,
+    "generic_host_portability_established": false,
+    "strength": false,
+    "elo": false,
+    "equal_compute": false,
+    "deployment": false
+  }
+}

@@ -93,7 +93,7 @@ jobs:
 
   control-plane-contracts:
     needs: impact
-    if: ${{ needs.impact.outputs.impact == 'control_plane_only' }}
+    if: ${{ needs.impact.outputs.impact != 'runtime_affected' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     env:
@@ -107,7 +107,7 @@ jobs:
 
   fastchess-source-tests:
     needs: impact
-    if: ${{ needs.impact.outputs.impact != 'control_plane_only' }}
+    if: ${{ needs.impact.outputs.impact == 'runtime_affected' }}
     runs-on: ubuntu-22.04
     timeout-minutes: 30
     env:

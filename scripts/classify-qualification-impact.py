@@ -32,6 +32,10 @@ J2_BOOTSTRAP_ONLY = {
     "tests/test_qualification_impact.py",
     ".github/workflows/engine-optimization.yml",
     ".github/workflows/full-game-qualification.yml",
+    ".github/workflows/lc0-strength-qualification.yml",
+    ".github/workflows/online-profile-qualification.yml",
+    ".github/workflows/online-hybrid-qualification.yml",
+    ".github/workflows/baseline.yml",
 }
 
 

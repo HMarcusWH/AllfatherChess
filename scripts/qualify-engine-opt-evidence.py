@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Aggregate exact-head ENGINE-OPT-V2 measurements and lifecycle evidence."""
 from __future__ import annotations
-import argparse,json,math,subprocess
+import argparse,json,math,subprocess,sys
 from pathlib import Path
+ROOT=Path(__file__).resolve().parents[1]
+sys.path.insert(0,str(ROOT))
 from tools.engine_opt.domain import require_same_execution_domain
 
 class QualificationError(RuntimeError):
@@ -44,7 +46,7 @@ def main() -> int:
     ap.add_argument("--output",type=Path,required=True)
     args=ap.parse_args()
     artifact_root=args.root.resolve()
-    repo=Path(__file__).resolve().parents[1]
+    repo=ROOT
     source=current_source(repo)
     errors=[]; details={}
     selection=load(repo/"qualification/engine-opt-v2-selection.json")

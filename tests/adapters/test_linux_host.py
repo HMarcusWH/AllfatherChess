@@ -26,6 +26,34 @@ def write(path: Path, text: str) -> None:
     path.write_text(text, encoding="utf-8")
 
 
+def cpuinfo(
+    cpus: tuple[int, ...],
+    *,
+    vendor: str = "AuthenticAMD",
+    family: int = 25,
+    model: int = 1,
+    stepping: int = 1,
+    name: str = "AMD EPYC Test",
+    flags: str = "fpu sse sse2 avx avx2",
+) -> str:
+    blocks = []
+    for cpu in cpus:
+        blocks.append(
+            "\n".join(
+                [
+                    f"processor\t: {cpu}",
+                    f"vendor_id\t: {vendor}",
+                    f"cpu family\t: {family}",
+                    f"model\t\t: {model}",
+                    f"stepping\t: {stepping}",
+                    f"model name\t: {name}",
+                    f"flags\t\t: {flags}",
+                ]
+            )
+        )
+    return "\n\n".join(blocks) + "\n"
+
+
 class LinuxHostParserTests(unittest.TestCase):
     def test_cpu_list_parser(self):
         self.assertEqual(LinuxHostProvider.parse_cpu_list("0-3"), (0, 1, 2, 3))
@@ -48,14 +76,31 @@ class LinuxHostParserTests(unittest.TestCase):
             (150000, 100000),
         )
         self.assertIsNone(LinuxHostProvider.parse_memory_limit("max"))
-        self.assertEqual(LinuxHostProvider.parse_memory_limit("8589934592"), 8589934592)
+        self.assertEqual(
+            LinuxHostProvider.parse_memory_limit("8589934592"),
+            8589934592,
+        )
+
+    def test_cpuinfo_parser_is_per_cpu_and_feature_sorted(self):
+        rows = LinuxHostProvider.parse_cpuinfo(
+            cpuinfo((0, 1), flags="avx2 sse fpu avx sse2")
+        )
+        self.assertEqual([row.cpu for row in rows], [0, 1])
+        self.assertEqual(rows[0].vendor_id, "AuthenticAMD")
+        self.assertEqual(rows[0].flags, ("avx", "avx2", "fpu", "sse", "sse2"))
+        with self.assertRaises(LinuxHostProviderError):
+            LinuxHostProvider.parse_cpuinfo(
+                "processor: 0\nvendor_id: x\n\n"
+            )
 
     def test_psi_parser(self):
         item = LinuxHostProvider.parse_psi(PSI)
         self.assertEqual(item.some.avg10, 1.0)
         self.assertEqual(item.full.total_us, 7)
         with self.assertRaises(LinuxHostProviderError):
-            LinuxHostProvider.parse_psi("some avg10=nan avg60=0 avg300=0 total=0")
+            LinuxHostProvider.parse_psi(
+                "some avg10=nan avg60=0 avg300=0 total=0"
+            )
 
     def test_cgroup_parser_rejects_non_unified_or_ambiguous_membership(self):
         self.assertEqual(
@@ -70,13 +115,10 @@ class LinuxHostParserTests(unittest.TestCase):
 
 class SyntheticLinuxHostTests(unittest.TestCase):
     def provider(self, root: Path, *, affinity=(0, 1, 2, 3), cpus=8):
-        proc = root / "proc"
-        sysroot = root / "sys"
-        cgroup = root / "cgroup"
         return LinuxHostProvider(
-            proc_root=proc,
-            sys_root=sysroot,
-            cgroup_root=cgroup,
+            proc_root=root / "proc",
+            sys_root=root / "sys",
+            cgroup_root=root / "cgroup",
             affinity_reader=lambda: affinity,
             cpu_count_reader=lambda: cpus,
             platform_reader=lambda: ("linux", "x86_64"),
@@ -93,12 +135,28 @@ class SyntheticLinuxHostTests(unittest.TestCase):
         parent_mem=str(6 * 1024**3),
         root_mem="max",
         cpuset="0-3",
+        vendor="AuthenticAMD",
+        family=25,
+        model=1,
+        stepping=1,
+        model_name="AMD EPYC Test",
     ):
         proc = root / "proc"
         sysroot = root / "sys"
         cgroup = root / "cgroup"
         write(proc / "self" / "cgroup", "0::/parent/child\n")
         write(proc / "meminfo", "MemTotal:       8388608 kB\n")
+        write(
+            proc / "cpuinfo",
+            cpuinfo(
+                tuple(range(8)),
+                vendor=vendor,
+                family=family,
+                model=model,
+                stepping=stepping,
+                name=model_name,
+            ),
+        )
         write(proc / "pressure" / "cpu", PSI)
         write(proc / "pressure" / "memory", PSI)
 
@@ -117,20 +175,47 @@ class SyntheticLinuxHostTests(unittest.TestCase):
         write(leaf / "memory.current", str(1024**3) + "\n")
 
         # 0/1 share core 0, 2/3 share core 1.
-        topology = {0: (0, 0, "0-1"), 1: (0, 0, "0-1"), 2: (0, 1, "2-3"), 3: (0, 1, "2-3")}
+        topology = {
+            0: (0, 0, "0-1"),
+            1: (0, 0, "0-1"),
+            2: (0, 1, "2-3"),
+            3: (0, 1, "2-3"),
+            4: (0, 2, "4-5"),
+            5: (0, 2, "4-5"),
+            6: (0, 3, "6-7"),
+            7: (0, 3, "6-7"),
+        }
         for cpu, (package, core, siblings) in topology.items():
-            base = sysroot / "devices" / "system" / "cpu" / f"cpu{cpu}" / "topology"
+            base = (
+                sysroot
+                / "devices"
+                / "system"
+                / "cpu"
+                / f"cpu{cpu}"
+                / "topology"
+            )
             write(base / "physical_package_id", f"{package}\n")
             write(base / "core_id", f"{core}\n")
             write(base / "thread_siblings_list", siblings + "\n")
 
-    def test_provider_walks_ancestor_limits_and_effective_topology(self):
+        write(
+            sysroot / "devices" / "system" / "node" / "node0" / "cpulist",
+            "0-3\n",
+        )
+        write(
+            sysroot / "devices" / "system" / "node" / "node1" / "cpulist",
+            "4-7\n",
+        )
+
+    def test_provider_walks_ancestor_limits_identity_numa_and_topology(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             self.populate(root)
             facts = self.provider(root).observe_capabilities()
             self.assertEqual(facts.affinity_cpus, (0, 1, 2, 3))
-            self.assertEqual(facts.cgroup_cpuset_effective, (0, 1, 2, 3))
+            self.assertEqual(
+                facts.cgroup_cpuset_effective, (0, 1, 2, 3)
+            )
             self.assertTrue(facts.cpu_max_complete)
             self.assertTrue(facts.memory_max_complete)
             self.assertEqual(
@@ -147,6 +232,13 @@ class SyntheticLinuxHostTests(unittest.TestCase):
             )
             self.assertTrue(facts.topology_complete)
             self.assertEqual(len(facts.topology), 4)
+            self.assertTrue(facts.cpu_identity_complete)
+            self.assertEqual(len(facts.cpu_identity), 4)
+            self.assertTrue(facts.numa_complete)
+            self.assertEqual(
+                [(node.node_id, node.cpus) for node in facts.numa_nodes],
+                [(0, (0, 1, 2, 3))],
+            )
 
     def test_pressure_preserves_system_and_cgroup_scopes(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -165,12 +257,16 @@ class SyntheticLinuxHostTests(unittest.TestCase):
             outside = root / "outside"
             outside.mkdir()
             cgroup.mkdir()
-            (cgroup / "escape").symlink_to(outside, target_is_directory=True)
+            (cgroup / "escape").symlink_to(
+                outside, target_is_directory=True
+            )
             write(proc / "self" / "cgroup", "0::/escape\n")
             provider = self.provider(root)
             facts = provider.observe_capabilities()
             self.assertFalse(facts.cpu_max_complete)
-            self.assertTrue(any("cgroup-path" in fault for fault in facts.faults))
+            self.assertTrue(
+                any("cgroup-path" in fault for fault in facts.faults)
+            )
 
     def test_affinity_cpuset_contradiction_is_preserved_as_fault(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -178,11 +274,30 @@ class SyntheticLinuxHostTests(unittest.TestCase):
             self.populate(root, cpuset="4-5")
             facts = self.provider(root, affinity=(0, 1)).observe_capabilities()
             self.assertTrue(
-                any("affinity-cpuset-empty" in fault for fault in facts.faults)
+                any(
+                    "affinity-cpuset-empty" in fault
+                    for fault in facts.faults
+                )
             )
 
+    def test_missing_cpuinfo_or_numa_is_explicit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.populate(root)
+            (root / "proc" / "cpuinfo").unlink()
+            for node in (
+                root / "sys" / "devices" / "system" / "node"
+            ).iterdir():
+                (node / "cpulist").unlink()
+            facts = self.provider(root).observe_capabilities()
+            self.assertFalse(facts.cpu_identity_complete)
+            self.assertFalse(facts.numa_complete)
+            self.assertTrue(any("cpuinfo" in fault for fault in facts.faults))
+            self.assertTrue(any("numa" in fault for fault in facts.faults))
+
     @unittest.skipUnless(
-        sys.platform.startswith("linux") and hasattr(os, "sched_getaffinity"),
+        sys.platform.startswith("linux")
+        and hasattr(os, "sched_getaffinity"),
         "live host discovery is Linux-specific",
     )
     def test_live_provider_observes_nonempty_affinity_without_mutation(self):

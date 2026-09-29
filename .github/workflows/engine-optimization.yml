@@ -202,69 +202,6 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
-  hybrid-v2-real:
-    needs: build-candidate
-    runs-on: ubuntu-24.04
-    timeout-minutes: 45
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-        with:
-          ref: ${{ env.ALLFATHER_SOURCE_SHA }}
-      - name: Verify exact source checkout
-        run: test "$(git rev-parse HEAD)" = "$ALLFATHER_SOURCE_SHA"
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
-        with:
-          name: engine-opt-v2-candidate
-          path: build/candidate-download
-      - name: Restore exact candidate bundle
-        run: |
-          test -d build/candidate-download/online-engine-opt-v2
-          rm -rf build/online-engine-opt-v2
-          mv build/candidate-download/online-engine-opt-v2 build/online-engine-opt-v2
-          chmod +x build/online-engine-opt-v2/bin/*
-      - name: Install runtime dependencies
-        run: sudo apt-get update && sudo apt-get install -y libopenblas-dev
-      - name: Exercise real-process G3-v2 authority
-        run: python3 scripts/qualify-online-hybrid-v2.py
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        if: always()
-        with:
-          name: engine-opt-v2-hybrid-evidence
-          path: |
-            build/test-results/online-hybrid-v2
-            build/replays-online-hybrid-v2
-          if-no-files-found: warn
-          retention-days: 14
-
-  lc0-runtime-matrix:
-    needs: build-candidate
-    runs-on: ubuntu-24.04
-    timeout-minutes: 45
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-        with:
-          ref: ${{ env.ALLFATHER_SOURCE_SHA }}
-      - name: Verify exact source checkout
-        run: test "$(git rev-parse HEAD)" = "$ALLFATHER_SOURCE_SHA"
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
-        with:
-          name: engine-opt-v2-candidate
-          path: build/candidate-download
-      - name: Restore candidate executable bits
-        run: chmod +x build/candidate-download/online-engine-opt-v2/bin/*
-      - name: Install runtime dependencies
-        run: sudo apt-get update && sudo apt-get install -y libopenblas-dev
-      - name: Run real-network LC0 matrix
-        run: |
-          python3 scripts/engine-opt-matrix.py             --binary build/candidate-download/online-engine-opt-v2/bin/lc0             --weights build/candidate-download/online-engine-opt-v2/networks/791556.pb.gz             --output build/test-results/engine-opt-matrix/lc0.json
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        if: always()
-        with:
-          name: engine-opt-v2-lc0-matrix
-          path: build/test-results/engine-opt-matrix
-          if-no-files-found: warn
-          retention-days: 14
-
   fastchess-source-tests-v2:
     needs: impact
     if: ${{ needs.impact.outputs.impact == 'runtime_affected' }}
@@ -292,15 +229,16 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-  local1-v2:
-    needs: [build-candidate, hybrid-v2-real, fastchess-source-tests-v2]
+  profile-domain-qualification:
+    needs: [build-candidate, fastchess-source-tests-v2]
+    if: ${{ needs.impact.outputs.impact == 'runtime_affected' }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 330
+    timeout-minutes: 360
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           ref: ${{ env.ALLFATHER_SOURCE_SHA }}
-      - name: Verify exact source checkout
+      - name: Verify exact source checkout and bind runner environment
         run: |
           test "$(git rev-parse HEAD)" = "$ALLFATHER_SOURCE_SHA"
           echo "ALLFATHER_RUNNER_ENVIRONMENT=${{ runner.environment }}" >> "$GITHUB_ENV"
@@ -318,7 +256,7 @@ jobs:
           rm -rf build/online-engine-opt-v2
           mv build/candidate-download/online-engine-opt-v2 build/online-engine-opt-v2
           chmod +x build/online-engine-opt-v2/bin/*
-      - name: Install lifecycle build/runtime dependencies
+      - name: Install qualification dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -327,15 +265,39 @@ jobs:
             python3-pip python3-setuptools python3-wheel
           python3 -m pip install --break-system-packages --no-build-isolation --no-deps \
             --require-hashes -r qualification/local-game-requirements.txt
+      - name: Capture host-bound LC0 frozen matrix
+        run: |
+          python3 scripts/engine-opt-matrix.py \
+            --binary build/online-engine-opt-v2/bin/lc0 \
+            --weights build/online-engine-opt-v2/networks/791556.pb.gz \
+            --output build/test-results/engine-opt-matrix/lc0.json
+      - name: Exercise real-process G3-v2 authority on the same worker
+        run: python3 scripts/qualify-online-hybrid-v2.py
       - name: Build pinned Fastchess against source-test attestation
         run: make -f Makefile.local-game build-fastchess
       - name: Run LOCAL-1 contract regressions
         run: make -f Makefile.local-game test
-      - name: Qualify selected ENGINE-OPT-V2 full-game lifecycle
+      - name: Qualify selected ENGINE-OPT-V2 lifecycle on the same worker
         run: |
           python3 -m tools.local_game.runner \
             --mode required \
             --policy qualification/local-full-game-v2.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: engine-opt-v2-lc0-matrix
+          path: build/test-results/engine-opt-matrix
+          if-no-files-found: warn
+          retention-days: 14
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: engine-opt-v2-hybrid-evidence
+          path: |
+            build/test-results/online-hybrid-v2
+            build/replays-online-hybrid-v2
+          if-no-files-found: warn
+          retention-days: 14
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
@@ -352,9 +314,7 @@ jobs:
       - static-contracts
       - build-candidate
       - constituent-ab
-      - hybrid-v2-real
-      - lc0-runtime-matrix
-      - local1-v2
+      - profile-domain-qualification
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:

@@ -23,6 +23,8 @@ from adapters.telemetry import SUPPORTED_SCORE_TYPES
 from common.search_request import SearchRequestError, parse_position_command
 from controller.resource_measurement import ResourceMeasurementError, ResourceMeasurementSettings
 from controller.online_time import ClockSearch, OnlineTimeSettings, OnlineTimeError
+from controller.decision import canonical_digest
+from controller.resource_profile_catalog import ResourceProfileCatalog, ResourceProfileCatalogError
 from adapters.process.deferred_observer import DeferredObserver
 
 
@@ -1376,6 +1378,16 @@ class BackendManager:
         self._deferred_observers: list[DeferredObserver] = []
         self._online_clock: ClockSearch | None = None
         self._effective_options: dict[str, dict[str, object]] = {}
+
+        # J3/J4 catalog state is opt-in. Legacy configs never bind a catalog and
+        # therefore retain the exact pre-J4 behavior.
+        self._resource_catalog: ResourceProfileCatalog | None = None
+        self._resource_composition_id: str | None = None
+        self._resource_execution_domain: tuple[str, str, str] | None = None
+        self._effective_profile_ids: dict[str, str] = {}
+        self._effective_profile_phases: dict[str, str | None] = {}
+        self._pending_profile_ids: dict[str, str] = {}
+        self._pending_profile_phases: dict[str, str | None] = {}
 
         # Provenance is captured here, before `start()` launches anything. It
         # used to be computed when the shadow coordinator was constructed --

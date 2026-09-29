@@ -91,6 +91,16 @@ class HostPressureTests(unittest.TestCase):
         self.assertIsNone(item.system_cpu)
         self.assertTrue(any("psi:system:cpu" in fault for fault in item.faults))
 
+    def test_pressure_completeness_cannot_be_forged(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            item = discover_host_pressure(provider(Path(tmp)))
+        raw = item.as_dict()
+        forged = copy.deepcopy(raw)
+        forged["system_cpu"] = None
+        forged["system_complete"] = True
+        with self.assertRaises(OrchestrationContractError):
+            HostPressure.from_dict(forged)
+
     def test_pressure_has_no_resource_or_move_authority(self):
         with tempfile.TemporaryDirectory() as tmp:
             item = discover_host_pressure(provider(Path(tmp)))

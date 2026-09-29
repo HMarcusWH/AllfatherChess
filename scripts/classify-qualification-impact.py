@@ -29,6 +29,8 @@ ALWAYS_CONTROL_PLANE = {
 J2_BOOTSTRAP_ONLY = {
     "Makefile",
     "scripts/classify-qualification-impact.py",
+    "scripts/lc0-hardware-probe.py",
+    "scripts/online-hardware-probe.py",
     "tests/test_qualification_impact.py",
     ".github/workflows/engine-optimization.yml",
     ".github/workflows/full-game-qualification.yml",

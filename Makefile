@@ -46,6 +46,7 @@ regime-contract:
 
 engine-opt-tests:
 	python3 tests/engine_opt/test_contracts.py
+	python3 tests/engine_opt/test_execution_domain.py
 	python3 tests/controller/test_engine_opt_runtime.py
 
 engine-opt-matrix:

@@ -45,6 +45,8 @@ class QualificationImpactTests(unittest.TestCase):
             ".github/workflows/baseline.yml",
             "Makefile",
             "scripts/classify-qualification-impact.py",
+            "scripts/lc0-hardware-probe.py",
+            "scripts/online-hardware-probe.py",
         ):
             with self.subTest(path=path):
                 self.assertEqual(

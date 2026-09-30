@@ -135,6 +135,16 @@ jobs:
           python3 -m tools.engine_opt.domain validate \
             --input build/test-results/resource-lab-v1/execution-domain.json \
             --expected-source-commit "$ALLFATHER_SOURCE_SHA"
+      - name: Preflight real engines and measurement substrate
+        run: |
+          rm -rf build/test-results/resource-lab-v1-preflight
+          python3 -m tools.resource_lab.runner \
+            --quick \
+            --execution-domain build/test-results/resource-lab-v1/execution-domain.json \
+            --output build/test-results/resource-lab-v1-preflight
+          python3 -m tools.resource_lab.preflight \
+            --root build/test-results/resource-lab-v1-preflight \
+            --output build/test-results/resource-lab-v1-preflight/preflight-report.json
       - name: Execute one-pass isolated and composition laboratory
         run: |
           python3 -m tools.resource_lab.runner \
@@ -149,6 +159,8 @@ jobs:
         if: always()
         with:
           name: resource-lab-v1
-          path: build/test-results/resource-lab-v1
+          path: |
+            build/test-results/resource-lab-v1
+            build/test-results/resource-lab-v1-preflight
           if-no-files-found: error
           retention-days: 30

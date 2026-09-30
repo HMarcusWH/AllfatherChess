@@ -10,61 +10,95 @@ sys.path.insert(0,str(ROOT))
 
 from tools.resource_lab.qualify import (
     ResourceLabQualificationError,
-    validate_attempt_keys,
+    validate_attempt_order,
 )
 
 
 class QualifyAttemptTests(unittest.TestCase):
-    def test_exact_attempt_set_passes(self):
-        expected={("a",0,"c0"),("a",1,"c0")}
-        rows=[
-            {"candidate_id":"a","repeat_index":0,"case_id":"c0","attempt_index":0},
-            {"candidate_id":"a","repeat_index":1,"case_id":"c0","attempt_index":0},
-        ]
-        seen=validate_attempt_keys(
-            rows,expected,
-            fields=("candidate_id","repeat_index","case_id"),
-            label="Stage-A",
+    def test_exact_blocked_attempt_order_passes(self):
+        expected=(
+            {
+                "candidate_id":"a","repeat_index":0,"case_id":"c0",
+                "block_index":0,"order_index":0,"attempt_ordinal":0,
+            },
+            {
+                "candidate_id":"b","repeat_index":0,"case_id":"c0",
+                "block_index":0,"order_index":1,"attempt_ordinal":1,
+            },
         )
-        self.assertEqual(seen,expected)
+        rows=[
+            {**expected[0],"attempt_index":0},
+            {**expected[1],"attempt_index":0},
+        ]
+        validate_attempt_order(
+            rows,expected,identity_field="candidate_id",label="Stage-A"
+        )
 
-    def test_duplicate_attempt_is_retry_and_fails(self):
-        expected={("a",0,"c0")}
-        row={"candidate_id":"a","repeat_index":0,"case_id":"c0","attempt_index":0}
+    def test_reordered_attempt_fails(self):
+        expected=(
+            {
+                "candidate_id":"a","repeat_index":0,"case_id":"c0",
+                "block_index":0,"order_index":0,"attempt_ordinal":0,
+            },
+            {
+                "candidate_id":"b","repeat_index":0,"case_id":"c0",
+                "block_index":0,"order_index":1,"attempt_ordinal":1,
+            },
+        )
+        rows=[
+            {**expected[1],"attempt_index":0},
+            {**expected[0],"attempt_index":0},
+        ]
         with self.assertRaises(ResourceLabQualificationError):
-            validate_attempt_keys(
-                [row,dict(row)],expected,
-                fields=("candidate_id","repeat_index","case_id"),
-                label="Stage-A",
+            validate_attempt_order(
+                rows,expected,identity_field="candidate_id",label="Stage-A"
             )
 
     def test_missing_attempt_fails(self):
-        expected={("a",0,"c0"),("a",1,"c0")}
+        expected=(
+            {
+                "candidate_id":"a","repeat_index":0,"case_id":"c0",
+                "block_index":0,"order_index":0,"attempt_ordinal":0,
+            },
+            {
+                "candidate_id":"b","repeat_index":0,"case_id":"c0",
+                "block_index":0,"order_index":1,"attempt_ordinal":1,
+            },
+        )
         with self.assertRaises(ResourceLabQualificationError):
-            validate_attempt_keys(
-                [{"candidate_id":"a","repeat_index":0,"case_id":"c0","attempt_index":0}],
+            validate_attempt_order(
+                [{**expected[0],"attempt_index":0}],
                 expected,
-                fields=("candidate_id","repeat_index","case_id"),
+                identity_field="candidate_id",
                 label="Stage-A",
             )
 
     def test_retry_index_fails_even_without_duplicate_row(self):
-        expected={("a",0,"c0")}
+        expected=(
+            {
+                "candidate_id":"a","repeat_index":0,"case_id":"c0",
+                "block_index":0,"order_index":0,"attempt_ordinal":0,
+            },
+        )
         with self.assertRaises(ResourceLabQualificationError):
-            validate_attempt_keys(
-                [{"candidate_id":"a","repeat_index":0,"case_id":"c0","attempt_index":1}],
+            validate_attempt_order(
+                [{**expected[0],"attempt_index":1}],
                 expected,
-                fields=("candidate_id","repeat_index","case_id"),
+                identity_field="candidate_id",
                 label="Stage-A",
             )
 
-    def test_unexpected_attempt_fails(self):
+    def test_tampered_order_metadata_fails(self):
+        expected=(
+            {
+                "composition_id":"c0","repeat_index":0,"case_id":"x",
+                "block_index":0,"order_index":0,"attempt_ordinal":0,
+            },
+        )
+        row={**expected[0],"attempt_index":0,"block_index":7}
         with self.assertRaises(ResourceLabQualificationError):
-            validate_attempt_keys(
-                [{"candidate_id":"b","repeat_index":0,"case_id":"c0","attempt_index":0}],
-                {("a",0,"c0")},
-                fields=("candidate_id","repeat_index","case_id"),
-                label="Stage-A",
+            validate_attempt_order(
+                [row],expected,identity_field="composition_id",label="Stage-B"
             )
 
 

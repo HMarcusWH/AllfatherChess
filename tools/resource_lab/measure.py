@@ -112,11 +112,13 @@ def process_snapshot_from_dict(raw: Mapping[str, Any]) -> ProcessSnapshot:
 
 
 def physical_primitives(
+    identity_binding: ProcessSnapshot,
     before: ProcessSnapshot,
     after: ProcessSnapshot,
     cpu_clock: ProcessCpuClockEvidence,
 ) -> dict[str, Any]:
     return {
+        "identity_binding": identity_binding.as_dict(),
         "proc_before": before.as_dict(),
         "proc_after": after.as_dict(),
         "process_cpu_clock": cpu_clock.as_dict(),
@@ -132,11 +134,23 @@ def reconstruct_physical_measurement(
 ) -> PhysicalMeasurement:
     require(isinstance(primitives, Mapping), "physical primitives must be object")
     require(
-        set(primitives) == {"proc_before", "proc_after", "process_cpu_clock"},
+        set(primitives)
+        == {"identity_binding", "proc_before", "proc_after", "process_cpu_clock"},
         "physical primitive fields differ from schema",
     )
+    identity_binding = process_snapshot_from_dict(primitives["identity_binding"])
     before = process_snapshot_from_dict(primitives["proc_before"])
     after = process_snapshot_from_dict(primitives["proc_after"])
+    require(
+        identity_binding.pid == before.pid == after.pid,
+        "process identity binding PID mismatch",
+    )
+    require(
+        identity_binding.start_time_ticks
+        == before.start_time_ticks
+        == after.start_time_ticks,
+        "process identity binding start-time mismatch",
+    )
     provider = LinuxProcProvider(clock_ticks=clock_ticks_per_second)
     delta = provider.delta(before, after)
     cpu_clock = ProcessCpuClockEvidence.from_dict(dict(primitives["process_cpu_clock"]))
@@ -325,8 +339,30 @@ def candidate_summary(
     }
     if complete_rows:
         measurements = [row["measurement"] for row in complete_rows]
+        cpu_values = [float(item["cpu_ms"]) for item in measurements]
+        scope_complete = all(
+            isinstance(row.get("process_cpu_scope"), dict)
+            and row["process_cpu_scope"].get("complete") is True
+            for row in complete_rows
+        )
+        positive_cpu = sum(value > 0.0 for value in cpu_values)
         summary.update(
             {
+                "cpu_measurement_quality": {
+                    "usable": positive_cpu > 0,
+                    "positive_count": positive_cpu,
+                    "zero_count": len(cpu_values) - positive_cpu,
+                    "zero_fraction": round(
+                        (len(cpu_values) - positive_cpu) / len(cpu_values),
+                        6,
+                    ),
+                    "min_positive_cpu_ms": (
+                        None
+                        if positive_cpu == 0
+                        else round(min(value for value in cpu_values if value > 0.0), 6)
+                    ),
+                },
+                "process_cpu_scope_complete": scope_complete,
                 "wall_ms": summarize_numeric(item["wall_ms"] for item in measurements),
                 "cpu_ms": summarize_numeric(item["cpu_ms"] for item in measurements),
                 "procfs_cpu_ms": summarize_numeric(

@@ -139,7 +139,7 @@ class QualifyAttemptTests(unittest.TestCase):
             method="posix-process-cpu-clock-v1",pid=42,resolution_ns=1,
             before_ns=10_000,after_ns=510_000,
         )
-        primitives=physical_primitives(before,after,clock)
+        primitives=physical_primitives(before,before,after,clock)
         physical=reconstruct_physical_measurement(
             primitives,
             clock_ticks_per_second=100,
@@ -167,6 +167,17 @@ class QualifyAttemptTests(unittest.TestCase):
         row={
             "measurement":dict(measurement),
             "physical_primitives":primitives,
+            "process_cpu_scope":{
+                "complete":False,
+                "root_pid":42,
+                "root_start_time_ticks":9,
+                "observed_process_ids":[42],
+                "child_process_ids":[],
+                "reasons":[
+                    "before-affinity-observation-incomplete",
+                    "after-affinity-observation-incomplete",
+                ],
+            },
             "transcript":transcript,
             "affinity_observation_before":affinity,
             "affinity_observation_after":affinity,

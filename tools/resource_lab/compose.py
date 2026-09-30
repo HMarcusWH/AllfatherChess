@@ -17,12 +17,13 @@ from tools.engine_opt.corpus import PositionCase
 
 from .candidate_matrix import Candidate, CompositionCandidate
 from .measure import (
+    classify_failure,
     parse_search_observation,
     percentile,
     physical_primitives,
     reconstruct_physical_measurement,
 )
-from .observe import observe_affinity
+from .observe import observe_affinity, process_cpu_scope
 from .process_cpu import ProcessCpuClock
 
 
@@ -41,27 +42,37 @@ def _pressure() -> dict[str, Any]:
 
 
 def _aggregate_completed(rows: list[dict[str, Any]]) -> dict[str, Any]:
-    completed = [
-        row["measurement"]
+    completed_rows = [
+        row
         for row in rows
         if row.get("status") == "completed"
         and isinstance(row.get("measurement"), dict)
     ]
+    completed = [row["measurement"] for row in completed_rows]
+    scope_complete = bool(completed_rows) and all(
+        isinstance(row.get("process_cpu_scope"), dict)
+        and row["process_cpu_scope"].get("complete") is True
+        for row in completed_rows
+    )
     return {
         "completed_members": len(completed),
-        "sum_cpu_ms": round(
-            sum(float(item["cpu_ms"]) for item in completed),
-            6,
+        "process_scope_complete": scope_complete,
+        "sum_cpu_ms": (
+            round(sum(float(item["cpu_ms"]) for item in completed), 6)
+            if scope_complete
+            else None
         ),
         "sum_end_rss_bytes": (
             sum(int(item["end_rss_bytes"]) for item in completed)
-            if completed
+            if scope_complete
+            and completed
             and all(item.get("end_rss_bytes") is not None for item in completed)
             else None
         ),
         "sum_member_vm_hwm_bytes": (
             sum(int(item["vm_hwm_bytes"]) for item in completed)
-            if completed
+            if scope_complete
+            and completed
             and all(item.get("vm_hwm_bytes") is not None for item in completed)
             else None
         ),
@@ -90,10 +101,12 @@ def run_composition_batch(
     before_pressure = _pressure()
     ready_barrier = threading.Barrier(len(composition.members))
     start_barrier = threading.Barrier(len(composition.members))
+    setup_stage = "process_start"
 
     try:
         for member in composition.members:
             candidate = candidate_map[member.candidate_id]
+            setup_stage = "process_start"
             session = UciSession(
                 bundle_root / candidate.binary_relpath,
                 cwd=bundle_root.parents[1],
@@ -103,73 +116,143 @@ def run_composition_batch(
                 start_new_session=True,
             )
             session.start()
+
+            setup_stage = "engine_configure"
             session.configure(candidate.execution_options(bundle_root))
             session.new_game()
             if candidate.warmup_nodes is not None:
+                setup_stage = "warmup"
                 session.set_position({"startpos_moves": []})
                 session.search_nodes(
                     candidate.warmup_nodes,
                     timeout=max(5.0, deadline_ms / 1000.0 + 2.0),
                 )
                 session.new_game()
+            setup_stage = "engine_configure"
             session.set_position({"fen": case.fen, "moves": []})
             sessions[member.instance] = session
 
         def worker(member):
             candidate = candidate_map[member.candidate_id]
             session = sessions[member.instance]
-            if session.proc is None:
-                raise CompositionRunError(f"{member.instance}: process missing")
-            pid = session.proc.pid
-            affinity_before = observe_affinity(
-                affinity,
-                pid,
-                max_attempts=affinity_max_attempts,
-            )
-            cpu_clock = ProcessCpuClock(
-                pid,
-                max_resolution_ns=max_cpu_resolution_ns,
-            )
-            ready_barrier.wait(timeout=max(5.0, deadline_ms / 1000.0))
-            start_barrier.wait(timeout=max(5.0, deadline_ms / 1000.0))
-            proc_before = proc.snapshot(pid)
-            cpu_before_ns = cpu_clock.sample_ns()
-            lines = session.search_nodes(
-                candidate.nodes,
-                timeout=max(5.0, deadline_ms / 1000.0 + 2.0),
-            )
-            cpu_after_ns = cpu_clock.sample_ns()
-            proc_after = proc.snapshot(pid)
-            affinity_after = observe_affinity(
-                affinity,
-                pid,
-                max_attempts=affinity_max_attempts,
-            )
-            cpu_evidence = cpu_clock.evidence(cpu_before_ns, cpu_after_ns)
-            primitives = physical_primitives(proc_before, proc_after, cpu_evidence)
-            physical = reconstruct_physical_measurement(
-                primitives,
-                clock_ticks_per_second=clock_ticks_per_second,
-                required_cpu_method=required_cpu_method,
-                max_cpu_resolution_ns=max_cpu_resolution_ns,
-            )
-            observation = parse_search_observation(
-                lines,
-                family=candidate.family,
-                physical=physical,
-            )
-            return {
-                "instance": member.instance,
-                "role": member.role,
-                "candidate_id": candidate.candidate_id,
-                "candidate_digest": candidate.digest,
-                "status": "completed",
-                "measurement": observation.as_dict(),
-                "physical_primitives": primitives,
-                "affinity_observation_before": affinity_before.as_dict(),
-                "affinity_observation_after": affinity_after.as_dict(),
-                "transcript": list(session.transcript),
-            }
+            fault_stage = "physical_snapshot"
+            try:
+                if session.proc is None:
+                    raise CompositionRunError(
+                        f"{member.instance}: process missing"
+                    )
+                pid = session.proc.pid
+
+                identity_binding = proc.snapshot(pid)
+
+                fault_stage = "cpu_clock_init"
+                cpu_clock = ProcessCpuClock(
+                    pid,
+                    max_resolution_ns=max_cpu_resolution_ns,
+                )
+
+                fault_stage = "affinity_observation"
+                affinity_before = observe_affinity(
+                    affinity,
+                    pid,
+                    max_attempts=affinity_max_attempts,
+                )
+
+                ready_barrier.wait(
+                    timeout=max(5.0, deadline_ms / 1000.0)
+                )
+                start_barrier.wait(
+                    timeout=max(5.0, deadline_ms / 1000.0)
+                )
+
+                fault_stage = "physical_snapshot"
+                proc_before = proc.snapshot(pid)
+                if (
+                    proc_before.pid != identity_binding.pid
+                    or proc_before.start_time_ticks
+                    != identity_binding.start_time_ticks
+                ):
+                    raise CompositionRunError(
+                        f"{member.instance}: process identity changed before search"
+                    )
+                cpu_before_ns = cpu_clock.sample_ns()
+
+                fault_stage = "search"
+                lines = session.search_nodes(
+                    candidate.nodes,
+                    timeout=max(5.0, deadline_ms / 1000.0 + 2.0),
+                )
+
+                fault_stage = "physical_snapshot"
+                cpu_after_ns = cpu_clock.sample_ns()
+                proc_after = proc.snapshot(pid)
+
+                fault_stage = "affinity_observation"
+                affinity_after = observe_affinity(
+                    affinity,
+                    pid,
+                    max_attempts=affinity_max_attempts,
+                )
+                scope = process_cpu_scope(
+                    affinity_before,
+                    affinity_after,
+                )
+
+                fault_stage = "physical_reconstruction"
+                cpu_evidence = cpu_clock.evidence(
+                    cpu_before_ns,
+                    cpu_after_ns,
+                )
+                primitives = physical_primitives(
+                    identity_binding,
+                    proc_before,
+                    proc_after,
+                    cpu_evidence,
+                )
+                physical = reconstruct_physical_measurement(
+                    primitives,
+                    clock_ticks_per_second=clock_ticks_per_second,
+                    required_cpu_method=required_cpu_method,
+                    max_cpu_resolution_ns=max_cpu_resolution_ns,
+                )
+
+                fault_stage = "transcript_parse"
+                observation = parse_search_observation(
+                    lines,
+                    family=candidate.family,
+                    physical=physical,
+                )
+                return {
+                    "instance": member.instance,
+                    "role": member.role,
+                    "candidate_id": candidate.candidate_id,
+                    "candidate_digest": candidate.digest,
+                    "status": "completed",
+                    "fault_stage": None,
+                    "fault_class": None,
+                    "measurement": observation.as_dict(),
+                    "physical_primitives": primitives,
+                    "process_cpu_scope": scope,
+                    "affinity_observation_before": affinity_before.as_dict(),
+                    "affinity_observation_after": affinity_after.as_dict(),
+                    "transcript": list(session.transcript),
+                }
+            except Exception as exc:
+                stage, fault_class = classify_failure(fault_stage, exc)
+                return {
+                    "instance": member.instance,
+                    "role": member.role,
+                    "candidate_id": candidate.candidate_id,
+                    "candidate_digest": candidate.digest,
+                    "status": "error",
+                    "fault_stage": stage,
+                    "fault_class": fault_class,
+                    "measurement": None,
+                    "physical_primitives": None,
+                    "process_cpu_scope": None,
+                    "error": f"{type(exc).__name__}: {exc}",
+                    "transcript": list(session.transcript),
+                }
 
         rows: list[dict[str, Any]] = []
         with concurrent.futures.ThreadPoolExecutor(
@@ -185,6 +268,7 @@ def run_composition_batch(
                     rows.append(future.result())
                 except Exception as exc:
                     session = sessions.get(member.instance)
+                    stage, fault_class = classify_failure("unknown", exc)
                     rows.append(
                         {
                             "instance": member.instance,
@@ -192,11 +276,16 @@ def run_composition_batch(
                             "candidate_id": member.candidate_id,
                             "candidate_digest": member.candidate_digest,
                             "status": "error",
+                            "fault_stage": stage,
+                            "fault_class": fault_class,
                             "measurement": None,
                             "physical_primitives": None,
+                            "process_cpu_scope": None,
                             "error": f"{type(exc).__name__}: {exc}",
                             "transcript": (
-                                [] if session is None else list(session.transcript)
+                                []
+                                if session is None
+                                else list(session.transcript)
                             ),
                         }
                     )
@@ -210,7 +299,10 @@ def run_composition_batch(
         batch_wall_ms = (
             None
             if not completed
-            else round(max(float(item["wall_ms"]) for item in completed), 6)
+            else round(
+                max(float(item["wall_ms"]) for item in completed),
+                6,
+            )
         )
         return {
             "schema_version": 1,
@@ -235,6 +327,7 @@ def run_composition_batch(
         }
     except Exception as exc:
         error = f"{type(exc).__name__}: {exc}"
+        stage, fault_class = classify_failure(setup_stage, exc)
         rows = []
         for member in composition.members:
             session = sessions.get(member.instance)
@@ -245,8 +338,11 @@ def run_composition_batch(
                     "candidate_id": member.candidate_id,
                     "candidate_digest": member.candidate_digest,
                     "status": "error",
+                    "fault_stage": stage,
+                    "fault_class": fault_class,
                     "measurement": None,
                     "physical_primitives": None,
+                    "process_cpu_scope": None,
                     "error": f"batch-setup-failure: {error}",
                     "transcript": (
                         [] if session is None else list(session.transcript)
@@ -269,6 +365,8 @@ def run_composition_batch(
             "aggregate_resource": None,
             "host_pressure_before": before_pressure,
             "host_pressure_after": _pressure(),
+            "fault_stage": stage,
+            "fault_class": fault_class,
             "error": error,
         }
     finally:
@@ -279,12 +377,13 @@ def run_composition_batch(
 def _isolated_reference(
     rows: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    completed = [
-        row["measurement"]
+    completed_rows = [
+        row
         for row in rows
         if row.get("status") == "completed"
         and isinstance(row.get("measurement"), dict)
     ]
+    completed = [row["measurement"] for row in completed_rows]
     if len(completed) < 2:
         return {"stable": False, "completed": completed}
     bestmoves = {row["bestmove"] for row in completed}
@@ -292,6 +391,11 @@ def _isolated_reference(
     return {
         "stable": len(bestmoves) == 1 and len(work) == 1,
         "completed": completed,
+        "cpu_scope_complete": all(
+            isinstance(row.get("process_cpu_scope"), dict)
+            and row["process_cpu_scope"].get("complete") is True
+            for row in completed_rows
+        ),
         "bestmove": next(iter(bestmoves)) if len(bestmoves) == 1 else None,
         "native_work_value": next(iter(work)) if len(work) == 1 else None,
     }
@@ -348,6 +452,7 @@ def summarize_composition_interference(
                         "native_work_drift": 0,
                         "behavior_evaluated": 0,
                         "reference_unstable": 0,
+                        "cpu_scope_incomplete": 0,
                         "completed": 0,
                         "errors": 0,
                     },
@@ -373,14 +478,24 @@ def summarize_composition_interference(
                 cpu_ref = statistics.median(
                     float(row["cpu_ms"]) for row in completed_ref
                 )
+                member_scope_complete = (
+                    isinstance(member.get("process_cpu_scope"), dict)
+                    and member["process_cpu_scope"].get("complete") is True
+                )
                 if wall_ref > 0:
                     item["wall_ratio"].append(
                         float(measurement["wall_ms"]) / wall_ref
                     )
-                if cpu_ref > 0:
+                if (
+                    cpu_ref > 0
+                    and reference.get("cpu_scope_complete") is True
+                    and member_scope_complete
+                ):
                     item["cpu_ratio"].append(
                         float(measurement["cpu_ms"]) / cpu_ref
                     )
+                else:
+                    item["cpu_scope_incomplete"] += 1
 
                 if reference["stable"]:
                     item["behavior_evaluated"] += 1
@@ -404,6 +519,7 @@ def summarize_composition_interference(
                 "errors": item["errors"],
                 "behavior_evaluated_count": item["behavior_evaluated"],
                 "reference_unstable_count": item["reference_unstable"],
+                "cpu_scope_incomplete_count": item["cpu_scope_incomplete"],
                 "median_wall_slowdown_ratio": (
                     None
                     if not wall_ratios

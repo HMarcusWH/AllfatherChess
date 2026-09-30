@@ -183,6 +183,13 @@ def qualify(root: Path, spec_path: Path) -> dict[str, Any]:
         canonical_digest(retained_pareto) == canonical_digest(recomputed_pareto),
         "retained Pareto analysis does not independently recompute",
     )
+    for group in retained_pareto["groups"]:
+        reference_id = group["reference_candidate_id"]
+        reference_summary = retained_pareto["candidate_summaries"][reference_id]
+        require(
+            reference_summary.get("complete") is True,
+            f"reference candidate did not complete cleanly: {reference_id}",
+        )
 
     stage_b_rows = load(root / "stage-b/raw/rows.json")
     require(isinstance(stage_b_rows, list), "Stage-B rows must be array")
@@ -228,6 +235,15 @@ def qualify(root: Path, spec_path: Path) -> dict[str, Any]:
             errors_b += 1
             require(any(member["status"] == "error" for member in members), "failed Stage-B batch has no failed member")
     require(len(stage_b_rows) == len(expected_b) == 72, "frozen Stage-B batch count drift")
+    baseline_batches = [
+        row for row in stage_b_rows
+        if row.get("composition_id") == "c0-four-way-v2-current"
+    ]
+    require(
+        len(baseline_batches) == spec.repeats * len(case_ids)
+        and all(row.get("status") == "completed" for row in baseline_batches),
+        "current-v2 Stage-B reference composition did not complete cleanly",
+    )
 
     retained_stage_b_summary = load(root / "stage-b/summary.json")
     recomputed_stage_b_summary = summarize_composition_interference(

@@ -41,7 +41,7 @@ def physical():
         before_ns=10_000_000,
         after_ns=20_250_000,
     )
-    primitives=physical_primitives(before,after,cpu)
+    primitives=physical_primitives(before,before,after,cpu)
     result=reconstruct_physical_measurement(
         primitives,
         clock_ticks_per_second=100,
@@ -102,6 +102,14 @@ class MeasureTests(unittest.TestCase):
                         "wall_ms":10+repeat,"cpu_ms":0.5+repeat,
                         "procfs_cpu_ms":0,"cpu_clock_resolution_ns":1,
                         "vm_hwm_bytes":100,
+                    },
+                    "process_cpu_scope":{
+                        "complete":True,
+                        "root_pid":42,
+                        "root_start_time_ticks":99,
+                        "observed_process_ids":[42],
+                        "child_process_ids":[],
+                        "reasons":[],
                     }
                 })
         summary=candidate_summary(rows,case_ids=case_ids,repeats=3)

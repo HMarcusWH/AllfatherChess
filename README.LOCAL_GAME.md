@@ -12,10 +12,16 @@ make -f Makefile.local-game qualification
 ```
 
 That path runs the LOCAL-1 contract tests, binds a pinned Fastchess source/test/build
-identity, builds the frozen ONLINE-2 bundle, freshly reruns LC0 / ONLINE-2 / positive-G3
-prerequisites, executes forced rule-transition witnesses, runs the mandatory lifecycle and
-failure-injection cases, runs the five-arm same-clock baseline, and independently validates
-the complete artifact graph.
+identity, builds the frozen ONLINE-2 bundle, freshly reruns LC0 / ONLINE-2 plus a G3
+**mechanism** prerequisite, executes forced rule-transition witnesses, runs the mandatory
+lifecycle and failure-injection cases, runs the five-arm same-clock baseline, and
+independently validates the complete artifact graph.
+
+The LOCAL-1 prerequisite deliberately does **not** require its GitHub-hosted runner to
+rediscover the performance-sensitive non-anchor HYBRID witness. That positive witness remains
+owned by the dedicated M14-G3 qualification workflow. LOCAL-1 instead proves that the exact
+same G3 profile, deadlines, resource evidence and replay/final-decision machinery are healthy
+before the full-game campaign starts, then validates every played G3 ply independently.
 
 The baseline arms are:
 

@@ -1,11 +1,12 @@
 # AllfatherChess current build and release status
 
-**Status date:** 28 September 2026  
-**Authoritative main commit:** `7248f25fc64be4d04a78ec2b1f0c9de2986a11a5`  
-**Latest merged milestone:** PR #44 / ENGINE-OPT-V2 — measured constituent/profile optimization  
-**Qualified PR head:** `085420843b95f3f2dd206fc1c66bf642cbd49b6d`  
-**Tree identity:** qualified PR head and merge commit share tree `80fae798aed99a5e37fcfb7fce321a7e01a2fc56`  
-**Current execution milestone:** M14-J — Adaptive Resource Orchestration  
+**Status date:** 30 September 2026  
+**Authoritative main commit:** `01b4c5b5f8a0ffeced8db1c1f4951c89bdf6bb58`  
+**Latest merged milestone:** PR #53 — post-J6 LOCAL-1 prerequisite repair  
+**Qualified J6 PR head:** `6aecd0bae7848ca8a9893377fadffb049d336c3a`  
+**Frozen fallback:** ENGINE-OPT-V2 / PR #44 remains unchanged  
+**Current execution milestone:** PR #54 / M14-J J7 — evidence-backed isolated resource-profile selection freeze  
+**Next milestone after J7:** M14-J J8 — Adaptive Outer Time  
 **Forward roadmap:** [ROADMAP.md](ROADMAP.md)  
 **M14-J rebuild plan:** [M14_J_ADAPTIVE_RESOURCE_ORCHESTRATION.md](M14_J_ADAPTIVE_RESOURCE_ORCHESTRATION.md)  
 **Detailed deployment plan:** [ONLINE_RELEASE_PLAN.md](ONLINE_RELEASE_PLAN.md)
@@ -16,21 +17,64 @@ for current status and forward ordering.
 
 ## Current qualification evidence
 
-PR #44 / ENGINE-OPT-V2 qualified on exact candidate head `085420843b95f3f2dd206fc1c66bf642cbd49b6d` and was merged as `7248f25fc64be4d04a78ec2b1f0c9de2986a11a5` with the same Git tree `80fae798aed99a5e37fcfb7fce321a7e01a2fc56`. The merged tree therefore matches the tree that closed the final exact-head qualification gates.
+PR #52 / J6 qualified on exact candidate head
+`6aecd0bae7848ca8a9893377fadffb049d336c3a` and merged as
+`fb690e435da39808adaa5c02345c77d407bc8043`. The J6 resource laboratory itself is green
+and complete; it grants no production profile-selection authority.
 
 | Workflow | Run | Result |
 | --- | ---: | --- |
-| Telemetry contract validation | 36458789547 | success |
-| Controller shell validation | 36458789275 | success |
-| Merge gate | 36458789123 | success |
-| LC0 real-inference qualification | 36458789157 | success |
-| ONLINE-2 real-network online profile qualification | 36458789327 | success |
-| M14-G3 online staged hybrid authority qualification | 36458789431 | success |
-| Baseline engine validation | 36458789271 | success |
-| **LOCAL-1 full-game lifecycle and five-arm baselines** | **36458789252** | **success** |
-| **ENGINE-OPT-V2 aggregate** | **36458789423** | **success** |
+| Telemetry contract validation | 36754169780 | success |
+| Controller shell validation | 36754169720 | success |
+| Merge gate | 36754169457 | success |
+| LC0 real-inference qualification | 36754169356 | success |
+| ONLINE-2 real-network online profile qualification | 36754169477 | success |
+| M14-G3 online staged hybrid authority qualification | 36754169369 | success |
+| Baseline engine validation | 36754169685 | success |
+| ENGINE-OPT-V2 | 36754169587 | success |
+| **Resource profile laboratory v1 / J6** | **36754169712** | **success** |
+| LOCAL-1 v1 control | 36754169403 | failed before games: duplicate G3 positive-witness rediscovery |
 
-The retained ENGINE-OPT-V2 aggregate artifact is `10990541766`, SHA-256 `080678710a7df45a44d008df5ef484fbcfa3c01911d1a50a5cb0a96cbc3b07d1`. The exact-head aggregate reported `passed: true`, `promotion_ready: true`, no errors, three repeat confirmations of the selected LC0 profile, a real non-anchor G3-v2 authority witness, and successful LOCAL-1-v2 lifecycle evidence. The ordinary v1 LOCAL-1 control also reran successfully; its retained artifact is `10990165658`, SHA-256 `a57b65603866b8444bfb325b43cd3d9809650910a1eaf389a5e2382b995384e7`.
+The retained J6 artifact is `11117218402`, SHA-256
+`e8b153b1cb0eeafeb18796931e3cad116c09f8913a3eb61ac7d60806fc7ec0e7`.
+Its independent report states `evidence_valid: true`, `lab_complete: true`,
+57 candidate operating points, **1368/1368** Stage-A measurements and **72/72** Stage-B
+composition batches with zero execution errors. All nine current-v2 reference buckets had
+usable positive high-resolution process-CPU measurements. Twenty-four transient affinity
+observation faults were retained as observer evidence rather than misclassified as engine
+failures. The report explicitly states `promotion_ready: false` and requires J7 frozen
+profile selection.
+
+The one red LOCAL-1 control on the PR #52 head was not a full-game regression: LOCAL-1
+aborted before any games because its internal G3 prerequisite independently reran the
+performance-sensitive non-anchor positive-witness search and did not rediscover one on that
+GitHub-hosted worker. The dedicated M14-G3 workflow on the same source head independently
+passed and did produce a real non-anchor HYBRID witness. The post-merge repair separates those
+orthogonal responsibilities: M14-G3 remains the positive-witness gate, while LOCAL-1 requires
+fresh exact-profile G3 mechanism/deadline/resource/replay evidence before lifecycle games.
+
+PR #44 / ENGINE-OPT-V2 remains the frozen orchestration fallback. Its exact-head aggregate
+reported `promotion_ready: true`, three repeat confirmations of the selected LC0 profile,
+a real non-anchor G3-v2 authority witness, and successful LOCAL-1-v2 lifecycle evidence.
+J6 did not rewrite that fallback.
+
+## M14-J J7 selection freeze — PR #54 candidate
+
+J7 is implemented as an evidence-backed selection layer **beside** the existing J3/J4 runtime
+catalog. The runtime-consumed `qualification/resource-profile-catalog-v1.json` remains unchanged,
+keeps `selection_enabled=false`, and retains ENGINE-OPT-V2 as the fail-closed fallback.
+
+The frozen J6 evidence is reduced into `resource-profile-evidence-v1.json`, and
+`resource-profile-selection-v1.json` deterministically selects one Pareto operating point for each
+of the nine family/work-budget groups using the declared lexicographic rule. Seven groups retain
+`v2-current`; the two non-v2 selections are Stockfish n64 with `Hash=32` and LC0 n32 with
+`MaxPrefetch=0`.
+
+Every J7 row is marked `isolated_resource_profile` with
+`composition_qualification=not_established`. J7 grants no runtime profile-selection authority,
+resource authorization, outward move authority, deployment authority, or strength/Elo claim.
+Stage B remains evidence about the exact compositions it measured; it does not promote the new
+Stockfish n64 or LC0 n32 selections into composition-qualified settings.
 
 ## LOCAL-1 qualification result
 
@@ -141,11 +185,16 @@ not permission to erase their firewalls.
 
 ## Current critical path
 
-### 1. M14-J — Adaptive Resource Orchestration — **NEXT**
+### 1. M14-J J7 — Freeze qualified resource profiles — **NEXT**
 
-Move host, game-clock, engine-profile and progressive work allocation under one versioned controller resource policy while preserving ENGINE-OPT-V2 as the exact fail-closed fallback. The detailed implementation sequence is frozen in [M14_J_ADAPTIVE_RESOURCE_ORCHESTRATION.md](M14_J_ADAPTIVE_RESOURCE_ORCHESTRATION.md).
+J0-J6 are merged. J7 now consumes the retained exact-head J6 evidence and freezes only
+predeclared, repeatable engine/composition operating points into versioned selection/evidence
+artifacts. ENGINE-OPT-V2 remains the exact fail-closed fallback until later orchestration
+stages qualify.
 
-M14-J does not authorize arbitrary live hyperparameter synthesis. It introduces prequalified engine operating points, host/game capability detection, typed WorkGrants, a progressive deterministic allocator and replay-bound resource provenance. ResourceAuthorization remains separate from DecisionAuthorization.
+M14-J still does not authorize arbitrary live hyperparameter synthesis. ResourceAuthorization
+remains separate from DecisionAuthorization, and J6 engineering-efficiency evidence is not a
+strength claim.
 
 ### 2. META-1 — authority-value control experiment
 
@@ -191,4 +240,4 @@ M14-H/I native transport and M15-A governed policy evolution remain later optimi
 
 ## Claim boundary
 
-The repository now has a **qualified ENGINE-OPT-V2 real-network, clock-aware staged hybrid composition with complete-game lifecycle evidence**. PR #44 also qualifies a substantially cheaper, repeatable LC0 CPU profile and preserves the frozen authority/resource contracts. It does not establish Elo, constituent superiority, equal-compute superiority or deployment readiness. M14-J is forward architecture work and has no behavioral authority until its own declared qualification closes.
+The repository now has a **qualified ENGINE-OPT-V2 fallback plus completed J6 exact-head resource-laboratory evidence**. J6 measured candidate efficiency and whole-composition interference under a bound execution domain, but deliberately granted no profile-selection, move-authority, Elo, superiority or deployment claim. J7 is the next promotion boundary.

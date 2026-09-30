@@ -1,0 +1,226 @@
+{
+  "schema_version": 1,
+  "selection_id": "resource-profile-selection-v1",
+  "evidence_path": "qualification/resource-profile-evidence-v1.json",
+  "evidence_sha256": "ce90c4089da5b28c483a423aeaefcdc9a359009d9971d0a2c59c222b995564a2",
+  "source_commit": "6aecd0bae7848ca8a9893377fadffb049d336c3a",
+  "source_tree": "f557f5c2dab42bcbadff01d395490cd66dba93a0",
+  "execution_domain": {
+    "id": "exec-domain/9284bde03da0ebd1677f",
+    "digest": "9284bde03da0ebd1677fafa4a5078c00cc842f0b3b5ea8079c6f7989189199af",
+    "binding_scope": "exact_host_observation"
+  },
+  "catalog": {
+    "path": "qualification/resource-profile-catalog-v1.json",
+    "sha256": "f6fc2eafd2a7a1237c1ecdf939e849f5f60c0e853e9750fd5fa2886172540269",
+    "catalog_id": "resource-profile-catalog-v1",
+    "selection_enabled": false,
+    "fallback_profile": "engine-opt-v2"
+  },
+  "selection_rule": {
+    "dimensions": [
+      "median_wall_ms",
+      "p95_wall_ms",
+      "median_cpu_ms",
+      "p95_cpu_ms",
+      "p95_vm_hwm_bytes"
+    ],
+    "require_bestmove_reference_match": true,
+    "require_repeatable_bestmove": true,
+    "require_repeatable_native_work": true,
+    "require_usable_cpu": true,
+    "require_complete_process_cpu_scope": true,
+    "tie_break": "lexicographic-v1",
+    "tie_break_order": [
+      "median_wall_ms",
+      "p95_wall_ms",
+      "median_cpu_ms",
+      "p95_cpu_ms",
+      "p95_vm_hwm_bytes",
+      "candidate_id"
+    ]
+  },
+  "selections": [
+    {
+      "family": "stockfish",
+      "nodes": 16,
+      "candidate_id": "resource-candidate/stockfish/v2-current/n16/4bfeb3b82b583a00",
+      "candidate_digest": "4bfeb3b82b583a00d378633999ca20af22bb7ddebb230243b544a3c109ca5786",
+      "variant": "v2-current",
+      "reference_candidate_id": "resource-candidate/stockfish/v2-current/n16/4bfeb3b82b583a00",
+      "option_overrides": {},
+      "selection_key": {
+        "median_wall_ms": 0.656551,
+        "p95_wall_ms": 0.765597,
+        "median_cpu_ms": 0.456793,
+        "p95_cpu_ms": 0.537735,
+        "p95_vm_hwm_bytes": 334876672.0
+      },
+      "selection_status": "isolated_resource_profile",
+      "composition_qualification": "not_established"
+    },
+    {
+      "family": "stockfish",
+      "nodes": 64,
+      "candidate_id": "resource-candidate/stockfish/t1-h32/n64/f8368b578f587c14",
+      "candidate_digest": "f8368b578f587c147675256866df6e52086a606b8383d585c76ee80b45376a84",
+      "variant": "t1-h32",
+      "reference_candidate_id": "resource-candidate/stockfish/v2-current/n64/e6c0fa0803044d98",
+      "option_overrides": {
+        "Hash": 32
+      },
+      "selection_key": {
+        "median_wall_ms": 0.718726,
+        "p95_wall_ms": 0.798356,
+        "median_cpu_ms": 0.522787,
+        "p95_cpu_ms": 0.58278,
+        "p95_vm_hwm_bytes": 334880768.0
+      },
+      "selection_status": "isolated_resource_profile",
+      "composition_qualification": "not_established"
+    },
+    {
+      "family": "stockfish",
+      "nodes": 256,
+      "candidate_id": "resource-candidate/stockfish/v2-current/n256/97eccad3c5e711e0",
+      "candidate_digest": "97eccad3c5e711e09f80d1a6887a8ff369887bc681b713785a556f3fd37800c0",
+      "variant": "v2-current",
+      "reference_candidate_id": "resource-candidate/stockfish/v2-current/n256/97eccad3c5e711e0",
+      "option_overrides": {},
+      "selection_key": {
+        "median_wall_ms": 1.282345,
+        "p95_wall_ms": 1.428262,
+        "median_cpu_ms": 1.077087,
+        "p95_cpu_ms": 1.200633,
+        "p95_vm_hwm_bytes": 334864384.0
+      },
+      "selection_status": "isolated_resource_profile",
+      "composition_qualification": "not_established"
+    },
+    {
+      "family": "reckless",
+      "nodes": 16,
+      "candidate_id": "resource-candidate/reckless/v2-current/n16/cd4181279a7c969e",
+      "candidate_digest": "cd4181279a7c969e28f1f157c41ab4720cbe938f0724e1c6cca16a39c12b0bc8",
+      "variant": "v2-current",
+      "reference_candidate_id": "resource-candidate/reckless/v2-current/n16/cd4181279a7c969e",
+      "option_overrides": {},
+      "selection_key": {
+        "median_wall_ms": 6.681351,
+        "p95_wall_ms": 7.130436,
+        "median_cpu_ms": 6.960262,
+        "p95_cpu_ms": 7.72402,
+        "p95_vm_hwm_bytes": 47476736.0
+      },
+      "selection_status": "isolated_resource_profile",
+      "composition_qualification": "not_established"
+    },
+    {
+      "family": "reckless",
+      "nodes": 64,
+      "candidate_id": "resource-candidate/reckless/v2-current/n64/3b61b241bb2783f0",
+      "candidate_digest": "3b61b241bb2783f05c9be20ee0cac5c1b10b63dc4a21b6386c3dd3cb41fbe0ed",
+      "variant": "v2-current",
+      "reference_candidate_id": "resource-candidate/reckless/v2-current/n64/3b61b241bb2783f0",
+      "option_overrides": {},
+      "selection_key": {
+        "median_wall_ms": 6.856628,
+        "p95_wall_ms": 7.64961,
+        "median_cpu_ms": 7.056291,
+        "p95_cpu_ms": 8.201452,
+        "p95_vm_hwm_bytes": 47464448.0
+      },
+      "selection_status": "isolated_resource_profile",
+      "composition_qualification": "not_established"
+    },
+    {
+      "family": "reckless",
+      "nodes": 256,
+      "candidate_id": "resource-candidate/reckless/v2-current/n256/a4e94a91c11bc232",
+      "candidate_digest": "a4e94a91c11bc23237dec8036f0d4ce64a8d91c55b84a24184536dbd9cf3387d",
+      "variant": "v2-current",
+      "reference_candidate_id": "resource-candidate/reckless/v2-current/n256/a4e94a91c11bc232",
+      "option_overrides": {},
+      "selection_key": {
+        "median_wall_ms": 7.451322,
+        "p95_wall_ms": 8.007429,
+        "median_cpu_ms": 7.820889,
+        "p95_cpu_ms": 8.840939,
+        "p95_vm_hwm_bytes": 51994624.0
+      },
+      "selection_status": "isolated_resource_profile",
+      "composition_qualification": "not_established"
+    },
+    {
+      "family": "lc0",
+      "nodes": 16,
+      "candidate_id": "resource-candidate/lc0/v2-current/n16/6509afa486ee1467",
+      "candidate_digest": "6509afa486ee14676b86c43694e83675b7fd1f571e7759b8bc05c6786cce5fea",
+      "variant": "v2-current",
+      "reference_candidate_id": "resource-candidate/lc0/v2-current/n16/6509afa486ee1467",
+      "option_overrides": {},
+      "selection_key": {
+        "median_wall_ms": 328.081713,
+        "p95_wall_ms": 435.998048,
+        "median_cpu_ms": 328.106636,
+        "p95_cpu_ms": 436.073023,
+        "p95_vm_hwm_bytes": 160919552.0
+      },
+      "selection_status": "isolated_resource_profile",
+      "composition_qualification": "not_established"
+    },
+    {
+      "family": "lc0",
+      "nodes": 32,
+      "candidate_id": "resource-candidate/lc0/prefetch0/n32/fabb8e6ff4e47715",
+      "candidate_digest": "fabb8e6ff4e477159d30ff65bbb97d70490b035e78d2fc62026a09aa20120935",
+      "variant": "prefetch0",
+      "reference_candidate_id": "resource-candidate/lc0/v2-current/n32/f5a2d1be7a1af59c",
+      "option_overrides": {
+        "MaxPrefetch": 0
+      },
+      "selection_key": {
+        "median_wall_ms": 420.041737,
+        "p95_wall_ms": 494.879215,
+        "median_cpu_ms": 420.000363,
+        "p95_cpu_ms": 494.941609,
+        "p95_vm_hwm_bytes": 158822400.0
+      },
+      "selection_status": "isolated_resource_profile",
+      "composition_qualification": "not_established"
+    },
+    {
+      "family": "lc0",
+      "nodes": 64,
+      "candidate_id": "resource-candidate/lc0/v2-current/n64/7c9be490354889f5",
+      "candidate_digest": "7c9be490354889f54f81aa2029bafc47ad865a31707dd75aee330f15571e771f",
+      "variant": "v2-current",
+      "reference_candidate_id": "resource-candidate/lc0/v2-current/n64/7c9be490354889f5",
+      "option_overrides": {},
+      "selection_key": {
+        "median_wall_ms": 855.033102,
+        "p95_wall_ms": 937.709885,
+        "median_cpu_ms": 855.40135,
+        "p95_cpu_ms": 938.200812,
+        "p95_vm_hwm_bytes": 161001472.0
+      },
+      "selection_status": "isolated_resource_profile",
+      "composition_qualification": "not_established"
+    }
+  ],
+  "authority": {
+    "runtime_authority": false,
+    "resource_authorization": false,
+    "outward_move": false
+  },
+  "claim_boundary": {
+    "isolated_resource_profile_selection": true,
+    "composition_qualification": false,
+    "runtime_profile_selection": false,
+    "adaptive_allocation": false,
+    "deployment": false,
+    "strength": false,
+    "elo": false,
+    "equal_compute": false
+  }
+}

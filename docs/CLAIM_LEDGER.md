@@ -1,30 +1,35 @@
 # Claim ledger
 
-## Current repository synchronization after PR #41
+## Current repository synchronization after PR #52
 
-- **PROVED / CI-GATED:** main is `524ec9b25c7f08d981ba7c88318d106e22586295`.
-  The qualified PR #41 head `6fc6522f863e2a15c6d4c230fa558cbb993f867e` and the
-  merge commit share Git tree `0a2095ba5dde83292a348cff2495d02bd4e05299`.
-  Telemetry, Controller shell, Merge gate, LC0 real-inference, ONLINE-2, M14-G3,
-  Baseline validation and LOCAL-1 all passed on that qualified tree.
-- **PROVED / AUTHORITY:** M14-G3 composes the real ONLINE-2 bundle, G2
-  BUY_STAGED_VERIFY routing, complete same-process staged VERIFY terminals,
-  a frozen proposal/evidence digest, clock-aware DecisionAuthorization and
-  deadline-safe publication. The qualifier requires a real non-anchor HYBRID
-  emission; invalid/unsupported states retain deterministic Stockfish fallback.
-- **PROVED / FULL-GAME LIFECYCLE:** LOCAL-1 exact-head run `36344180962`
-  passed 44 regressions, the mandatory fault suite, forced rule witnesses and
-  28/28 required games with zero qualification errors. Game→ply→session→search→replay
-  identity, full history, clocks, process cleanup and reconstructed resource/envelope
-  evidence are all inside the qualified contract.
-- **MEASURED / NATURAL G3 AUTHORITY COVERAGE:** the retained LOCAL-1 artifact contains
-  800 Allfather-G3 plies: 796 `ANCHOR_FALLBACK`, 4 `HYBRID`, with 2 HYBRID decisions
-  changing the Stockfish anchor move. This is coverage evidence, not an Elo or quality claim.
+- **PROVED / CI-GATED FALLBACK:** ENGINE-OPT-V2 / PR #44 remains the frozen qualified
+  fallback composition. J6 does not rewrite its clocks, authority policy or historical
+  selection evidence.
+- **PROVED / AUTHORITY:** M14-G3 still owns the positive-witness gate. Its dedicated
+  exact-head workflow requires at least one predeclared real-backend case to emit a genuine
+  non-anchor HYBRID move after complete staged verification and DecisionAuthorization.
+- **PROVED / FULL-GAME LIFECYCLE:** the qualified LOCAL-1 result from PR #41 remains valid.
+  The post-PR #52 repair clarifies that LOCAL-1 validates the exact G3 mechanism/profile,
+  deadlines, resource evidence and every played G3 replay, while the dedicated M14-G3 gate
+  owns the separate positive-witness requirement.
+- **MEASURED / J6 RESOURCE LAB:** PR #52 exact head
+  `6aecd0bae7848ca8a9893377fadffb049d336c3a` completed 57 candidate operating points,
+  1368/1368 Stage-A measurements and 72/72 Stage-B composition batches with zero execution
+  errors. The retained artifact is `11117218402`, SHA-256
+  `e8b153b1cb0eeafeb18796931e3cad116c09f8913a3eb61ac7d60806fc7ec0e7`.
+  It reports `evidence_valid: true`, `lab_complete: true` and
+  `promotion_ready: false`; J7 must make any profile-selection decision.
+- **MEASURED / NATURAL G3 AUTHORITY COVERAGE:** the retained qualified LOCAL-1 artifact
+  contains 800 Allfather-G3 plies: 796 `ANCHOR_FALLBACK`, 4 `HYBRID`, with 2 HYBRID
+  decisions changing the Stockfish anchor move. This is coverage evidence, not an Elo or
+  quality claim.
+- **OPEN ORCHESTRATION GATE:** J7 profile freeze is next. No J6 measurement alone is
+  resource-selection authority.
 - **OPEN RELEASE GATES:** ONLINE-3 packaging/bridge, ONLINE-4
   network/restart/rollback, aggregate release qualification, ONLINE-RC, main governance,
   and combined-distribution licensing.
 - **OPEN STRENGTH GATE:** no Elo or equal-envelope superiority claim follows from
-  LOCAL-1. M15-B/C remains the separate comparative campaign.
+  LOCAL-1 or J6. M15-B/C remains the separate comparative campaign.
 
 ## LOCAL-1 full-game lifecycle — PROVED / CI-GATED
 
@@ -42,6 +47,15 @@
 - five-arm descriptive same-clock baseline across Stockfish, Reckless, LC0,
   Allfather-Anchor and Allfather-G3;
 - process-group cleanup auditing and a separately invokable sharded 200-game engineering soak.
+
+### G3 PREREQUISITE BOUNDARY
+
+- LOCAL-1 freshly executes G3 mechanism evidence on the exact source/profile before games.
+- That prerequisite must preserve deadline, resource, replay and final-decision integrity,
+  but it does not need to rediscover a non-anchor HYBRID result on the LOCAL-1 runner.
+- The dedicated M14-G3 workflow remains the only gate that promotes the positive-witness
+  statement. This separation prevents a host/load-sensitive duplicate witness search from
+  becoming a lifecycle false negative.
 
 ### NOT PROMOTED BY LOCAL-1
 
@@ -1103,3 +1117,39 @@ workflow families.
 - learned SKIP promotion remains gated by M14-G4;
 - no result establishes move correctness, Elo gain, optimal compute allocation or
   equal-envelope superiority.
+
+## M14-J J7 evidence-backed resource-profile selection
+
+### PROVED by code/contracts once PR #54 gates pass
+
+- the runtime-consumed J3 catalog remains unchanged, parses under the existing strict catalog
+  contract, keeps `selection_enabled=false`, and retains ENGINE-OPT-V2 as fallback;
+- J7 binds the retained J6 exact head `6aecd0bae7848ca8a9893377fadffb049d336c3a`,
+  source tree, workflow `36754169712`, artifact `11117218402`, artifact SHA-256, candidate
+  bundle, lab specification, corpus and exact-host execution domain;
+- the frozen J6 summary remains 57 candidates, 1368/1368 Stage-A measurements, 72/72 Stage-B
+  batches, zero execution errors, nine family/work-budget groups and 18 Pareto candidates;
+- an independent validator re-expands the frozen 57-candidate matrix, checks candidate and
+  composition identities, validates all Pareto eligibility gates, and recomputes the declared
+  lexicographic winner for every group;
+- the nine selections are Stockfish `v2-current/t1-h32/v2-current` at n16/n64/n256,
+  Reckless `v2-current` at n16/n64/n256, and LC0 `v2-current/prefetch0/v2-current` at
+  n16/n32/n64;
+- the only non-v2 option deltas are Stockfish n64 `Hash=32` and LC0 n32
+  `MaxPrefetch=0`;
+- selection/evidence SHA-256, catalog SHA-256, source identity and execution-domain identity are
+  fail-closed contracts;
+- every selected row is explicitly `isolated_resource_profile` and carries
+  `composition_qualification=not_established`;
+- J7 authority markers require runtime authority, resource authorization and outward move
+  authority all to remain false.
+
+### NOT ESTABLISHED / explicitly not claimed
+
+- the two newly selected non-v2 operating points are not composition-qualified by J6 Stage B;
+- the J7 files are not consumed by runtime profile selection and do not authorize adaptive
+  allocation, WorkGrants, DecisionAuthorization or deployment;
+- no J7 result establishes move correctness, Elo gain, strength, optimal compute allocation or
+  equal-resource superiority;
+- J8 Adaptive Outer Time and J9 WorkGrant scheduling remain later promotion boundaries.
+

@@ -1,6 +1,6 @@
 # AllfatherChess
 
-> **Current synchronized build state:** PR #44 / ENGINE-OPT-V2 is merged and qualified; main is synchronized at `7248f25fc64be4d04a78ec2b1f0c9de2986a11a5`. The next architecture milestone is **M14-J Adaptive Resource Orchestration**, which moves host/time-control/profile allocation under the meta-controller while preserving ENGINE-OPT-V2 as the fail-closed fallback.  
+> **Current synchronized build state:** PR #53 is merged; main is synchronized at `01b4c5b5f8a0ffeced8db1c1f4951c89bdf6bb58`. J0-J6 are implemented, ENGINE-OPT-V2 remains the fail-closed fallback, and **PR #54 / J7** freezes evidence-backed isolated resource-profile selections without enabling runtime selection.  
 > See [docs/CURRENT_STATUS.md](docs/CURRENT_STATUS.md) for the exact implemented surface and
 > [docs/ROADMAP.md](docs/ROADMAP.md) for the canonical forward execution order.
 
@@ -89,12 +89,20 @@ make online-hybrid-contract       # consumes the frozen ONLINE-2 bundle
 make run-allfather-online-hybrid
 ```
 
-PR #41 completed LOCAL-1. The remaining first-canary path is now:
+PR #41 completed LOCAL-1, PR #44 completed ENGINE-OPT-V2, PR #52 completed J6 of
+M14-J, and PR #53 repaired the LOCAL-1 prerequisite boundary without changing J6 evidence.
+PR #54 is the J7 evidence-backed selection freeze. The remaining first-canary path is now:
 
 ```text
 LOCAL-1 full-game lifecycle qualification  [DONE]
     -> ENGINE-OPT-V2 measured constituent/profile optimization  [DONE]
-    -> M14-J adaptive resource orchestration  [NEXT]
+    -> M14-J J0-J6 orchestration substrate + resource laboratory  [DONE]
+    -> M14-J J7 evidence-backed isolated profile selection  [PR #54]
+    -> M14-J J8 adaptive outer time  [NEXT AFTER J7]
+    -> M14-J J9 WorkGrant scheduler
+    -> M14-J J10 deterministic adaptive allocator
+    -> M14-J J11 allocation evidence + authority binding
+    -> M14-J J12 full orchestrated composition
     -> META-1 matched-resource authority-value control
     -> ONLINE-PLAY-1 production-profile 10+5 experiment
     -> ONLINE-3 reproducible package + pinned lichess-bot bridge

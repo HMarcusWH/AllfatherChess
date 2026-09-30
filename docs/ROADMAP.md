@@ -1,9 +1,9 @@
 # AllfatherChess roadmap
 
-**Status date:** 28 September 2026  
-**Current main:** `7248f25fc64be4d04a78ec2b1f0c9de2986a11a5`  
-**Latest merged milestone:** PR #44 / ENGINE-OPT-V2 — qualified measured engine/profile optimization  
-**Current execution milestone:** M14-J — Adaptive Resource Orchestration  
+**Status date:** 30 September 2026  
+**Current main:** `01b4c5b5f8a0ffeced8db1c1f4951c89bdf6bb58`  
+**Latest merged milestone:** PR #53 — post-J6 LOCAL-1 prerequisite repair  
+**Current execution milestone:** PR #54 / M14-J J7 — evidence-backed isolated profile selection freeze  
 **Current-state authority:** [CURRENT_STATUS.md](CURRENT_STATUS.md)  
 **M14-J implementation plan:** [M14_J_ADAPTIVE_RESOURCE_ORCHESTRATION.md](M14_J_ADAPTIVE_RESOURCE_ORCHESTRATION.md)  
 **Detailed deployment audit:** [ONLINE_RELEASE_PLAN.md](ONLINE_RELEASE_PLAN.md)
@@ -37,9 +37,18 @@ qualification set and retains deterministic fail-closed fallback.
 PR #39 closed the single-move authority question. PR #41 / LOCAL-1 then qualified that
 composition across the declared complete-game lifecycle, mandatory failure cases, rule
 transitions and replay/resource/process integrity. PR #44 / ENGINE-OPT-V2 subsequently
-qualified the selected portable engine/profile composition on exact head `085420843b95f3f2dd206fc1c66bf642cbd49b6d`
-and merged the identical tree as `7248f25fc64be4d04a78ec2b1f0c9de2986a11a5`. The project is **not** yet deployable as
-a qualified service and has not established superiority over a constituent engine.
+qualified the selected portable engine/profile composition and froze it as the orchestration
+fallback.
+
+PR #52 then completed M14-J J6 on exact head
+`6aecd0bae7848ca8a9893377fadffb049d336c3a` and merged as
+`fb690e435da39808adaa5c02345c77d407bc8043`. The resource laboratory retained a valid
+exact-host artifact with 57 candidate operating points, 1368/1368 Stage-A measurements and
+72/72 Stage-B composition batches, with no execution errors. It explicitly grants no profile
+selection or deployment authority. PR #53 then repaired the LOCAL-1 prerequisite boundary
+without changing the retained J6 evidence. PR #54 implements J7 as a deterministic, source-controlled
+selection/evidence layer while leaving the J3 runtime catalog disabled and unchanged. The project is
+**not** yet deployable as a qualified service and has not established superiority over a constituent engine.
 
 ## 2. Critical path to the first public canary
 
@@ -59,9 +68,27 @@ ENGINE-OPT-V2 / PR #44
 measured constituent/profile optimization
         |
         v
+DONE
+M14-J J0-J6
+orchestration substrate + resource laboratory
+        |
+        v
+IN PROGRESS
+M14-J J7 / PR #54
+evidence-backed isolated profile selection freeze
+        |
+        v
 NEXT
-M14-J
-adaptive resource orchestration
+M14-J J8
+adaptive outer time / MoveResourcePlan
+        |
+        v
+M14-J J9
+WorkGrant progressive scheduler
+        |
+        v
+M14-J J10-J12
+allocator, evidence binding, full orchestrated composition
         |
         v
 META-1
@@ -181,23 +208,24 @@ ENGINE-OPT-V2 preserved the qualified n16 EXPLORE / n16 VERIFY / n32 staged-VERI
 
 Promotion also required a real-process non-anchor G3-v2 authority witness, owner-specific physical-resource bounds, the ordinary v1 LOCAL-1 control and complete LOCAL-1-v2 lifecycle qualification. The final aggregate reported `promotion_ready: true` with no errors. These results qualify a profile/build/resource composition; they do not establish Elo or constituent superiority.
 
-## 5. M14-J — Adaptive Resource Orchestration — **NEXT**
+## 5. M14-J — Adaptive Resource Orchestration — **J7 NEXT**
 
 M14-J moves resource/profile authority above the constituent engines. The meta-controller will select only prequalified operating points, derive move-level resource envelopes from host/game context, issue typed WorkGrants, progressively buy the most valuable next computation, and preserve exact resource provenance for DecisionAuthorization. ENGINE-OPT-V2 remains the fail-closed fallback.
 
 Implementation order:
 
-1. **J0** — synchronize the post-PR-44 baseline and freeze the fallback;
-2. **J1** — immutable resource/profile/game/work-grant contracts;
-3. **J2** — effective host capability and pressure detection;
-4. **J3** — qualified resource-profile catalog representing current v2 exactly;
-5. **J4/J5** — safe game-boundary profile application and resource enforcement;
-6. **J6/J7** — resource laboratory plus exact-head engine/composition profile qualification;
-7. **J8/J9** — adaptive MoveResourcePlan and progressive WorkGrant scheduler;
-8. **J10/J11** — deterministic allocator plus replay/authority provenance binding;
-9. **J12** — complete orchestrated-v1 real-engine/lifecycle qualification;
-10. **J13 / META-1** — HYBRID vs ANCHOR_CONTROL with matched orchestration;
-11. **J14 / ONLINE-PLAY-1** — production-profile 10+5 comparative experiment.
+1. **J0 — DONE** — synchronize the post-PR-44 baseline and freeze the fallback;
+2. **J1 — DONE** — immutable resource/profile/game/work-grant contracts;
+3. **J2 — DONE** — effective host capability and pressure detection;
+4. **J3 — DONE** — qualified resource-profile catalog representing current v2 exactly;
+5. **J4/J5 — DONE** — safe game-boundary profile application and resource enforcement;
+6. **J6 — DONE / PR #52** — exact-head resource laboratory and whole-composition interference evidence;
+7. **J7 — NEXT** — freeze qualified engine/composition profiles from the retained J6 artifact;
+8. **J8/J9** — adaptive MoveResourcePlan and progressive WorkGrant scheduler;
+9. **J10/J11** — deterministic allocator plus replay/authority provenance binding;
+10. **J12** — complete orchestrated-v1 real-engine/lifecycle qualification;
+11. **J13 / META-1** — HYBRID vs ANCHOR_CONTROL with matched orchestration;
+12. **J14 / ONLINE-PLAY-1** — production-profile 10+5 comparative experiment.
 
 The full file-level rebuild plan is [M14_J_ADAPTIVE_RESOURCE_ORCHESTRATION.md](M14_J_ADAPTIVE_RESOURCE_ORCHESTRATION.md). M14-J does not authorize arbitrary runtime hyperparameter generation, chess-search retuning or learned outward authority. ResourceAuthorization and DecisionAuthorization remain separate hard gates.
 

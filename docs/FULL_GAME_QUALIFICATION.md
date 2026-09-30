@@ -41,8 +41,10 @@ LOCAL-1 has three evidence families under one frozen policy in
    one-node lifecycle-driver cap.
 
 The required natural tournament therefore contains **28 games**, plus the mandatory fault
-campaign, separate forced chess-rule transition probes, and freshly executed LC0 / ONLINE-2
-/ G3 qualification prerequisites.
+campaign, separate forced chess-rule transition probes, freshly executed LC0 / ONLINE-2
+prerequisites, and a freshly executed G3 **mechanism** prerequisite. The dedicated M14-G3
+workflow remains the sole positive-witness gate that requires an actual non-anchor HYBRID
+emission.
 
 The extended soak repeats the ten baseline pairings ten times: **200 baseline games**, plus
 the lifecycle/fault/prerequisite evidence in each bounded shard. This count is an engineering
@@ -257,17 +259,34 @@ upstream test contract.
 
 ## Positive G3 authority and natural-game coverage are separate
 
-The existing G3 prerequisite is freshly executed and must emit an actual non-anchor HYBRID
-move. Reports are not trusted alone: LOCAL-1 snapshots the pre-existing replay roots,
-requires every report-referenced run ID to have been freshly created by this prerequisite
-execution, and retains **only** those referenced ONLINE-2/G3 bundles. The positive G3 case is
-validated directly under its real run-ID directory; there is no alias copy whose directory
-name can disagree with the sealed run identity.
+The dedicated **M14-G3 qualification workflow** owns the positive-witness claim: at least one
+predeclared real-backend case must complete staged verification, pass DecisionAuthorization,
+and actually emit a non-anchor HYBRID move. That requirement is intentionally not
+rediscovered inside LOCAL-1.
+
+LOCAL-1 instead freshly executes the exact same G3 profile in local1-prerequisite mode across
+the full frozen G3 case set. That prerequisite requires:
+
+- exact source, G3 policy, G3 runtime and ONLINE-2 profile identity;
+- valid replay and final-decision evidence for every executed case;
+- qualified resource evidence and an outward move inside the hard deadline for every case;
+- only supported outward authority states (HYBRID or deterministic ANCHOR_FALLBACK).
+
+A non-anchor HYBRID witness may appear during this prerequisite and is retained if it does,
+but its absence is **not** a LOCAL-1 failure. This avoids making lifecycle qualification
+depend on rediscovering a host/load-sensitive authority outcome that the dedicated G3 gate
+already owns.
+
+Reports are still not trusted alone: LOCAL-1 snapshots the pre-existing replay roots,
+requires every report-referenced run ID to have been freshly created by the prerequisite,
+retains only those referenced ONLINE-2/G3 bundles, and independently re-verifies replay and
+final-decision integrity. The subsequent full-game campaign then validates every played G3
+ply against its own replay/resource/decision evidence.
 
 Natural-game HYBRID/override counts are recorded, not manufactured by loosening policy or
 choosing positions after results. A zero-override tournament is reported as a coverage
-limitation; it does not invalidate the separate predeclared positive-G3 proof, nor does it
-claim repeated natural non-anchor authority was observed.
+limitation; it neither invalidates the separate dedicated positive-G3 proof nor becomes a
+claim that repeated natural non-anchor authority was observed.
 
 ## Evidence layout
 
@@ -284,7 +303,6 @@ prerequisites/
   g3.json
   online2-replays/
   g3-replays/
-  g3-positive-replay/
 rule-probes/
 fault-cases/
 life-*/

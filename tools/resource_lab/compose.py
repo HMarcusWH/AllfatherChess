@@ -9,6 +9,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from adapters.resource.linux_affinity import LinuxAffinityProvider
 from adapters.resource.linux_proc import LinuxProcProvider
 from controller.host_pressure import discover_host_pressure
 from tests.harness.uci_session import UciSession
@@ -41,6 +42,7 @@ def run_composition_batch(
 ) -> dict[str, Any]:
     sessions: dict[str, UciSession] = {}
     proc = LinuxProcProvider()
+    affinity = LinuxAffinityProvider()
     before_pressure = _pressure()
     ready_barrier = threading.Barrier(len(composition.members))
     start_barrier = threading.Barrier(len(composition.members))
@@ -77,6 +79,7 @@ def run_composition_batch(
             if session.proc is None:
                 raise CompositionRunError(f"{member.instance}: process missing")
             pid = session.proc.pid
+            affinity_before = affinity.inspect_tree_affinity(pid).as_dict()
             ready_barrier.wait(timeout=max(5.0, deadline_ms / 1000.0))
             start = proc.snapshot(pid)
             start_barrier.wait(timeout=max(5.0, deadline_ms / 1000.0))
@@ -85,6 +88,7 @@ def run_composition_batch(
                 timeout=max(5.0, deadline_ms / 1000.0 + 2.0),
             )
             end = proc.snapshot(pid)
+            affinity_after = affinity.inspect_tree_affinity(pid).as_dict()
             delta = proc.delta(start, end)
             observation = parse_search_observation(
                 lines,
@@ -98,6 +102,8 @@ def run_composition_batch(
                 "candidate_digest": candidate.digest,
                 "status": "completed",
                 "measurement": observation.as_dict(),
+                "affinity_before": affinity_before,
+                "affinity_after": affinity_after,
                 "transcript": list(session.transcript),
             }
 

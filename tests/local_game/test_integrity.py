@@ -7,14 +7,65 @@ import unittest
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from tests.local_game.test_contracts import events
-from tools.local_game.common import QualificationError, file_record, save, sha
+from tools.local_game.common import QualificationError, file_record, save, sha, source_identity
 from tools.local_game.integrity import (
     finite_metrics,
     verify_fastchess_attestation,
+    verify_local1_g3_prerequisite_report,
     verify_session_commands,
     verify_specialist_settlements,
 )
 from tools.local_game.validate import apply_scope_flags, verify_game_clocks, verify_runner_log
+
+
+class G3PrerequisiteSeparationTests(unittest.TestCase):
+    def report(self):
+        return {
+            "qualification_mode": "local1-mechanism",
+            "evidence_valid": True,
+            "mechanism_valid": True,
+            "source_commit": source_identity(ROOT)["commit"],
+            "policy_sha256": sha(ROOT / "qualification/online-hybrid-authority.json"),
+            "runtime_config_sha256": sha(ROOT / "config/allfather.online-hybrid.validation.json"),
+            "online2_config_sha256": sha(ROOT / "config/allfather.online.cpu-reference.json"),
+            "positive_witness_observed": False,
+            "positive_case": None,
+            "cases": [
+                {
+                    "case": "startpos",
+                    "run_id": "run-1",
+                    "authority": "ANCHOR_FALLBACK",
+                    "resource_qualified": True,
+                    "route_resource_qualified": True,
+                    "clock_outcome": {"output_within_deadline": True},
+                    "anchor_move": "e2e4",
+                    "emitted_move": "e2e4",
+                }
+            ],
+        }
+
+    def test_local1_accepts_valid_mechanism_evidence_without_positive_override(self):
+        verify_local1_g3_prerequisite_report(self.report(), source_identity(ROOT))
+
+    def test_local1_mechanism_report_cannot_launder_identity_or_resource_failure(self):
+        for mutation in ("mode", "source", "resource", "deadline", "positive-marker"):
+            report = self.report()
+            if mutation == "mode":
+                report["qualification_mode"] = "positive-witness"
+            elif mutation == "source":
+                report["source_commit"] = "0" * 40
+            elif mutation == "resource":
+                report["cases"][0]["resource_qualified"] = False
+            elif mutation == "deadline":
+                report["cases"][0]["clock_outcome"]["output_within_deadline"] = False
+            elif mutation == "positive-marker":
+                report["positive_witness_observed"] = True
+            with self.subTest(mutation=mutation):
+                with self.assertRaises(QualificationError):
+                    verify_local1_g3_prerequisite_report(
+                        report,
+                        source_identity(ROOT),
+                    )
 
 
 class EffectiveCommandTests(unittest.TestCase):

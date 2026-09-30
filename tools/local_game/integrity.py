@@ -75,6 +75,77 @@ def verify_builds(source: dict, p: dict | None = None) -> Path:
     return fastchess
 
 
+def verify_local1_g3_prerequisite_report(g3: dict, source: dict) -> None:
+    """Validate LOCAL-1's G3 mechanism prerequisite without laundering a positive witness.
+
+    The dedicated M14-G3 workflow owns the stochastic/performance-sensitive requirement
+    that one predeclared case actually emits a non-anchor HYBRID move. LOCAL-1 instead
+    requires the exact same G3 profile to execute its complete frozen case set with valid
+    deadlines, resource evidence and replay/final-decision integrity; the full-game
+    campaign then validates that composition on every played G3 ply.
+    """
+    require(
+        g3.get("qualification_mode") == "local1-mechanism",
+        "G3 prerequisite report is not in LOCAL-1 mechanism mode",
+    )
+    require(
+        g3.get("evidence_valid") is True and g3.get("mechanism_valid") is True,
+        "G3 prerequisite mechanism evidence is invalid",
+    )
+    require(g3.get("source_commit") == source["commit"], "stale G3 prerequisite source")
+    require(
+        g3.get("policy_sha256")
+        == sha(ROOT / "qualification/online-hybrid-authority.json"),
+        "G3 prerequisite authority policy identity mismatch",
+    )
+    require(
+        g3.get("runtime_config_sha256")
+        == sha(ROOT / "config/allfather.online-hybrid.validation.json"),
+        "G3 prerequisite runtime identity mismatch",
+    )
+    require(
+        g3.get("online2_config_sha256")
+        == sha(ROOT / "config/allfather.online.cpu-reference.json"),
+        "G3 prerequisite ONLINE-2 identity mismatch",
+    )
+    cases = g3.get("cases")
+    require(isinstance(cases, list) and cases, "G3 prerequisite report has no cases")
+    run_ids = [row.get("run_id") for row in cases]
+    require(
+        all(isinstance(run_id, str) and run_id for run_id in run_ids)
+        and len(run_ids) == len(set(run_ids)),
+        "G3 prerequisite case run identities are missing or duplicated",
+    )
+    for row in cases:
+        require(
+            row.get("authority") in ("HYBRID", "ANCHOR_FALLBACK"),
+            "G3 prerequisite reported unsupported authority",
+        )
+        require(
+            row.get("resource_qualified") is True
+            and row.get("route_resource_qualified") is True,
+            "G3 prerequisite resource evidence is not qualified",
+        )
+        outcome = row.get("clock_outcome") or {}
+        require(
+            outcome.get("output_within_deadline") is True,
+            "G3 prerequisite missed the hard outward deadline",
+        )
+
+    positive = g3.get("positive_case")
+    observed = g3.get("positive_witness_observed")
+    if positive is None:
+        require(observed is False, "G3 prerequisite positive-witness marker is inconsistent")
+    else:
+        require(observed is True, "G3 prerequisite positive-witness marker is inconsistent")
+        require(
+            positive.get("run_id") in set(run_ids)
+            and positive.get("authority") == "HYBRID"
+            and positive.get("emitted_move") != positive.get("anchor_move"),
+            "optional G3 prerequisite positive witness is malformed",
+        )
+
+
 def verify_prerequisites(output: Path, source: dict, p: dict | None = None) -> None:
     from controller.replay import verify_bundle_integrity
     from controller.final_decision import verify_final_decision_integrity
@@ -221,21 +292,25 @@ def verify_prerequisites(output: Path, source: dict, p: dict | None = None) -> N
             problems = verify_counterfactual_integrity(run_path)
             require(not problems, f"G3 prerequisite counterfactual rejected: {problems}")
 
-    positive = g3["positive_case"]
-    require(positive["authority"] == "HYBRID" and positive["emitted_move"] != positive["anchor_move"],
-            "G3 positive prerequisite is not an actual override")
-    run = contained(g3_replays, positive["run_id"])
-    require(run.is_dir(), "G3 prerequisite positive run missing")
-    for verifier in (verify_bundle_integrity, verify_final_decision_integrity,
-                     verify_counterfactual_integrity):
-        problems = verifier(run)
-        require(not problems, f"G3 prerequisite replay rejected: {problems}")
-    manifest = load(run / "manifest.json")
-    final = load(run / "decision/final.json")["decision"]
-    require(manifest["run_id"] == positive["run_id"],
-            "G3 prerequisite run identity mismatch")
-    require(final["authority"] == "HYBRID" and final["emitted_move"] == positive["emitted_move"] and
-            final["anchor_move"] == positive["anchor_move"], "G3 prerequisite report disagrees with played decision")
+    verify_local1_g3_prerequisite_report(g3, source)
+    positive = g3.get("positive_case")
+    if isinstance(positive, dict):
+        run = contained(g3_replays, positive["run_id"])
+        require(run.is_dir(), "G3 prerequisite positive run missing")
+        for verifier in (verify_bundle_integrity, verify_final_decision_integrity,
+                         verify_counterfactual_integrity):
+            problems = verifier(run)
+            require(not problems, f"G3 prerequisite replay rejected: {problems}")
+        manifest = load(run / "manifest.json")
+        final = load(run / "decision/final.json")["decision"]
+        require(manifest["run_id"] == positive["run_id"],
+                "G3 prerequisite run identity mismatch")
+        require(
+            final["authority"] == "HYBRID"
+            and final["emitted_move"] == positive["emitted_move"]
+            and final["anchor_move"] == positive["anchor_move"],
+            "G3 prerequisite optional positive report disagrees with played decision",
+        )
 
 
 def verify_probes(output: Path, declared: dict) -> None:

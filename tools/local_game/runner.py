@@ -244,7 +244,10 @@ def prerequisites(output: Path, p: dict, execution_domain_path: Path | None = No
     for label, script, report_name in steps:
         report=ROOT / report_name
         report.unlink(missing_ok=True)
-        result=bounded([sys.executable, script], ROOT, output / f"{label}.log", 600)
+        argv=[sys.executable, script]
+        if label == "g3":
+            argv.append("--local1-prerequisite")
+        result=bounded(argv, ROOT, output / f"{label}.log", 600)
         records.append({"id": label, **result})
         save(output / "prerequisites.json", records)
         require(result["returncode"] == 0 and not result["timed_out"], f"{label} prerequisite failed")

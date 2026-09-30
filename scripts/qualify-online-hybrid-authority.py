@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Real-process M14-G3 qualification on the frozen ONLINE-2 CPU bundle."""
 from __future__ import annotations
+import argparse
 import json
 import re
 import sys
@@ -14,6 +15,7 @@ from controller.replay import discover_replay_bundles, load_manifest, verify_bun
 from controller.counterfactual import verify_counterfactual_integrity
 from controller.final_decision import load_final_decision_artifact, verify_final_decision_integrity
 from tests.harness.uci_session import UciSession
+from tools.engine_opt.report import sha256, source_identity
 
 POLICY = ROOT / "qualification/online-hybrid-authority.json"
 CONFIG = ROOT / "config/allfather.online-hybrid.validation.json"
@@ -37,7 +39,20 @@ def wait_bundle(root: Path, known: set[str]) -> Path:
         time.sleep(0.05)
     raise QualificationError("G3 replay/final decision did not finalize")
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--local1-prerequisite",
+        action="store_true",
+        help=(
+            "validate the exact G3 mechanism/profile for LOCAL-1 without "
+            "requiring this runner to rediscover the dedicated non-anchor "
+            "positive witness"
+        ),
+    )
+    args = parser.parse_args(argv)
+    local1_prerequisite = bool(args.local1_prerequisite)
+
     policy = load_json(POLICY)
     config_doc = load_json(CONFIG)
     online2 = load_json(ONLINE2)
@@ -147,6 +162,18 @@ def main() -> int:
         }
         records.append(record)
 
+        outcome = manifest.get("clock_outcome") or {}
+        if local1_prerequisite:
+            require(
+                outcome.get("output_within_deadline") is True,
+                f"{label}: LOCAL-1 prerequisite outward move missed hard deadline",
+            )
+            require(
+                resource_doc.get("qualified") is True
+                and route_resource.get("qualified") is True,
+                f"{label}: LOCAL-1 prerequisite resource evidence is not qualified",
+            )
+
         qualifies = (
             decision["authority"] == requirement["require_authority"]
             and authorization.get("policy") == CLOCKED_AUTHORIZATION_POLICY
@@ -174,7 +201,6 @@ def main() -> int:
             f"{label}: counterfactual integrity failed: "
             f"{counterfactual_problems}",
         )
-        outcome = manifest.get("clock_outcome") or {}
         require(
             outcome.get("output_within_deadline") is True,
             f"{label}: outward move missed hard deadline",
@@ -185,31 +211,60 @@ def main() -> int:
             f"{label}: manifest outward decision differs from UCI output",
         )
         winner = record
-        break
+        if not local1_prerequisite:
+            break
 
-    require(
-        winner is not None,
-        "no predeclared real-backend case demonstrated non-anchor HYBRID "
-        + json.dumps(records, sort_keys=True),
-    )
+    if not local1_prerequisite:
+        require(
+            winner is not None,
+            "no predeclared real-backend case demonstrated non-anchor HYBRID "
+            + json.dumps(records, sort_keys=True),
+        )
+    else:
+        require(
+            len(records) == len(cases),
+            "LOCAL-1 G3 prerequisite did not execute the full predeclared case set",
+        )
 
+    source = source_identity(ROOT)
     RESULT.mkdir(parents=True, exist_ok=True)
     report = {
         "schema_version": 1,
         "profile_id": policy["profile_id"],
+        "qualification_mode": (
+            "local1-mechanism" if local1_prerequisite else "positive-witness"
+        ),
+        "source_commit": source["commit"],
+        "policy_sha256": sha256(POLICY),
+        "runtime_config_sha256": sha256(CONFIG),
+        "online2_config_sha256": sha256(ONLINE2),
+        "evidence_valid": True,
+        "mechanism_valid": True,
+        "positive_witness_observed": winner is not None,
         "positive_case": winner,
         "cases": records,
         "claim": (
-            "M14-G3 clocked staged authority integration only; one "
-            "predeclared real-backend case emitted a non-anchor HYBRID move. "
-            "No learned-SKIP, Elo, superiority, or deployment claim."
+            "LOCAL-1 prerequisite: exact G3 mechanism/profile, deadline, resource "
+            "and replay integrity only; this run does not require a non-anchor "
+            "positive authority witness. The dedicated M14-G3 qualification "
+            "remains the positive-witness gate."
+            if local1_prerequisite
+            else
+            "M14-G3 clocked staged authority integration only; one predeclared "
+            "real-backend case emitted a non-anchor HYBRID move. No learned-SKIP, "
+            "Elo, superiority, or deployment claim."
         ),
     }
     (RESULT / "report.json").write_text(
         json.dumps(report, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
-    print("M14-G3 qualification passed:", json.dumps(report, sort_keys=True))
+    print(
+        "M14-G3 LOCAL-1 mechanism prerequisite passed:"
+        if local1_prerequisite
+        else "M14-G3 qualification passed:",
+        json.dumps(report, sort_keys=True),
+    )
     return 0
 
 if __name__ == "__main__":

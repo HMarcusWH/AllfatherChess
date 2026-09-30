@@ -1,8 +1,9 @@
 # AllfatherChess — M14-J Adaptive Resource Orchestration Rebuild Plan
 
-> **Status:** forward implementation plan  
-> **Baseline:** merged main at `7248f25fc64be4d04a78ec2b1f0c9de2986a11a5` (PR #44)  
+> **Status:** active implementation; J0-J6 merged, J7 next  
+> **Current main:** `fb690e435da39808adaa5c02345c77d407bc8043` (PR #52 merge)  
 > **Frozen fallback composition:** ENGINE-OPT-V2 / PR #44  
+> **Latest completed stage:** J6 Resource Laboratory on exact head `6aecd0bae7848ca8a9893377fadffb049d336c3a`  
 > **Authority:** documentation only; this plan does not itself promote M14-J behavior  
 
 **Program:** M14-J — Adaptive Resource Orchestration
@@ -1163,9 +1164,9 @@ Fallback instead of overclaim.
 
 ---
 
-## 35. J6 — Resource Laboratory
+## 35. J6 — Resource Laboratory — **MERGED / PR #52**
 
-Add:
+Implemented:
 
 ```text
 tools/resource_lab/
@@ -1173,13 +1174,26 @@ qualification/resource-lab-v1.json
 .github/workflows/resource-profile-lab.yml
 ```
 
-This is the expensive offline measurement program.
+The exact-head J6 artifact on commit
+`6aecd0bae7848ca8a9893377fadffb049d336c3a` reported:
 
-No production behavior changes.
+- `evidence_valid: true`;
+- `lab_complete: true`;
+- 57 candidate operating points;
+- 1368/1368 Stage-A measurements with zero execution errors;
+- 72/72 Stage-B composition batches with zero execution errors;
+- high-resolution POSIX process CPU evidence on all nine current-v2 reference buckets;
+- 24 retained affinity-observation faults without laundering those observer races into engine failures;
+- `promotion_ready: false`, explicitly requiring J7.
+
+Artifact: workflow `36754169712`, artifact `11117218402`,
+SHA-256 `e8b153b1cb0eeafeb18796931e3cad116c09f8913a3eb61ac7d60806fc7ec0e7`.
+
+No production behavior changes and no profile-selection authority were granted by J6.
 
 ---
 
-## 36. J7 — Freeze the Profile Catalog
+## 36. J7 — Freeze the Profile Catalog — **NEXT**
 
 Add:
 

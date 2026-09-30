@@ -134,6 +134,30 @@ def run_composition_batch(
                         }
                     )
         batch_wall_ms = (time.monotonic() - batch_started) * 1000.0
+        completed_measurements = [
+            row["measurement"]
+            for row in rows
+            if row.get("status") == "completed"
+            and isinstance(row.get("measurement"), dict)
+        ]
+        aggregate = {
+            "completed_members": len(completed_measurements),
+            "sum_cpu_ms": round(
+                sum(float(item["cpu_ms"]) for item in completed_measurements), 3
+            ),
+            "sum_end_rss_bytes": (
+                sum(int(item["end_rss_bytes"]) for item in completed_measurements)
+                if completed_measurements
+                and all(item.get("end_rss_bytes") is not None for item in completed_measurements)
+                else None
+            ),
+            "sum_member_vm_hwm_bytes": (
+                sum(int(item["vm_hwm_bytes"]) for item in completed_measurements)
+                if completed_measurements
+                and all(item.get("vm_hwm_bytes") is not None for item in completed_measurements)
+                else None
+            ),
+        }
         return {
             "schema_version": 1,
             "composition_id": composition.composition_id,
@@ -144,6 +168,7 @@ def run_composition_batch(
             "status": "completed" if all(row["status"] == "completed" for row in rows) else "error",
             "members": sorted(rows, key=lambda row: row["instance"]),
             "batch_wall_ms": round(batch_wall_ms, 3),
+            "aggregate_resource": aggregate,
             "host_pressure_before": before_pressure,
             "host_pressure_after": _pressure(),
         }
@@ -174,6 +199,7 @@ def run_composition_batch(
             "status": "error",
             "members": sorted(rows, key=lambda row: row["instance"]),
             "batch_wall_ms": None,
+            "aggregate_resource": None,
             "host_pressure_before": before_pressure,
             "host_pressure_after": _pressure(),
             "error": error,
@@ -201,9 +227,23 @@ def summarize_composition_interference(
         batch_rows = [row for row in rows if row["composition_id"] == composition_id]
         member_metrics: dict[str, dict[str, list[float] | int]] = {}
         batch_errors = 0
+        completed_batch_wall: list[float] = []
+        completed_sum_cpu: list[float] = []
+        completed_sum_rss: list[float] = []
+        completed_sum_hwm: list[float] = []
         for batch in batch_rows:
             if batch.get("status") != "completed":
                 batch_errors += 1
+            else:
+                if batch.get("batch_wall_ms") is not None:
+                    completed_batch_wall.append(float(batch["batch_wall_ms"]))
+                aggregate = batch.get("aggregate_resource") or {}
+                if aggregate.get("sum_cpu_ms") is not None:
+                    completed_sum_cpu.append(float(aggregate["sum_cpu_ms"]))
+                if aggregate.get("sum_end_rss_bytes") is not None:
+                    completed_sum_rss.append(float(aggregate["sum_end_rss_bytes"]))
+                if aggregate.get("sum_member_vm_hwm_bytes") is not None:
+                    completed_sum_hwm.append(float(aggregate["sum_member_vm_hwm_bytes"]))
             for member in batch.get("members", []):
                 item = member_metrics.setdefault(
                     member["instance"],
@@ -263,6 +303,38 @@ def summarize_composition_interference(
                 "composition_id": composition_id,
                 "batches": len(batch_rows),
                 "batch_errors": batch_errors,
+                "batch_wall_ms": (
+                    None
+                    if not completed_batch_wall
+                    else {
+                        "median": round(statistics.median(completed_batch_wall), 3),
+                        "p95": round(percentile(completed_batch_wall, 0.95), 3),
+                    }
+                ),
+                "sum_cpu_ms": (
+                    None
+                    if not completed_sum_cpu
+                    else {
+                        "median": round(statistics.median(completed_sum_cpu), 3),
+                        "p95": round(percentile(completed_sum_cpu, 0.95), 3),
+                    }
+                ),
+                "sum_end_rss_bytes": (
+                    None
+                    if not completed_sum_rss
+                    else {
+                        "median": round(statistics.median(completed_sum_rss), 3),
+                        "p95": round(percentile(completed_sum_rss, 0.95), 3),
+                    }
+                ),
+                "sum_member_vm_hwm_bytes": (
+                    None
+                    if not completed_sum_hwm
+                    else {
+                        "median": round(statistics.median(completed_sum_hwm), 3),
+                        "p95": round(percentile(completed_sum_hwm, 0.95), 3),
+                    }
+                ),
                 "members": members,
             }
         )

@@ -44,6 +44,48 @@ class AffinityObservation:
         if self.observation is not None and self.observation.get("enforced") is not False:
             raise ResourceLabObservationError("J6 observed affinity may not claim enforcement")
 
+    @classmethod
+    def from_dict(cls, raw: dict[str, Any]) -> "AffinityObservation":
+        if not isinstance(raw, dict):
+            raise ResourceLabObservationError("affinity observation must be object")
+        if set(raw) != {
+            "policy",
+            "status",
+            "root_pid",
+            "root_start_time_ticks",
+            "attempts",
+            "observation",
+            "faults",
+            "authority",
+        }:
+            raise ResourceLabObservationError(
+                "affinity observation fields differ from schema"
+            )
+        if raw.get("authority") != {
+            "resource_context": True,
+            "resource_authorization": False,
+            "outward_move": False,
+        }:
+            raise ResourceLabObservationError(
+                "affinity observation authority marker is invalid"
+            )
+        faults = raw.get("faults")
+        if not isinstance(faults, list) or any(
+            not isinstance(item, str) or not item for item in faults
+        ):
+            raise ResourceLabObservationError(
+                "affinity observation faults must be non-empty strings"
+            )
+        return cls(
+            policy=raw.get("policy"),
+            status=raw.get("status"),
+            root_pid=raw.get("root_pid"),
+            root_start_time_ticks=raw.get("root_start_time_ticks"),
+            attempts=raw.get("attempts"),
+            observation=raw.get("observation"),
+            faults=tuple(faults),
+        )
+
     def as_dict(self) -> dict[str, Any]:
         return {
             "policy": self.policy,
@@ -117,3 +159,62 @@ def observe_affinity(
         observation=None,
         faults=tuple(faults),
     )
+
+
+def process_cpu_scope(
+    before: AffinityObservation,
+    after: AffinityObservation,
+) -> dict[str, Any]:
+    """Describe whether a root-process CPU clock covers all observed engine work.
+
+    POSIX process CPU clocks include all threads in one process but do not include
+    separate child processes. An incomplete task-tree observation also prevents
+    a claim that the process clock covered the whole engine execution.
+    """
+    if before.root_pid != after.root_pid:
+        raise ResourceLabObservationError(
+            "CPU-scope observations disagree on root pid"
+        )
+    if before.root_start_time_ticks != after.root_start_time_ticks:
+        raise ResourceLabObservationError(
+            "CPU-scope observations disagree on root process identity"
+        )
+    root_pid = before.root_pid
+    observed_pids: set[int] = {root_pid}
+    reasons: list[str] = []
+    for label, sample in (("before", before), ("after", after)):
+        if sample.status != "completed":
+            reasons.append(f"{label}-affinity-observation-incomplete")
+            continue
+        payload = sample.observation
+        if not isinstance(payload, dict):
+            raise ResourceLabObservationError(
+                f"{label} completed affinity observation lacks payload"
+            )
+        tasks = payload.get("tasks")
+        if not isinstance(tasks, list):
+            raise ResourceLabObservationError(
+                f"{label} affinity task list is invalid"
+            )
+        for task in tasks:
+            if not isinstance(task, dict):
+                raise ResourceLabObservationError(
+                    f"{label} affinity task is invalid"
+                )
+            pid = task.get("pid")
+            if isinstance(pid, bool) or not isinstance(pid, int) or pid <= 0:
+                raise ResourceLabObservationError(
+                    f"{label} affinity task pid is invalid"
+                )
+            observed_pids.add(pid)
+    children = sorted(pid for pid in observed_pids if pid != root_pid)
+    if children:
+        reasons.append("separate-child-process-observed")
+    return {
+        "complete": not reasons,
+        "root_pid": root_pid,
+        "root_start_time_ticks": before.root_start_time_ticks,
+        "observed_process_ids": sorted(observed_pids),
+        "child_process_ids": children,
+        "reasons": reasons,
+    }

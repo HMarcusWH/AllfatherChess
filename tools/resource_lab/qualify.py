@@ -31,9 +31,11 @@ from .candidate_matrix import (
 )
 from .compose import summarize_composition_interference
 from .measure import (
+    FAULT_STAGES,
     parse_search_observation,
     reconstruct_physical_measurement,
 )
+from .observe import AffinityObservation, process_cpu_scope
 from .pareto import build_pareto_report
 
 
@@ -82,48 +84,49 @@ def _validate_affinity_observation(
     policy: str,
     max_attempts: int,
     label: str,
-) -> bool:
-    require(isinstance(raw, dict), f"{label}: affinity observation missing")
-    require(raw.get("policy") == policy, f"{label}: affinity policy drift")
-    require(raw.get("status") in ("completed", "incomplete"), f"{label}: affinity status invalid")
-    attempts = raw.get("attempts")
+) -> tuple[AffinityObservation, bool]:
+    try:
+        sample = AffinityObservation.from_dict(raw)
+    except Exception as exc:
+        raise ResourceLabQualificationError(
+            f"{label}: invalid affinity observation: {exc}"
+        ) from exc
+    require(sample.policy == policy, f"{label}: affinity policy drift")
     require(
-        not isinstance(attempts, bool)
-        and isinstance(attempts, int)
-        and 1 <= attempts <= max_attempts,
+        1 <= sample.attempts <= max_attempts,
         f"{label}: affinity attempt count invalid",
     )
-    require(raw.get("root_pid") == measurement.get("pid"), f"{label}: affinity PID mismatch")
     require(
-        raw.get("root_start_time_ticks")
+        sample.root_pid == measurement.get("pid"),
+        f"{label}: affinity PID mismatch",
+    )
+    require(
+        sample.root_start_time_ticks
         == measurement.get("process_start_time_ticks"),
         f"{label}: affinity process identity mismatch",
     )
-    require(
-        raw.get("authority")
-        == {
-            "resource_context": True,
-            "resource_authorization": False,
-            "outward_move": False,
-        },
-        f"{label}: affinity authority marker invalid",
-    )
-    faults = raw.get("faults")
-    require(isinstance(faults, list), f"{label}: affinity faults must be array")
-    observation = raw.get("observation")
-    if raw["status"] == "completed":
-        require(isinstance(observation, dict), f"{label}: completed affinity lacks observation")
-        require(observation.get("enforced") is False, f"{label}: observed affinity claims enforcement")
-        require(observation.get("root_pid") == measurement.get("pid"), f"{label}: observed affinity PID mismatch")
+    if sample.status == "completed":
+        observation = sample.observation
+        require(
+            isinstance(observation, dict),
+            f"{label}: completed affinity lacks observation",
+        )
+        require(
+            observation.get("enforced") is False,
+            f"{label}: observed affinity claims enforcement",
+        )
+        require(
+            observation.get("root_pid") == measurement.get("pid"),
+            f"{label}: observed affinity PID mismatch",
+        )
         require(
             observation.get("root_start_time_ticks")
             == measurement.get("process_start_time_ticks"),
             f"{label}: observed affinity start-time mismatch",
         )
-        return bool(faults)
-    require(observation is None, f"{label}: incomplete affinity must not fabricate observation")
-    require(bool(faults), f"{label}: incomplete affinity lacks retained sensor fault")
-    return True
+    return sample, bool(sample.faults)
+
+
 
 
 def _reconstruct_measurement(
@@ -156,52 +159,76 @@ def _reconstruct_measurement(
         reconstructed == measurement,
         f"{label}: producer measurement does not reconstruct from primitives/transcript",
     )
-    faults = 0
-    for field in ("affinity_observation_before", "affinity_observation_after"):
-        faults += int(
-            _validate_affinity_observation(
-                row.get(field),
-                measurement=reconstructed,
-                policy=str(affinity_policy["policy"]),
-                max_attempts=int(affinity_policy["max_attempts"]),
-                label=f"{label}/{field}",
-            )
-        )
-    return reconstructed, faults
+    before, before_fault = _validate_affinity_observation(
+        row.get("affinity_observation_before"),
+        measurement=reconstructed,
+        policy=str(affinity_policy["policy"]),
+        max_attempts=int(affinity_policy["max_attempts"]),
+        label=f"{label}/affinity_observation_before",
+    )
+    after, after_fault = _validate_affinity_observation(
+        row.get("affinity_observation_after"),
+        measurement=reconstructed,
+        policy=str(affinity_policy["policy"]),
+        max_attempts=int(affinity_policy["max_attempts"]),
+        label=f"{label}/affinity_observation_after",
+    )
+    scope = process_cpu_scope(before, after)
+    require(
+        row.get("process_cpu_scope") == scope,
+        f"{label}: process CPU scope does not reconstruct from affinity evidence",
+    )
+    return reconstructed, int(before_fault) + int(after_fault)
 
 
-def _recompute_aggregate(members: list[dict[str, Any]]) -> tuple[float | None, dict[str, Any]]:
-    completed = [
-        member["measurement"]
+
+
+def _recompute_aggregate(
+    members: list[dict[str, Any]],
+) -> tuple[float | None, dict[str, Any]]:
+    completed_rows = [
+        member
         for member in members
         if member.get("status") == "completed"
         and isinstance(member.get("measurement"), dict)
     ]
+    completed = [member["measurement"] for member in completed_rows]
     batch_wall = (
         None
         if not completed
         else round(max(float(item["wall_ms"]) for item in completed), 6)
     )
+    scope_complete = bool(completed_rows) and all(
+        isinstance(member.get("process_cpu_scope"), dict)
+        and member["process_cpu_scope"].get("complete") is True
+        for member in completed_rows
+    )
     aggregate = {
         "completed_members": len(completed),
-        "sum_cpu_ms": round(
-            sum(float(item["cpu_ms"]) for item in completed),
-            6,
+        "process_scope_complete": scope_complete,
+        "sum_cpu_ms": (
+            round(sum(float(item["cpu_ms"]) for item in completed), 6)
+            if scope_complete
+            else None
         ),
         "sum_end_rss_bytes": (
             sum(int(item["end_rss_bytes"]) for item in completed)
-            if completed
+            if scope_complete
+            and completed
             and all(item.get("end_rss_bytes") is not None for item in completed)
             else None
         ),
         "sum_member_vm_hwm_bytes": (
             sum(int(item["vm_hwm_bytes"]) for item in completed)
-            if completed
+            if scope_complete
+            and completed
             and all(item.get("vm_hwm_bytes") is not None for item in completed)
             else None
         ),
     }
     return batch_wall, aggregate
+
+
 
 
 def qualify(root: Path, spec_path: Path) -> dict[str, Any]:
@@ -307,6 +334,8 @@ def qualify(root: Path, spec_path: Path) -> dict[str, Any]:
         rebuilt = copy.deepcopy(row)
         if status == "completed":
             completed_a += 1
+            require(row.get("fault_stage") is None, f"{candidate_id}: completed attempt carries fault_stage")
+            require(row.get("fault_class") is None, f"{candidate_id}: completed attempt carries fault_class")
             measurement, faults = _reconstruct_measurement(
                 row,
                 candidate=candidate,
@@ -320,8 +349,14 @@ def qualify(root: Path, spec_path: Path) -> dict[str, Any]:
         else:
             errors_a += 1
             require(isinstance(row.get("error"), str) and row["error"], f"{candidate_id}: error outcome lacks error")
+            require(row.get("fault_stage") in FAULT_STAGES, f"{candidate_id}: failed attempt lacks valid fault_stage")
+            require(
+                row.get("fault_class") in {"engine", "measurement_substrate", "observer", "timeout", "unknown"},
+                f"{candidate_id}: failed attempt lacks valid fault_class",
+            )
             require(row.get("measurement") is None, f"{candidate_id}: failed attempt carries measurement")
             require(row.get("physical_primitives") is None, f"{candidate_id}: failed attempt carries physical primitives")
+            require(row.get("process_cpu_scope") is None, f"{candidate_id}: failed attempt carries CPU scope claim")
         reconstructed_a.append(rebuilt)
 
     recomputed_pareto = build_pareto_report(
@@ -341,6 +376,15 @@ def qualify(root: Path, spec_path: Path) -> dict[str, Any]:
         require(reference_summary.get("complete") is True, f"reference candidate did not complete cleanly: {reference_id}")
         require(reference_summary.get("bestmove_repeatable") is True, f"reference bestmove vector unstable: {reference_id}")
         require(reference_summary.get("native_work_repeatable") is True, f"reference native-work vector unstable: {reference_id}")
+        cpu_quality = reference_summary.get("cpu_measurement_quality")
+        require(
+            isinstance(cpu_quality, dict) and cpu_quality.get("usable") is True,
+            f"reference CPU measurement is not informative: {reference_id}",
+        )
+        require(
+            reference_summary.get("process_cpu_scope_complete") is True,
+            f"reference process CPU scope is incomplete: {reference_id}",
+        )
 
     stage_b_rows = load(root / "stage-b/raw/rows.json")
     require(isinstance(stage_b_rows, list), "Stage-B rows must be array")
@@ -371,6 +415,8 @@ def qualify(root: Path, spec_path: Path) -> dict[str, Any]:
             require(member.get("status") in ("completed", "error"), "Stage-B member status invalid")
             rebuilt_member = copy.deepcopy(member)
             if member["status"] == "completed":
+                require(member.get("fault_stage") is None, "completed Stage-B member carries fault_stage")
+                require(member.get("fault_class") is None, "completed Stage-B member carries fault_class")
                 candidate = candidate_map[expected.candidate_id]
                 measurement, faults = _reconstruct_measurement(
                     member,
@@ -385,6 +431,12 @@ def qualify(root: Path, spec_path: Path) -> dict[str, Any]:
             else:
                 require(member.get("measurement") is None, "failed Stage-B member carries measurement")
                 require(member.get("physical_primitives") is None, "failed Stage-B member carries physical primitives")
+                require(member.get("process_cpu_scope") is None, "failed Stage-B member carries CPU scope claim")
+                require(member.get("fault_stage") in FAULT_STAGES, "failed Stage-B member lacks valid fault_stage")
+                require(
+                    member.get("fault_class") in {"engine", "measurement_substrate", "observer", "timeout", "unknown"},
+                    "failed Stage-B member lacks valid fault_class",
+                )
                 require(isinstance(member.get("error"), str) and member["error"], "failed Stage-B member lacks error")
             rebuilt_members.append(rebuilt_member)
 
@@ -411,8 +463,13 @@ def qualify(root: Path, spec_path: Path) -> dict[str, Any]:
     ]
     require(
         len(baseline_batches) == spec.repeats * len(case_ids)
-        and all(row.get("status") == "completed" for row in baseline_batches),
-        "current-v2 Stage-B reference composition did not complete cleanly",
+        and all(row.get("status") == "completed" for row in baseline_batches)
+        and all(
+            isinstance(row.get("aggregate_resource"), dict)
+            and row["aggregate_resource"].get("process_scope_complete") is True
+            for row in baseline_batches
+        ),
+        "current-v2 Stage-B reference composition did not complete with complete process scope",
     )
 
     retained_stage_b_summary = load(root / "stage-b/summary.json")
@@ -431,6 +488,12 @@ def qualify(root: Path, spec_path: Path) -> dict[str, Any]:
         for group in retained_pareto["groups"]
         for candidate_id in group["pareto"]
     )
+    reference_cpu_quality = {
+        group["reference_candidate_id"]: retained_pareto["candidate_summaries"][
+            group["reference_candidate_id"]
+        ]["cpu_measurement_quality"]
+        for group in retained_pareto["groups"]
+    }
     return {
         "schema_version": 1,
         "profile_id": "resource-lab-v1-report",
@@ -452,6 +515,7 @@ def qualify(root: Path, spec_path: Path) -> dict[str, Any]:
         "affinity_observation_faults_retained": observation_faults,
         "cpu_measurement_method": cpu_policy["required_method"],
         "cpu_measurement_max_resolution_ns": cpu_policy["max_resolution_ns"],
+        "reference_cpu_measurement_quality": reference_cpu_quality,
         "attempt_order_policy": spec.raw["attempt_order_policy"],
         "promotion_ready": False,
         "promotion_requires": "J7 frozen profile selection",

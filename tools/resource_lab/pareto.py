@@ -117,6 +117,11 @@ def build_pareto_report(
                     reasons.append("bestmove-not-repeatable")
                 if spec.raw["pareto"]["require_repeatable_native_work"] and not summary.get("native_work_repeatable"):
                     reasons.append("native-work-not-repeatable")
+                cpu_quality = summary.get("cpu_measurement_quality")
+                if not isinstance(cpu_quality, dict) or cpu_quality.get("usable") is not True:
+                    reasons.append("cpu-measurement-unusable")
+                if summary.get("process_cpu_scope_complete") is not True:
+                    reasons.append("process-cpu-scope-incomplete")
                 vector = (
                     tuple(summary["bestmove_vectors"][0])
                     if summary.get("bestmove_vectors")

@@ -13,7 +13,7 @@
   "families": {
     "stockfish": {
       "binary": "bin/stockfish",
-      "network": null,
+      "network": "networks/nn-134a887f4c8f.nnue",
       "args": [],
       "environment": {},
       "fixed_options": {
@@ -71,7 +71,7 @@
     },
     "reckless": {
       "binary": "bin/reckless",
-      "network": null,
+      "network": "networks/v60-7f587dfb.nnue",
       "args": [],
       "environment": {},
       "fixed_options": {

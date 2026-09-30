@@ -1,11 +1,12 @@
 # AllfatherChess current build and release status
 
 **Status date:** 30 September 2026  
-**Authoritative main commit:** `fb690e435da39808adaa5c02345c77d407bc8043`  
-**Latest merged milestone:** PR #52 / M14-J J6 — exact-head Resource Laboratory  
+**Authoritative main commit:** `01b4c5b5f8a0ffeced8db1c1f4951c89bdf6bb58`  
+**Latest merged milestone:** PR #53 — post-J6 LOCAL-1 prerequisite repair  
 **Qualified J6 PR head:** `6aecd0bae7848ca8a9893377fadffb049d336c3a`  
 **Frozen fallback:** ENGINE-OPT-V2 / PR #44 remains unchanged  
-**Current execution milestone:** M14-J J7 — freeze qualified resource profiles from J6 evidence  
+**Current execution milestone:** PR #54 / M14-J J7 — evidence-backed isolated resource-profile selection freeze  
+**Next milestone after J7:** M14-J J8 — Adaptive Outer Time  
 **Forward roadmap:** [ROADMAP.md](ROADMAP.md)  
 **M14-J rebuild plan:** [M14_J_ADAPTIVE_RESOURCE_ORCHESTRATION.md](M14_J_ADAPTIVE_RESOURCE_ORCHESTRATION.md)  
 **Detailed deployment plan:** [ONLINE_RELEASE_PLAN.md](ONLINE_RELEASE_PLAN.md)
@@ -56,6 +57,24 @@ PR #44 / ENGINE-OPT-V2 remains the frozen orchestration fallback. Its exact-head
 reported `promotion_ready: true`, three repeat confirmations of the selected LC0 profile,
 a real non-anchor G3-v2 authority witness, and successful LOCAL-1-v2 lifecycle evidence.
 J6 did not rewrite that fallback.
+
+## M14-J J7 selection freeze — PR #54 candidate
+
+J7 is implemented as an evidence-backed selection layer **beside** the existing J3/J4 runtime
+catalog. The runtime-consumed `qualification/resource-profile-catalog-v1.json` remains unchanged,
+keeps `selection_enabled=false`, and retains ENGINE-OPT-V2 as the fail-closed fallback.
+
+The frozen J6 evidence is reduced into `resource-profile-evidence-v1.json`, and
+`resource-profile-selection-v1.json` deterministically selects one Pareto operating point for each
+of the nine family/work-budget groups using the declared lexicographic rule. Seven groups retain
+`v2-current`; the two non-v2 selections are Stockfish n64 with `Hash=32` and LC0 n32 with
+`MaxPrefetch=0`.
+
+Every J7 row is marked `isolated_resource_profile` with
+`composition_qualification=not_established`. J7 grants no runtime profile-selection authority,
+resource authorization, outward move authority, deployment authority, or strength/Elo claim.
+Stage B remains evidence about the exact compositions it measured; it does not promote the new
+Stockfish n64 or LC0 n32 selections into composition-qualified settings.
 
 ## LOCAL-1 qualification result
 

@@ -1117,3 +1117,39 @@ workflow families.
 - learned SKIP promotion remains gated by M14-G4;
 - no result establishes move correctness, Elo gain, optimal compute allocation or
   equal-envelope superiority.
+
+## M14-J J7 evidence-backed resource-profile selection
+
+### PROVED by code/contracts once PR #54 gates pass
+
+- the runtime-consumed J3 catalog remains unchanged, parses under the existing strict catalog
+  contract, keeps `selection_enabled=false`, and retains ENGINE-OPT-V2 as fallback;
+- J7 binds the retained J6 exact head `6aecd0bae7848ca8a9893377fadffb049d336c3a`,
+  source tree, workflow `36754169712`, artifact `11117218402`, artifact SHA-256, candidate
+  bundle, lab specification, corpus and exact-host execution domain;
+- the frozen J6 summary remains 57 candidates, 1368/1368 Stage-A measurements, 72/72 Stage-B
+  batches, zero execution errors, nine family/work-budget groups and 18 Pareto candidates;
+- an independent validator re-expands the frozen 57-candidate matrix, checks candidate and
+  composition identities, validates all Pareto eligibility gates, and recomputes the declared
+  lexicographic winner for every group;
+- the nine selections are Stockfish `v2-current/t1-h32/v2-current` at n16/n64/n256,
+  Reckless `v2-current` at n16/n64/n256, and LC0 `v2-current/prefetch0/v2-current` at
+  n16/n32/n64;
+- the only non-v2 option deltas are Stockfish n64 `Hash=32` and LC0 n32
+  `MaxPrefetch=0`;
+- selection/evidence SHA-256, catalog SHA-256, source identity and execution-domain identity are
+  fail-closed contracts;
+- every selected row is explicitly `isolated_resource_profile` and carries
+  `composition_qualification=not_established`;
+- J7 authority markers require runtime authority, resource authorization and outward move
+  authority all to remain false.
+
+### NOT ESTABLISHED / explicitly not claimed
+
+- the two newly selected non-v2 operating points are not composition-qualified by J6 Stage B;
+- the J7 files are not consumed by runtime profile selection and do not authorize adaptive
+  allocation, WorkGrants, DecisionAuthorization or deployment;
+- no J7 result establishes move correctness, Elo gain, strength, optimal compute allocation or
+  equal-resource superiority;
+- J8 Adaptive Outer Time and J9 WorkGrant scheduling remain later promotion boundaries.
+

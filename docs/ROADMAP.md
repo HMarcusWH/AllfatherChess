@@ -66,9 +66,9 @@ ENGINE-OPT-V2 / PR #44
 measured constituent/profile optimization
         |
         v
-NEXT
+IN PROGRESS
 M14-J
-adaptive resource orchestration
+J0-J6 merged; J7 profile freeze next
         |
         v
 META-1
@@ -188,23 +188,24 @@ ENGINE-OPT-V2 preserved the qualified n16 EXPLORE / n16 VERIFY / n32 staged-VERI
 
 Promotion also required a real-process non-anchor G3-v2 authority witness, owner-specific physical-resource bounds, the ordinary v1 LOCAL-1 control and complete LOCAL-1-v2 lifecycle qualification. The final aggregate reported `promotion_ready: true` with no errors. These results qualify a profile/build/resource composition; they do not establish Elo or constituent superiority.
 
-## 5. M14-J — Adaptive Resource Orchestration — **NEXT**
+## 5. M14-J — Adaptive Resource Orchestration — **J7 NEXT**
 
 M14-J moves resource/profile authority above the constituent engines. The meta-controller will select only prequalified operating points, derive move-level resource envelopes from host/game context, issue typed WorkGrants, progressively buy the most valuable next computation, and preserve exact resource provenance for DecisionAuthorization. ENGINE-OPT-V2 remains the fail-closed fallback.
 
 Implementation order:
 
-1. **J0** — synchronize the post-PR-44 baseline and freeze the fallback;
-2. **J1** — immutable resource/profile/game/work-grant contracts;
-3. **J2** — effective host capability and pressure detection;
-4. **J3** — qualified resource-profile catalog representing current v2 exactly;
-5. **J4/J5** — safe game-boundary profile application and resource enforcement;
-6. **J6/J7** — resource laboratory plus exact-head engine/composition profile qualification;
-7. **J8/J9** — adaptive MoveResourcePlan and progressive WorkGrant scheduler;
-8. **J10/J11** — deterministic allocator plus replay/authority provenance binding;
-9. **J12** — complete orchestrated-v1 real-engine/lifecycle qualification;
-10. **J13 / META-1** — HYBRID vs ANCHOR_CONTROL with matched orchestration;
-11. **J14 / ONLINE-PLAY-1** — production-profile 10+5 comparative experiment.
+1. **J0 — DONE** — synchronize the post-PR-44 baseline and freeze the fallback;
+2. **J1 — DONE** — immutable resource/profile/game/work-grant contracts;
+3. **J2 — DONE** — effective host capability and pressure detection;
+4. **J3 — DONE** — qualified resource-profile catalog representing current v2 exactly;
+5. **J4/J5 — DONE** — safe game-boundary profile application and resource enforcement;
+6. **J6 — DONE / PR #52** — exact-head resource laboratory and whole-composition interference evidence;
+7. **J7 — NEXT** — freeze qualified engine/composition profiles from the retained J6 artifact;
+8. **J8/J9** — adaptive MoveResourcePlan and progressive WorkGrant scheduler;
+9. **J10/J11** — deterministic allocator plus replay/authority provenance binding;
+10. **J12** — complete orchestrated-v1 real-engine/lifecycle qualification;
+11. **J13 / META-1** — HYBRID vs ANCHOR_CONTROL with matched orchestration;
+12. **J14 / ONLINE-PLAY-1** — production-profile 10+5 comparative experiment.
 
 The full file-level rebuild plan is [M14_J_ADAPTIVE_RESOURCE_ORCHESTRATION.md](M14_J_ADAPTIVE_RESOURCE_ORCHESTRATION.md). M14-J does not authorize arbitrary runtime hyperparameter generation, chess-search retuning or learned outward authority. ResourceAuthorization and DecisionAuthorization remain separate hard gates.
 

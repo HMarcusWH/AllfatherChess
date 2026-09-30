@@ -359,5 +359,19 @@
     "elo": false,
     "equal_compute": false,
     "deployment": false
+  },
+  "attempt_order_policy": "blocked-cyclic-v1",
+  "affinity_observation": {
+    "policy": "bounded-observed-affinity-v1",
+    "max_attempts": 3
+  },
+  "cpu_measurement": {
+    "required_method": "posix-process-cpu-clock-v1",
+    "max_resolution_ns": 1000000
+  },
+  "reference_contract": {
+    "catalog": "qualification/resource-profile-catalog-v1.json",
+    "runtime": "config/allfather.online-hybrid-v2.validation.json",
+    "build_policy": "qualification/online-engine-opt-v2.json"
   }
 }

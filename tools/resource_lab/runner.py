@@ -15,6 +15,7 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
+from adapters.resource.linux_affinity import LinuxAffinityProvider
 from adapters.resource.linux_proc import LinuxProcProvider
 from tests.harness.uci_session import UciSession
 from tools.engine_opt.corpus import load_epd
@@ -98,12 +99,15 @@ def run_isolated(
         if session.proc is None:
             raise RuntimeError("UCI process missing before measurement")
         provider = LinuxProcProvider()
+        affinity = LinuxAffinityProvider()
+        affinity_before = affinity.inspect_tree_affinity(session.proc.pid).as_dict()
         before = provider.snapshot(session.proc.pid)
         lines = session.search_nodes(
             candidate.nodes,
             timeout=max(5.0, deadline_ms / 1000.0 + 2.0),
         )
         after = provider.snapshot(session.proc.pid)
+        affinity_after = affinity.inspect_tree_affinity(session.proc.pid).as_dict()
         delta = provider.delta(before, after)
         observation = parse_search_observation(
             lines,
@@ -115,6 +119,8 @@ def run_isolated(
                 "status": "completed",
                 "warmup": warmup,
                 "measurement": observation.as_dict(),
+                "affinity_before": affinity_before,
+                "affinity_after": affinity_after,
                 "error": None,
                 "transcript": list(session.transcript),
             }

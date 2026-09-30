@@ -73,6 +73,7 @@ resource-lab-tests:
 	python3 tests/resource_lab/test_pareto.py
 	python3 tests/resource_lab/test_compose.py
 	python3 tests/resource_lab/test_qualify.py
+	python3 tests/resource_lab/test_uci_environment.py
 
 resource-lab-run:
 	@test -n "$(EXECUTION_DOMAIN)" || (echo "Set EXECUTION_DOMAIN=<path>" >&2; exit 2)

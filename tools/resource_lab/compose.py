@@ -5,7 +5,6 @@ from __future__ import annotations
 import concurrent.futures
 import statistics
 import threading
-import time
 from pathlib import Path
 from typing import Any
 
@@ -17,7 +16,14 @@ from tests.harness.uci_session import UciSession
 from tools.engine_opt.corpus import PositionCase
 
 from .candidate_matrix import Candidate, CompositionCandidate
-from .measure import parse_search_observation, percentile
+from .measure import (
+    parse_search_observation,
+    percentile,
+    physical_primitives,
+    reconstruct_physical_measurement,
+)
+from .observe import observe_affinity
+from .process_cpu import ProcessCpuClock
 
 
 class CompositionRunError(RuntimeError):
@@ -26,9 +32,40 @@ class CompositionRunError(RuntimeError):
 
 def _pressure() -> dict[str, Any]:
     try:
-        return {"status": "completed", "observation": discover_host_pressure().as_dict()}
+        return {
+            "status": "completed",
+            "observation": discover_host_pressure().as_dict(),
+        }
     except Exception as exc:
         return {"status": "error", "error": f"{type(exc).__name__}: {exc}"}
+
+
+def _aggregate_completed(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    completed = [
+        row["measurement"]
+        for row in rows
+        if row.get("status") == "completed"
+        and isinstance(row.get("measurement"), dict)
+    ]
+    return {
+        "completed_members": len(completed),
+        "sum_cpu_ms": round(
+            sum(float(item["cpu_ms"]) for item in completed),
+            6,
+        ),
+        "sum_end_rss_bytes": (
+            sum(int(item["end_rss_bytes"]) for item in completed)
+            if completed
+            and all(item.get("end_rss_bytes") is not None for item in completed)
+            else None
+        ),
+        "sum_member_vm_hwm_bytes": (
+            sum(int(item["vm_hwm_bytes"]) for item in completed)
+            if completed
+            and all(item.get("vm_hwm_bytes") is not None for item in completed)
+            else None
+        ),
+    }
 
 
 def run_composition_batch(
@@ -39,9 +76,16 @@ def run_composition_batch(
     case: PositionCase,
     repeat_index: int,
     deadline_ms: float,
+    clock_ticks_per_second: int,
+    required_cpu_method: str,
+    max_cpu_resolution_ns: int,
+    affinity_max_attempts: int,
+    block_index: int,
+    order_index: int,
+    attempt_ordinal: int,
 ) -> dict[str, Any]:
     sessions: dict[str, UciSession] = {}
-    proc = LinuxProcProvider()
+    proc = LinuxProcProvider(clock_ticks=clock_ticks_per_second)
     affinity = LinuxAffinityProvider()
     before_pressure = _pressure()
     ready_barrier = threading.Barrier(len(composition.members))
@@ -71,29 +115,48 @@ def run_composition_batch(
             session.set_position({"fen": case.fen, "moves": []})
             sessions[member.instance] = session
 
-        batch_started = time.monotonic()
-
         def worker(member):
             candidate = candidate_map[member.candidate_id]
             session = sessions[member.instance]
             if session.proc is None:
                 raise CompositionRunError(f"{member.instance}: process missing")
             pid = session.proc.pid
-            affinity_before = affinity.inspect_tree_affinity(pid).as_dict()
+            affinity_before = observe_affinity(
+                affinity,
+                pid,
+                max_attempts=affinity_max_attempts,
+            )
+            cpu_clock = ProcessCpuClock(
+                pid,
+                max_resolution_ns=max_cpu_resolution_ns,
+            )
             ready_barrier.wait(timeout=max(5.0, deadline_ms / 1000.0))
             start_barrier.wait(timeout=max(5.0, deadline_ms / 1000.0))
-            start = proc.snapshot(pid)
+            proc_before = proc.snapshot(pid)
+            cpu_before_ns = cpu_clock.sample_ns()
             lines = session.search_nodes(
                 candidate.nodes,
                 timeout=max(5.0, deadline_ms / 1000.0 + 2.0),
             )
-            end = proc.snapshot(pid)
-            affinity_after = affinity.inspect_tree_affinity(pid).as_dict()
-            delta = proc.delta(start, end)
+            cpu_after_ns = cpu_clock.sample_ns()
+            proc_after = proc.snapshot(pid)
+            affinity_after = observe_affinity(
+                affinity,
+                pid,
+                max_attempts=affinity_max_attempts,
+            )
+            cpu_evidence = cpu_clock.evidence(cpu_before_ns, cpu_after_ns)
+            primitives = physical_primitives(proc_before, proc_after, cpu_evidence)
+            physical = reconstruct_physical_measurement(
+                primitives,
+                clock_ticks_per_second=clock_ticks_per_second,
+                required_cpu_method=required_cpu_method,
+                max_cpu_resolution_ns=max_cpu_resolution_ns,
+            )
             observation = parse_search_observation(
                 lines,
                 family=candidate.family,
-                delta=delta,
+                physical=physical,
             )
             return {
                 "instance": member.instance,
@@ -102,8 +165,9 @@ def run_composition_batch(
                 "candidate_digest": candidate.digest,
                 "status": "completed",
                 "measurement": observation.as_dict(),
-                "affinity_before": affinity_before,
-                "affinity_after": affinity_after,
+                "physical_primitives": primitives,
+                "affinity_observation_before": affinity_before.as_dict(),
+                "affinity_observation_after": affinity_after.as_dict(),
                 "transcript": list(session.transcript),
             }
 
@@ -129,35 +193,25 @@ def run_composition_batch(
                             "candidate_digest": member.candidate_digest,
                             "status": "error",
                             "measurement": None,
+                            "physical_primitives": None,
                             "error": f"{type(exc).__name__}: {exc}",
-                            "transcript": [] if session is None else list(session.transcript),
+                            "transcript": (
+                                [] if session is None else list(session.transcript)
+                            ),
                         }
                     )
-        batch_wall_ms = (time.monotonic() - batch_started) * 1000.0
-        completed_measurements = [
+
+        completed = [
             row["measurement"]
             for row in rows
             if row.get("status") == "completed"
             and isinstance(row.get("measurement"), dict)
         ]
-        aggregate = {
-            "completed_members": len(completed_measurements),
-            "sum_cpu_ms": round(
-                sum(float(item["cpu_ms"]) for item in completed_measurements), 3
-            ),
-            "sum_end_rss_bytes": (
-                sum(int(item["end_rss_bytes"]) for item in completed_measurements)
-                if completed_measurements
-                and all(item.get("end_rss_bytes") is not None for item in completed_measurements)
-                else None
-            ),
-            "sum_member_vm_hwm_bytes": (
-                sum(int(item["vm_hwm_bytes"]) for item in completed_measurements)
-                if completed_measurements
-                and all(item.get("vm_hwm_bytes") is not None for item in completed_measurements)
-                else None
-            ),
-        }
+        batch_wall_ms = (
+            None
+            if not completed
+            else round(max(float(item["wall_ms"]) for item in completed), 6)
+        )
         return {
             "schema_version": 1,
             "composition_id": composition.composition_id,
@@ -165,10 +219,17 @@ def run_composition_batch(
             "repeat_index": repeat_index,
             "case_id": case.case_id,
             "attempt_index": 0,
-            "status": "completed" if all(row["status"] == "completed" for row in rows) else "error",
+            "block_index": block_index,
+            "order_index": order_index,
+            "attempt_ordinal": attempt_ordinal,
+            "status": (
+                "completed"
+                if all(row["status"] == "completed" for row in rows)
+                else "error"
+            ),
             "members": sorted(rows, key=lambda row: row["instance"]),
-            "batch_wall_ms": round(batch_wall_ms, 3),
-            "aggregate_resource": aggregate,
+            "batch_wall_ms": batch_wall_ms,
+            "aggregate_resource": _aggregate_completed(rows),
             "host_pressure_before": before_pressure,
             "host_pressure_after": _pressure(),
         }
@@ -185,8 +246,11 @@ def run_composition_batch(
                     "candidate_digest": member.candidate_digest,
                     "status": "error",
                     "measurement": None,
+                    "physical_primitives": None,
                     "error": f"batch-setup-failure: {error}",
-                    "transcript": [] if session is None else list(session.transcript),
+                    "transcript": (
+                        [] if session is None else list(session.transcript)
+                    ),
                 }
             )
         return {
@@ -196,6 +260,9 @@ def run_composition_batch(
             "repeat_index": repeat_index,
             "case_id": case.case_id,
             "attempt_index": 0,
+            "block_index": block_index,
+            "order_index": order_index,
+            "attempt_ordinal": attempt_ordinal,
             "status": "error",
             "members": sorted(rows, key=lambda row: row["instance"]),
             "batch_wall_ms": None,
@@ -209,6 +276,27 @@ def run_composition_batch(
             session.close()
 
 
+def _isolated_reference(
+    rows: list[dict[str, Any]],
+) -> dict[str, Any]:
+    completed = [
+        row["measurement"]
+        for row in rows
+        if row.get("status") == "completed"
+        and isinstance(row.get("measurement"), dict)
+    ]
+    if len(completed) < 2:
+        return {"stable": False, "completed": completed}
+    bestmoves = {row["bestmove"] for row in completed}
+    work = {int(row["native_work_value"]) for row in completed}
+    return {
+        "stable": len(bestmoves) == 1 and len(work) == 1,
+        "completed": completed,
+        "bestmove": next(iter(bestmoves)) if len(bestmoves) == 1 else None,
+        "native_work_value": next(iter(work)) if len(work) == 1 else None,
+    }
+
+
 def summarize_composition_interference(
     *,
     rows: list[dict[str, Any]],
@@ -216,21 +304,22 @@ def summarize_composition_interference(
 ) -> dict[str, Any]:
     isolated: dict[tuple[str, str], list[dict[str, Any]]] = {}
     for row in isolated_rows:
-        if row.get("status") != "completed":
-            continue
         key = (row["candidate_id"], row["case_id"])
-        isolated.setdefault(key, []).append(row["measurement"])
+        isolated.setdefault(key, []).append(row)
 
     summaries: list[dict[str, Any]] = []
     composition_ids = sorted({row["composition_id"] for row in rows})
     for composition_id in composition_ids:
-        batch_rows = [row for row in rows if row["composition_id"] == composition_id]
-        member_metrics: dict[str, dict[str, list[float] | int]] = {}
+        batch_rows = [
+            row for row in rows if row["composition_id"] == composition_id
+        ]
+        member_metrics: dict[str, dict[str, Any]] = {}
         batch_errors = 0
         completed_batch_wall: list[float] = []
         completed_sum_cpu: list[float] = []
         completed_sum_rss: list[float] = []
         completed_sum_hwm: list[float] = []
+
         for batch in batch_rows:
             if batch.get("status") != "completed":
                 batch_errors += 1
@@ -241,9 +330,14 @@ def summarize_composition_interference(
                 if aggregate.get("sum_cpu_ms") is not None:
                     completed_sum_cpu.append(float(aggregate["sum_cpu_ms"]))
                 if aggregate.get("sum_end_rss_bytes") is not None:
-                    completed_sum_rss.append(float(aggregate["sum_end_rss_bytes"]))
+                    completed_sum_rss.append(
+                        float(aggregate["sum_end_rss_bytes"])
+                    )
                 if aggregate.get("sum_member_vm_hwm_bytes") is not None:
-                    completed_sum_hwm.append(float(aggregate["sum_member_vm_hwm_bytes"]))
+                    completed_sum_hwm.append(
+                        float(aggregate["sum_member_vm_hwm_bytes"])
+                    )
+
             for member in batch.get("members", []):
                 item = member_metrics.setdefault(
                     member["instance"],
@@ -252,29 +346,54 @@ def summarize_composition_interference(
                         "cpu_ratio": [],
                         "bestmove_drift": 0,
                         "native_work_drift": 0,
+                        "behavior_evaluated": 0,
+                        "reference_unstable": 0,
                         "completed": 0,
                         "errors": 0,
                     },
                 )
                 if member.get("status") != "completed":
-                    item["errors"] = int(item["errors"]) + 1
+                    item["errors"] += 1
                     continue
-                reference = isolated.get((member["candidate_id"], batch["case_id"]), [])
-                if not reference:
-                    item["errors"] = int(item["errors"]) + 1
+
+                reference_rows = isolated.get(
+                    (member["candidate_id"], batch["case_id"]),
+                    [],
+                )
+                reference = _isolated_reference(reference_rows)
+                completed_ref = reference["completed"]
+                if not completed_ref:
+                    item["errors"] += 1
                     continue
-                wall_ref = statistics.median(float(row["wall_ms"]) for row in reference)
-                cpu_ref = statistics.median(float(row["cpu_ms"]) for row in reference)
+
                 measurement = member["measurement"]
+                wall_ref = statistics.median(
+                    float(row["wall_ms"]) for row in completed_ref
+                )
+                cpu_ref = statistics.median(
+                    float(row["cpu_ms"]) for row in completed_ref
+                )
                 if wall_ref > 0:
-                    item["wall_ratio"].append(float(measurement["wall_ms"]) / wall_ref)
+                    item["wall_ratio"].append(
+                        float(measurement["wall_ms"]) / wall_ref
+                    )
                 if cpu_ref > 0:
-                    item["cpu_ratio"].append(float(measurement["cpu_ms"]) / cpu_ref)
-                if measurement["bestmove"] != reference[0]["bestmove"]:
-                    item["bestmove_drift"] = int(item["bestmove_drift"]) + 1
-                if measurement["native_work_value"] != reference[0]["native_work_value"]:
-                    item["native_work_drift"] = int(item["native_work_drift"]) + 1
-                item["completed"] = int(item["completed"]) + 1
+                    item["cpu_ratio"].append(
+                        float(measurement["cpu_ms"]) / cpu_ref
+                    )
+
+                if reference["stable"]:
+                    item["behavior_evaluated"] += 1
+                    if measurement["bestmove"] != reference["bestmove"]:
+                        item["bestmove_drift"] += 1
+                    if (
+                        int(measurement["native_work_value"])
+                        != int(reference["native_work_value"])
+                    ):
+                        item["native_work_drift"] += 1
+                else:
+                    item["reference_unstable"] += 1
+                item["completed"] += 1
 
         members: dict[str, Any] = {}
         for instance, item in sorted(member_metrics.items()):
@@ -283,21 +402,32 @@ def summarize_composition_interference(
             members[instance] = {
                 "completed": item["completed"],
                 "errors": item["errors"],
+                "behavior_evaluated_count": item["behavior_evaluated"],
+                "reference_unstable_count": item["reference_unstable"],
                 "median_wall_slowdown_ratio": (
-                    None if not wall_ratios else round(statistics.median(wall_ratios), 6)
+                    None
+                    if not wall_ratios
+                    else round(statistics.median(wall_ratios), 6)
                 ),
                 "p95_wall_slowdown_ratio": (
-                    None if not wall_ratios else round(percentile(wall_ratios, 0.95), 6)
+                    None
+                    if not wall_ratios
+                    else round(percentile(wall_ratios, 0.95), 6)
                 ),
                 "median_cpu_inflation_ratio": (
-                    None if not cpu_ratios else round(statistics.median(cpu_ratios), 6)
+                    None
+                    if not cpu_ratios
+                    else round(statistics.median(cpu_ratios), 6)
                 ),
                 "p95_cpu_inflation_ratio": (
-                    None if not cpu_ratios else round(percentile(cpu_ratios, 0.95), 6)
+                    None
+                    if not cpu_ratios
+                    else round(percentile(cpu_ratios, 0.95), 6)
                 ),
                 "bestmove_drift_count": item["bestmove_drift"],
                 "native_work_drift_count": item["native_work_drift"],
             }
+
         summaries.append(
             {
                 "composition_id": composition_id,
@@ -307,32 +437,56 @@ def summarize_composition_interference(
                     None
                     if not completed_batch_wall
                     else {
-                        "median": round(statistics.median(completed_batch_wall), 3),
-                        "p95": round(percentile(completed_batch_wall, 0.95), 3),
+                        "median": round(
+                            statistics.median(completed_batch_wall),
+                            6,
+                        ),
+                        "p95": round(
+                            percentile(completed_batch_wall, 0.95),
+                            6,
+                        ),
                     }
                 ),
                 "sum_cpu_ms": (
                     None
                     if not completed_sum_cpu
                     else {
-                        "median": round(statistics.median(completed_sum_cpu), 3),
-                        "p95": round(percentile(completed_sum_cpu, 0.95), 3),
+                        "median": round(
+                            statistics.median(completed_sum_cpu),
+                            6,
+                        ),
+                        "p95": round(
+                            percentile(completed_sum_cpu, 0.95),
+                            6,
+                        ),
                     }
                 ),
                 "sum_end_rss_bytes": (
                     None
                     if not completed_sum_rss
                     else {
-                        "median": round(statistics.median(completed_sum_rss), 3),
-                        "p95": round(percentile(completed_sum_rss, 0.95), 3),
+                        "median": round(
+                            statistics.median(completed_sum_rss),
+                            3,
+                        ),
+                        "p95": round(
+                            percentile(completed_sum_rss, 0.95),
+                            3,
+                        ),
                     }
                 ),
                 "sum_member_vm_hwm_bytes": (
                     None
                     if not completed_sum_hwm
                     else {
-                        "median": round(statistics.median(completed_sum_hwm), 3),
-                        "p95": round(percentile(completed_sum_hwm, 0.95), 3),
+                        "median": round(
+                            statistics.median(completed_sum_hwm),
+                            3,
+                        ),
+                        "p95": round(
+                            percentile(completed_sum_hwm, 0.95),
+                            3,
+                        ),
                     }
                 ),
                 "members": members,

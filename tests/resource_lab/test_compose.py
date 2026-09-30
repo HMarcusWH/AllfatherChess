@@ -26,6 +26,8 @@ class ComposeTests(unittest.TestCase):
             "composition_id":"comp","case_id":"c","status":"completed",
             "batch_wall_ms":150,
             "aggregate_resource":{
+                "completed_members":1,
+                "process_scope_complete":True,
                 "sum_cpu_ms":100,
                 "sum_end_rss_bytes":None,
                 "sum_member_vm_hwm_bytes":None,
@@ -68,6 +70,8 @@ class ComposeTests(unittest.TestCase):
             "composition_id":"comp","case_id":"c","status":"completed",
             "batch_wall_ms":100,
             "aggregate_resource":{
+                "completed_members":1,
+                "process_scope_complete":True,
                 "sum_cpu_ms":80,
                 "sum_end_rss_bytes":None,
                 "sum_member_vm_hwm_bytes":None,
@@ -76,7 +80,8 @@ class ComposeTests(unittest.TestCase):
                 "instance":"x","candidate_id":"cand","status":"completed",
                 "measurement":{
                     "wall_ms":100,"cpu_ms":80,"bestmove":"d2d4","native_work_value":63
-                }
+                },
+                "process_cpu_scope":{"complete":True}
             }]
         }]
         row=summarize_composition_interference(rows=stage_b,isolated_rows=isolated)

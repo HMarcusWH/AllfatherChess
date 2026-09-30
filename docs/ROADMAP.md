@@ -37,9 +37,16 @@ qualification set and retains deterministic fail-closed fallback.
 PR #39 closed the single-move authority question. PR #41 / LOCAL-1 then qualified that
 composition across the declared complete-game lifecycle, mandatory failure cases, rule
 transitions and replay/resource/process integrity. PR #44 / ENGINE-OPT-V2 subsequently
-qualified the selected portable engine/profile composition on exact head `085420843b95f3f2dd206fc1c66bf642cbd49b6d`
-and merged the identical tree as `7248f25fc64be4d04a78ec2b1f0c9de2986a11a5`. The project is **not** yet deployable as
-a qualified service and has not established superiority over a constituent engine.
+qualified the selected portable engine/profile composition and froze it as the orchestration
+fallback.
+
+PR #52 then completed M14-J J6 on exact head
+`6aecd0bae7848ca8a9893377fadffb049d336c3a` and merged as
+`fb690e435da39808adaa5c02345c77d407bc8043`. The resource laboratory retained a valid
+exact-host artifact with 57 candidate operating points, 1368/1368 Stage-A measurements and
+72/72 Stage-B composition batches, with no execution errors. It explicitly grants no profile
+selection or deployment authority; J7 is the next step. The project is **not** yet deployable
+as a qualified service and has not established superiority over a constituent engine.
 
 ## 2. Critical path to the first public canary
 

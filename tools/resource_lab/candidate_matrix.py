@@ -367,6 +367,39 @@ def validate_lab_spec(raw: Mapping[str, Any]) -> None:
         isinstance(compositions, list) and len(compositions) == 3,
         "Stage B must freeze three compositions",
     )
+    pareto = _object(raw.get("pareto"), "pareto")
+    _strict(
+        pareto,
+        {
+            "dimensions",
+            "require_bestmove_reference_match",
+            "require_repeatable_bestmove",
+            "require_repeatable_native_work",
+            "require_usable_cpu",
+            "require_complete_process_cpu_scope",
+        },
+        "pareto",
+    )
+    require(
+        pareto.get("dimensions")
+        == [
+            "median_wall_ms",
+            "p95_wall_ms",
+            "median_cpu_ms",
+            "p95_cpu_ms",
+            "p95_vm_hwm_bytes",
+        ],
+        "J6 Pareto dimensions drift",
+    )
+    for name in (
+        "require_bestmove_reference_match",
+        "require_repeatable_bestmove",
+        "require_repeatable_native_work",
+        "require_usable_cpu",
+        "require_complete_process_cpu_scope",
+    ):
+        require(pareto.get(name) is True, f"J6 Pareto policy {name} must be true")
+
     claim = _object(raw.get("claim_boundary"), "claim_boundary")
     require(
         claim

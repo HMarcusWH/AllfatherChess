@@ -93,6 +93,41 @@ class ParetoTests(unittest.TestCase):
         for group in report["groups"]:
             self.assertIn(group["reference_candidate_id"],group["pareto"])
 
+    def test_unmeasurable_cpu_rejects_candidate_before_pareto(self):
+        spec=load_lab_spec(SPEC)
+        candidates=expand_candidates(spec,fake_manifest())
+        case_ids=tuple(f"c{i}" for i in range(8))
+        rows=rows_for(candidates,case_ids)
+        target=next(
+            candidate for candidate in candidates
+            if candidate.family=="stockfish" and candidate.nodes==16 and not candidate.reference
+        )
+        for row in rows:
+            if row["candidate_id"]==target.candidate_id:
+                row["measurement"]["cpu_ms"]=0.0
+        report=build_pareto_report(spec=spec,candidates=candidates,rows=rows,case_ids=case_ids)
+        group=next(g for g in report["groups"] if g["family"]=="stockfish" and g["nodes"]==16)
+        rejected={row["candidate_id"]:row["reasons"] for row in group["rejected"]}
+        self.assertIn("cpu-measurement-unusable",rejected[target.candidate_id])
+
+    def test_incomplete_process_cpu_scope_rejects_candidate_before_pareto(self):
+        spec=load_lab_spec(SPEC)
+        candidates=expand_candidates(spec,fake_manifest())
+        case_ids=tuple(f"c{i}" for i in range(8))
+        rows=rows_for(candidates,case_ids)
+        target=next(
+            candidate for candidate in candidates
+            if candidate.family=="reckless" and candidate.nodes==16 and not candidate.reference
+        )
+        for row in rows:
+            if row["candidate_id"]==target.candidate_id:
+                row["process_cpu_scope"]["complete"]=False
+                row["process_cpu_scope"]["reasons"]=["separate-child-process-observed"]
+        report=build_pareto_report(spec=spec,candidates=candidates,rows=rows,case_ids=case_ids)
+        group=next(g for g in report["groups"] if g["family"]=="reckless" and g["nodes"]==16)
+        rejected={row["candidate_id"]:row["reasons"] for row in group["rejected"]}
+        self.assertIn("process-cpu-scope-incomplete",rejected[target.candidate_id])
+
     def test_bestmove_drift_rejects_candidate_before_pareto(self):
         spec=load_lab_spec(SPEC)
         candidates=expand_candidates(spec,fake_manifest())

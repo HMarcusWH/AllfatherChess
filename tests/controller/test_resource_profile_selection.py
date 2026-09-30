@@ -30,8 +30,7 @@ def load(path: Path) -> dict:
 
 
 def dump(path: Path, value: dict) -> None:
-    path.write_text(json.dumps(value, indent=2, ensure_ascii=False) + "
-", encoding="utf-8")
+    path.write_text(json.dumps(value, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
 
 class J7SelectionTests(unittest.TestCase):

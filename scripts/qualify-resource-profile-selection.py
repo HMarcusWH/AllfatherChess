@@ -230,8 +230,7 @@ def main() -> int:
     except SelectionQualificationError as exc:
         print(f"J7 resource-profile selection qualification FAILED: {exc}")
         return 2
-    payload = json.dumps(report, indent=2, sort_keys=True) + "
-"
+    payload = json.dumps(report, indent=2, sort_keys=True) + "\n"
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(payload, encoding="utf-8")

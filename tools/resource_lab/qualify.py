@@ -148,6 +148,15 @@ def qualify(root: Path, spec_path: Path) -> dict[str, Any]:
             require(isinstance(transcript, list) and transcript, f"{candidate_id}: transcript missing")
             require(isinstance(row.get("affinity_before"), dict), f"{candidate_id}: affinity_before missing")
             require(isinstance(row.get("affinity_after"), dict), f"{candidate_id}: affinity_after missing")
+            for label in ("affinity_before", "affinity_after"):
+                affinity = row[label]
+                require(affinity.get("enforced") is False, f"{candidate_id}: J6 observed affinity may not claim enforcement")
+                require(affinity.get("root_pid") == measurement.get("pid"), f"{candidate_id}: {label} PID mismatch")
+                require(
+                    affinity.get("root_start_time_ticks")
+                    == measurement.get("process_start_time_ticks"),
+                    f"{candidate_id}: {label} process identity mismatch",
+                )
             replayed = parse_search_observation(
                 transcript,
                 family=candidate.family,
@@ -224,6 +233,34 @@ def qualify(root: Path, spec_path: Path) -> dict[str, Any]:
                 require(isinstance(member.get("transcript"), list) and member["transcript"], "completed Stage-B member lacks transcript")
                 require(isinstance(member.get("affinity_before"), dict), "completed Stage-B member lacks affinity_before")
                 require(isinstance(member.get("affinity_after"), dict), "completed Stage-B member lacks affinity_after")
+                candidate = candidate_map[expected.candidate_id]
+                for label in ("affinity_before", "affinity_after"):
+                    affinity = member[label]
+                    require(affinity.get("enforced") is False, "J6 Stage-B observed affinity may not claim enforcement")
+                    require(affinity.get("root_pid") == measurement.get("pid"), "Stage-B affinity PID mismatch")
+                    require(
+                        affinity.get("root_start_time_ticks")
+                        == measurement.get("process_start_time_ticks"),
+                        "Stage-B affinity process identity mismatch",
+                    )
+                replayed = parse_search_observation(
+                    member["transcript"],
+                    family=candidate.family,
+                    delta=ProcessDelta(
+                        pid=int(measurement["pid"]),
+                        start_time_ticks=int(measurement["process_start_time_ticks"]),
+                        wall_ms=float(measurement["wall_ms"]),
+                        cpu_ms=float(measurement["cpu_ms"]),
+                        start_rss_bytes=measurement.get("start_rss_bytes"),
+                        end_rss_bytes=measurement.get("end_rss_bytes"),
+                        vm_hwm_bytes=measurement.get("vm_hwm_bytes"),
+                    ),
+                ).as_dict()
+                for key in ("bestmove", "pv", "evaluation", "native_work_value", "native_work_semantics", "nps"):
+                    require(
+                        replayed.get(key) == measurement.get(key),
+                        f"Stage-B transcript/measurement {key} mismatch",
+                    )
             else:
                 require(member.get("measurement") is None, "failed Stage-B member carries measurement")
                 require(isinstance(member.get("error"), str) and member["error"], "failed Stage-B member lacks error")

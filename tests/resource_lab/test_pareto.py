@@ -49,7 +49,9 @@ def rows_for(candidates,case_ids):
                         "bestmove":"e2e4" if index%2==0 else "d2d4",
                         "native_work_value":candidate.nodes,
                         "wall_ms":100+variant_penalty,
-                        "cpu_ms":90+variant_penalty,
+                        "cpu_ms":0.25+variant_penalty,
+                        "procfs_cpu_ms":0,
+                        "cpu_clock_resolution_ns":1,
                         "vm_hwm_bytes":1000+variant_penalty,
                     }
                 })

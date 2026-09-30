@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import subprocess
 import sys
+import time
 import unittest
 from pathlib import Path
 
@@ -16,6 +18,28 @@ from tools.resource_lab.process_cpu import (
 
 
 class ProcessCpuClockTests(unittest.TestCase):
+    def test_default_linux_clock_reads_a_live_child_process(self):
+        child=subprocess.Popen([
+            sys.executable,
+            "-c",
+            "import time; end=time.monotonic()+2; x=0\n"
+            "while time.monotonic()<end: x+=1",
+        ])
+        try:
+            clock=ProcessCpuClock(child.pid,max_resolution_ns=1_000_000)
+            before=clock.sample_ns()
+            time.sleep(0.05)
+            after=clock.sample_ns()
+            self.assertGreater(after,before)
+            self.assertLessEqual(clock.resolution_ns,1_000_000)
+        finally:
+            child.terminate()
+            try:
+                child.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                child.kill()
+                child.wait(timeout=2)
+
     def test_high_resolution_clock_records_exact_delta(self):
         samples=iter([1_000_000,1_350_000])
         clock=ProcessCpuClock(

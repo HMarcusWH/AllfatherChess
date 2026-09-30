@@ -53,6 +53,14 @@ def rows_for(candidates,case_ids):
                         "procfs_cpu_ms":0,
                         "cpu_clock_resolution_ns":1,
                         "vm_hwm_bytes":1000+variant_penalty,
+                    },
+                    "process_cpu_scope":{
+                        "complete":True,
+                        "root_pid":42,
+                        "root_start_time_ticks":99,
+                        "observed_process_ids":[42],
+                        "child_process_ids":[],
+                        "reasons":[],
                     }
                 })
     return rows

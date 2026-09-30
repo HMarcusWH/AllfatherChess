@@ -10,8 +10,10 @@ sys.path.insert(0,str(ROOT))
 
 from adapters.resource.linux_affinity import LinuxAffinityError
 from tools.resource_lab.observe import (
+    AffinityObservation,
     ResourceLabObservationError,
     observe_affinity,
+    process_cpu_scope,
 )
 
 
@@ -64,6 +66,76 @@ class ObserveTests(unittest.TestCase):
         with self.assertRaises(ResourceLabObservationError):
             observe_affinity(FakeProvider(root_alive=False),123,max_attempts=3)
 
+
+    def test_process_cpu_scope_rejects_separate_child_process(self):
+        before=AffinityObservation(
+            policy="bounded-observed-affinity-v1",
+            status="completed",
+            root_pid=100,
+            root_start_time_ticks=10,
+            attempts=1,
+            observation={
+                "root_pid":100,
+                "root_start_time_ticks":10,
+                "passes":1,
+                "enforced":False,
+                "tasks":[
+                    {"pid":100,"process_start_time_ticks":10,"tid":100,"task_start_time_ticks":10,"cpus":[0]},
+                    {"pid":200,"process_start_time_ticks":20,"tid":200,"task_start_time_ticks":20,"cpus":[1]},
+                ],
+            },
+            faults=(),
+        )
+        after=AffinityObservation(
+            policy="bounded-observed-affinity-v1",
+            status="completed",
+            root_pid=100,
+            root_start_time_ticks=10,
+            attempts=1,
+            observation={
+                "root_pid":100,
+                "root_start_time_ticks":10,
+                "passes":1,
+                "enforced":False,
+                "tasks":[
+                    {"pid":100,"process_start_time_ticks":10,"tid":100,"task_start_time_ticks":10,"cpus":[0]},
+                ],
+            },
+            faults=(),
+        )
+        scope=process_cpu_scope(before,after)
+        self.assertFalse(scope["complete"])
+        self.assertEqual(scope["child_process_ids"],[200])
+        self.assertIn("separate-child-process-observed",scope["reasons"])
+
+    def test_process_cpu_scope_requires_complete_boundary_observations(self):
+        completed=AffinityObservation(
+            policy="bounded-observed-affinity-v1",
+            status="completed",
+            root_pid=100,
+            root_start_time_ticks=10,
+            attempts=1,
+            observation={
+                "root_pid":100,
+                "root_start_time_ticks":10,
+                "passes":1,
+                "enforced":False,
+                "tasks":[],
+            },
+            faults=(),
+        )
+        incomplete=AffinityObservation(
+            policy="bounded-observed-affinity-v1",
+            status="incomplete",
+            root_pid=100,
+            root_start_time_ticks=10,
+            attempts=3,
+            observation=None,
+            faults=("transient task race",),
+        )
+        scope=process_cpu_scope(incomplete,completed)
+        self.assertFalse(scope["complete"])
+        self.assertIn("before-affinity-observation-incomplete",scope["reasons"])
 
 if __name__=="__main__":
     unittest.main()

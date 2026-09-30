@@ -146,6 +146,8 @@ def qualify(root: Path, spec_path: Path) -> dict[str, Any]:
             require(isinstance(measurement.get("bestmove"), str), f"{candidate_id}: bestmove missing")
             transcript = row.get("transcript")
             require(isinstance(transcript, list) and transcript, f"{candidate_id}: transcript missing")
+            require(isinstance(row.get("affinity_before"), dict), f"{candidate_id}: affinity_before missing")
+            require(isinstance(row.get("affinity_after"), dict), f"{candidate_id}: affinity_after missing")
             replayed = parse_search_observation(
                 transcript,
                 family=candidate.family,
@@ -213,6 +215,8 @@ def qualify(root: Path, spec_path: Path) -> dict[str, Any]:
                 measurement = member.get("measurement")
                 require(isinstance(measurement, dict), "completed Stage-B member lacks measurement")
                 require(isinstance(member.get("transcript"), list) and member["transcript"], "completed Stage-B member lacks transcript")
+                require(isinstance(member.get("affinity_before"), dict), "completed Stage-B member lacks affinity_before")
+                require(isinstance(member.get("affinity_after"), dict), "completed Stage-B member lacks affinity_after")
             else:
                 require(member.get("measurement") is None, "failed Stage-B member carries measurement")
                 require(isinstance(member.get("error"), str) and member["error"], "failed Stage-B member lacks error")

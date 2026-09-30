@@ -24,6 +24,44 @@ class ResourceMeasurementError(ValueError):
     pass
 
 
+FAULT_STAGES = {
+    "process_start",
+    "engine_configure",
+    "warmup",
+    "affinity_observation",
+    "cpu_clock_init",
+    "physical_snapshot",
+    "search",
+    "physical_reconstruction",
+    "transcript_parse",
+    "unknown",
+}
+
+
+def classify_failure(stage: str, exc: Exception) -> tuple[str, str]:
+    normalized = stage if stage in FAULT_STAGES else "unknown"
+    rendered = f"{type(exc).__name__}: {exc}"
+    lowered = rendered.lower()
+    if "timeout" in lowered:
+        return normalized, "timeout"
+    if normalized == "affinity_observation":
+        return normalized, "observer"
+    if normalized in {
+        "cpu_clock_init",
+        "physical_snapshot",
+        "physical_reconstruction",
+    }:
+        return normalized, "measurement_substrate"
+    if normalized in {
+        "process_start",
+        "engine_configure",
+        "warmup",
+        "search",
+    }:
+        return normalized, "engine"
+    return normalized, "unknown"
+
+
 def require(condition: bool, message: str) -> None:
     if not condition:
         raise ResourceMeasurementError(message)

@@ -11,6 +11,7 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
+from adapters.resource.linux_proc import ProcessDelta
 from controller.decision import canonical_digest
 from tools.engine_opt.corpus import load_epd
 from tools.engine_opt.domain import (
@@ -20,6 +21,8 @@ from tools.engine_opt.domain import (
 from tools.engine_opt.report import sha256, source_identity
 
 from .candidate_matrix import expand_candidates, expand_compositions, load_lab_spec
+from .compose import summarize_composition_interference
+from .measure import parse_search_observation
 from .pareto import build_pareto_report
 
 
@@ -141,6 +144,26 @@ def qualify(root: Path, spec_path: Path) -> dict[str, Any]:
                 f"{candidate_id}: native-work semantics drift",
             )
             require(isinstance(measurement.get("bestmove"), str), f"{candidate_id}: bestmove missing")
+            transcript = row.get("transcript")
+            require(isinstance(transcript, list) and transcript, f"{candidate_id}: transcript missing")
+            replayed = parse_search_observation(
+                transcript,
+                family=candidate.family,
+                delta=ProcessDelta(
+                    pid=int(measurement["pid"]),
+                    start_time_ticks=int(measurement["process_start_time_ticks"]),
+                    wall_ms=float(measurement["wall_ms"]),
+                    cpu_ms=float(measurement["cpu_ms"]),
+                    start_rss_bytes=measurement.get("start_rss_bytes"),
+                    end_rss_bytes=measurement.get("end_rss_bytes"),
+                    vm_hwm_bytes=measurement.get("vm_hwm_bytes"),
+                ),
+            ).as_dict()
+            for key in ("bestmove", "pv", "evaluation", "native_work_value", "native_work_semantics", "nps"):
+                require(
+                    replayed.get(key) == measurement.get(key),
+                    f"{candidate_id}: transcript/measurement {key} mismatch",
+                )
         else:
             errors_a += 1
             require(isinstance(row.get("error"), str) and row["error"], f"{candidate_id}: error outcome lacks error")
@@ -186,11 +209,32 @@ def qualify(root: Path, spec_path: Path) -> dict[str, Any]:
             require(member.get("candidate_id") == expected.candidate_id, "Stage-B candidate identity drift")
             require(member.get("candidate_digest") == expected.candidate_digest, "Stage-B candidate digest drift")
             require(member.get("status") in ("completed", "error"), "Stage-B member status invalid")
+            if member["status"] == "completed":
+                measurement = member.get("measurement")
+                require(isinstance(measurement, dict), "completed Stage-B member lacks measurement")
+                require(isinstance(member.get("transcript"), list) and member["transcript"], "completed Stage-B member lacks transcript")
+            else:
+                require(member.get("measurement") is None, "failed Stage-B member carries measurement")
+                require(isinstance(member.get("error"), str) and member["error"], "failed Stage-B member lacks error")
+        require(row.get("status") in ("completed", "error"), "Stage-B batch status invalid")
         if row.get("status") == "completed":
             completed_b += 1
+            require(all(member["status"] == "completed" for member in members), "completed Stage-B batch contains failed member")
         else:
             errors_b += 1
+            require(any(member["status"] == "error" for member in members), "failed Stage-B batch has no failed member")
     require(len(stage_b_rows) == len(expected_b) == 72, "frozen Stage-B batch count drift")
+
+    retained_stage_b_summary = load(root / "stage-b/summary.json")
+    recomputed_stage_b_summary = summarize_composition_interference(
+        rows=stage_b_rows,
+        isolated_rows=rows,
+    )
+    require(
+        canonical_digest(retained_stage_b_summary)
+        == canonical_digest(recomputed_stage_b_summary),
+        "retained Stage-B interference summary does not independently recompute",
+    )
 
     pareto_ids = sorted(
         candidate_id

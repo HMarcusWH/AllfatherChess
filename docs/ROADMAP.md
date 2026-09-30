@@ -1,9 +1,9 @@
 # AllfatherChess roadmap
 
-**Status date:** 28 September 2026  
-**Current main:** `7248f25fc64be4d04a78ec2b1f0c9de2986a11a5`  
-**Latest merged milestone:** PR #44 / ENGINE-OPT-V2 — qualified measured engine/profile optimization  
-**Current execution milestone:** M14-J — Adaptive Resource Orchestration  
+**Status date:** 30 September 2026  
+**Current main:** `fb690e435da39808adaa5c02345c77d407bc8043`  
+**Latest merged milestone:** PR #52 / M14-J J6 — exact-head Resource Laboratory  
+**Current execution milestone:** M14-J J7 — freeze qualified resource profiles from J6 evidence  
 **Current-state authority:** [CURRENT_STATUS.md](CURRENT_STATUS.md)  
 **M14-J implementation plan:** [M14_J_ADAPTIVE_RESOURCE_ORCHESTRATION.md](M14_J_ADAPTIVE_RESOURCE_ORCHESTRATION.md)  
 **Detailed deployment audit:** [ONLINE_RELEASE_PLAN.md](ONLINE_RELEASE_PLAN.md)

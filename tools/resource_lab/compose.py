@@ -147,6 +147,37 @@ def run_composition_batch(
             "host_pressure_before": before_pressure,
             "host_pressure_after": _pressure(),
         }
+    except Exception as exc:
+        error = f"{type(exc).__name__}: {exc}"
+        rows = []
+        for member in composition.members:
+            session = sessions.get(member.instance)
+            rows.append(
+                {
+                    "instance": member.instance,
+                    "role": member.role,
+                    "candidate_id": member.candidate_id,
+                    "candidate_digest": member.candidate_digest,
+                    "status": "error",
+                    "measurement": None,
+                    "error": f"batch-setup-failure: {error}",
+                    "transcript": [] if session is None else list(session.transcript),
+                }
+            )
+        return {
+            "schema_version": 1,
+            "composition_id": composition.composition_id,
+            "composition_digest": composition.digest,
+            "repeat_index": repeat_index,
+            "case_id": case.case_id,
+            "attempt_index": 0,
+            "status": "error",
+            "members": sorted(rows, key=lambda row: row["instance"]),
+            "batch_wall_ms": None,
+            "host_pressure_before": before_pressure,
+            "host_pressure_after": _pressure(),
+            "error": error,
+        }
     finally:
         for session in sessions.values():
             session.close()

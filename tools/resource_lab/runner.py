@@ -33,11 +33,12 @@ from .candidate_matrix import (
 )
 from .compose import run_composition_batch, summarize_composition_interference
 from .measure import (
+    classify_failure,
     parse_search_observation,
     physical_primitives,
     reconstruct_physical_measurement,
 )
-from .observe import observe_affinity
+from .observe import observe_affinity, process_cpu_scope
 from .pareto import build_pareto_report
 from .process_cpu import ProcessCpuClock
 
@@ -87,6 +88,7 @@ def run_isolated(
         "attempt_ordinal": attempt_ordinal,
     }
     session: UciSession | None = None
+    fault_stage = "process_start"
     try:
         session = UciSession(
             bundle_root / candidate.binary_relpath,
@@ -97,10 +99,14 @@ def run_isolated(
             start_new_session=True,
         )
         session.start()
+
+        fault_stage = "engine_configure"
         session.configure(candidate.execution_options(bundle_root))
         session.new_game()
+
         warmup = None
         if candidate.warmup_nodes is not None:
+            fault_stage = "warmup"
             session.set_position({"startpos_moves": []})
             warm_lines = session.search_nodes(
                 candidate.warmup_nodes,
@@ -118,6 +124,8 @@ def run_isolated(
                 ),
             }
             session.new_game()
+
+        fault_stage = "engine_configure"
         session.set_position({"fen": case.fen, "moves": []})
         if session.proc is None:
             raise RuntimeError("UCI process missing before measurement")
@@ -125,36 +133,70 @@ def run_isolated(
         pid = session.proc.pid
         proc = LinuxProcProvider(clock_ticks=clock_ticks_per_second)
         affinity = LinuxAffinityProvider()
+
+        # Bind the external process CPU clock to an already-proven Linux
+        # process identity before starting the measured interval.
+        fault_stage = "physical_snapshot"
+        identity_binding = proc.snapshot(pid)
+
+        fault_stage = "cpu_clock_init"
+        cpu_clock = ProcessCpuClock(
+            pid,
+            max_resolution_ns=max_cpu_resolution_ns,
+        )
+
+        fault_stage = "affinity_observation"
         affinity_before = observe_affinity(
             affinity,
             pid,
             max_attempts=affinity_max_attempts,
         )
-        cpu_clock = ProcessCpuClock(
-            pid,
-            max_resolution_ns=max_cpu_resolution_ns,
-        )
+
+        fault_stage = "physical_snapshot"
         proc_before = proc.snapshot(pid)
+        if (
+            proc_before.pid != identity_binding.pid
+            or proc_before.start_time_ticks != identity_binding.start_time_ticks
+        ):
+            raise RuntimeError(
+                "engine process identity changed before measured search"
+            )
         cpu_before_ns = cpu_clock.sample_ns()
+
+        fault_stage = "search"
         lines = session.search_nodes(
             candidate.nodes,
             timeout=max(5.0, deadline_ms / 1000.0 + 2.0),
         )
+
+        fault_stage = "physical_snapshot"
         cpu_after_ns = cpu_clock.sample_ns()
         proc_after = proc.snapshot(pid)
+
+        fault_stage = "affinity_observation"
         affinity_after = observe_affinity(
             affinity,
             pid,
             max_attempts=affinity_max_attempts,
         )
+        scope = process_cpu_scope(affinity_before, affinity_after)
+
+        fault_stage = "physical_reconstruction"
         cpu_evidence = cpu_clock.evidence(cpu_before_ns, cpu_after_ns)
-        primitives = physical_primitives(proc_before, proc_after, cpu_evidence)
+        primitives = physical_primitives(
+            identity_binding,
+            proc_before,
+            proc_after,
+            cpu_evidence,
+        )
         physical = reconstruct_physical_measurement(
             primitives,
             clock_ticks_per_second=clock_ticks_per_second,
             required_cpu_method=required_cpu_method,
             max_cpu_resolution_ns=max_cpu_resolution_ns,
         )
+
+        fault_stage = "transcript_parse"
         observation = parse_search_observation(
             lines,
             family=candidate.family,
@@ -163,9 +205,12 @@ def run_isolated(
         row.update(
             {
                 "status": "completed",
+                "fault_stage": None,
+                "fault_class": None,
                 "warmup": warmup,
                 "measurement": observation.as_dict(),
                 "physical_primitives": primitives,
+                "process_cpu_scope": scope,
                 "affinity_observation_before": affinity_before.as_dict(),
                 "affinity_observation_after": affinity_after.as_dict(),
                 "error": None,
@@ -173,11 +218,15 @@ def run_isolated(
             }
         )
     except Exception as exc:
+        stage, fault_class = classify_failure(fault_stage, exc)
         row.update(
             {
                 "status": "error",
+                "fault_stage": stage,
+                "fault_class": fault_class,
                 "measurement": None,
                 "physical_primitives": None,
+                "process_cpu_scope": None,
                 "error": f"{type(exc).__name__}: {exc}",
                 "transcript": [] if session is None else list(session.transcript),
             }

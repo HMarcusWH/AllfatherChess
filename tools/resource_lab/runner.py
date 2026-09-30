@@ -155,7 +155,8 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    spec = load_lab_spec(args.spec)
+    spec_path = args.spec.resolve()
+    spec = load_lab_spec(spec_path)
     source = source_identity(ROOT)
     execution_domain = load_execution_domain(
         args.execution_domain,
@@ -187,8 +188,8 @@ def main() -> int:
         "source_commit": source["commit"],
         "source_tree": source["tree"],
         "lab_spec": {
-            "path": str(args.spec.relative_to(ROOT) if args.spec.is_absolute() and ROOT in args.spec.parents else args.spec),
-            "sha256": sha256(args.spec),
+            "path": str(spec_path.relative_to(ROOT) if ROOT in spec_path.parents else spec_path),
+            "sha256": sha256(spec_path),
             "canonical_digest": spec.digest,
         },
         "corpus": {

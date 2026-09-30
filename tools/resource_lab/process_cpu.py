@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import ctypes
 import math
+import os
 import time
 from dataclasses import dataclass
 from typing import Callable
@@ -13,6 +15,31 @@ PROCESS_CPU_METHOD = "posix-process-cpu-clock-v1"
 
 class ProcessCpuClockError(RuntimeError):
     pass
+
+
+def _libc_process_clock_id(pid: int) -> int:
+    """Return the POSIX process CPU clock id for *pid* via libc.
+
+    Python exposes thread CPU clock helpers but not clock_getcpuclockid(3) on
+    all supported versions. J6 needs the clock of the engine process, not the
+    controller process or one Python thread, so resolve the POSIX API directly.
+    """
+    try:
+        libc = ctypes.CDLL(None, use_errno=True)
+        function = libc.clock_getcpuclockid
+    except (OSError, AttributeError) as exc:
+        raise ProcessCpuClockError(
+            f"libc clock_getcpuclockid is unavailable: {exc}"
+        ) from exc
+    function.argtypes = [ctypes.c_int, ctypes.POINTER(ctypes.c_int)]
+    function.restype = ctypes.c_int
+    clock_id = ctypes.c_int()
+    result = int(function(int(pid), ctypes.byref(clock_id)))
+    if result != 0:
+        raise ProcessCpuClockError(
+            f"clock_getcpuclockid({pid}) failed: {os.strerror(result)} ({result})"
+        )
+    return int(clock_id.value)
 
 
 @dataclass(frozen=True)
@@ -85,13 +112,13 @@ class ProcessCpuClock:
             or max_resolution_ns <= 0
         ):
             raise ProcessCpuClockError("max_resolution_ns must be a positive integer")
-        id_factory = clock_id_factory or time.clock_getcpuclockid
+        id_factory = clock_id_factory or _libc_process_clock_id
         self._gettime = clock_gettime_ns or time.clock_gettime_ns
         getres = clock_getres or time.clock_getres
         try:
             self.clock_id = id_factory(pid)
             resolution_seconds = float(getres(self.clock_id))
-        except (OSError, ValueError) as exc:
+        except (OSError, ValueError, AttributeError, ProcessCpuClockError) as exc:
             raise ProcessCpuClockError(
                 f"cannot initialize process CPU clock for pid {pid}: {exc}"
             ) from exc

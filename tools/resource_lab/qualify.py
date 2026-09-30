@@ -36,6 +36,25 @@ def load(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def validate_attempt_keys(
+    rows: list[dict[str, Any]],
+    expected: set[tuple[Any, ...]],
+    *,
+    fields: tuple[str, ...],
+    label: str,
+) -> set[tuple[Any, ...]]:
+    seen: set[tuple[Any, ...]] = set()
+    for row in rows:
+        require(isinstance(row, dict), f"{label} row must be object")
+        key = tuple(row.get(field) for field in fields)
+        require(key in expected, f"unexpected {label} attempt: {key}")
+        require(key not in seen, f"retry/duplicate {label} attempt: {key}")
+        require(row.get("attempt_index") == 0, f"{label} retry index is forbidden")
+        seen.add(key)
+    require(seen == expected, f"{label} attempt set incomplete: missing={len(expected-seen)}")
+    return seen
+
+
 def qualify(root: Path, spec_path: Path) -> dict[str, Any]:
     spec = load_lab_spec(spec_path)
     manifest = load(root / "manifest.json")
@@ -99,20 +118,17 @@ def qualify(root: Path, spec_path: Path) -> dict[str, Any]:
         for repeat in range(spec.repeats)
         for case_id in case_ids
     }
-    seen_a: set[tuple[str, int, str]] = set()
+    validate_attempt_keys(
+        rows,
+        expected_a,
+        fields=("candidate_id", "repeat_index", "case_id"),
+        label="Stage-A",
+    )
     completed_a = errors_a = 0
     for row in rows:
-        require(isinstance(row, dict), "Stage-A row must be object")
         candidate_id = row.get("candidate_id")
-        repeat = row.get("repeat_index")
-        case_id = row.get("case_id")
-        key = (candidate_id, repeat, case_id)
-        require(key in expected_a, f"unexpected Stage-A attempt: {key}")
-        require(key not in seen_a, f"retry/duplicate Stage-A attempt: {key}")
-        seen_a.add(key)
         candidate = candidate_map[candidate_id]
         require(row.get("candidate_digest") == candidate.digest, f"{candidate_id}: candidate digest drift")
-        require(row.get("attempt_index") == 0, f"{candidate_id}: retry index is forbidden")
         require(row.get("nodes") == candidate.nodes, f"{candidate_id}: work budget drift")
         status = row.get("status")
         require(status in ("completed", "error"), f"{candidate_id}: invalid attempt status")
@@ -129,7 +145,6 @@ def qualify(root: Path, spec_path: Path) -> dict[str, Any]:
             errors_a += 1
             require(isinstance(row.get("error"), str) and row["error"], f"{candidate_id}: error outcome lacks error")
             require(row.get("measurement") is None, f"{candidate_id}: failed attempt carries measurement")
-    require(seen_a == expected_a, f"Stage-A attempt set incomplete: missing={len(expected_a-seen_a)}")
     require(len(rows) == len(expected_a) == 1368, "frozen Stage-A attempt count drift")
 
     recomputed_pareto = build_pareto_report(
@@ -152,17 +167,16 @@ def qualify(root: Path, spec_path: Path) -> dict[str, Any]:
         for repeat in range(spec.repeats)
         for case_id in case_ids
     }
-    seen_b: set[tuple[str, int, str]] = set()
+    validate_attempt_keys(
+        stage_b_rows,
+        expected_b,
+        fields=("composition_id", "repeat_index", "case_id"),
+        label="Stage-B",
+    )
     completed_b = errors_b = 0
     for row in stage_b_rows:
-        require(isinstance(row, dict), "Stage-B row must be object")
-        key = (row.get("composition_id"), row.get("repeat_index"), row.get("case_id"))
-        require(key in expected_b, f"unexpected Stage-B attempt: {key}")
-        require(key not in seen_b, f"retry/duplicate Stage-B attempt: {key}")
-        seen_b.add(key)
         composition = composition_map[row["composition_id"]]
         require(row.get("composition_digest") == composition.digest, "composition digest drift")
-        require(row.get("attempt_index") == 0, "Stage-B retry index is forbidden")
         members = row.get("members")
         require(isinstance(members, list), "Stage-B member evidence missing")
         expected_members = {member.instance: member for member in composition.members}
@@ -176,7 +190,6 @@ def qualify(root: Path, spec_path: Path) -> dict[str, Any]:
             completed_b += 1
         else:
             errors_b += 1
-    require(seen_b == expected_b, f"Stage-B attempt set incomplete: missing={len(expected_b-seen_b)}")
     require(len(stage_b_rows) == len(expected_b) == 72, "frozen Stage-B batch count drift")
 
     pareto_ids = sorted(

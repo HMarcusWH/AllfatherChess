@@ -350,7 +350,9 @@
     ],
     "require_bestmove_reference_match": true,
     "require_repeatable_bestmove": true,
-    "require_repeatable_native_work": true
+    "require_repeatable_native_work": true,
+    "require_usable_cpu": true,
+    "require_complete_process_cpu_scope": true
   },
   "claim_boundary": {
     "resource_measurement": true,

@@ -19,7 +19,8 @@ class ComposeTests(unittest.TestCase):
                 "candidate_id":"cand","case_id":"c","status":"completed",
                 "measurement":{
                     "wall_ms":100,"cpu_ms":80,"bestmove":"e2e4","native_work_value":64
-                }
+                },
+                "process_cpu_scope":{"complete":True}
             })
         stage_b=[{
             "composition_id":"comp","case_id":"c","status":"completed",
@@ -33,7 +34,8 @@ class ComposeTests(unittest.TestCase):
                 "instance":"stockfish-anchor","candidate_id":"cand","status":"completed",
                 "measurement":{
                     "wall_ms":150,"cpu_ms":100,"bestmove":"e2e4","native_work_value":64
-                }
+                },
+                "process_cpu_scope":{"complete":True}
             }]
         }]
         report=summarize_composition_interference(rows=stage_b,isolated_rows=isolated)
@@ -51,13 +53,15 @@ class ComposeTests(unittest.TestCase):
                 "candidate_id":"cand","case_id":"c","status":"completed",
                 "measurement":{
                     "wall_ms":100,"cpu_ms":80,"bestmove":"e2e4","native_work_value":64
-                }
+                },
+                "process_cpu_scope":{"complete":True}
             },
             {
                 "candidate_id":"cand","case_id":"c","status":"completed",
                 "measurement":{
                     "wall_ms":100,"cpu_ms":80,"bestmove":"d2d4","native_work_value":63
-                }
+                },
+                "process_cpu_scope":{"complete":True}
             },
         ]
         stage_b=[{

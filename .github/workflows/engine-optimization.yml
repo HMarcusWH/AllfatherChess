@@ -13,6 +13,7 @@ on:
       - 'config/allfather.online-hybrid-v2.validation.json'
       - 'controller/**'
       - 'adapters/process/**'
+      - 'adapters/resource/**'
       - 'tools/engine_opt/**'
       - 'tools/local_game/**'
       - 'scripts/engine-opt-*.py'
@@ -23,6 +24,8 @@ on:
       - 'tests/controller/test_engine_opt_runtime.py'
       - 'tests/controller/test_resource_profile_catalog.py'
       - 'tests/controller/test_runtime_profiles.py'
+      - 'tests/controller/test_resource_control.py'
+      - 'tests/adapters/test_linux_affinity.py'
       - 'tests/fixtures/engine_opt/**'
       - 'Makefile'
       - 'Makefile.local-game'
@@ -94,6 +97,8 @@ jobs:
           python3 tests/controller/test_engine_opt_runtime.py
           python3 tests/controller/test_resource_profile_catalog.py
           python3 tests/controller/test_runtime_profiles.py
+          python3 tests/adapters/test_linux_affinity.py
+          python3 tests/controller/test_resource_control.py
           python3 scripts/qualify-online-hybrid-v2.py --static
           for f in qualification/resource-profile-catalog-v1.json qualification/engine-opt-v2.json qualification/engine-opt-v2-selection.json qualification/engine-opt-v2-evidence.json qualification/engine-opt-v2-host-binding.json qualification/engine-derived-lock.json qualification/online-engine-opt-v2.json qualification/online-hybrid-v2.json qualification/local-full-game-v2.json config/allfather.online-engine-opt-v2.json config/allfather.online-hybrid-v2.validation.json; do python3 -m json.tool "$f" >/dev/null; done
           bash -n scripts/build-online-engine-opt-v2.sh

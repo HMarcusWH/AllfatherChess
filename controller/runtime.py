@@ -1398,6 +1398,12 @@ class BackendManager:
         self._pending_profile_ids: dict[str, str] = {}
         self._pending_profile_phases: dict[str, str | None] = {}
 
+        # J5 resource placement is also opt-in.  Binding a catalog does not
+        # imply affinity enforcement; the frozen seed composition remains
+        # observed-only until a later qualified profile requires more.
+        self._resource_control = None
+        self._resource_placement_states: dict[str, object] = {}
+
         # Provenance is captured here, before `start()` launches anything. It
         # used to be computed when the shadow coordinator was constructed --
         # after every process was already running -- so a config or binary
@@ -1658,6 +1664,118 @@ class BackendManager:
                 binding_scope,
             )
 
+    def bind_resource_control(self, controller) -> None:
+        """Bind one J5 resource controller before process startup.
+
+        This does not choose a fallback or grant compute.  Unsupported/insufficient
+        hosts surface ResourceFallbackRequired to the caller.
+        """
+        from controller.resource_control import ResourceController
+
+        if not isinstance(controller, ResourceController):
+            raise RuntimeError("resource controller must be ResourceController")
+        with self._lock:
+            if self._started or self.backends:
+                raise RuntimeError("resource controller must be bound before runtime start")
+            if self._resource_control is not None:
+                raise RuntimeError("resource controller is already bound")
+            catalog = self._resource_catalog
+            composition_id = self._resource_composition_id
+        if catalog is None or composition_id is None:
+            raise RuntimeError("resource control requires a bound resource profile catalog")
+        composition = catalog.composition(composition_id)
+        if (
+            controller.composition.composition_id != composition.composition_id
+            or controller.composition.digest != composition.digest
+        ):
+            raise RuntimeError(
+                "resource controller composition differs from bound catalog composition"
+            )
+        controller.require_ready()
+        with self._lock:
+            self._resource_control = controller
+
+    def _resource_pid_map(self) -> dict[str, int]:
+        pids: dict[str, int] = {}
+        for name in self._startup_order:
+            process = self.backends.get(name)
+            if process is None or not process.alive or process.pid is None:
+                raise RuntimeError(
+                    f"resource-controlled composition lacks live PID for {name}"
+                )
+            pids[name] = process.pid
+        return pids
+
+    def _place_resource_instance(self, instance: str, process: UciProcess) -> None:
+        controller = self._resource_control
+        if controller is None:
+            return
+        pid = process.pid
+        if pid is None:
+            raise RuntimeError(
+                f"{instance}: process PID unavailable for resource placement"
+            )
+        evidence = controller.place_instance(instance, pid)
+        with self._lock:
+            self._resource_placement_states[instance] = evidence
+
+    def _finalize_resource_instance(self, instance: str, process: UciProcess) -> None:
+        controller = self._resource_control
+        if controller is None:
+            return
+        pid = process.pid
+        if pid is None:
+            raise RuntimeError(
+                f"{instance}: process PID unavailable for resource verification"
+            )
+        evidence = controller.finalize_instance(instance, pid)
+        with self._lock:
+            self._resource_placement_states[instance] = evidence
+
+    def _verify_resource_instance(self, instance: str, process: UciProcess) -> None:
+        controller = self._resource_control
+        if controller is None:
+            return
+        pid = process.pid
+        if pid is None:
+            raise RuntimeError(
+                f"{instance}: process PID unavailable for resource verification"
+            )
+        evidence = controller.verify_instance(instance, pid)
+        with self._lock:
+            self._resource_placement_states[instance] = evidence
+
+    def _finalize_resource_layout(self) -> None:
+        controller = self._resource_control
+        if controller is None:
+            return
+        states = controller.finalize_all(self._resource_pid_map())
+        with self._lock:
+            self._resource_placement_states = dict(states)
+
+    def verify_resource_layout(self) -> dict[str, object]:
+        """Re-observe the complete J5 layout without changing chess authority."""
+        controller = self._resource_control
+        if controller is None:
+            return {}
+        self._require_healthy()
+        states = controller.verify_all(self._resource_pid_map())
+        with self._lock:
+            self._resource_placement_states = dict(states)
+        return {
+            instance: state.as_dict()
+            for instance, state in sorted(states.items())
+        }
+
+    def resource_state(self, instance: str):
+        self.spec(instance)
+        with self._lock:
+            return self._resource_placement_states.get(instance)
+
+    def resource_state_digest(self, instance: str) -> str | None:
+        state = self.resource_state(instance)
+        return None if state is None else state.digest
+
     def _adopt_bound_startup_profiles(self) -> None:
         catalog = self._resource_catalog
         if catalog is None:
@@ -1727,12 +1845,18 @@ class BackendManager:
                 f"{instance}: commanded effective options differ from sealed profile"
             )
         profile = catalog.profile(profile_id)
+        resource_digest = self.resource_state_digest(instance)
+        if self._resource_control is not None and resource_digest is None:
+            raise RuntimeError(
+                f"{instance}: bound resource controller has no verified placement state"
+            )
         return {
             "profile_id": profile_id,
             "profile_digest": profile.digest,
             "phase": phase,
             "effective_options_digest": _canonical_digest(current),
             "profile_catalog_digest": catalog.digest,
+            "resource_state_digest": resource_digest,
             "authority": {
                 "resource_profile": True,
                 "resource_authorization": False,
@@ -1807,6 +1931,7 @@ class BackendManager:
                         reset_after=bool(warmup["reset_after"]),
                     ),
                 )
+            self._finalize_resource_instance(instance, process)
         except UciProcessError as exc:
             if self.spec(instance).role == "shadow":
                 self.record_shadow_failure(
@@ -1860,6 +1985,7 @@ class BackendManager:
         try:
             if changed:
                 process.configure_idle(changed)
+            self._verify_resource_instance(instance, process)
         except UciProcessError as exc:
             if self.spec(instance).role == "shadow":
                 self.record_shadow_failure(
@@ -2049,11 +2175,17 @@ class BackendManager:
                     )
                     self.backends[name] = process
                     process.start()
+                    self._place_resource_instance(name, process)
                     process.configure(spec.options)
                     self._effective_options[name] = dict(spec.options)
                     if spec.warmup is not None:
                         self._warmup_backend(name, process, spec.warmup)
                 except Exception as exc:
+                    if self._resource_control is not None:
+                        # A selected resource-controlled composition is atomic:
+                        # silently dropping one specialist would falsify the
+                        # layout/profile claim rather than merely lose evidence.
+                        raise
                     if spec.role in AUTHORITY_ROLES:
                         raise
                     # An observational worker that dies during `uci`, times out,
@@ -2072,6 +2204,7 @@ class BackendManager:
                         except Exception:  # pragma: no cover - best effort
                             pass
             self.ready_all()
+            self._finalize_resource_layout()
             self._adopt_bound_startup_profiles()
             # ONLINE quiesce deadlines are passed explicitly to stop/search
             # operations. They must not redefine the process-wide UCI protocol
@@ -2080,7 +2213,9 @@ class BackendManager:
             # ucinewgame/isready barrier.
         except Exception as exc:
             self.close()
-            if isinstance(exc, RuntimeError):
+            from controller.resource_control import ResourceControlError
+
+            if isinstance(exc, (RuntimeError, ResourceControlError)):
                 raise
             raise RuntimeError(f"backend startup failed: {exc}") from exc
 
@@ -2197,6 +2332,8 @@ class BackendManager:
         with self._lock:
             self._position_command = None
         self.ready_all()
+        if self._resource_control is not None:
+            self.verify_resource_layout()
         with self._lock:
             for instance, profile_id in list(self._pending_profile_ids.items()):
                 self._effective_profile_ids[instance] = profile_id
@@ -2664,9 +2801,13 @@ class BackendManager:
                 if process is not None:
                     process.close()
         finally:
+            controller = self._resource_control
+            if controller is not None:
+                controller.reset_runtime_state()
             with self._lock:
                 self._started = False
                 self._effective_profile_ids.clear()
                 self._effective_profile_phases.clear()
                 self._pending_profile_ids.clear()
                 self._pending_profile_phases.clear()
+                self._resource_placement_states.clear()

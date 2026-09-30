@@ -107,7 +107,7 @@ jobs:
       - name: Install runtime measurement dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libopenblas-dev
+          sudo apt-get install -y libopenblas-dev libprotobuf-dev zlib1g-dev
       - name: Capture one canonical execution domain
         run: |
           mkdir -p build/test-results/resource-lab-v1

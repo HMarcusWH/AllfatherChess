@@ -89,12 +89,14 @@ make online-hybrid-contract       # consumes the frozen ONLINE-2 bundle
 make run-allfather-online-hybrid
 ```
 
-PR #41 completed LOCAL-1. The remaining first-canary path is now:
+PR #41 completed LOCAL-1, PR #44 completed ENGINE-OPT-V2, and PR #52 completed J6 of
+M14-J. The remaining first-canary path is now:
 
 ```text
 LOCAL-1 full-game lifecycle qualification  [DONE]
     -> ENGINE-OPT-V2 measured constituent/profile optimization  [DONE]
-    -> M14-J adaptive resource orchestration  [NEXT]
+    -> M14-J J0-J6 orchestration substrate + resource laboratory  [DONE]
+    -> M14-J J7 profile freeze  [NEXT]
     -> META-1 matched-resource authority-value control
     -> ONLINE-PLAY-1 production-profile 10+5 experiment
     -> ONLINE-3 reproducible package + pinned lichess-bot bridge

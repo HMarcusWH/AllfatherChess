@@ -1,4 +1,4 @@
-"""UCI search evidence parsing and deterministic resource summaries for J6."""
+"""UCI search evidence parsing and reconstructible physical measurements for J6."""
 
 from __future__ import annotations
 
@@ -6,9 +6,10 @@ import math
 import re
 import statistics
 from dataclasses import dataclass
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
 
-from adapters.resource.linux_proc import ProcessDelta
+from adapters.resource.linux_proc import LinuxProcProvider, ProcessSnapshot
+from .process_cpu import PROCESS_CPU_METHOD, ProcessCpuClockEvidence
 
 
 _BESTMOVE = re.compile(r"^bestmove ([a-h][1-8][a-h][1-8][qrbn]?|0000|\(none\))")
@@ -39,6 +40,34 @@ class Evaluation:
 
 
 @dataclass(frozen=True)
+class PhysicalMeasurement:
+    pid: int
+    process_start_time_ticks: int
+    wall_ms: float
+    cpu_ms: float
+    procfs_cpu_ms: float
+    cpu_clock_method: str
+    cpu_clock_resolution_ns: int
+    start_rss_bytes: int | None
+    end_rss_bytes: int | None
+    vm_hwm_bytes: int | None
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "pid": self.pid,
+            "process_start_time_ticks": self.process_start_time_ticks,
+            "wall_ms": round(self.wall_ms, 6),
+            "cpu_ms": round(self.cpu_ms, 6),
+            "procfs_cpu_ms": round(self.procfs_cpu_ms, 6),
+            "cpu_clock_method": self.cpu_clock_method,
+            "cpu_clock_resolution_ns": self.cpu_clock_resolution_ns,
+            "start_rss_bytes": self.start_rss_bytes,
+            "end_rss_bytes": self.end_rss_bytes,
+            "vm_hwm_bytes": self.vm_hwm_bytes,
+        }
+
+
+@dataclass(frozen=True)
 class SearchObservation:
     bestmove: str
     pv: tuple[str, ...]
@@ -46,13 +75,7 @@ class SearchObservation:
     native_work_value: int
     native_work_semantics: str
     nps: int | None
-    wall_ms: float
-    cpu_ms: float
-    start_rss_bytes: int | None
-    end_rss_bytes: int | None
-    vm_hwm_bytes: int | None
-    pid: int
-    process_start_time_ticks: int
+    physical: PhysicalMeasurement
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -62,14 +85,81 @@ class SearchObservation:
             "native_work_value": self.native_work_value,
             "native_work_semantics": self.native_work_semantics,
             "nps": self.nps,
-            "wall_ms": round(self.wall_ms, 3),
-            "cpu_ms": round(self.cpu_ms, 3),
-            "start_rss_bytes": self.start_rss_bytes,
-            "end_rss_bytes": self.end_rss_bytes,
-            "vm_hwm_bytes": self.vm_hwm_bytes,
-            "pid": self.pid,
-            "process_start_time_ticks": self.process_start_time_ticks,
+            **self.physical.as_dict(),
         }
+
+
+def process_snapshot_from_dict(raw: Mapping[str, Any]) -> ProcessSnapshot:
+    expected = {
+        "pid",
+        "start_time_ticks",
+        "monotonic_ns",
+        "user_cpu_ticks",
+        "system_cpu_ticks",
+        "rss_bytes",
+        "vm_hwm_bytes",
+    }
+    require(isinstance(raw, Mapping) and set(raw) == expected, "process snapshot fields differ from schema")
+    return ProcessSnapshot(
+        pid=raw.get("pid"),
+        start_time_ticks=raw.get("start_time_ticks"),
+        monotonic_ns=raw.get("monotonic_ns"),
+        user_cpu_ticks=raw.get("user_cpu_ticks"),
+        system_cpu_ticks=raw.get("system_cpu_ticks"),
+        rss_bytes=raw.get("rss_bytes"),
+        vm_hwm_bytes=raw.get("vm_hwm_bytes"),
+    )
+
+
+def physical_primitives(
+    before: ProcessSnapshot,
+    after: ProcessSnapshot,
+    cpu_clock: ProcessCpuClockEvidence,
+) -> dict[str, Any]:
+    return {
+        "proc_before": before.as_dict(),
+        "proc_after": after.as_dict(),
+        "process_cpu_clock": cpu_clock.as_dict(),
+    }
+
+
+def reconstruct_physical_measurement(
+    primitives: Mapping[str, Any],
+    *,
+    clock_ticks_per_second: int,
+    required_cpu_method: str,
+    max_cpu_resolution_ns: int,
+) -> PhysicalMeasurement:
+    require(isinstance(primitives, Mapping), "physical primitives must be object")
+    require(
+        set(primitives) == {"proc_before", "proc_after", "process_cpu_clock"},
+        "physical primitive fields differ from schema",
+    )
+    before = process_snapshot_from_dict(primitives["proc_before"])
+    after = process_snapshot_from_dict(primitives["proc_after"])
+    provider = LinuxProcProvider(clock_ticks=clock_ticks_per_second)
+    delta = provider.delta(before, after)
+    cpu_clock = ProcessCpuClockEvidence.from_dict(dict(primitives["process_cpu_clock"]))
+    require(cpu_clock.method == required_cpu_method == PROCESS_CPU_METHOD, "CPU measurement method drift")
+    require(cpu_clock.pid == before.pid == after.pid, "CPU clock/process PID mismatch")
+    require(
+        cpu_clock.resolution_ns <= max_cpu_resolution_ns,
+        "CPU clock resolution exceeds frozen J6 maximum",
+    )
+    cpu_ms = cpu_clock.delta_ns / 1_000_000.0
+    require(math.isfinite(cpu_ms) and cpu_ms >= 0, "high-resolution CPU delta invalid")
+    return PhysicalMeasurement(
+        pid=before.pid,
+        process_start_time_ticks=before.start_time_ticks,
+        wall_ms=float(delta.wall_ms),
+        cpu_ms=cpu_ms,
+        procfs_cpu_ms=float(delta.cpu_ms),
+        cpu_clock_method=cpu_clock.method,
+        cpu_clock_resolution_ns=cpu_clock.resolution_ns,
+        start_rss_bytes=delta.start_rss_bytes,
+        end_rss_bytes=delta.end_rss_bytes,
+        vm_hwm_bytes=delta.vm_hwm_bytes,
+    )
 
 
 def _family_semantics(family: str) -> str:
@@ -84,7 +174,7 @@ def parse_search_observation(
     lines: Iterable[str],
     *,
     family: str,
-    delta: ProcessDelta,
+    physical: PhysicalMeasurement,
 ) -> SearchObservation:
     bestmove: str | None = None
     nodes: int | None = None
@@ -128,8 +218,8 @@ def parse_search_observation(
 
     require(bestmove is not None, "measured search produced no canonical bestmove")
     require(nodes is not None and nodes >= 0, "measured search produced no native-work counter")
-    require(math.isfinite(delta.wall_ms) and delta.wall_ms >= 0, "wall measurement invalid")
-    require(math.isfinite(delta.cpu_ms) and delta.cpu_ms >= 0, "CPU measurement invalid")
+    require(math.isfinite(physical.wall_ms) and physical.wall_ms >= 0, "wall measurement invalid")
+    require(math.isfinite(physical.cpu_ms) and physical.cpu_ms >= 0, "CPU measurement invalid")
     return SearchObservation(
         bestmove=bestmove,
         pv=pv,
@@ -137,13 +227,7 @@ def parse_search_observation(
         native_work_value=nodes,
         native_work_semantics=_family_semantics(family),
         nps=nps,
-        wall_ms=float(delta.wall_ms),
-        cpu_ms=float(delta.cpu_ms),
-        start_rss_bytes=delta.start_rss_bytes,
-        end_rss_bytes=delta.end_rss_bytes,
-        vm_hwm_bytes=delta.vm_hwm_bytes,
-        pid=delta.pid,
-        process_start_time_ticks=delta.start_time_ticks,
+        physical=physical,
     )
 
 
@@ -159,9 +243,9 @@ def summarize_numeric(values: Iterable[float]) -> dict[str, float]:
     rows = [float(value) for value in values]
     require(rows and all(math.isfinite(value) for value in rows), "summary values invalid")
     return {
-        "median": round(statistics.median(rows), 3),
-        "p95": round(percentile(rows, 0.95), 3),
-        "max": round(max(rows), 3),
+        "median": round(statistics.median(rows), 6),
+        "p95": round(percentile(rows, 0.95), 6),
+        "max": round(max(rows), 6),
     }
 
 
@@ -245,6 +329,12 @@ def candidate_summary(
             {
                 "wall_ms": summarize_numeric(item["wall_ms"] for item in measurements),
                 "cpu_ms": summarize_numeric(item["cpu_ms"] for item in measurements),
+                "procfs_cpu_ms": summarize_numeric(
+                    item["procfs_cpu_ms"] for item in measurements
+                ),
+                "cpu_clock_resolution_ns": max(
+                    int(item["cpu_clock_resolution_ns"]) for item in measurements
+                ),
                 "vm_hwm_bytes": (
                     summarize_numeric(
                         item["vm_hwm_bytes"]

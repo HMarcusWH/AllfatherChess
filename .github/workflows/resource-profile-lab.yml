@@ -23,10 +23,10 @@ permissions:
   contents: read
 
 env:
-  ALLFATHER_SOURCE_SHA: \${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+  ALLFATHER_SOURCE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
 
 concurrency:
-  group: resource-profile-lab-v1-\${{ github.workflow }}-\${{ github.ref }}
+  group: resource-profile-lab-v1-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -36,7 +36,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
-          ref: \${{ env.ALLFATHER_SOURCE_SHA }}
+          ref: ${{ env.ALLFATHER_SOURCE_SHA }}
       - name: Verify exact source checkout
         run: test "$(git rev-parse HEAD)" = "$ALLFATHER_SOURCE_SHA"
       - name: J6 contract tests
@@ -52,7 +52,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
-          ref: \${{ env.ALLFATHER_SOURCE_SHA }}
+          ref: ${{ env.ALLFATHER_SOURCE_SHA }}
       - name: Verify exact source checkout
         run: test "$(git rev-parse HEAD)" = "$ALLFATHER_SOURCE_SHA"
       - name: Install build dependencies
@@ -68,7 +68,7 @@ jobs:
             build/artifacts/stockfish
             build/artifacts/reckless
             build/artifacts/lc0
-          key: resource-lab-v1-networks-\${{ runner.os }}-\${{ hashFiles('vendor.lock.json','qualification/lc0-strength.lock.json') }}
+          key: resource-lab-v1-networks-${{ runner.os }}-${{ hashFiles('vendor.lock.json','qualification/lc0-strength.lock.json') }}
       - name: Build exact-head constituent bundle
         run: make build-online-engine-opt-v2
       - name: Validate exact candidate identity
@@ -89,11 +89,11 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
-          ref: \${{ env.ALLFATHER_SOURCE_SHA }}
+          ref: ${{ env.ALLFATHER_SOURCE_SHA }}
       - name: Verify exact source checkout and bind runner environment
         run: |
           test "$(git rev-parse HEAD)" = "$ALLFATHER_SOURCE_SHA"
-          echo "ALLFATHER_RUNNER_ENVIRONMENT=\${{ runner.environment }}" >> "$GITHUB_ENV"
+          echo "ALLFATHER_RUNNER_ENVIRONMENT=${{ runner.environment }}" >> "$GITHUB_ENV"
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: resource-lab-v1-candidate

@@ -1,0 +1,379 @@
+{
+  "schema_version": 1,
+  "lab_id": "resource-lab-v1",
+  "corpus": "tests/fixtures/engine_opt/positions.epd",
+  "corpus_cases": 8,
+  "repeats": 3,
+  "attempt_policy": "single-pass-no-retry-v1",
+  "placement_mode": "observed",
+  "bundle_root": "build/online-engine-opt-v2",
+  "execution_domain_required": true,
+  "isolated_deadline_ms": 6000,
+  "composition_deadline_ms": 8000,
+  "families": {
+    "stockfish": {
+      "binary": "bin/stockfish",
+      "network": "networks/nn-134a887f4c8f.nnue",
+      "args": [],
+      "environment": {},
+      "fixed_options": {
+        "MultiPV": 1,
+        "UCI_Chess960": false
+      },
+      "variable_options": [
+        "Threads",
+        "Hash"
+      ],
+      "reference_variant": "v2-current",
+      "work_budgets_nodes": [
+        16,
+        64,
+        256
+      ],
+      "variants": [
+        {
+          "id": "v2-current",
+          "overrides": {
+            "Threads": 1,
+            "Hash": 16
+          }
+        },
+        {
+          "id": "t1-h32",
+          "overrides": {
+            "Threads": 1,
+            "Hash": 32
+          }
+        },
+        {
+          "id": "t1-h64",
+          "overrides": {
+            "Threads": 1,
+            "Hash": 64
+          }
+        },
+        {
+          "id": "t2-h16",
+          "overrides": {
+            "Threads": 2,
+            "Hash": 16
+          }
+        },
+        {
+          "id": "t2-h32",
+          "overrides": {
+            "Threads": 2,
+            "Hash": 32
+          }
+        }
+      ],
+      "warmup_nodes": null
+    },
+    "reckless": {
+      "binary": "bin/reckless",
+      "network": "networks/v60-7f587dfb.nnue",
+      "args": [],
+      "environment": {},
+      "fixed_options": {
+        "MultiPV": 1,
+        "Minimal": false,
+        "UCI_Chess960": false
+      },
+      "variable_options": [
+        "Threads",
+        "Hash"
+      ],
+      "reference_variant": "v2-current",
+      "work_budgets_nodes": [
+        16,
+        64,
+        256
+      ],
+      "variants": [
+        {
+          "id": "v2-current",
+          "overrides": {
+            "Threads": 1,
+            "Hash": 16
+          }
+        },
+        {
+          "id": "t1-h32",
+          "overrides": {
+            "Threads": 1,
+            "Hash": 32
+          }
+        },
+        {
+          "id": "t1-h64",
+          "overrides": {
+            "Threads": 1,
+            "Hash": 64
+          }
+        },
+        {
+          "id": "t2-h16",
+          "overrides": {
+            "Threads": 2,
+            "Hash": 16
+          }
+        },
+        {
+          "id": "t2-h32",
+          "overrides": {
+            "Threads": 2,
+            "Hash": 32
+          }
+        }
+      ],
+      "warmup_nodes": null
+    },
+    "lc0": {
+      "binary": "bin/lc0",
+      "network": "networks/791556.pb.gz",
+      "args": [
+        "--show-hidden"
+      ],
+      "environment": {
+        "OPENBLAS_NUM_THREADS": "1",
+        "GOTO_NUM_THREADS": "1",
+        "OMP_NUM_THREADS": "1"
+      },
+      "fixed_options": {
+        "WeightsFile": "__BUNDLE_NETWORK__",
+        "Backend": "blas",
+        "BackendOptions": "",
+        "MaxConcurrentSearchers": 1,
+        "MultiPV": 1,
+        "UCI_Chess960": false,
+        "ScoreType": "WDL_mu",
+        "AdaptivePrefetch": false,
+        "DefectTelemetry": false
+      },
+      "variable_options": [
+        "Threads",
+        "NNCacheSize",
+        "MinibatchSize",
+        "MaxPrefetch",
+        "TaskWorkers"
+      ],
+      "reference_variant": "v2-current",
+      "work_budgets_nodes": [
+        16,
+        32,
+        64
+      ],
+      "variants": [
+        {
+          "id": "v2-current",
+          "overrides": {
+            "Threads": 1,
+            "NNCacheSize": 262144,
+            "MinibatchSize": 7,
+            "MaxPrefetch": 8,
+            "TaskWorkers": 0
+          }
+        },
+        {
+          "id": "threads2",
+          "overrides": {
+            "Threads": 2,
+            "NNCacheSize": 262144,
+            "MinibatchSize": 7,
+            "MaxPrefetch": 8,
+            "TaskWorkers": 0
+          }
+        },
+        {
+          "id": "cache0",
+          "overrides": {
+            "Threads": 1,
+            "NNCacheSize": 0,
+            "MinibatchSize": 7,
+            "MaxPrefetch": 8,
+            "TaskWorkers": 0
+          }
+        },
+        {
+          "id": "cache2m",
+          "overrides": {
+            "Threads": 1,
+            "NNCacheSize": 2000000,
+            "MinibatchSize": 7,
+            "MaxPrefetch": 8,
+            "TaskWorkers": 0
+          }
+        },
+        {
+          "id": "batch1",
+          "overrides": {
+            "Threads": 1,
+            "NNCacheSize": 262144,
+            "MinibatchSize": 1,
+            "MaxPrefetch": 8,
+            "TaskWorkers": 0
+          }
+        },
+        {
+          "id": "batch16",
+          "overrides": {
+            "Threads": 1,
+            "NNCacheSize": 262144,
+            "MinibatchSize": 16,
+            "MaxPrefetch": 8,
+            "TaskWorkers": 0
+          }
+        },
+        {
+          "id": "prefetch0",
+          "overrides": {
+            "Threads": 1,
+            "NNCacheSize": 262144,
+            "MinibatchSize": 7,
+            "MaxPrefetch": 0,
+            "TaskWorkers": 0
+          }
+        },
+        {
+          "id": "prefetch32",
+          "overrides": {
+            "Threads": 1,
+            "NNCacheSize": 262144,
+            "MinibatchSize": 7,
+            "MaxPrefetch": 32,
+            "TaskWorkers": 0
+          }
+        },
+        {
+          "id": "taskworkers1",
+          "overrides": {
+            "Threads": 1,
+            "NNCacheSize": 262144,
+            "MinibatchSize": 7,
+            "MaxPrefetch": 8,
+            "TaskWorkers": 1
+          }
+        }
+      ],
+      "warmup_nodes": 64
+    }
+  },
+  "stage_b": {
+    "compositions": [
+      {
+        "id": "c0-four-way-v2-current",
+        "members": [
+          {
+            "instance": "stockfish-anchor",
+            "role": "anchor",
+            "family": "stockfish",
+            "variant": "v2-current",
+            "nodes": 64
+          },
+          {
+            "instance": "stockfish-shadow",
+            "role": "specialist",
+            "family": "stockfish",
+            "variant": "v2-current",
+            "nodes": 64
+          },
+          {
+            "instance": "reckless-shadow",
+            "role": "specialist",
+            "family": "reckless",
+            "variant": "v2-current",
+            "nodes": 64
+          },
+          {
+            "instance": "lc0-shadow",
+            "role": "specialist",
+            "family": "lc0",
+            "variant": "v2-current",
+            "nodes": 64
+          }
+        ]
+      },
+      {
+        "id": "c1-anchor2-reckless-lc0",
+        "members": [
+          {
+            "instance": "stockfish-anchor",
+            "role": "anchor",
+            "family": "stockfish",
+            "variant": "t2-h16",
+            "nodes": 64
+          },
+          {
+            "instance": "reckless-shadow",
+            "role": "specialist",
+            "family": "reckless",
+            "variant": "v2-current",
+            "nodes": 64
+          },
+          {
+            "instance": "lc0-shadow",
+            "role": "specialist",
+            "family": "lc0",
+            "variant": "v2-current",
+            "nodes": 64
+          }
+        ]
+      },
+      {
+        "id": "c2-anchor2-lc0-threads2",
+        "members": [
+          {
+            "instance": "stockfish-anchor",
+            "role": "anchor",
+            "family": "stockfish",
+            "variant": "t2-h16",
+            "nodes": 64
+          },
+          {
+            "instance": "lc0-shadow",
+            "role": "specialist",
+            "family": "lc0",
+            "variant": "threads2",
+            "nodes": 64
+          }
+        ]
+      }
+    ]
+  },
+  "pareto": {
+    "dimensions": [
+      "median_wall_ms",
+      "p95_wall_ms",
+      "median_cpu_ms",
+      "p95_cpu_ms",
+      "p95_vm_hwm_bytes"
+    ],
+    "require_bestmove_reference_match": true,
+    "require_repeatable_bestmove": true,
+    "require_repeatable_native_work": true,
+    "require_usable_cpu": true,
+    "require_complete_process_cpu_scope": true
+  },
+  "claim_boundary": {
+    "resource_measurement": true,
+    "profile_selection": false,
+    "strength": false,
+    "elo": false,
+    "equal_compute": false,
+    "deployment": false
+  },
+  "attempt_order_policy": "blocked-cyclic-v1",
+  "affinity_observation": {
+    "policy": "bounded-observed-affinity-v1",
+    "max_attempts": 3
+  },
+  "cpu_measurement": {
+    "required_method": "posix-process-cpu-clock-v1",
+    "max_resolution_ns": 1000000
+  },
+  "reference_contract": {
+    "catalog": "qualification/resource-profile-catalog-v1.json",
+    "runtime": "config/allfather.online-hybrid-v2.validation.json",
+    "build_policy": "qualification/online-engine-opt-v2.json"
+  }
+}

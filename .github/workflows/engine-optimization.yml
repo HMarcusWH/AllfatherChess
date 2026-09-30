@@ -27,6 +27,7 @@ on:
       - 'tests/controller/test_resource_control.py'
       - 'tests/adapters/test_linux_affinity.py'
       - 'tests/fixtures/engine_opt/**'
+      - 'tests/harness/uci_session.py'
       - 'Makefile'
       - 'Makefile.local-game'
       - '.github/workflows/engine-optimization.yml'

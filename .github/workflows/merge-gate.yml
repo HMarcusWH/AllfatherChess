@@ -33,3 +33,4 @@ jobs:
           make telemetry-contract
           make telemetry-adapters
           make controller-tests
+          make resource-lab-tests

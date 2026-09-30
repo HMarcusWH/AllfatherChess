@@ -52,12 +52,19 @@ class UciSession:
         cwd: Path,
         timeout: float = 10.0,
         args: list[str] | None = None,
+        environment: dict[str, str] | None = None,
         start_new_session: bool = False,
     ):
         self.binary = binary
         self.cwd = cwd
         self.timeout = timeout
         self.args = list(args or [])
+        self.environment = dict(environment or {})
+        if not all(
+            isinstance(key, str) and isinstance(value, str)
+            for key, value in self.environment.items()
+        ):
+            raise UciError("session environment must be string-to-string")
         self.start_new_session = bool(start_new_session)
         self.proc: subprocess.Popen[str] | None = None
         self.leaked_before_cleanup: list[dict[str, int | str]] = []
@@ -82,6 +89,8 @@ class UciSession:
         if not os.access(self.binary, os.X_OK):
             raise UciError(f"engine binary not executable: {self.binary}")
 
+        child_environment = os.environ.copy()
+        child_environment.update(self.environment)
         self.proc = subprocess.Popen(
             [str(self.binary), *self.args],
             cwd=str(self.cwd),
@@ -90,6 +99,7 @@ class UciSession:
             stderr=subprocess.STDOUT,
             text=True,
             bufsize=1,
+            env=child_environment,
             start_new_session=self.start_new_session,
         )
         assert self.proc.stdout is not None

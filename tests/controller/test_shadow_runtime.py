@@ -158,14 +158,20 @@ def read_only_manifest(replay_root: Path) -> dict:
     manifest = runs[0] / "manifest.json"
     # Replay finalization is intentionally asynchronous with respect to stdout:
     # authority may answer before an observational worker finishes its bounded
-    # cleanup/publication barriers. Reading the bundle must therefore wait for
-    # the transactional manifest rather than racing that worker.
-    deadline = time.monotonic() + 5.0
+    # cleanup/publication barriers. This is a test-harness publication wait,
+    # not an authority or runtime deadline. The in-flight-oracle regression
+    # deliberately combines a 3s fake oracle delay with two 1s drain bounds;
+    # a 5s polling ceiling therefore sat directly on the designed worst-case
+    # path and flakes on loaded hosted runners. Keep a bounded but non-racy
+    # margin so a real deadlock still fails deterministically.
+    publication_timeout_s = 10.0
+    deadline = time.monotonic() + publication_timeout_s
     while not manifest.is_file() and time.monotonic() < deadline:
         time.sleep(0.01)
     if not manifest.is_file():
         raise AssertionError(
-            f"replay manifest was not finalized within 5s: {manifest}"
+            f"replay manifest was not finalized within "
+            f"{publication_timeout_s:.0f}s: {manifest}"
         )
     return json.loads(manifest.read_text(encoding="utf-8"))
 

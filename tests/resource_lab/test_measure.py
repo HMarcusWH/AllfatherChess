@@ -11,6 +11,7 @@ sys.path.insert(0,str(ROOT))
 from adapters.resource.linux_proc import ProcessSnapshot
 from tools.resource_lab.measure import (
     candidate_summary,
+    classify_failure,
     parse_search_observation,
     percentile,
     physical_primitives,
@@ -128,6 +129,31 @@ class MeasureTests(unittest.TestCase):
         summary=candidate_summary(rows,case_ids=("a",),repeats=1)
         self.assertFalse(summary["complete"])
         self.assertIn("boom",summary["errors"][0])
+
+    def test_identity_binding_mismatch_is_rejected(self):
+        primitives,_=physical()
+        primitives["identity_binding"]["start_time_ticks"]=100
+        with self.assertRaises(Exception):
+            reconstruct_physical_measurement(
+                primitives,
+                clock_ticks_per_second=100,
+                required_cpu_method="posix-process-cpu-clock-v1",
+                max_cpu_resolution_ns=1_000_000,
+            )
+
+    def test_failure_taxonomy_separates_measurement_engine_and_timeout(self):
+        self.assertEqual(
+            classify_failure("cpu_clock_init",RuntimeError("boom")),
+            ("cpu_clock_init","measurement_substrate"),
+        )
+        self.assertEqual(
+            classify_failure("search",RuntimeError("boom")),
+            ("search","engine"),
+        )
+        self.assertEqual(
+            classify_failure("search",TimeoutError("timeout")),
+            ("search","timeout"),
+        )
 
     def test_percentile_is_deterministic_nearest_rank(self):
         self.assertEqual(percentile([1,2,3,4,5],0.95),5)

@@ -73,6 +73,8 @@ resource-lab-tests:
 	python3 tests/resource_lab/test_pareto.py
 	python3 tests/resource_lab/test_compose.py
 	python3 tests/resource_lab/test_qualify.py
+	python3 tests/resource_lab/test_process_cpu.py
+	python3 tests/resource_lab/test_observe.py
 	python3 tests/resource_lab/test_uci_environment.py
 
 resource-lab-run:

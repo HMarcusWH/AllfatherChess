@@ -81,8 +81,8 @@ def run_composition_batch(
             pid = session.proc.pid
             affinity_before = affinity.inspect_tree_affinity(pid).as_dict()
             ready_barrier.wait(timeout=max(5.0, deadline_ms / 1000.0))
-            start = proc.snapshot(pid)
             start_barrier.wait(timeout=max(5.0, deadline_ms / 1000.0))
+            start = proc.snapshot(pid)
             lines = session.search_nodes(
                 candidate.nodes,
                 timeout=max(5.0, deadline_ms / 1000.0 + 2.0),

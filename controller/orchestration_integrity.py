@@ -791,6 +791,20 @@ def verify_orchestration_integrity(
 
     if plan is not None:
         stored_plan = artifact.get("move_resource_plan") or {}
+        if manifest is not None:
+            if manifest.get("move_resource_plan") != plan.as_dict():
+                problems.append(
+                    "parent replay MoveResourcePlan differs from sealed resource plan"
+                )
+            time_plan = manifest.get("time_plan")
+            if not isinstance(time_plan, dict):
+                problems.append(
+                    "parent replay lacks the TimePlan bound by MoveResourcePlan"
+                )
+            elif time_plan.get("plan_id") != plan.baseline_time_plan_id:
+                problems.append(
+                    "MoveResourcePlan baseline TimePlan identity differs from replay"
+                )
         if stored_plan.get("plan_id") != plan.plan_id:
             problems.append("orchestration MoveResourcePlan id mismatch")
         if stored_plan.get("digest") != plan.digest:

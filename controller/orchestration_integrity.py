@@ -2756,6 +2756,11 @@ def verify_orchestrated_composition_integrity(
         else:
             projected = matches[0]
             if (
+                projected.get("version")
+                != "j12-allocation-route-projection-v1"
+            ):
+                problems.append("J12 route projection version drift")
+            if (
                 isinstance(provenance, dict)
                 and projected.get("allocation_decision_digest")
                 != provenance.get("allocation_decision_digest")
@@ -2771,6 +2776,15 @@ def verify_orchestrated_composition_integrity(
                 problems.append(
                     "J12 route projection MoveResourcePlan mismatch"
                 )
+            if isinstance(provenance, dict):
+                expected_allocation_id = (
+                    "allocation/"
+                    + str(provenance.get("allocation_decision_digest"))
+                )
+                if projected.get("allocation_id") != expected_allocation_id:
+                    problems.append(
+                        "J12 route projection allocation_id differs from bound digest"
+                    )
     except Exception as exc:
         problems.append(
             f"J12 orchestration reconstruction failed: {type(exc).__name__}: {exc}"

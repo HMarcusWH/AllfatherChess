@@ -1484,6 +1484,10 @@ def verify_orchestration_integrity(
         for row in budget_journal
         if isinstance(row, dict) and row.get("event") == "reserve"
     }
+    reconstructed_grants: list[
+        tuple[dict[str, Any], WorkGrant, dict[str, Any]]
+    ] = []
+    authorized_search_ids: list[str] = []
     for event in authorized_events:
         try:
             grant = WorkGrant.from_dict(event.get("grant") or {})
@@ -1496,6 +1500,9 @@ def verify_orchestration_integrity(
             )
         if plan is not None and grant.move_resource_plan_id != plan.plan_id:
             problems.append(f"WorkGrant {grant.grant_id} parent plan mismatch")
+        scheduled = None
+        profile = None
+        expected_effective: dict[str, Any] | None = None
         if scheduler_obj is not None and plan is not None:
             try:
                 expected = (
@@ -1508,6 +1515,59 @@ def verify_orchestration_integrity(
                     grant=grant,
                     expected_allocator_decision_digest=expected,
                 )
+                scheduled = scheduler_obj.catalog.chunk_for(
+                    allocation_round=grant.allocation_round,
+                    family=grant.owner,
+                    phase=grant.phase,
+                )
+                profile = scheduler_obj.resource_catalog.profile(
+                    scheduled.profile_id
+                )
+                expected_effective = (
+                    scheduler_obj.resource_catalog.startup_options(
+                        profile.profile_id
+                    )
+                )
+                expected_effective.update(
+                    scheduler_obj.resource_catalog.phase_options(
+                        profile.profile_id
+                    ).get(grant.phase, {})
+                )
+                expected_effective = dict(
+                    sorted(expected_effective.items())
+                )
+                if (
+                    grant.effective_options_digest
+                    != canonical_digest(expected_effective)
+                ):
+                    problems.append(
+                        f"WorkGrant {grant.grant_id} effective-options digest "
+                        "differs from frozen profile/phase options"
+                    )
+
+                # In the frozen J9/J10 grid every chunk wall bound is 4000 ms
+                # while the J8 soft budget is strictly below the hard <=4000 ms
+                # ceiling. Therefore the grant deadline reconstructs exactly to
+                # the parent soft budget without needing producer timing.
+                if (
+                    float(plan.soft_budget_ms)
+                    > float(scheduled.chunk.wall_bound_ms) + 1e-9
+                ):
+                    problems.append(
+                        f"WorkGrant {grant.grant_id} deadline cannot be "
+                        "reconstructed from the frozen chunk bound"
+                    )
+                elif (
+                    abs(
+                        float(grant.wall_deadline_ms)
+                        - float(plan.soft_budget_ms)
+                    )
+                    > 1e-9
+                ):
+                    problems.append(
+                        f"WorkGrant {grant.grant_id} deadline differs from "
+                        "the frozen scheduler/MoveResourcePlan deadline"
+                    )
             except Exception as exc:
                 problems.append(
                     f"WorkGrant {grant.grant_id} frozen validation failed: {exc}"
@@ -1530,7 +1590,28 @@ def verify_orchestration_integrity(
                 problems.append(
                     f"WorkGrant {grant.grant_id} reservation allocation provenance mismatch"
                 )
+        checkpoint_ms = event.get("checkpoint_ms")
+        try:
+            checkpoint_value = _finite_nonnegative(
+                checkpoint_ms,
+                f"WorkGrant {grant.grant_id} authorization checkpoint",
+            )
+            if checkpoint_value >= float(grant.wall_deadline_ms):
+                problems.append(
+                    f"WorkGrant {grant.grant_id} was authorized after its deadline"
+                )
+        except Exception as exc:
+            problems.append(
+                f"WorkGrant {grant.grant_id} authorization time is invalid: {exc}"
+            )
+
         search_id = event.get("search_id")
+        if not isinstance(search_id, str) or not search_id:
+            problems.append(
+                f"WorkGrant {grant.grant_id} authorization search_id is invalid"
+            )
+        else:
+            authorized_search_ids.append(search_id)
         stage = stage_by_id.get(search_id)
         if stage is None:
             problems.append(
@@ -1550,10 +1631,155 @@ def verify_orchestration_integrity(
                 f"WorkGrant {grant.grant_id} stage phase differs from grant"
             )
         effective = stage.get("effective_options")
-        if not isinstance(effective, dict) or canonical_digest(effective) != grant.effective_options_digest:
+        if (
+            not isinstance(effective, dict)
+            or canonical_digest(effective)
+            != grant.effective_options_digest
+        ):
             problems.append(
                 f"WorkGrant {grant.grant_id} effective options do not reconstruct"
             )
+        if (
+            expected_effective is not None
+            and effective != expected_effective
+        ):
+            problems.append(
+                f"WorkGrant {grant.grant_id} stage options differ from "
+                "the frozen resource profile/phase"
+            )
+
+        try:
+            dispatched_ms = _finite_nonnegative(
+                stage.get("dispatched_ms"),
+                f"WorkGrant {grant.grant_id} dispatched_ms",
+            )
+            if dispatched_ms >= float(grant.wall_deadline_ms):
+                problems.append(
+                    f"WorkGrant {grant.grant_id} stage dispatched after its deadline"
+                )
+        except Exception as exc:
+            problems.append(
+                f"WorkGrant {grant.grant_id} dispatch time is invalid: {exc}"
+            )
+
+        if (
+            manifest is not None
+            and scheduler_obj is not None
+            and profile is not None
+            and plan is not None
+        ):
+            engines = manifest.get("engines")
+            engine_identity = (
+                engines.get(grant.instance)
+                if isinstance(engines, dict)
+                else None
+            )
+            if not isinstance(engine_identity, dict):
+                problems.append(
+                    f"WorkGrant {grant.grant_id} instance is missing from replay engine identity"
+                )
+            else:
+                process_identity = profile.process_identity
+                bindings = [
+                    item
+                    for item in plan.composition.bindings
+                    if item.instance == grant.instance
+                ]
+                expected_role = (
+                    bindings[0].role.value if len(bindings) == 1 else None
+                )
+                if engine_identity.get("engine") != profile.family:
+                    problems.append(
+                        f"WorkGrant {grant.grant_id} replay engine family differs from profile"
+                    )
+                if engine_identity.get("role") != expected_role:
+                    problems.append(
+                        f"WorkGrant {grant.grant_id} replay engine role differs from composition"
+                    )
+                if (
+                    engine_identity.get("binary_sha256")
+                    != process_identity.binary_sha256
+                ):
+                    problems.append(
+                        f"WorkGrant {grant.grant_id} binary SHA differs from qualified profile"
+                    )
+                if engine_identity.get("args", []) != list(
+                    process_identity.args
+                ):
+                    problems.append(
+                        f"WorkGrant {grant.grant_id} process argv differs from qualified profile"
+                    )
+                if dict(engine_identity.get("environment") or {}) != dict(
+                    process_identity.environment
+                ):
+                    problems.append(
+                        f"WorkGrant {grant.grant_id} process environment differs from qualified profile"
+                    )
+                expected_startup = (
+                    scheduler_obj.resource_catalog.startup_options(
+                        profile.profile_id
+                    )
+                )
+                if engine_identity.get("options") != expected_startup:
+                    problems.append(
+                        f"WorkGrant {grant.grant_id} startup options differ from frozen profile"
+                    )
+                expected_phase_options = (
+                    scheduler_obj.resource_catalog.phase_options(
+                        profile.profile_id
+                    )
+                )
+                if dict(engine_identity.get("phase_options") or {}) != (
+                    expected_phase_options
+                ):
+                    problems.append(
+                        f"WorkGrant {grant.grant_id} phase options differ from frozen profile"
+                    )
+                warmup = scheduler_obj.resource_catalog.warmup(
+                    profile.profile_id
+                )
+                expected_warmup = (
+                    None
+                    if warmup is None
+                    else {
+                        "nodes": warmup["nodes"],
+                        "position": warmup["position"],
+                        "reset_after": warmup["reset_after"],
+                    }
+                )
+                if engine_identity.get("warmup") != expected_warmup:
+                    problems.append(
+                        f"WorkGrant {grant.grant_id} warmup identity differs from frozen profile"
+                    )
+                if (
+                    process_identity.backend is not None
+                    and expected_startup.get("Backend")
+                    != process_identity.backend
+                ):
+                    problems.append(
+                        f"WorkGrant {grant.grant_id} backend differs from qualified profile"
+                    )
+                actual_artifacts = engine_identity.get("artifacts")
+                for artifact_identity in process_identity.artifacts:
+                    if artifact_identity.name != "network":
+                        problems.append(
+                            f"WorkGrant {grant.grant_id} has unsupported frozen artifact identity"
+                        )
+                        continue
+                    weights = (
+                        actual_artifacts.get("weights")
+                        if isinstance(actual_artifacts, dict)
+                        else None
+                    )
+                    if (
+                        not isinstance(weights, dict)
+                        or weights.get("sha256")
+                        != artifact_identity.sha256
+                    ):
+                        problems.append(
+                            f"WorkGrant {grant.grant_id} network SHA differs from qualified profile"
+                        )
+
         try:
             request = parse_go_request(str(stage.get("command")))
             limit_rows = request.get("limits", [])
@@ -1572,6 +1798,42 @@ def verify_orchestration_integrity(
             problems.append(
                 f"WorkGrant {grant.grant_id} command cannot be reconstructed: {exc}"
             )
+        reconstructed_grants.append((event, grant, stage))
+
+    if decision is not None and decision.action == BUY_BUNDLE:
+        if len(authorized_search_ids) != len(set(authorized_search_ids)):
+            problems.append(
+                "J11 BUY_BUNDLE qualification requires unique search_id per WorkGrant"
+            )
+        if scheduler_obj is not None:
+            expected_grid = {
+                (
+                    row.allocation_round,
+                    row.chunk.family,
+                    row.chunk.phase,
+                    row.profile_id,
+                    row.chunk.chunk_id,
+                )
+                for row in scheduler_obj.catalog.chunks
+            }
+            actual_grid = {
+                (
+                    grant.allocation_round,
+                    grant.owner,
+                    grant.phase,
+                    grant.profile_id,
+                    grant.work_chunk_id,
+                )
+                for _event, grant, _stage in reconstructed_grants
+            }
+            if (
+                len(reconstructed_grants) != len(expected_grid)
+                or len(actual_grid) != len(expected_grid)
+                or actual_grid != expected_grid
+            ):
+                problems.append(
+                    "J11 BUY_BUNDLE WorkGrants do not match the exact frozen 3x3 scheduler grid"
+                )
 
     expected_route_summary = {
         "path": "route.json",

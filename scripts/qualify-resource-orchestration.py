@@ -335,7 +335,7 @@ def mechanism_run() -> dict[str, object]:
     return {
         "schema_version": 1,
         "profile_id": "allfather.orchestrated-v1",
-        "passed": True,
+        "passed": authority_qualified,
         "source_commit": expected_source,
         "run_id": run.name,
         "execution_domain": execution_domain,

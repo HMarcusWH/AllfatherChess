@@ -130,12 +130,16 @@ class AdaptiveResourceRouter(ConservativeRouter):
         allocator: DeterministicAdaptiveAllocator,
         staged_model: StagedDecisionChangeModel | None,
         regime_model: RegimeSupportModel | None,
+        authority_route_projection_enabled: bool = False,
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
         self.allocator = allocator
         self.staged_model = staged_model
         self.regime_model = regime_model
+        self.authority_route_projection_enabled = bool(
+            authority_route_projection_enabled
+        )
         self._allocation_decisions: dict[str, AllocationDecision] = {}
         self._authority_route_decisions: dict[
             str, OrchestratedStagedRouteDecision
@@ -355,10 +359,11 @@ class AdaptiveResourceRouter(ConservativeRouter):
             context.run_id,
             decision,
         )
-        self._record_route_projection(
-            context.run_id,
-            decision,
-        )
+        if self.authority_route_projection_enabled:
+            self._record_route_projection(
+                context.run_id,
+                decision,
+            )
         if self.audit is not None:
             self.audit.record_allocation_context(
                 {
@@ -750,6 +755,13 @@ def build_adaptive_resource_router(
             None if regime_model is None else regime_model.model_id
         ),
     )
+    authority = getattr(config, "hybrid_authority", None)
+    authority_route_projection_enabled = bool(
+        authority is not None
+        and getattr(authority, "policy", None)
+        == "orchestrated_clocked_staged_preanchor_v1"
+    )
+
     return AdaptiveResourceRouter(
         envelope=envelope,
         policy=policy,
@@ -761,4 +773,7 @@ def build_adaptive_resource_router(
         allocator=allocator,
         staged_model=staged_model,
         regime_model=regime_model,
+        authority_route_projection_enabled=(
+            authority_route_projection_enabled
+        ),
     )

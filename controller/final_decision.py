@@ -314,6 +314,10 @@ def _verify_clocked_authority(
             problems.append(
                 "authorized J12 decision did not use the real linux-host-v2 capacity provider"
             )
+        if snapshot.get("orchestration_work_grant_grid_complete") is not True:
+            problems.append(
+                "authorized J12 decision lacks the exact settled 3x3 WorkGrant grid"
+            )
         if snapshot.get("orchestration_host_capacity_claim") is not True:
             problems.append(
                 "authorized J12 decision lacks a real adaptive host-capacity claim"

@@ -18,12 +18,19 @@ from common.search_request import parse_go_request
 from controller.decision import canonical_digest
 from controller.move_resource_plan import MoveResourcePlan
 from controller.adaptive_time import verify_move_resource_plan_manifest
-from controller.replay import atomic_write_text, load_manifest, sha256_file
+from controller.replay import (
+    atomic_write_text,
+    load_manifest,
+    sha256_file,
+    verify_bundle_integrity,
+)
 from controller.resource_allocator import (
     AllocationDecision,
     BUY_BUNDLE,
     load_allocation_policy,
 )
+from controller.verification import verify_verification_integrity
+from controller.staged_verification import verify_staged_verification_integrity
 from controller.work_grant import WorkGrant
 from controller.work_scheduler import (
     WorkSchedulerSettings,
@@ -277,6 +284,20 @@ def seal_orchestration_evidence(
     run_dir = Path(run_dir)
     route_path = run_dir / "route.json"
     resource_path = run_dir / "resource.json"
+    replay_path = run_dir / "manifest.json"
+    verification_path = run_dir / "verification" / "manifest.json"
+    staged_path = run_dir / "staged_verification" / "manifest.json"
+    for required in (
+        replay_path,
+        verification_path,
+        staged_path,
+        route_path,
+        resource_path,
+    ):
+        if not required.is_file():
+            raise OrchestrationIntegrityError(
+                f"J11 terminal source is missing: {required.relative_to(run_dir)}"
+            )
     route = _load_json(route_path, "route")
     if route.get("run_id") is None:
         raise OrchestrationIntegrityError("route lacks run_id")
@@ -284,11 +305,6 @@ def seal_orchestration_evidence(
         raise OrchestrationIntegrityError(
             "route MoveResourcePlan differs from the live J11 parent"
         )
-    if not resource_path.is_file():
-        raise OrchestrationIntegrityError(
-            "J11 requires sealed physical resource evidence"
-        )
-
     plan_path = run_dir / RESOURCE_PLAN_PATH
     atomic_write_text(
         plan_path,
@@ -319,6 +335,18 @@ def seal_orchestration_evidence(
         "run_id": route["run_id"],
         "generation": move_plan.generation,
         "position_id": move_plan.position_id,
+        "replay": {
+            "path": "manifest.json",
+            "sha256": sha256_file(replay_path),
+        },
+        "verification": {
+            "path": "verification/manifest.json",
+            "sha256": sha256_file(verification_path),
+        },
+        "staged_verification": {
+            "path": "staged_verification/manifest.json",
+            "sha256": sha256_file(staged_path),
+        },
         "move_resource_plan": {
             "plan_id": move_plan.plan_id,
             "digest": move_plan.digest,
@@ -771,7 +799,15 @@ def verify_orchestration_integrity(
     if evidence_id != f"orchestration/{expected_content}":
         problems.append("orchestration evidence_id mismatch")
 
-    for section in ("move_resource_plan", "allocation_trace", "route", "resource"):
+    for section in (
+        "replay",
+        "verification",
+        "staged_verification",
+        "move_resource_plan",
+        "allocation_trace",
+        "route",
+        "resource",
+    ):
         row = artifact.get(section)
         if not isinstance(row, dict):
             problems.append(f"orchestration {section} section is missing")
@@ -795,14 +831,12 @@ def verify_orchestration_integrity(
     if manifest is not None:
         for problem in verify_move_resource_plan_manifest(manifest):
             problems.append(problem)
-        summary = manifest.get("orchestration_evidence")
-        if not isinstance(summary, dict):
-            problems.append("parent replay does not bind orchestration evidence")
-        else:
-            if summary.get("sha256") != sha256_file(run_dir / ORCHESTRATION_PATH):
-                problems.append("parent replay orchestration SHA mismatch")
-            if summary.get("evidence_id") != evidence_id:
-                problems.append("parent replay orchestration evidence_id mismatch")
+        for problem in verify_bundle_integrity(run_dir):
+            problems.append(f"parent replay integrity: {problem}")
+        for problem in verify_verification_integrity(run_dir):
+            problems.append(f"VERIFY integrity: {problem}")
+        for problem in verify_staged_verification_integrity(run_dir):
+            problems.append(f"staged VERIFY integrity: {problem}")
 
     try:
         plan_raw = _load_json(run_dir / RESOURCE_PLAN_PATH, "resource plan")

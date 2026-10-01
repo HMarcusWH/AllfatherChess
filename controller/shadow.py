@@ -6785,6 +6785,12 @@ class ShadowRunCoordinator:
         """Apply authorized router commands. Returns True if new work was dispatched."""
         if self.router is None or active.cancelled:
             return False
+        if self._j9_adaptive(active):
+            # J9 is deliberately a fixed compatibility scheduler. Legacy
+            # checkpoint routing can nominate n8000 EXPLORE extensions or
+            # suppression; J10 is the first milestone allowed to choose among
+            # additional grants. Keep J9 to its frozen 3x3 grant grid.
+            return False
         try:
             commands = self.router.on_checkpoint(active.context)
         except Exception as exc:  # pragma: no cover - router isolation

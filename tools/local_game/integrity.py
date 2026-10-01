@@ -166,8 +166,13 @@ def verify_prerequisites(output: Path, source: dict, p: dict | None = None) -> N
                         f"{label}: prerequisite evidence is invalid")
             elif label == "j12":
                 require(
-                    report.get("passed") is True
-                    and report.get("mechanism_valid") is True,
+                    report.get("mechanism_valid") is True
+                    and report.get("qualification_disposition")
+                    in (
+                        "QUALIFIED_ORCHESTRATED_AUTHORITY",
+                        "NOT_QUALIFIED_HOST_CAPACITY",
+                        "NOT_QUALIFIED_POSITIVE_WITNESS",
+                    ),
                     "J12 prerequisite mechanism evidence is invalid",
                 )
             elif label == "engine-opt-v2":

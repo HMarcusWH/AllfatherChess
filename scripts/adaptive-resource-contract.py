@@ -151,10 +151,13 @@ def main() -> int:
                 and (p / "manifest.json").is_file()
                 and (p / "verification" / "manifest.json").is_file()
                 and (p / "staged_verification" / "manifest.json").is_file()
+                and (p / "resource-plan.json").is_file()
+                and (p / "resource" / "allocation.jsonl").is_file()
+                and (p / "orchestration.json").is_file()
                 for p in discover_replay_bundles(replay_root).bundles
             ),
             timeout=15,
-            label="J10 replay/VERIFY/staged evidence",
+            label="J10 replay plus J11 terminal orchestration evidence",
         )
         frontend.handle_command("quit")
     finally:

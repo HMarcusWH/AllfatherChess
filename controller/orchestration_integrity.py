@@ -761,6 +761,36 @@ def verify_orchestration_integrity(
     except OrchestrationIntegrityError as exc:
         return [str(exc)]
 
+    expected_top_level_keys = {
+        "schema_version",
+        "evidence_version",
+        "run_id",
+        "generation",
+        "position_id",
+        "replay",
+        "verification",
+        "staged_verification",
+        "move_resource_plan",
+        "game_environment",
+        "host_capabilities",
+        "composition_profile",
+        "profile_catalog",
+        "work_scheduler",
+        "allocation_policy",
+        "allocation_decision",
+        "allocation_trace",
+        "route",
+        "resource",
+        "work_grants",
+        "authority_binding",
+        "authority",
+        "claim_boundary",
+        "evidence_id",
+        "content_sha256",
+    }
+    if set(artifact) != expected_top_level_keys:
+        problems.append("orchestration top-level schema keys are invalid")
+
     expected_authority = {
         "resource_evidence": True,
         "resource_authorization": False,
@@ -865,6 +895,16 @@ def verify_orchestration_integrity(
 
     if plan is not None:
         stored_plan = artifact.get("move_resource_plan") or {}
+        expected_plan_summary = {
+            "plan_id": plan.plan_id,
+            "digest": plan.digest,
+            "path": RESOURCE_PLAN_PATH,
+            "sha256": sha256_file(run_dir / RESOURCE_PLAN_PATH),
+        }
+        if stored_plan != expected_plan_summary:
+            problems.append(
+                "orchestration MoveResourcePlan summary does not reconstruct"
+            )
         if manifest is not None:
             if manifest.get("move_resource_plan") != plan.as_dict():
                 problems.append(
@@ -1037,6 +1077,18 @@ def verify_orchestration_integrity(
             problems.append("allocation trace contexts differ from route")
         trace_summary = artifact.get("allocation_trace") or {}
         budget_digest = canonical_digest(budget_journal)
+        expected_trace_summary = {
+            "path": ALLOCATION_TRACE_PATH,
+            "sha256": sha256_file(run_dir / ALLOCATION_TRACE_PATH),
+            "digest": canonical_digest(trace_rows),
+            "authority_trace_digest": allocation_trace_digest(route),
+            "budget_journal_digest": budget_digest,
+            "budget_event_count": len(budget_journal),
+        }
+        if trace_summary != expected_trace_summary:
+            problems.append(
+                "orchestration allocation trace summary does not reconstruct"
+            )
         if trace_summary.get("budget_journal_digest") != budget_digest:
             problems.append("budget journal digest mismatch")
         if trace_summary.get("budget_event_count") != len(budget_journal):
@@ -1336,6 +1388,13 @@ def verify_orchestration_integrity(
             problems.append(
                 f"WorkGrant {grant.grant_id} command cannot be reconstructed: {exc}"
             )
+
+    expected_route_summary = {
+        "path": "route.json",
+        "sha256": sha256_file(run_dir / "route.json"),
+    }
+    if artifact.get("route") != expected_route_summary:
+        problems.append("orchestration route summary does not reconstruct")
 
     try:
         resource_path = run_dir / "resource.json"

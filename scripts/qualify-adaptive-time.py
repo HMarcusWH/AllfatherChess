@@ -29,6 +29,7 @@ from controller.resource_profile_catalog import load_resource_profile_catalog
 POLICY = ROOT / "qualification/adaptive-clock-v1.json"
 BASELINE = ROOT / "config/allfather.online-engine-opt-v2.json"
 RUNTIME = ROOT / "config/allfather.m14-j-j8.validation.json"
+CATALOG_RUNTIME = ROOT / "config/allfather.online-hybrid-v2.validation.json"
 CATALOG = ROOT / "qualification/resource-profile-catalog-v1.json"
 ENGINE_SELECTION = ROOT / "qualification/engine-opt-v2-selection.json"
 J7_SELECTION = ROOT / "qualification/resource-profile-selection-v1.json"
@@ -129,6 +130,7 @@ def qualify() -> dict[str, Any]:
     policy = load(POLICY)
     baseline = load(BASELINE)
     runtime = load(RUNTIME)
+    catalog_runtime = load(CATALOG_RUNTIME)
     engine_selection = load(ENGINE_SELECTION)
     j7 = load(J7_SELECTION)
     catalog = load_resource_profile_catalog(CATALOG)
@@ -192,7 +194,12 @@ def qualify() -> dict[str, Any]:
         catalog.default_composition_id == "composition/engine-opt-v2-exact-host",
         "J3 default composition changed",
     )
-    catalog.validate_v2_equivalence(baseline, engine_selection)
+    # J3's frozen equivalence proof targets the qualified four-process hybrid
+    # runtime that contains EXPLORE/VERIFY/STAGED_VERIFY limits. J8 itself
+    # intentionally derives from the anchor-authoritative ENGINE-OPT-V2
+    # runtime, so validate those two relationships separately rather than
+    # pretending the J8 parent carries a verification block.
+    catalog.validate_v2_equivalence(catalog_runtime, engine_selection)
 
     require(
         j7.get("authority")

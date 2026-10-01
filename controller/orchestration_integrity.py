@@ -886,6 +886,16 @@ def verify_orchestration_integrity(
         ]
         if allocation_rows != (decisions if isinstance(decisions, list) else []):
             problems.append("allocation trace decisions differ from route")
+        context_rows = [
+            row.get("payload")
+            for row in trace_rows
+            if row.get("record_type") == "allocation_context"
+        ]
+        route_contexts = route.get("allocation_contexts", [])
+        if context_rows != (
+            route_contexts if isinstance(route_contexts, list) else []
+        ):
+            problems.append("allocation trace contexts differ from route")
         budget_digest = canonical_digest(budget_journal)
         if (artifact.get("allocation_trace") or {}).get("budget_journal_digest") != budget_digest:
             problems.append("budget journal digest mismatch")

@@ -1485,6 +1485,7 @@ Add/seal:
 - append-only BudgetLedger reserve/settle/release/controller-charge journal;
 - `resource-plan.json`;
 - `resource/allocation.jsonl`;
+- `engine-bundle.json` copied from the exact ENGINE-OPT-V2 candidate build;
 - `orchestration.json`;
 - terminal orchestration-root SHA bindings for parent replay, VERIFY and staged-VERIFY manifests;
 - optional future `DecisionAuthorizationSnapshot.orchestration_provenance`.
@@ -1498,6 +1499,8 @@ Independently recompute:
 - MoveResourcePlan / GameEnvironment / HostCapabilities / composition / catalog identity;
 - J10 AllocationDecision identity and frozen allocation-policy binding;
 - J9 WorkGrant legality, profile/chunk/license identity and native UCI work limits;
+- exact executed binary/network identities against the sealed exact-head ENGINE-OPT-V2
+  build manifest and its source-controlled build contracts;
 - admission-time budget availability from the append-only journal;
 - CPU-slot and resident-memory feasibility;
 - effective engine option digests from sealed stage evidence;

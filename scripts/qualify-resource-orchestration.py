@@ -49,6 +49,11 @@ from tools.engine_opt.domain import (
 CONFIG = ROOT / "config/allfather.orchestrated-v1.validation.json"
 RESULT = ROOT / "build/test-results/engine-opt-v2-profile-domain/j12"
 MOVE_RE = re.compile(r"^[a-h][1-8][a-h][1-8][qrbn]?$")
+POSITIVE_CASE = {
+    "id": "queen-pawn-white",
+    "moves": ["d2d4", "d7d5"],
+    "command": "go movetime 4000 searchmoves c2c4 g1f3 e2e3",
+}
 
 
 class J12QualificationError(RuntimeError):
@@ -161,8 +166,10 @@ def mechanism_run() -> dict[str, object]:
             diagnostic=frontend._diagnostic,
         )
         frontend.shadow = shadow
-        frontend.handle_command("position startpos")
-        frontend.handle_command("go movetime 4000")
+        frontend.handle_command(
+            "position startpos moves " + " ".join(POSITIVE_CASE["moves"])
+        )
+        frontend.handle_command(POSITIVE_CASE["command"])
         wait_for(
             lambda: any(
                 line.startswith("bestmove ")
@@ -315,6 +322,9 @@ def mechanism_run() -> dict[str, object]:
         )
 
     case = {
+        "case": POSITIVE_CASE["id"],
+        "command": POSITIVE_CASE["command"],
+        "moves": list(POSITIVE_CASE["moves"]),
         "run_id": run.name,
         "authority": decision.get("authority"),
         "authorization_granted": authorization.get("authorized"),

@@ -161,10 +161,12 @@
 
 - BudgetLedger records an append-only reserve/settle/release/controller-charge journal without
   changing historical `snapshot()` payloads or J10 budget-snapshot identities;
-- J10 replays seal `resource-plan.json` and `resource/allocation.jsonl`, then seal
-  `orchestration.json` as the terminal J11 evidence root after the parent replay plus
+- J10 replays seal `resource-plan.json`, `resource/allocation.jsonl` and the exact
+  ENGINE-OPT-V2 `engine-bundle.json`, then seal `orchestration.json` as the terminal
+  J11 evidence root after the parent replay plus
   VERIFY/staged-VERIFY manifests have finalized;
 - `orchestration.json` hash-binds the exact parent/stage manifests, route/resource,
+  exact-head engine bundle,
   plan and allocation trace used by reconstruction; no child artifact has to hash a later
   parent, avoiding circular evidence;
 - the independent validator reconstructs J10 AllocationDecision identity, J9 WorkGrant

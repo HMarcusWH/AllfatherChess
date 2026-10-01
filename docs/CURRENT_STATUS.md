@@ -1,12 +1,12 @@
 # AllfatherChess current build and release status
 
 **Status date:** 1 October 2026  
-**Authoritative main commit:** `730d8884c5878b28b5d67492583efb678750bc04`  
-**Latest merged milestone:** PR #54 / M14-J J7 — evidence-backed isolated resource-profile selection freeze  
+**Authoritative main commit:** `6412f46b5543bb0339f3928a206ea3b8b173ff98`  
+**Latest merged milestone:** PR #55 / M14-J J8 — clamp-only adaptive outer resource plan  
 **Qualified J6 PR head:** `6aecd0bae7848ca8a9893377fadffb049d336c3a`  
 **Frozen fallback:** ENGINE-OPT-V2 / PR #44 remains unchanged  
-**Current execution milestone:** PR #55 / M14-J J8 — clamp-only adaptive outer resource plan  
-**Next milestone after J8:** M14-J J9 — WorkGrant scheduler  
+**Current execution milestone:** PR #56 / M14-J J9 — WorkGrant compatibility scheduler  
+**Next milestone after J9:** M14-J J10 — deterministic adaptive allocator  
 **Forward roadmap:** [ROADMAP.md](ROADMAP.md)  
 **M14-J rebuild plan:** [M14_J_ADAPTIVE_RESOURCE_ORCHESTRATION.md](M14_J_ADAPTIVE_RESOURCE_ORCHESTRATION.md)  
 **Detailed deployment plan:** [ONLINE_RELEASE_PLAN.md](ONLINE_RELEASE_PLAN.md)
@@ -76,7 +76,7 @@ resource authorization, outward move authority, deployment authority, or strengt
 Stage B remains evidence about the exact compositions it measured; it does not promote the new
 Stockfish n64 or LC0 n32 selections into composition-qualified settings.
 
-## M14-J J8 adaptive outer resource plan — PR #55 candidate
+## M14-J J8 adaptive outer resource plan — MERGED / PR #55
 
 J8 preserves the existing `clock_envelope_v1` `TimePlan` as the clock/deadline and
 G3-compatible timing authority. It adds a separate content-addressed `MoveResourcePlan`
@@ -90,6 +90,25 @@ Stockfish `Hash=32` or LC0 `MaxPrefetch=0` selections, create WorkGrants, enable
 DecisionAuthorization, or establish composition qualification/generic-host portability.
 Incomplete host capacity falls back to the unchanged ENGINE-OPT-V2 / `clock_envelope_v1`
 execution while denying the adaptive resource claim.
+
+## M14-J J9 WorkGrant compatibility scheduler — PR #56 candidate
+
+J9 keeps the merged J8 `MoveResourcePlan` as the per-move ceiling and adds typed
+`WorkGrant` authorization for the historical fixed EXPLORE/VERIFY/staged-VERIFY sequence.
+The conservative router remains the sole `BudgetLedger` authority: one admitted grant owns
+one reservation, one optional engine dispatch, and one release or settlement.
+
+The J3 resource-profile catalog remains unchanged with `work_chunk_ids=[]`. A separate
+`work-grant-scheduler-v1` compatibility overlay binds the exact J3 catalog/profile digests
+and freezes nine compatibility chunks: three family-specific n16 EXPLORE grants, three n16
+VERIFY grants, and three n32 STAGED_VERIFY grants. The inherited CPU reservations remain
+legacy compatibility estimates rather than newly promoted measured cost bounds.
+
+A parent `MoveResourcePlan` in FALLBACK bypasses J9 and preserves exact J8 legacy behavior.
+On an ADAPTIVE plan, grant denial, expiry, phase-option mismatch, or a closed dispatch window
+means no engine write. J9 still does not consume the J7 Hash32/MaxPrefetch0 selections, convert
+REFINE, choose computation by value, or grant outward move authority. J10 owns adaptive grant
+selection.
 
 ## LOCAL-1 qualification result
 

@@ -1,9 +1,9 @@
 # AllfatherChess — M14-J Adaptive Resource Orchestration Rebuild Plan
 
-> **Status:** active implementation; J0-J7 merged, J8 in progress / PR #55  
-> **Current main:** `730d8884c5878b28b5d67492583efb678750bc04` (PR #54 merge)  
+> **Status:** active implementation; J0-J8 merged, J9 in progress / PR #56  
+> **Current main:** `6412f46b5543bb0339f3928a206ea3b8b173ff98` (PR #55 merge)  
 > **Frozen fallback composition:** ENGINE-OPT-V2 / PR #44  
-> **Latest completed stage:** J7 evidence-backed profile-selection freeze / PR #54  
+> **Latest completed stage:** J8 clamp-only MoveResourcePlan / PR #55  
 > **Authority:** documentation only; this plan does not itself promote M14-J behavior  
 
 **Program:** M14-J — Adaptive Resource Orchestration
@@ -1254,7 +1254,7 @@ retry-until-green laboratory is part of J7.
 
 ---
 
-## 37. J8 — Adaptive Outer Time / MoveResourcePlan — **PR #55**
+## 37. J8 — Adaptive Outer Time / MoveResourcePlan — **MERGED / PR #55**
 
 J8 deliberately does **not** replace `clock_envelope_v1`. The historical ONLINE
 `TimePlan` remains the clock/deadline safety object, the anchor request source, and the
@@ -1340,23 +1340,81 @@ J7 non-consumption and destructive plan/provenance/authority mutations.
 
 ---
 
-## 38. J9 — WorkGrant Scheduler
+## 38. J9 — WorkGrant Compatibility Scheduler — **PR #56**
 
-Refactor opt-in dispatch paths in:
-
-- `controller/shadow.py`
-- VERIFY dispatch
-- staged VERIFY dispatch
-
-Legacy fixed limits become compatibility WorkGrants:
+J9 is the first runtime use of the typed WorkGrant contract. It does not yet decide what
+computation is valuable. It converts the historical fixed optional-search sequence into
+explicit resource authorization:
 
 ```text
-n16 config
+TimePlan
    ↓
-WorkGrant(n16)
+MoveResourcePlan                         J8
+   ↓
+legacy_fixed_workgrant_v1                J9
+   ↓
+WorkGrant proposal
+   ↓
+ConservativeRouter / BudgetLedger
+   ↓
+GrantAdmission
+   ↓
+phase-option digest assertion
+   ↓
+UCI dispatch from WorkGrant.native_limit
 ```
 
-The old system becomes a special case of the new scheduler.
+The governing separation remains:
+
+```text
+MoveResourcePlan != WorkGrant != DecisionAuthorization
+```
+
+The router remains the **single** BudgetLedger authority. J9 must not reserve once in the
+scheduler and again in legacy routing. One admitted WorkGrant owns exactly one reservation,
+at most one optional engine dispatch, and one release or settlement.
+
+The J3 catalog is not mutated: its frozen profiles retain `work_chunk_ids=[]`. J9 adds
+`qualification/work-grant-scheduler-v1.json`, an exact compatibility overlay that binds the
+J3 catalog/profile digests and licenses nine chunks:
+
+```text
+round 0  EXPLORE        Stockfish n16 / Reckless n16 / LC0 n16
+round 1  VERIFY         Stockfish n16 / Reckless n16 / LC0 n16
+round 2  STAGED_VERIFY  Stockfish n32 / Reckless n32 / LC0 n32
+```
+
+Engine-native work semantics remain family-specific. The inherited CPU reservations are the
+existing J3 compatibility estimates, not newly qualified p95/maximum cost bounds. Each grant
+also binds the parent MoveResourcePlan, exact profile and compatibility license, expected
+effective-options digest, allocation round, deterministic scheduler decision digest and an
+absolute move-relative wall deadline.
+
+Phase mutation is ordered after grant admission. The expected options digest is computed from
+frozen runtime/profile state before reservation; after phase application, the actual options
+digest must match before any `go` bytes may cross stdin. The UCI limit is compiled from the
+WorkGrant rather than independently from config.
+
+Grant wall deadlines are bounded by the J8 soft-work deadline and checked both immediately
+before the process write and while waiting for a running stage. Expiry before write releases
+the reservation and admits zero engine work.
+
+Fallback semantics are explicit:
+
+```text
+MoveResourcePlan FALLBACK
+    -> bypass J9
+    -> exact J8 legacy path
+    -> no J9 VERIFY/STAGED_VERIFY
+
+MoveResourcePlan ADAPTIVE + grant denied
+    -> no dispatch
+    -> never an ungranted legacy bypass
+```
+
+J9 does not convert REFINE, consume J7 isolated option selections, implement value-of-compute,
+enable hybrid DecisionAuthorization or grant outward move authority. J10 owns deterministic
+adaptive WorkGrant selection; J11 owns independently sealed allocation evidence.
 
 ---
 

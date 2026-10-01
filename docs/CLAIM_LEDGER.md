@@ -1,6 +1,6 @@
 # Claim ledger
 
-## Current repository synchronization after PR #54
+## Current repository synchronization after PR #55
 
 - **PROVED / CI-GATED FALLBACK:** ENGINE-OPT-V2 / PR #44 remains the frozen qualified
   fallback composition. J6 does not rewrite its clocks, authority policy or historical
@@ -27,15 +27,18 @@
   family/work-budget selections from retained J6 evidence while keeping the J3 catalog
   `selection_enabled=false`. The two non-v2 points remain
   `composition_qualification=not_established` and carry no runtime/resource/move authority.
-- **OPEN ORCHESTRATION GATE:** PR #55 / J8 is the current clamp-only MoveResourcePlan gate.
-  J9 remains the first executable WorkGrant scheduler boundary.
+- **PROVED / J8 MOVE RESOURCE PLAN:** PR #55 merged a content-addressed, clamp-only
+  MoveResourcePlan below the unchanged clock_envelope_v1 TimePlan. It may reduce resource
+  ceilings from host/composition facts but grants no WorkGrant, profile-selection or move authority.
+- **OPEN ORCHESTRATION GATE:** PR #56 / J9 is the current WorkGrant compatibility-scheduler
+  gate. J10 remains the adaptive grant-selection boundary.
 - **OPEN RELEASE GATES:** ONLINE-3 packaging/bridge, ONLINE-4
   network/restart/rollback, aggregate release qualification, ONLINE-RC, main governance,
   and combined-distribution licensing.
 - **OPEN STRENGTH GATE:** no Elo or equal-envelope superiority claim follows from
   LOCAL-1 or J6. M15-B/C remains the separate comparative campaign.
 
-## M14-J J8 adaptive outer resource plan — PR #55 candidate
+## M14-J J8 adaptive outer resource plan — MERGED / PR #55
 
 ### IMPLEMENTED / QUALIFICATION-GATED BY THIS PR
 
@@ -67,6 +70,41 @@
 - no position-complexity or clock-differential chess time heuristic is promoted;
 - no Elo, strength, equal-compute, deployment or move-quality claim follows from J8;
 - J9 WorkGrant scheduling and J12 full orchestrated hybrid composition remain later gates.
+
+## M14-J J9 WorkGrant compatibility scheduler — PR #56 candidate
+
+### IMPLEMENTED / QUALIFICATION-GATED BY THIS PR
+
+- the frozen J3 catalog remains unchanged with `selection_enabled=false` and empty
+  `work_chunk_ids`; a separate compatibility overlay binds exact J3 catalog/profile digests;
+- nine fixed WorkChunks reproduce the historical EXPLORE n16, VERIFY n16 and
+  STAGED_VERIFY n32 sequence across Stockfish, Reckless and LC0 while preserving
+  family-specific native work semantics;
+- inherited CPU amounts are explicitly legacy reservation compatibility estimates, not
+  newly promoted measured p95/maximum cost claims;
+- each WorkGrant binds generation, position, parent MoveResourcePlan, exact profile,
+  WorkChunk/license, expected effective options, scheduler round, native limit, deadline and
+  deterministic scheduler-decision digest;
+- ConservativeRouter remains the one BudgetLedger resource authority; J9 grant admission
+  creates the single reservation and binds grant/profile/decision provenance into it;
+- phase configuration occurs only after successful admission, and actual effective options
+  must match the WorkGrant digest before any search command is written;
+- the UCI request limit comes from WorkGrant.native_limit; a denied or expired ADAPTIVE grant
+  has no legacy bypass;
+- WorkGrant deadlines cannot exceed the MoveResourcePlan soft deadline and are enforced at
+  the final pre-write permit plus running-stage wait boundary;
+- parent MoveResourcePlan FALLBACK bypasses J9 and preserves the exact J8 legacy execution;
+- J9 route evidence records grant authorization/release/settlement and unresolved grants
+  invalidate the WorkGrant settlement claim.
+
+### NOT PROMOTED BY J9
+
+- J9 does not consume J7 Hash32/MaxPrefetch0 profile selections or enable runtime profile selection;
+- J9 does not convert REFINE into WorkGrants;
+- J9 is a fixed compatibility translator, not the J10 value-of-computation allocator;
+- no J9 WorkGrant grants outward move authority or hybrid DecisionAuthorization;
+- no J9 result establishes deployment-host/composition qualification, generic portability,
+  Elo, move quality, strength or equal-resource superiority.
 
 ## LOCAL-1 full-game lifecycle — PROVED / CI-GATED
 

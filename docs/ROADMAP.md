@@ -1,9 +1,9 @@
 # AllfatherChess roadmap
 
 **Status date:** 1 October 2026  
-**Current main:** `730d8884c5878b28b5d67492583efb678750bc04`  
-**Latest merged milestone:** PR #54 / M14-J J7 — evidence-backed isolated profile selection freeze  
-**Current execution milestone:** PR #55 / M14-J J8 — clamp-only adaptive outer resource plan  
+**Current main:** `6412f46b5543bb0339f3928a206ea3b8b173ff98`  
+**Latest merged milestone:** PR #55 / M14-J J8 — clamp-only adaptive outer resource plan  
+**Current execution milestone:** PR #56 / M14-J J9 — WorkGrant compatibility scheduler  
 **Current-state authority:** [CURRENT_STATUS.md](CURRENT_STATUS.md)  
 **M14-J implementation plan:** [M14_J_ADAPTIVE_RESOURCE_ORCHESTRATION.md](M14_J_ADAPTIVE_RESOURCE_ORCHESTRATION.md)  
 **Detailed deployment audit:** [ONLINE_RELEASE_PLAN.md](ONLINE_RELEASE_PLAN.md)
@@ -48,9 +48,11 @@ exact-host artifact with 57 candidate operating points, 1368/1368 Stage-A measur
 selection or deployment authority. PR #53 then repaired the LOCAL-1 prerequisite boundary
 without changing the retained J6 evidence. PR #54 then merged J7 as a deterministic,
 source-controlled selection/evidence layer while leaving the J3 runtime catalog disabled and
-unchanged. PR #55 is the J8 candidate: an additive, clamp-only `MoveResourcePlan` below the
-unchanged `clock_envelope_v1` TimePlan. The project is **not** yet deployable as a qualified
-service and has not established superiority over a constituent engine.
+unchanged. PR #55 then merged J8: an additive, clamp-only `MoveResourcePlan` below the
+unchanged `clock_envelope_v1` TimePlan. PR #56 is the J9 compatibility-scheduler candidate:
+fixed historical optional searches must cross a typed WorkGrant plus the existing BudgetLedger
+resource authority before dispatch. The project is **not** yet deployable as a qualified service
+and has not established superiority over a constituent engine.
 
 ## 2. Critical path to the first public canary
 
@@ -80,17 +82,22 @@ M14-J J7 / PR #54
 evidence-backed isolated profile selection freeze
         |
         v
-IN PROGRESS
+DONE
 M14-J J8 / PR #55
 clamp-only adaptive outer resource plan / MoveResourcePlan
         |
         v
-NEXT
-M14-J J9
-WorkGrant progressive scheduler
+IN PROGRESS
+M14-J J9 / PR #56
+typed compatibility WorkGrants + single-ledger admission
         |
         v
-M14-J J10-J12
+NEXT
+M14-J J10
+deterministic adaptive allocator
+        |
+        v
+M14-J J11-J12
 allocator, evidence binding, full orchestrated composition
         |
         v

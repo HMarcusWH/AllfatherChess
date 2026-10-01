@@ -3978,7 +3978,7 @@ class ShadowRunCoordinator:
                 if elapsed_ms
                 > self._grant_deadline_ms(
                     active,
-                    stage.search_id,
+                    getattr(stage, "search_id", ""),
                     stage.dispatched_ms + stage_budget_ms,
                 )
             ]
@@ -4566,7 +4566,7 @@ class ShadowRunCoordinator:
                 if elapsed_ms
                 > self._grant_deadline_ms(
                     active,
-                    stage.search_id,
+                    getattr(stage, "search_id", ""),
                     stage.dispatched_ms + stage_budget_ms,
                 )
             ]

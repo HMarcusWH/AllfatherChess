@@ -869,6 +869,7 @@ def verify_orchestration_integrity(
     run_dir: Path | str,
     *,
     root: Path | str | None = None,
+    expected_source_commit: str | None = None,
 ) -> list[str]:
     """Independently reconstruct J11 provenance. Empty list means valid."""
 
@@ -1046,6 +1047,22 @@ def verify_orchestration_integrity(
             or engine_bundle.get("profile_id") != "engine-opt-v2"
         ):
             problems.append("sealed engine bundle has the wrong profile/schema")
+        if expected_source_commit is not None:
+            if (
+                not isinstance(expected_source_commit, str)
+                or len(expected_source_commit) not in (40, 64)
+                or any(
+                    ch not in "0123456789abcdef"
+                    for ch in expected_source_commit
+                )
+            ):
+                problems.append(
+                    "expected source commit is not a lowercase Git object id"
+                )
+            elif engine_bundle.get("source_commit") != expected_source_commit:
+                problems.append(
+                    "sealed ENGINE-OPT-V2 candidate was not built from the expected source commit"
+                )
         stored_bundle_summary = artifact.get("engine_bundle")
         expected_bundle_summary = {
             "path": ENGINE_BUNDLE_PATH,

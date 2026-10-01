@@ -13,6 +13,10 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from controller.budget import BudgetLedger, ResourceEnvelope
+from controller.decision import (
+    DecisionAuthorizationSnapshot,
+    OrchestrationAuthorityProvenance,
+)
 from controller.orchestration_integrity import (
     AUTHORITY_BINDING_VERSION,
     OrchestrationIntegrityError,
@@ -157,6 +161,61 @@ class BudgetJournalTests(unittest.TestCase):
                 duplicate,
                 envelope=ledger.snapshot()["envelope"],
             )
+
+
+class AuthorityProvenanceTests(unittest.TestCase):
+    def snapshot(self) -> DecisionAuthorizationSnapshot:
+        return DecisionAuthorizationSnapshot(
+            run_id="run-1",
+            generation=1,
+            position_id="pos-1",
+            request_class="online_time_v1",
+            request_eligible=True,
+            request_reason="unit",
+            legal_roots=("e2e4",),
+            external_root_restriction=(),
+            anchor_request_bounded=True,
+            anchor_reserved=True,
+            budget_within_envelope=True,
+            partitions_within_caps=True,
+            wall_within_envelope=True,
+            specialist_settlement_complete=True,
+            open_specialist_reservations=0,
+            open_solver_reservations=0,
+            gpu_accounted=True,
+            measurement_enabled=True,
+            open_non_anchor_measurement_stages=0,
+            measurement_provider_available=True,
+            measurement_known_failure=False,
+            backend_generation_current=True,
+            controller_fallback_latched=False,
+        )
+
+    def test_legacy_snapshot_omits_optional_j11_provenance(self):
+        item = self.snapshot()
+        self.assertNotIn("orchestration_provenance", item.as_dict())
+
+    def test_typed_provenance_round_trip_is_immutable_and_digest_bearing(self):
+        p = replace(base_plan(), allocator_policy_id="adaptive-resource-v1")
+        item = decision(p.plan_id)
+        route = {
+            "run_id": "run-3",
+            "allocation_decisions": [item.as_dict()],
+            "work_scheduler": {
+                "policy_id": "legacy_fixed_workgrant_v1",
+                "catalog_id": "work-grant-scheduler-v1",
+                "catalog_digest": "c" * 64,
+                "settlement_complete": True,
+                "events": [],
+            },
+        }
+        raw = build_authority_binding(move_plan=p, route=route)
+        provenance = OrchestrationAuthorityProvenance.from_dict(raw)
+        self.assertEqual(provenance.as_dict(), raw)
+        bound = replace(self.snapshot(), orchestration_provenance=provenance)
+        self.assertEqual(bound.as_dict()["orchestration_provenance"], raw)
+        with self.assertRaises(Exception):
+            provenance.open_work_grant_reservations = 1
 
 
 class AllocationReconstructionTests(unittest.TestCase):

@@ -1125,6 +1125,20 @@ def verify_orchestration_integrity(
         if isinstance(route.get("work_scheduler"), dict)
         else []
     )
+    if isinstance(scheduler_events, list):
+        authorized_ids, settled_ids, released_ids, unresolved_ids = (
+            _terminal_grant_state(scheduler_events)
+        )
+        if decision is not None and decision.action == BUY_BUNDLE:
+            if (
+                len(authorized_ids) != 9
+                or len(settled_ids) != 9
+                or released_ids
+                or unresolved_ids
+            ):
+                problems.append(
+                    "J11 BUY_BUNDLE qualification requires the complete 9-grant/9-settlement path"
+                )
     authorized_events = [
         row
         for row in scheduler_events

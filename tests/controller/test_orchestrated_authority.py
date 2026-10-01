@@ -37,6 +37,7 @@ from controller.resource_allocator import (
 )
 from controller.runtime import RuntimeError as ControllerRuntimeError
 from controller.runtime import load_runtime_config
+from controller.routing import build_router
 
 
 CONFIG = ROOT / "config/allfather.orchestrated-v1.validation.json"
@@ -358,6 +359,29 @@ class RuntimeCompositionTests(unittest.TestCase):
         raw["root"] = "."
         path.write_text(json.dumps(raw), encoding="utf-8")
         return path
+
+    def test_router_projection_is_enabled_only_for_j12(self):
+        def load_with_root(path: Path):
+            raw = json.loads(path.read_text(encoding="utf-8"))
+            for spec in raw.get("instances", {}).values():
+                spec["binary"] = sys.executable
+                spec.pop("fallback_glob", None)
+            raw["root"] = str(ROOT)
+            directory = tempfile.TemporaryDirectory()
+            self.addCleanup(directory.cleanup)
+            target = Path(directory.name) / path.name
+            target.write_text(json.dumps(raw), encoding="utf-8")
+            return load_runtime_config(target)
+
+        j12 = build_router(load_with_root(CONFIG))
+        self.assertTrue(j12.authority_route_projection_enabled)
+
+        j10 = build_router(
+            load_with_root(
+                ROOT / "config/allfather.m14-j-j10.validation.json"
+            )
+        )
+        self.assertFalse(j10.authority_route_projection_enabled)
 
     def test_old_g3_policy_cannot_be_smuggled_into_orchestration(self):
         path = self._mutated(

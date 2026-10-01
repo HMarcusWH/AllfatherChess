@@ -26,6 +26,9 @@ from controller.decision import (
     VerificationTerminalEvidence,
     authorize_decision,
 )
+from controller.orchestration_integrity import (
+    runtime_config_matches_frozen,
+)
 from controller.resource_allocator import (
     BUY_BUNDLE,
     FALLBACK,
@@ -339,6 +342,40 @@ class AllocationProjectionTests(unittest.TestCase):
         fallback = project_allocation_decision(allocation(FALLBACK))
         self.assertEqual(fallback.action, "FALLBACK_ANCHOR")
         self.assertFalse(fallback.buy_extension)
+
+
+class RuntimeConfigEvidenceTests(unittest.TestCase):
+    def test_only_root_and_replay_output_may_relocate(self):
+        frozen = json.loads(CONFIG.read_text(encoding="utf-8"))
+        derived = json.loads(json.dumps(frozen))
+        derived["root"] = "/tmp/allfather-checkout"
+        derived["shadow"]["replay_root"] = (
+            "/tmp/allfather-checkout/build/replays/session"
+        )
+        self.assertTrue(
+            runtime_config_matches_frozen(
+                derived,
+                frozen,
+                allow_relocation=True,
+            )
+        )
+        self.assertFalse(
+            runtime_config_matches_frozen(
+                derived,
+                frozen,
+                allow_relocation=False,
+            )
+        )
+
+        changed = json.loads(json.dumps(derived))
+        changed["hybrid_authority"]["policy"] = CLOCKED_AUTHORIZATION_POLICY
+        self.assertFalse(
+            runtime_config_matches_frozen(
+                changed,
+                frozen,
+                allow_relocation=True,
+            )
+        )
 
 
 class RuntimeCompositionTests(unittest.TestCase):

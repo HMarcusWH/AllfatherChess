@@ -287,6 +287,144 @@ class DecisionProposal:
 
 
 @dataclass(frozen=True)
+class OrchestrationAuthorityProvenance:
+    """Immutable J11 resource provenance that future J12 authority may consume."""
+
+    version: str
+    move_resource_plan_id: str
+    move_resource_plan_digest: str
+    allocation_policy_digest: str
+    allocation_decision_digest: str
+    allocation_trace_digest: str
+    work_scheduler_catalog_digest: str
+    profile_catalog_digest: str
+    composition_profile_digest: str
+    game_environment_digest: str
+    host_capabilities_digest: str
+    work_grant_settlement_complete: bool
+    open_work_grant_reservations: int
+
+    def __post_init__(self) -> None:
+        if self.version != "j11-orchestration-authority-binding-v1":
+            raise DecisionError("orchestration provenance version drift")
+        if (
+            not isinstance(self.move_resource_plan_id, str)
+            or not self.move_resource_plan_id.startswith("move-plan/")
+            or len(self.move_resource_plan_id) != len("move-plan/") + 64
+            or any(
+                ch not in "0123456789abcdef"
+                for ch in self.move_resource_plan_id.split("/", 1)[1]
+            )
+        ):
+            raise DecisionError("orchestration MoveResourcePlan identity is invalid")
+        for label, value in (
+            ("move_resource_plan_digest", self.move_resource_plan_digest),
+            ("allocation_policy_digest", self.allocation_policy_digest),
+            ("allocation_decision_digest", self.allocation_decision_digest),
+            ("allocation_trace_digest", self.allocation_trace_digest),
+            ("work_scheduler_catalog_digest", self.work_scheduler_catalog_digest),
+            ("profile_catalog_digest", self.profile_catalog_digest),
+            ("composition_profile_digest", self.composition_profile_digest),
+            ("game_environment_digest", self.game_environment_digest),
+            ("host_capabilities_digest", self.host_capabilities_digest),
+        ):
+            if (
+                not isinstance(value, str)
+                or len(value) != 64
+                or any(ch not in "0123456789abcdef" for ch in value)
+            ):
+                raise DecisionError(
+                    f"orchestration {label} must be lowercase SHA-256"
+                )
+        if self.move_resource_plan_digest != self.move_resource_plan_id.split("/", 1)[1]:
+            raise DecisionError(
+                "orchestration MoveResourcePlan digest differs from plan_id"
+            )
+        if not isinstance(self.work_grant_settlement_complete, bool):
+            raise DecisionError(
+                "orchestration settlement flag must be boolean"
+            )
+        if (
+            isinstance(self.open_work_grant_reservations, bool)
+            or not isinstance(self.open_work_grant_reservations, int)
+            or self.open_work_grant_reservations < 0
+        ):
+            raise DecisionError(
+                "orchestration open WorkGrant count must be >= 0"
+            )
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "version": self.version,
+            "move_resource_plan_id": self.move_resource_plan_id,
+            "move_resource_plan_digest": self.move_resource_plan_digest,
+            "allocation_policy_digest": self.allocation_policy_digest,
+            "allocation_decision_digest": self.allocation_decision_digest,
+            "allocation_trace_digest": self.allocation_trace_digest,
+            "work_scheduler_catalog_digest": self.work_scheduler_catalog_digest,
+            "profile_catalog_digest": self.profile_catalog_digest,
+            "composition_profile_digest": self.composition_profile_digest,
+            "game_environment_digest": self.game_environment_digest,
+            "host_capabilities_digest": self.host_capabilities_digest,
+            "work_grant_settlement_complete": self.work_grant_settlement_complete,
+            "open_work_grant_reservations": self.open_work_grant_reservations,
+            "authority": {
+                "resource_evidence": True,
+                "resource_authorization": False,
+                "outward_move": False,
+            },
+        }
+
+    @classmethod
+    def from_dict(cls, raw: Any) -> "OrchestrationAuthorityProvenance":
+        if not isinstance(raw, dict):
+            raise DecisionError("orchestration provenance must be an object")
+        allowed = {
+            "version",
+            "move_resource_plan_id",
+            "move_resource_plan_digest",
+            "allocation_policy_digest",
+            "allocation_decision_digest",
+            "allocation_trace_digest",
+            "work_scheduler_catalog_digest",
+            "profile_catalog_digest",
+            "composition_profile_digest",
+            "game_environment_digest",
+            "host_capabilities_digest",
+            "work_grant_settlement_complete",
+            "open_work_grant_reservations",
+            "authority",
+        }
+        if set(raw) != allowed:
+            raise DecisionError("orchestration provenance keys are invalid")
+        if raw.get("authority") != {
+            "resource_evidence": True,
+            "resource_authorization": False,
+            "outward_move": False,
+        }:
+            raise DecisionError("orchestration provenance authority marker is invalid")
+        return cls(
+            version=raw.get("version"),
+            move_resource_plan_id=raw.get("move_resource_plan_id"),
+            move_resource_plan_digest=raw.get("move_resource_plan_digest"),
+            allocation_policy_digest=raw.get("allocation_policy_digest"),
+            allocation_decision_digest=raw.get("allocation_decision_digest"),
+            allocation_trace_digest=raw.get("allocation_trace_digest"),
+            work_scheduler_catalog_digest=raw.get("work_scheduler_catalog_digest"),
+            profile_catalog_digest=raw.get("profile_catalog_digest"),
+            composition_profile_digest=raw.get("composition_profile_digest"),
+            game_environment_digest=raw.get("game_environment_digest"),
+            host_capabilities_digest=raw.get("host_capabilities_digest"),
+            work_grant_settlement_complete=raw.get(
+                "work_grant_settlement_complete"
+            ),
+            open_work_grant_reservations=raw.get(
+                "open_work_grant_reservations"
+            ),
+        )
+
+
+@dataclass(frozen=True)
 class DecisionAuthorizationSnapshot:
     """Frozen in-memory facts the M14-C live authority gate may inspect.
 
@@ -336,7 +474,7 @@ class DecisionAuthorizationSnapshot:
     # J11 provenance is optional so historical M14-C/G3 snapshots keep their
     # exact canonical digest.  J12 may populate it; when present the authority
     # gate enforces its settled WorkGrant boundary.
-    orchestration_provenance: dict[str, Any] | None = None
+    orchestration_provenance: OrchestrationAuthorityProvenance | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.run_id, str) or not self.run_id:
@@ -377,88 +515,13 @@ class DecisionAuthorizationSnapshot:
                 )
 
         provenance = self.orchestration_provenance
-        if provenance is not None:
-            if not isinstance(provenance, dict):
-                raise DecisionError(
-                    "authorization snapshot orchestration_provenance must be an object"
-                )
-            required = {
-                "version",
-                "move_resource_plan_id",
-                "move_resource_plan_digest",
-                "allocation_policy_digest",
-                "allocation_decision_digest",
-                "allocation_trace_digest",
-                "work_scheduler_catalog_digest",
-                "profile_catalog_digest",
-                "composition_profile_digest",
-                "game_environment_digest",
-                "host_capabilities_digest",
-                "work_grant_settlement_complete",
-                "open_work_grant_reservations",
-                "authority",
-            }
-            if set(provenance) != required:
-                raise DecisionError(
-                    "authorization snapshot orchestration_provenance keys are invalid"
-                )
-            if provenance.get("version") != "j11-orchestration-authority-binding-v1":
-                raise DecisionError(
-                    "authorization snapshot orchestration provenance version drift"
-                )
-            plan_id = provenance.get("move_resource_plan_id")
-            if (
-                not isinstance(plan_id, str)
-                or not plan_id.startswith("move-plan/")
-                or len(plan_id) != len("move-plan/") + 64
-            ):
-                raise DecisionError(
-                    "authorization snapshot orchestration MoveResourcePlan identity is invalid"
-                )
-            for key in (
-                "move_resource_plan_digest",
-                "allocation_policy_digest",
-                "allocation_decision_digest",
-                "allocation_trace_digest",
-                "work_scheduler_catalog_digest",
-                "profile_catalog_digest",
-                "composition_profile_digest",
-                "game_environment_digest",
-                "host_capabilities_digest",
-            ):
-                value = provenance.get(key)
-                if (
-                    not isinstance(value, str)
-                    or len(value) != 64
-                    or any(ch not in "0123456789abcdef" for ch in value)
-                ):
-                    raise DecisionError(
-                        f"authorization snapshot orchestration {key} must be lowercase SHA-256"
-                    )
-            if not isinstance(
-                provenance.get("work_grant_settlement_complete"),
-                bool,
-            ):
-                raise DecisionError(
-                    "authorization snapshot orchestration settlement flag must be boolean"
-                )
-            open_grants = provenance.get("open_work_grant_reservations")
-            if (
-                isinstance(open_grants, bool)
-                or not isinstance(open_grants, int)
-                or open_grants < 0
-            ):
-                raise DecisionError(
-                    "authorization snapshot orchestration open grant count must be >= 0"
-                )
-            if provenance.get("authority") != {
-                "resource_evidence": True,
-                "resource_authorization": False,
-                "outward_move": False,
-            }:
-                raise DecisionError(
-                    "authorization snapshot orchestration authority marker is invalid"
-                )
+        if provenance is not None and not isinstance(
+            provenance,
+            OrchestrationAuthorityProvenance,
+        ):
+            raise DecisionError(
+                "authorization snapshot orchestration_provenance must be typed"
+            )
 
     def as_dict(self) -> dict[str, Any]:
         payload = {
@@ -506,12 +569,8 @@ class DecisionAuthorizationSnapshot:
             "authority_blocked": self.authority_blocked,
         }
         if self.orchestration_provenance is not None:
-            payload["orchestration_provenance"] = json.loads(
-                json.dumps(
-                    self.orchestration_provenance,
-                    sort_keys=True,
-                    allow_nan=False,
-                )
+            payload["orchestration_provenance"] = (
+                self.orchestration_provenance.as_dict()
             )
         return payload
 
@@ -975,9 +1034,9 @@ def authorize_decision(
 
     provenance = snapshot.orchestration_provenance
     if provenance is not None:
-        if provenance.get("work_grant_settlement_complete") is not True:
+        if provenance.work_grant_settlement_complete is not True:
             reasons.append("orchestration WorkGrant settlement is incomplete")
-        if int(provenance.get("open_work_grant_reservations", 0)) != 0:
+        if provenance.open_work_grant_reservations != 0:
             reasons.append("orchestration WorkGrant reservation remains open")
 
     if reasons:

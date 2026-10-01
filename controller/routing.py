@@ -886,16 +886,17 @@ class ConservativeRouter:
         if plan.disposition != ADAPTIVE_DISPOSITION:
             return None
         try:
-            return scheduler.create_grant(
-                move_plan=plan,
-                owner=owner,
-                instance=instance,
-                phase=phase,
-                allocation_round=allocation_round,
-                effective_options_digest=effective_options_digest,
-                elapsed_ms=float(context.elapsed_ms()),
-                target_id=target_id,
-            )
+            with self.ledger.controller_overhead("propose_work_grant"):
+                return scheduler.create_grant(
+                    move_plan=plan,
+                    owner=owner,
+                    instance=instance,
+                    phase=phase,
+                    allocation_round=allocation_round,
+                    effective_options_digest=effective_options_digest,
+                    elapsed_ms=float(context.elapsed_ms()),
+                    target_id=target_id,
+                )
         except WorkSchedulerDenied as exc:
             if self.audit is not None:
                 self.audit.record_work_grant(
@@ -932,15 +933,16 @@ class ConservativeRouter:
         reservation: Reservation | None = None
         elapsed = float(context.elapsed_ms())
         key = (grant.allocation_round, grant.owner)
-        grant_valid = True
-        grant_error: str | None = None
-        try:
-            scheduler.validate_grant(move_plan=plan, grant=grant)
-        except WorkSchedulerDenied as exc:
-            grant_valid = False
-            grant_error = str(exc)
 
         with self.ledger.controller_overhead("authorize_work_grant"):
+            grant_valid = True
+            grant_error: str | None = None
+            try:
+                scheduler.validate_grant(move_plan=plan, grant=grant)
+            except WorkSchedulerDenied as exc:
+                grant_valid = False
+                grant_error = str(exc)
+
             if not grant_valid:
                 reason = f"frozen WorkGrant validation failed: {grant_error}"
             elif plan.disposition != ADAPTIVE_DISPOSITION:

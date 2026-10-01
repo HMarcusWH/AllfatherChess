@@ -2963,11 +2963,17 @@ class ShadowRunCoordinator:
             )
             return None
         try:
+            digest_started = time.monotonic()
             expected_options = self.runtime.expected_shadow_phase_options(
                 instance,
                 phase,
             )
             expected_digest = canonical_digest(expected_options)
+            self._charge_controller_elapsed(
+                active,
+                label=f"work_grant_expected_options_{phase.lower()}_{owner}",
+                elapsed_ms=(time.monotonic() - digest_started) * 1000.0,
+            )
             grant = propose(
                 active.context,
                 owner=owner,

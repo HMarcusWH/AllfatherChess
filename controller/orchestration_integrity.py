@@ -960,6 +960,27 @@ def verify_orchestration_integrity(
     except Exception as exc:
         problems.append(f"parent replay manifest cannot be loaded: {exc}")
     if manifest is not None:
+        if manifest.get("outward_decision") is not None:
+            problems.append(
+                "J11 qualification is evidence-only and may not contain outward DecisionAuthorization"
+            )
+        if root is not None:
+            frozen_config_path = (
+                Path(root) / "config/allfather.m14-j-j10.validation.json"
+            )
+            try:
+                frozen_config_sha = sha256_file(frozen_config_path)
+                controller = manifest.get("controller")
+                if not isinstance(controller, dict):
+                    problems.append("parent replay controller identity is missing")
+                elif controller.get("config_sha256") != frozen_config_sha:
+                    problems.append(
+                        "parent replay is not bound to the frozen J10 qualification config"
+                    )
+            except Exception as exc:
+                problems.append(
+                    f"frozen J10 config identity could not be reconstructed: {exc}"
+                )
         if artifact.get("run_id") != manifest.get("run_id"):
             problems.append("orchestration run_id differs from parent replay")
         if artifact.get("generation") != manifest.get("generation"):

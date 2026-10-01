@@ -2092,7 +2092,16 @@ def verify_orchestration_integrity(
             problems.append(
                 "resource engine CPU total does not reconstruct from process endpoints"
             )
-        if not _approx_equal(stage_cpu, resource.get("stage_engine_cpu_ms")):
+        # Each stored stage row is rounded to 3 decimals while the report's
+        # aggregate is rounded only after summing the unrounded measurements.
+        # Bound the legitimate serialization error by 0.5us per stage plus the
+        # aggregate's own 0.5us rounding, rather than using a fixed tolerance.
+        stage_rounding_tolerance = 0.0005 * (len(stages) + 1) + 1e-9
+        if not _approx_equal(
+            stage_cpu,
+            resource.get("stage_engine_cpu_ms"),
+            tolerance=stage_rounding_tolerance,
+        ):
             problems.append(
                 "resource stage CPU total does not reconstruct from stage evidence"
             )

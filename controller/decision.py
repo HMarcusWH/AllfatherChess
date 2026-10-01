@@ -485,6 +485,7 @@ class DecisionAuthorizationSnapshot:
     # exact canonical digest.  J12 may populate it; when present the authority
     # gate enforces its settled WorkGrant boundary.
     orchestration_provenance: OrchestrationAuthorityProvenance | None = None
+    orchestration_work_grant_grid_complete: bool | None = None
     orchestration_host_provider_id: str | None = None
     orchestration_host_capacity_claim: bool | None = None
     orchestration_host_qualification_domain_complete: bool | None = None
@@ -536,6 +537,16 @@ class DecisionAuthorizationSnapshot:
         ):
             raise DecisionError(
                 "authorization snapshot orchestration_provenance must be typed"
+            )
+        if (
+            self.orchestration_work_grant_grid_complete is not None
+            and not isinstance(
+                self.orchestration_work_grant_grid_complete,
+                bool,
+            )
+        ):
+            raise DecisionError(
+                "authorization snapshot orchestration WorkGrant grid flag must be boolean"
             )
         provider = self.orchestration_host_provider_id
         if provider is not None and (
@@ -631,6 +642,10 @@ class DecisionAuthorizationSnapshot:
         if self.orchestration_provenance is not None:
             payload["orchestration_provenance"] = (
                 self.orchestration_provenance.as_dict()
+            )
+        if self.orchestration_work_grant_grid_complete is not None:
+            payload["orchestration_work_grant_grid_complete"] = (
+                self.orchestration_work_grant_grid_complete
             )
         if self.orchestration_host_provider_id is not None:
             payload["orchestration_host_provider_id"] = (
@@ -1139,6 +1154,10 @@ def authorize_decision(
                 reasons.append(
                     "orchestrated route does not bind the J11 MoveResourcePlan"
                 )
+        if snapshot.orchestration_work_grant_grid_complete is not True:
+            reasons.append(
+                "orchestrated authority requires the exact settled 3x3 WorkGrant grid"
+            )
         if snapshot.orchestration_host_capacity_claim is not True:
             reasons.append(
                 "orchestrated authority requires a real complete adaptive host-capacity claim"

@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "source_id": "j10-calibration-source-v1",
+  "source_pr_head": "91fb84f0479973e2382e1b8f3f9ac87e3e6910be",
+  "workflow_run_id": 36856445310,
+  "artifact": {
+    "id": 11164651195,
+    "name": "engine-opt-v2-profile-domain",
+    "sha256": "2b54238221df4641c850280c707fbf991f52d82851738ce616253d5a29976605"
+  },
+  "retained_descriptive_evidence": {
+    "completed_staged_interventions": 796,
+    "unique_position_ids": 737,
+    "decision_policy_changed": 183,
+    "terminal_vector_changed": 375,
+    "long_session_count": 9,
+    "standalone_prerequisite_cases": 5
+  },
+  "independence_assessment": {
+    "promotion_training_eligible": false,
+    "reason": "Most staged rows are successive plies from nine long sessions. position_id is not an independence unit; using those plies across train/calibration/holdout would leak source-game context."
+  },
+  "permitted_use": [
+    "descriptive staged-intervention frequency",
+    "mechanism regression",
+    "calibration design"
+  ],
+  "forbidden_use": [
+    "STOP_BUYING promotion training",
+    "independent holdout support claim",
+    "move-quality label",
+    "Elo or strength label"
+  ],
+  "authority": {
+    "calibration_source": true,
+    "stop_promotion": false,
+    "resource_authorization": false,
+    "outward_move": false
+  }
+}

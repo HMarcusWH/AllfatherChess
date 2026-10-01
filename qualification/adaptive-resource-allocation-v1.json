@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "catalog_id": "adaptive-resource-allocation-v1",
+  "policy_id": "adaptive_resource_v1",
+  "work_scheduler_catalog": {
+    "catalog_id": "work-grant-scheduler-v1",
+    "catalog_digest": "c5db1463eeb9355368163059e00c8a74bfa83a3c34ef2653365c96f2ef2931f2"
+  },
+  "bundle": {
+    "bundle_id": "bundle/staged-verify-v1",
+    "allocation_round": 2,
+    "chunk_ids": [
+      "compat/stockfish/staged-verify/n32",
+      "compat/reckless/staged-verify/n32",
+      "compat/lc0/staged-verify/n32"
+    ]
+  },
+  "skip_max_change_probability": 0.1,
+  "max_allocation_rounds": 3,
+  "promotion": {
+    "stop_promotion": false,
+    "reason": "Independent J10 seed corpus has 16 source groups, below the frozen 32-group minimum; runtime remains fail-closed BUY-only.",
+    "minimum_independent_groups": 32,
+    "calibration_independent_groups": 16,
+    "calibration_corpus_id": "j10-calibration-corpus-v1",
+    "staged_model_path": null,
+    "regime_model_path": null
+  },
+  "authority": {
+    "allocation_nomination": true,
+    "resource_authorization": false,
+    "outward_move": false
+  },
+  "claim_boundary": {
+    "adaptive_round": 2,
+    "owner_specific_allocation": false,
+    "decision_change_probability_only": true,
+    "move_quality": false,
+    "elo": false,
+    "strength": false,
+    "deployment": false
+  }
+}

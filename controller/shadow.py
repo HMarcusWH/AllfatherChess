@@ -450,6 +450,8 @@ class _ActiveRun:
     refinement_oracle_active: bool = False
     specialist_tokens: dict[str, str] = field(default_factory=dict)
     grant_admissions: dict[str, GrantAdmission] = field(default_factory=dict)
+    staged_preconfigured_options: dict[str, dict[str, object]] = field(default_factory=dict)
+    staged_bundle_prepared: bool = False
     _cancelled: bool = False
     cancel_reason: str | None = None
     worker: threading.Thread | None = None
@@ -2930,6 +2932,208 @@ class ShadowRunCoordinator:
             and not self._j9_adaptive(active)
         )
 
+    def _j10_adaptive(self, active: _ActiveRun) -> bool:
+        return bool(
+            self.runtime.config.resource_allocator is not None
+            and self._j9_adaptive(active)
+        )
+
+    def _release_staged_bundle_grants(
+        self,
+        active: _ActiveRun,
+        *,
+        reason: str,
+    ) -> None:
+        for search_id in list(active.grant_admissions):
+            if ":verify-extension:" not in search_id:
+                continue
+            self._release_work_grant(
+                active,
+                search_id=search_id,
+                reason=reason,
+            )
+        active.staged_preconfigured_options.clear()
+        active.staged_bundle_prepared = False
+
+    def _prepare_staged_work_grant_bundle(
+        self,
+        active: _ActiveRun,
+        verification: VerificationRun,
+    ) -> bool:
+        """Transactionally authorize and phase-configure J10's staged bundle.
+
+        No staged search bytes may cross engine stdin until all three grants are
+        admitted and every effective-option digest has been checked.
+        """
+
+        if not self._j10_adaptive(active) or self.router is None:
+            return True
+        propose = getattr(self.router, "propose_work_grant", None)
+        authorize_bundle = getattr(
+            self.router,
+            "authorize_work_grant_bundle",
+            None,
+        )
+        if propose is None or authorize_bundle is None:
+            active.run.note(
+                "J10 bundle interface unavailable; staged bundle not dispatched"
+            )
+            return False
+
+        proposals: list[tuple[WorkGrant, str]] = []
+        expected_by_search: dict[str, dict[str, object]] = {}
+        try:
+            for owner in verification.plan.owners:
+                instance = verification.plan.participants[owner]
+                search_id = (
+                    f"{active.run.run_id}:verify-extension:{instance}:0"
+                )
+                started = time.monotonic()
+                expected_options = (
+                    self.runtime.expected_shadow_phase_options(
+                        instance,
+                        "STAGED_VERIFY",
+                    )
+                )
+                expected_digest = canonical_digest(expected_options)
+                self._charge_controller_elapsed(
+                    active,
+                    label=(
+                        "j10_bundle_expected_options_"
+                        f"{owner}"
+                    ),
+                    elapsed_ms=(
+                        time.monotonic() - started
+                    ) * 1000.0,
+                )
+                grant = propose(
+                    active.context,
+                    owner=owner,
+                    instance=instance,
+                    phase="STAGED_VERIFY",
+                    allocation_round=2,
+                    effective_options_digest=expected_digest,
+                    target_id="staged_extension",
+                )
+                if grant is None:
+                    active.run.note(
+                        f"J10 staged bundle proposal denied for {owner}; "
+                        "zero staged searches admitted"
+                    )
+                    return False
+                proposals.append((grant, search_id))
+                expected_by_search[search_id] = expected_options
+
+            admissions = authorize_bundle(
+                active.context,
+                items=tuple(proposals),
+            )
+        except Exception as exc:
+            active.run.note(
+                "J10 staged bundle admission failed before phase mutation: "
+                f"{type(exc).__name__}: {exc}"
+            )
+            return False
+
+        if admissions is None or len(admissions) != len(proposals):
+            active.run.note(
+                "J10 staged bundle denied transactionally; zero staged "
+                "searches admitted"
+            )
+            return False
+
+        for admission in admissions:
+            active.grant_admissions[admission.search_id] = admission
+
+        # The J10 runtime freezes VERIFY and STAGED_VERIFY option overlays to
+        # the same effective state. Runtime validation enforces that equality,
+        # so rollback after a later failure cannot strand a different option
+        # state even if some instances were configured first.
+        try:
+            for admission in admissions:
+                instance = admission.grant.instance
+                started = time.monotonic()
+                try:
+                    actual_options = self.runtime.configure_shadow_phase(
+                        instance,
+                        "STAGED_VERIFY",
+                    )
+                finally:
+                    self._charge_controller_elapsed(
+                        active,
+                        label=(
+                            "j10_bundle_phase_config_"
+                            f"{admission.grant.owner}"
+                        ),
+                        elapsed_ms=(
+                            time.monotonic() - started
+                        ) * 1000.0,
+                    )
+                digest_started = time.monotonic()
+                actual_digest = canonical_digest(
+                    dict(sorted(actual_options.items()))
+                )
+                self._charge_controller_elapsed(
+                    active,
+                    label=(
+                        "j10_bundle_actual_options_"
+                        f"{admission.grant.owner}"
+                    ),
+                    elapsed_ms=(
+                        time.monotonic() - digest_started
+                    ) * 1000.0,
+                )
+                if (
+                    actual_digest
+                    != admission.grant.effective_options_digest
+                ):
+                    raise ControllerRuntimeError(
+                        f"{instance}: STAGED_VERIFY options differ from "
+                        "pre-authorized WorkGrant digest"
+                    )
+                active.staged_preconfigured_options[
+                    instance
+                ] = actual_options
+        except Exception as exc:
+            self._release_staged_bundle_grants(
+                active,
+                reason=(
+                    "J10 staged bundle rolled back before dispatch because "
+                    f"phase configuration failed: {type(exc).__name__}: {exc}"
+                ),
+            )
+            active.run.note(
+                "J10 staged bundle phase preparation failed; zero staged "
+                f"searches dispatched: {type(exc).__name__}: {exc}"
+            )
+            return False
+
+        if active.anchor_completed.is_set() or active.cancelled:
+            self._release_staged_bundle_grants(
+                active,
+                reason=(
+                    "J10 staged bundle rolled back because the decision "
+                    "boundary closed before any staged dispatch"
+                ),
+            )
+            return False
+        for admission in admissions:
+            if not self._work_grant_dispatch_permitted(
+                active,
+                admission,
+            ):
+                self._release_staged_bundle_grants(
+                    active,
+                    reason=(
+                        "J10 staged bundle rolled back because a grant "
+                        "deadline closed before any staged dispatch"
+                    ),
+                )
+                return False
+
+        active.staged_bundle_prepared = True
+        return True
+
     @staticmethod
     def _grant_limit(grant: WorkGrant) -> dict[str, int]:
         if grant.native_limit.kind is NativeLimitKind.NODES:
@@ -4134,12 +4338,35 @@ class ShadowRunCoordinator:
                 ),
             )
             if not opened or stream is None:
+                if self._j10_adaptive(active):
+                    self._release_staged_bundle_grants(
+                        active,
+                        reason=(
+                            "J10 staged bundle released because telemetry "
+                            f"stream setup failed for {instance}"
+                        ),
+                    )
                 staged.set_disposition(
                     "incomplete",
                     f"staged VERIFY stream setup failed for {instance}",
                 )
                 return
             staged.register_stream(stream)
+
+        if self._j10_adaptive(active):
+            if not self._prepare_staged_work_grant_bundle(
+                active,
+                verification,
+            ):
+                staged.set_disposition(
+                    "incomplete",
+                    "J10 transactional grant/phase preparation failed",
+                )
+                active.run.note(
+                    "J10 staged bundle not dispatched: transactional "
+                    "grant/phase preparation failed"
+                )
+                return
 
         dispatched = 0
         for owner in verification.plan.owners:
@@ -4149,6 +4376,23 @@ class ShadowRunCoordinator:
                 break
 
         if dispatched != len(verification.plan.owners):
+            if self._j10_adaptive(active):
+                # Any admissions whose process write never happened are
+                # released. Already-dispatched stages remain explicit partial
+                # evidence and cannot be promoted by J10/J12.
+                for owner in verification.plan.owners[dispatched:]:
+                    instance = verification.plan.participants[owner]
+                    search_id = (
+                        f"{active.run.run_id}:verify-extension:{instance}:0"
+                    )
+                    self._release_work_grant(
+                        active,
+                        search_id=search_id,
+                        reason=(
+                            "J10 staged bundle member released because the "
+                            "bundle did not fully cross the dispatch boundary"
+                        ),
+                    )
             staged.set_disposition(
                 "incomplete",
                 "not all staged VERIFY participants crossed the dispatch boundary",
@@ -4198,7 +4442,12 @@ class ShadowRunCoordinator:
             ):
                 return False
 
-        if self._j9_adaptive(active):
+        if self._j10_adaptive(active):
+            admission = active.grant_admissions.get(search_id)
+            if admission is None or not active.staged_bundle_prepared:
+                return False
+            dispatch_limit = self._grant_limit(admission.grant)
+        elif self._j9_adaptive(active):
             admission = self._prepare_work_grant(
                 active,
                 search_id=search_id,
@@ -4250,10 +4499,20 @@ class ShadowRunCoordinator:
 
         phase_config_started = time.monotonic()
         try:
-            effective_options = self.runtime.configure_shadow_phase(
-                instance,
-                "STAGED_VERIFY",
-            )
+            if self._j10_adaptive(active):
+                effective_options = (
+                    active.staged_preconfigured_options.get(instance)
+                )
+                if effective_options is None:
+                    raise ControllerRuntimeError(
+                        f"{instance}: J10 staged options were not "
+                        "preconfigured transactionally"
+                    )
+            else:
+                effective_options = self.runtime.configure_shadow_phase(
+                    instance,
+                    "STAGED_VERIFY",
+                )
         except ControllerRuntimeError as exc:
             if admission is not None:
                 self._release_work_grant(

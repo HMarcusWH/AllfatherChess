@@ -1,6 +1,6 @@
 # AllfatherChess
 
-> **Current synchronized build state:** PR #55 / M14-J J8 is merged; main is synchronized at `6412f46b5543bb0339f3928a206ea3b8b173ff98`. J0-J8 are implemented, ENGINE-OPT-V2 remains the fail-closed fallback, and **PR #56 / J9** adds typed, BudgetLedger-backed compatibility WorkGrants without enabling adaptive allocation or move authority.  
+> **Current synchronized build state:** PR #56 / M14-J J9 is merged; main is synchronized at `ddb63157749ebdd8c10120d25b9c4b2e1d3b2649`. J0-J9 are implemented, ENGINE-OPT-V2 remains the fail-closed fallback, and **PR #57 / J10** adds deterministic round-2 allocation nomination while keeping adaptive STOP unpromoted until leakage-free independent calibration exists.  
 > See [docs/CURRENT_STATUS.md](docs/CURRENT_STATUS.md) for the exact implemented surface and
 > [docs/ROADMAP.md](docs/ROADMAP.md) for the canonical forward execution order.
 
@@ -90,9 +90,10 @@ make run-allfather-online-hybrid
 ```
 
 PR #41 completed LOCAL-1, PR #44 completed ENGINE-OPT-V2, PR #52 completed J6 of
-M14-J, PR #53 repaired the LOCAL-1 prerequisite boundary, PR #54 merged J7, and PR #55
-merged the clamp-only J8 MoveResourcePlan. PR #56 is the J9 compatibility WorkGrant
-scheduler candidate. The remaining first-canary path is now:
+M14-J, PR #53 repaired the LOCAL-1 prerequisite boundary, PR #54 merged J7, PR #55
+merged the clamp-only J8 MoveResourcePlan, and PR #56 merged the J9 compatibility
+WorkGrant scheduler. PR #57 is the J10 adaptive-allocation candidate. The remaining
+first-canary path is now:
 
 ```text
 LOCAL-1 full-game lifecycle qualification  [DONE]
@@ -100,9 +101,9 @@ LOCAL-1 full-game lifecycle qualification  [DONE]
     -> M14-J J0-J6 orchestration substrate + resource laboratory  [DONE]
     -> M14-J J7 evidence-backed isolated profile selection  [DONE]
     -> M14-J J8 clamp-only adaptive outer resource plan  [DONE]
-    -> M14-J J9 WorkGrant compatibility scheduler  [PR #56]
-    -> M14-J J10 deterministic adaptive allocator  [NEXT AFTER J9]
-    -> M14-J J11 allocation evidence + authority binding
+    -> M14-J J9 WorkGrant compatibility scheduler  [DONE]
+    -> M14-J J10 deterministic adaptive allocator  [PR #57]
+    -> M14-J J11 allocation evidence + authority binding  [NEXT AFTER J10]
     -> M14-J J12 full orchestrated composition
     -> META-1 matched-resource authority-value control
     -> ONLINE-PLAY-1 production-profile 10+5 experiment

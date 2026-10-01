@@ -1,9 +1,9 @@
 # AllfatherChess roadmap
 
 **Status date:** 1 October 2026  
-**Current main:** `6412f46b5543bb0339f3928a206ea3b8b173ff98`  
-**Latest merged milestone:** PR #55 / M14-J J8 — clamp-only adaptive outer resource plan  
-**Current execution milestone:** PR #56 / M14-J J9 — WorkGrant compatibility scheduler  
+**Current main:** `ddb63157749ebdd8c10120d25b9c4b2e1d3b2649`  
+**Latest merged milestone:** PR #56 / M14-J J9 — WorkGrant compatibility scheduler  
+**Current execution milestone:** PR #57 / M14-J J10 — deterministic adaptive allocation substrate  
 **Current-state authority:** [CURRENT_STATUS.md](CURRENT_STATUS.md)  
 **M14-J implementation plan:** [M14_J_ADAPTIVE_RESOURCE_ORCHESTRATION.md](M14_J_ADAPTIVE_RESOURCE_ORCHESTRATION.md)  
 **Detailed deployment audit:** [ONLINE_RELEASE_PLAN.md](ONLINE_RELEASE_PLAN.md)
@@ -49,10 +49,12 @@ selection or deployment authority. PR #53 then repaired the LOCAL-1 prerequisite
 without changing the retained J6 evidence. PR #54 then merged J7 as a deterministic,
 source-controlled selection/evidence layer while leaving the J3 runtime catalog disabled and
 unchanged. PR #55 then merged J8: an additive, clamp-only `MoveResourcePlan` below the
-unchanged `clock_envelope_v1` TimePlan. PR #56 is the J9 compatibility-scheduler candidate:
-fixed historical optional searches must cross a typed WorkGrant plus the existing BudgetLedger
-resource authority before dispatch. The project is **not** yet deployable as a qualified service
-and has not established superiority over a constituent engine.
+unchanged `clock_envelope_v1` TimePlan. PR #56 merged J9: fixed historical optional searches
+cross a typed WorkGrant plus the existing BudgetLedger authority before dispatch. PR #57 is
+the J10 candidate: only the staged round becomes an adaptive bundle nomination, while STOP
+remains unpromoted because the frozen independent calibration seed has 16 groups against a
+32-group minimum. The project is **not** yet deployable as a qualified service and has not
+established superiority over a constituent engine.
 
 ## 2. Critical path to the first public canary
 
@@ -87,18 +89,23 @@ M14-J J8 / PR #55
 clamp-only adaptive outer resource plan / MoveResourcePlan
         |
         v
-IN PROGRESS
+DONE
 M14-J J9 / PR #56
 typed compatibility WorkGrants + single-ledger admission
         |
         v
-NEXT
-M14-J J10
-deterministic adaptive allocator
+IN PROGRESS
+M14-J J10 / PR #57
+round-2 adaptive bundle nomination; STOP calibration gated
         |
         v
-M14-J J11-J12
-allocator, evidence binding, full orchestrated composition
+NEXT
+M14-J J11
+allocation evidence hardening
+        |
+        v
+M14-J J12
+full orchestrated composition
         |
         v
 META-1

@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "artifact_id": "j10-staged-decision-model-v1",
+  "status": "not_fitted_insufficient_independent_groups",
+  "calibration_corpus_id": "j10-calibration-corpus-v1",
+  "independent_groups": 16,
+  "required_independent_groups": 32,
+  "runtime_path": null,
+  "promotion": false,
+  "claim_boundary": {
+    "decision_change_probability_model": false,
+    "stop_buying_authority": false,
+    "move_quality": false,
+    "elo": false,
+    "strength": false
+  }
+}

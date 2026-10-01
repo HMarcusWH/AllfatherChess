@@ -309,6 +309,37 @@ class WorkSchedulerGrantTests(unittest.TestCase):
                     grant=forged,
                 )
 
+    def test_external_allocator_digest_is_allowed_only_when_expected(self):
+        plan = parent_plan()
+        digest = "d" * 64
+        grant = SCHEDULER.create_grant(
+            move_plan=plan,
+            owner="lc0",
+            instance="lc0-shadow",
+            phase="STAGED_VERIFY",
+            allocation_round=2,
+            effective_options_digest="a" * 64,
+            elapsed_ms=100.0,
+            allocator_decision_digest=digest,
+        )
+        self.assertEqual(grant.allocator_decision_digest, digest)
+        SCHEDULER.validate_grant(
+            move_plan=plan,
+            grant=grant,
+            expected_allocator_decision_digest=digest,
+        )
+        with self.assertRaises(WorkSchedulerDenied):
+            SCHEDULER.validate_grant(
+                move_plan=plan,
+                grant=grant,
+            )
+        with self.assertRaises(WorkSchedulerDenied):
+            SCHEDULER.validate_grant(
+                move_plan=plan,
+                grant=grant,
+                expected_allocator_decision_digest="e" * 64,
+            )
+
     def test_grant_deadline_never_exceeds_parent_soft_deadline(self):
         plan = parent_plan()
         grant = SCHEDULER.create_grant(

@@ -1,6 +1,6 @@
 # Claim ledger
 
-## Current repository synchronization after PR #55
+## Current repository synchronization after PR #56
 
 - **PROVED / CI-GATED FALLBACK:** ENGINE-OPT-V2 / PR #44 remains the frozen qualified
   fallback composition. J6 does not rewrite its clocks, authority policy or historical
@@ -30,8 +30,12 @@
 - **PROVED / J8 MOVE RESOURCE PLAN:** PR #55 merged a content-addressed, clamp-only
   MoveResourcePlan below the unchanged clock_envelope_v1 TimePlan. It may reduce resource
   ceilings from host/composition facts but grants no WorkGrant, profile-selection or move authority.
-- **OPEN ORCHESTRATION GATE:** PR #56 / J9 is the current WorkGrant compatibility-scheduler
-  gate. J10 remains the adaptive grant-selection boundary.
+- **PROVED / J9 WORKGRANT MECHANISM:** PR #56 merged the fixed 3×3 WorkGrant compatibility
+  scheduler over the unchanged J3 catalog. Real-process evidence exercised nine admitted grants,
+  nine settlements and zero open reservations while outward authority remained Stockfish.
+- **OPEN ORCHESTRATION GATE:** PR #57 / J10 is the current adaptive-allocation gate. The
+  allocator mechanism is being qualified, but source-controlled STOP promotion remains false
+  until leakage-free independent calibration passes. J11 remains the evidence-hardening boundary.
 - **OPEN RELEASE GATES:** ONLINE-3 packaging/bridge, ONLINE-4
   network/restart/rollback, aggregate release qualification, ONLINE-RC, main governance,
   and combined-distribution licensing.
@@ -71,7 +75,7 @@
 - no Elo, strength, equal-compute, deployment or move-quality claim follows from J8;
 - J9 WorkGrant scheduling and J12 full orchestrated hybrid composition remain later gates.
 
-## M14-J J9 WorkGrant compatibility scheduler — PR #56 candidate
+## M14-J J9 WorkGrant compatibility scheduler — MERGED / PR #56
 
 ### IMPLEMENTED / QUALIFICATION-GATED BY THIS PR
 
@@ -105,6 +109,47 @@
 - no J9 WorkGrant grants outward move authority or hybrid DecisionAuthorization;
 - no J9 result establishes deployment-host/composition qualification, generic portability,
   Elo, move quality, strength or equal-resource superiority.
+
+## M14-J J10 deterministic adaptive allocation — PR #57 candidate
+
+### IMPLEMENTED / QUALIFICATION-GATED BY THIS PR
+
+- rounds 0/1 preserve J9's fixed compatibility scheduler; only round 2 receives a
+  claim-bearing `AllocationDecision`;
+- the only adaptive bundle is the exact J9 three-engine STAGED_VERIFY n32 trio;
+- `AllocationDecision` carries allocation nomination only and explicitly grants neither
+  resource authorization nor outward move authority;
+- J9 WorkGrant plus ConservativeRouter/BudgetLedger remains the only compute-authority path;
+- J10 BUY binds every staged WorkGrant to the AllocationDecision digest while rounds 0/1
+  retain their historical `compat-decision-v1` identities;
+- round-2 bundle admission is transactional: all three reservations must exist before any
+  staged search dispatch, with rollback on partial admission failure;
+- the J10 runtime freezes VERIFY/STAGED_VERIFY effective option states equal and validates
+  all staged option digests before search dispatch;
+- grouped staged-value sweeps may use explicit `run_id -> source_group` mappings so future
+  train/calibration/holdout splits need not leak adjacent plies from one game.
+
+### CALIBRATION / PROMOTION BOUNDARY
+
+- the retained PR #56 artifact's 796 staged interventions are descriptive/mechanism evidence;
+  they are not treated as 737 independent calibration examples because most are successive
+  plies from nine long sessions;
+- a pre-label seed corpus freezes 16 independent source groups against a 32-group
+  source-controlled STOP-promotion minimum;
+- staged/regime serving-model status is explicitly
+  `not_fitted_insufficient_independent_groups`;
+- runtime `STOP_BUYING` promotion is false and the J10 policy remains fail-closed
+  `BUY_BUNDLE`;
+- the 0.10 decision-change threshold is a declared risk tolerance, not an empirically optimal
+  resource or strength setting.
+
+### NOT PROMOTED BY J10
+
+- no owner-specific allocator, J7 profile selection, REFINE, crossfeed, counterfactual or
+  hybrid DecisionAuthorization;
+- no host/composition portability from the test-only synthetic-capacity mechanism witness;
+- no move-quality, correctness, win-probability, Elo, strength, equal-resource or deployment claim;
+- J11 independently sealed allocation evidence and J12 full orchestrated move authority remain later gates.
 
 ## LOCAL-1 full-game lifecycle — PROVED / CI-GATED
 

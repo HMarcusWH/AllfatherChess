@@ -39,6 +39,11 @@ from controller.resource_profiles import (
 
 ADAPTIVE_CLOCK_POLICY = "adaptive_clock_envelope_v1"
 ALLOCATOR_POLICY = "legacy-fixed-stage-compat-v1"
+ADAPTIVE_ALLOCATOR_POLICY = "adaptive-resource-v1"
+SUPPORTED_ALLOCATOR_POLICIES = (
+    ALLOCATOR_POLICY,
+    ADAPTIVE_ALLOCATOR_POLICY,
+)
 FALLBACK_PROFILE = "engine-opt-v2"
 NETWORK_POLICY = "clock-envelope-v1"
 
@@ -71,9 +76,10 @@ class AdaptiveTimeSettings:
             raise AdaptiveTimeError(
                 "J8 fallback profile must remain engine-opt-v2"
             )
-        if self.allocator_policy_id != ALLOCATOR_POLICY:
+        if self.allocator_policy_id not in SUPPORTED_ALLOCATOR_POLICIES:
             raise AdaptiveTimeError(
-                "J8 allocator compatibility policy must remain fixed-stage"
+                "allocator_policy_id must be one of "
+                f"{list(SUPPORTED_ALLOCATOR_POLICIES)}"
             )
         _safe_id(self.composition_id, "J8 composition_id")
         _safe_id(self.network_policy, "J8 network_policy")

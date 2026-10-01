@@ -1,9 +1,9 @@
 # AllfatherChess — M14-J Adaptive Resource Orchestration Rebuild Plan
 
-> **Status:** active implementation; J0-J8 merged, J9 in progress / PR #56  
-> **Current main:** `6412f46b5543bb0339f3928a206ea3b8b173ff98` (PR #55 merge)  
+> **Status:** active implementation; J0-J9 merged, J10 in progress / PR #57  
+> **Current main:** `ddb63157749ebdd8c10120d25b9c4b2e1d3b2649` (PR #56 merge)  
 > **Frozen fallback composition:** ENGINE-OPT-V2 / PR #44  
-> **Latest completed stage:** J8 clamp-only MoveResourcePlan / PR #55  
+> **Latest completed stage:** J9 WorkGrant compatibility scheduler / PR #56  
 > **Authority:** documentation only; this plan does not itself promote M14-J behavior  
 
 **Program:** M14-J — Adaptive Resource Orchestration
@@ -1340,7 +1340,7 @@ J7 non-consumption and destructive plan/provenance/authority mutations.
 
 ---
 
-## 38. J9 — WorkGrant Compatibility Scheduler — **PR #56**
+## 38. J9 — WorkGrant Compatibility Scheduler — **MERGED / PR #56**
 
 J9 is the first runtime use of the typed WorkGrant contract. It does not yet decide what
 computation is valuable. It converts the historical fixed optional-search sequence into
@@ -1418,30 +1418,60 @@ adaptive WorkGrant selection; J11 owns independently sealed allocation evidence.
 
 ---
 
-## 39. J10 — Adaptive Allocator
+## 39. J10 — Deterministic Adaptive Allocation — **PR #57**
 
-Add:
-
-`controller/resource_allocator.py`
-
-Inputs:
+J10 does not replace J9 and does not synthesize arbitrary per-engine work. Rounds 0/1 retain
+the exact J9 compatibility decisions:
 
 ```text
-BudgetLedger
-HostCapabilities
-MoveResourcePlan
-current evidence
-profile catalog
+round 0  EXPLORE n16 × 3
+round 1  VERIFY  n16 × 3
 ```
 
-Output:
+Only round 2 becomes claim-bearing. The legal action space is:
 
 ```text
-next WorkGrant
-or STOP
+BUY_BUNDLE(bundle/staged-verify-v1)
+STOP_BUYING
+FALLBACK
 ```
 
-Still no move authority.
+The bundle is an overlay over the unchanged J9 scheduler catalog and contains exactly the
+three licensed staged n32 chunks. `AllocationDecision` is nomination only:
+`resource_authorization=false` and `outward_move=false`. J9 still translates the selected
+bundle into exact WorkGrants and ConservativeRouter/BudgetLedger remains compute authority.
+
+The retained PR #56 profile-domain artifact contains 796 completed staged interventions and
+737 position IDs, but most are successive plies from nine long sessions. Those rows are
+descriptive/mechanism evidence, not independent promotion training. PR #57 freezes a
+pre-outcome seed corpus with 16 source groups and a source-controlled minimum of 32 independent
+groups before any STOP policy may be promoted.
+
+Therefore PR #57 intentionally has:
+
+```text
+allocator mechanism          enabled
+STOP_BUYING promotion        false
+runtime action               BUY_BUNDLE fail-closed
+```
+
+The implementation contains the conservative future STOP gate—staged model in-domain,
+held-out-observed serving bucket, declared decision-change probability <= 0.10, regime support
+in-domain and OUT_OF_DOMAIN inactive—but no serving model is loaded while the independence
+gate is unmet. The probability is descriptive decision-policy change only, never correctness,
+win probability, Elo or strength.
+
+A BUY is transactionally prepared. All three round-2 grants are proposed and reserved before
+any staged search write. If any reservation fails, all prior admissions are rolled back. The
+J10 validation profile also requires VERIFY and STAGED_VERIFY to have identical effective
+option states; all three staged phase states and digests are checked before dispatch begins.
+
+Raw host policy remains J8's responsibility. A real `MoveResourcePlan FALLBACK` bypasses
+J10; test-only synthetic capacity in the real-process mechanism contract cannot establish
+host/composition portability. J10 does not consume the J7 Hash32/MaxPrefetch0 selections,
+enable HYBRID DecisionAuthorization, or promote deployment/strength claims.
+
+J11 next independently seals/recomputes allocation provenance.
 
 ---
 

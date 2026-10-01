@@ -316,9 +316,8 @@ def mechanism_run() -> dict[str, object]:
             "synthetic J12 host evidence was allowed to reach HYBRID authority",
         )
         require(
-            "synthetic host-capacity evidence"
-            in str(authorization.get("reason")),
-            "synthetic host fallback did not identify the host-evidence gate",
+            "linux-host-v2" in str(authorization.get("reason")),
+            "synthetic host fallback did not identify the real-provider gate",
         )
 
     case = {

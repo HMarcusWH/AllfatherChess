@@ -48,3 +48,14 @@ jobs:
           python3 tests/controller/test_work_grant.py
           python3 tests/controller/test_work_scheduler.py
           python3 scripts/qualify-work-grant-scheduler.py
+          python3 -m json.tool qualification/adaptive-resource-allocation-v1.json >/dev/null
+          python3 -m json.tool qualification/j10-calibration-source-v1.json >/dev/null
+          python3 -m json.tool qualification/j10-calibration-corpus-v1.json >/dev/null
+          python3 -m json.tool qualification/j10-staged-decision-model-v1.json >/dev/null
+          python3 -m json.tool qualification/j10-regime-support-model-v1.json >/dev/null
+          python3 -m json.tool config/allfather.m14-j-j10.validation.json >/dev/null
+          python3 scripts/collect-j10-staged-calibration.py
+          python3 scripts/build-j10-allocation-calibration.py
+          python3 tests/controller/test_resource_allocator.py
+          python3 tests/controller/test_adaptive_resource_router.py
+          python3 scripts/qualify-adaptive-resource-allocator.py

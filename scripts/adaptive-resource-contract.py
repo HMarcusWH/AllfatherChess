@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Real-engine M14-J J10 WorkGrant mechanism contract.
+"""Real-engine M14-J J10 adaptive allocation mechanism contract.
 
 The hosted runner currently reports its CPU quota as unknown, so the production
 J8 planner correctly falls back there. This contract keeps the real
@@ -96,7 +96,7 @@ def main() -> int:
         )
         synthetic_capacity_fields.append("cgroup_memory_status")
     if replacement:
-        replacement["provider_id"] = "j9-real-engines-synthetic-capacity"
+        replacement["provider_id"] = "j10-real-engines-synthetic-capacity"
         replacement["capacity_complete"] = True
         # A test-only synthetic capacity fact must never accidentally turn a
         # real CPU identity into a complete qualification-domain claim. Degrade

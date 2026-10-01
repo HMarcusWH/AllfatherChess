@@ -8,12 +8,15 @@ on:
       - 'qualification/resource-profile-catalog-v1.json'
       - 'qualification/adaptive-clock-v1.json'
       - 'qualification/work-grant-scheduler-v1.json'
+      - 'qualification/adaptive-resource-allocation-v1.json'
+      - 'qualification/j10-*.json'
       - 'qualification/online-engine-opt-v2.json'
       - 'qualification/online-hybrid-v2.json'
       - 'qualification/local-full-game-v2.json'
       - 'config/allfather.online-engine-opt-v2.json'
       - 'config/allfather.m14-j-j8.validation.json'
       - 'config/allfather.m14-j-j9.validation.json'
+      - 'config/allfather.m14-j-j10.validation.json'
       - 'config/allfather.online-hybrid-v2.validation.json'
       - 'controller/**'
       - 'adapters/process/**'
@@ -27,6 +30,10 @@ on:
       - 'scripts/adaptive-time-contract.py'
       - 'scripts/qualify-work-grant-scheduler.py'
       - 'scripts/work-grant-contract.py'
+      - 'scripts/qualify-adaptive-resource-allocator.py'
+      - 'scripts/adaptive-resource-contract.py'
+      - 'scripts/collect-j10-staged-calibration.py'
+      - 'scripts/build-j10-allocation-calibration.py'
       - 'scripts/qualify-online-hybrid-v2.py'
       - 'tests/engine_opt/**'
       - 'tests/controller/test_engine_opt_runtime.py'
@@ -34,11 +41,14 @@ on:
       - 'tests/controller/test_move_resource_plan.py'
       - 'tests/controller/test_work_grant.py'
       - 'tests/controller/test_work_scheduler.py'
+      - 'tests/controller/test_resource_allocator.py'
+      - 'tests/controller/test_adaptive_resource_router.py'
       - 'tests/controller/test_resource_profile_catalog.py'
       - 'tests/controller/test_runtime_profiles.py'
       - 'tests/controller/test_resource_control.py'
       - 'tests/adapters/test_linux_affinity.py'
       - 'tests/fixtures/engine_opt/**'
+      - 'tests/fixtures/j10/**'
       - 'tests/harness/uci_session.py'
       - 'Makefile'
       - 'Makefile.local-game'
@@ -116,12 +126,18 @@ jobs:
           python3 tests/controller/test_work_scheduler.py
           python3 scripts/qualify-work-grant-scheduler.py
           python3 -m py_compile scripts/work-grant-contract.py
+          python3 scripts/collect-j10-staged-calibration.py
+          python3 scripts/build-j10-allocation-calibration.py
+          python3 tests/controller/test_resource_allocator.py
+          python3 tests/controller/test_adaptive_resource_router.py
+          python3 scripts/qualify-adaptive-resource-allocator.py
+          python3 -m py_compile scripts/adaptive-resource-contract.py
           python3 tests/controller/test_resource_profile_catalog.py
           python3 tests/controller/test_runtime_profiles.py
           python3 tests/adapters/test_linux_affinity.py
           python3 tests/controller/test_resource_control.py
           python3 scripts/qualify-online-hybrid-v2.py --static
-          for f in qualification/resource-profile-catalog-v1.json qualification/adaptive-clock-v1.json qualification/work-grant-scheduler-v1.json qualification/engine-opt-v2.json qualification/engine-opt-v2-selection.json qualification/engine-opt-v2-evidence.json qualification/engine-opt-v2-host-binding.json qualification/engine-derived-lock.json qualification/online-engine-opt-v2.json qualification/online-hybrid-v2.json qualification/local-full-game-v2.json config/allfather.online-engine-opt-v2.json config/allfather.m14-j-j8.validation.json config/allfather.m14-j-j9.validation.json config/allfather.online-hybrid-v2.validation.json; do python3 -m json.tool "$f" >/dev/null; done
+          for f in qualification/resource-profile-catalog-v1.json qualification/adaptive-clock-v1.json qualification/work-grant-scheduler-v1.json qualification/adaptive-resource-allocation-v1.json qualification/j10-calibration-source-v1.json qualification/j10-calibration-corpus-v1.json qualification/j10-staged-decision-model-v1.json qualification/j10-regime-support-model-v1.json qualification/engine-opt-v2.json qualification/engine-opt-v2-selection.json qualification/engine-opt-v2-evidence.json qualification/engine-opt-v2-host-binding.json qualification/engine-derived-lock.json qualification/online-engine-opt-v2.json qualification/online-hybrid-v2.json qualification/local-full-game-v2.json config/allfather.online-engine-opt-v2.json config/allfather.m14-j-j8.validation.json config/allfather.m14-j-j9.validation.json config/allfather.m14-j-j10.validation.json config/allfather.online-hybrid-v2.validation.json; do python3 -m json.tool "$f" >/dev/null; done
           bash -n scripts/build-online-engine-opt-v2.sh
 
   build-candidate:
@@ -319,6 +335,8 @@ jobs:
         run: python3 scripts/adaptive-time-contract.py
       - name: Exercise J9 WorkGrants on real ENGINE-OPT-V2 processes
         run: python3 scripts/work-grant-contract.py
+      - name: Exercise J10 adaptive allocation on real ENGINE-OPT-V2 processes
+        run: python3 scripts/adaptive-resource-contract.py
       - name: Build pinned Fastchess against source-test attestation
         run: make -f Makefile.local-game build-fastchess
       - name: Run LOCAL-1 contract regressions

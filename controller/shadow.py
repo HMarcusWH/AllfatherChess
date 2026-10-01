@@ -3067,6 +3067,7 @@ class ShadowRunCoordinator:
                         time.monotonic() - started
                     ) * 1000.0,
                 )
+                digest_started = time.monotonic()
                 actual_digest = canonical_digest(
                     dict(sorted(actual_options.items()))
                 )
@@ -3076,7 +3077,9 @@ class ShadowRunCoordinator:
                         "j10_bundle_actual_options_"
                         f"{admission.grant.owner}"
                     ),
-                    elapsed_ms=0.0,
+                    elapsed_ms=(
+                        time.monotonic() - digest_started
+                    ) * 1000.0,
                 )
                 if (
                     actual_digest

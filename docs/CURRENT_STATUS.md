@@ -1,12 +1,12 @@
 # AllfatherChess current build and release status
 
 **Status date:** 1 October 2026  
-**Authoritative main commit:** `6412f46b5543bb0339f3928a206ea3b8b173ff98`  
-**Latest merged milestone:** PR #55 / M14-J J8 — clamp-only adaptive outer resource plan  
+**Authoritative main commit:** `ddb63157749ebdd8c10120d25b9c4b2e1d3b2649`  
+**Latest merged milestone:** PR #56 / M14-J J9 — WorkGrant compatibility scheduler  
 **Qualified J6 PR head:** `6aecd0bae7848ca8a9893377fadffb049d336c3a`  
 **Frozen fallback:** ENGINE-OPT-V2 / PR #44 remains unchanged  
-**Current execution milestone:** PR #56 / M14-J J9 — WorkGrant compatibility scheduler  
-**Next milestone after J9:** M14-J J10 — deterministic adaptive allocator  
+**Current execution milestone:** PR #57 / M14-J J10 — deterministic adaptive allocation substrate  
+**Next milestone after J10:** M14-J J11 — allocation evidence hardening  
 **Forward roadmap:** [ROADMAP.md](ROADMAP.md)  
 **M14-J rebuild plan:** [M14_J_ADAPTIVE_RESOURCE_ORCHESTRATION.md](M14_J_ADAPTIVE_RESOURCE_ORCHESTRATION.md)  
 **Detailed deployment plan:** [ONLINE_RELEASE_PLAN.md](ONLINE_RELEASE_PLAN.md)
@@ -91,7 +91,7 @@ DecisionAuthorization, or establish composition qualification/generic-host porta
 Incomplete host capacity falls back to the unchanged ENGINE-OPT-V2 / `clock_envelope_v1`
 execution while denying the adaptive resource claim.
 
-## M14-J J9 WorkGrant compatibility scheduler — PR #56 candidate
+## M14-J J9 WorkGrant compatibility scheduler — MERGED / PR #56
 
 J9 keeps the merged J8 `MoveResourcePlan` as the per-move ceiling and adds typed
 `WorkGrant` authorization for the historical fixed EXPLORE/VERIFY/staged-VERIFY sequence.
@@ -109,6 +109,28 @@ On an ADAPTIVE plan, grant denial, expiry, phase-option mismatch, or a closed di
 means no engine write. J9 still does not consume the J7 Hash32/MaxPrefetch0 selections, convert
 REFINE, choose computation by value, or grant outward move authority. J10 owns adaptive grant
 selection.
+
+## M14-J J10 adaptive allocation substrate — PR #57 candidate
+
+J10 leaves J9 rounds 0/1 unchanged and makes only round 2 claim-bearing: after a clean
+three-engine n16 VERIFY round, an immutable `AllocationDecision` nominates either the frozen
+three-engine n32 staged-VERIFY bundle, `STOP_BUYING`, or `FALLBACK`. The decision carries
+neither resource nor outward-move authority; every BUY still requires the exact J9 WorkGrant,
+router validation and single BudgetLedger reservation chain.
+
+The retained PR #56 profile-domain artifact contains 796 completed staged interventions, but
+most are successive plies from nine long sessions. PR #57 therefore records those rows as
+descriptive/mechanism evidence only rather than treating 737 position IDs as independent
+calibration groups. A pre-outcome seed corpus freezes 16 independent source groups against a
+32-group STOP-promotion minimum. Consequently the source-controlled J10 runtime is intentionally
+**BUY-only fail-closed**: the allocator mechanism is exercised while calibrated
+`STOP_BUYING` remains unpromoted until leakage-free independent staged/regime models exist.
+
+A J10 BUY is prepared transactionally: all three staged WorkGrants must be proposed and
+reserved before any staged search write, and all three effective STAGED_VERIFY option digests
+must match before dispatch begins. J7 profile selections, hybrid DecisionAuthorization,
+REFINE/crossfeed/counterfactual, host portability, strength/Elo and deployment remain outside
+this milestone.
 
 ## LOCAL-1 qualification result
 

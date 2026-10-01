@@ -570,6 +570,7 @@ class ReplayRun:
     #: Controller work performed between run start and the first shadow dispatch.
     qualification_ms: float | None = None
     time_plan: dict[str, Any] | None = None
+    move_resource_plan: dict[str, Any] | None = None
     clock_outcome: dict[str, Any] | None = None
     outward_decision: dict[str, Any] | None = None
 
@@ -735,6 +736,8 @@ class ReplayRun:
             if self.time_plan is not None:
                 manifest["time_plan"] = self.time_plan
                 manifest["clock_outcome"] = self.clock_outcome
+            if self.move_resource_plan is not None:
+                manifest["move_resource_plan"] = self.move_resource_plan
             if self.outward_decision is not None:
                 manifest["outward_decision"] = self.outward_decision
             payload = json.dumps(manifest, indent=2, sort_keys=True) + "\n"
@@ -829,7 +832,9 @@ def verify_bundle_integrity(run_dir: Path) -> list[str]:
     run_dir = Path(run_dir)
     manifest = load_manifest(run_dir)
     from controller.online_time import verify_time_manifest
+    from controller.adaptive_time import verify_move_resource_plan_manifest
     problems: list[str] = verify_time_manifest(manifest)
+    problems.extend(verify_move_resource_plan_manifest(manifest))
 
     stages = manifest.get("stages", [])
     stage_by_search: dict[str, dict[str, Any]] = {}

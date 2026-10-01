@@ -54,6 +54,7 @@ from controller.calibration import (
 from common.residuals import past_only_features
 from common.search_request import SearchRequestError, parse_go_request
 from controller.replay import atomic_write_text
+from controller.move_resource_plan import MoveResourcePlan
 from controller.replay_analysis import SearchTrajectory, reconstruct_stream
 from controller.shadow import RouterCommand
 
@@ -671,7 +672,33 @@ class ConservativeRouter:
         # clock would hand a slow oracle a second full envelope.
         started = getattr(context, "started_monotonic", None)
         clock = getattr(context, "clock", None)
-        self.envelope = self._configured_envelope if clock is None else clock.plan.envelope
+        resource_plan = getattr(context, "move_resource_plan", None)
+        if resource_plan is not None:
+            if not isinstance(resource_plan, MoveResourcePlan):
+                raise RoutingError("move_resource_plan has the wrong type")
+            if clock is None:
+                raise RoutingError("MoveResourcePlan requires a baseline TimePlan")
+            if (
+                resource_plan.generation != context.generation
+                or resource_plan.position_id != context.position.position_id
+                or resource_plan.baseline_time_plan_id
+                != clock.plan.as_dict().get("plan_id")
+            ):
+                raise RoutingError("MoveResourcePlan does not bind the current run")
+            if (
+                resource_plan.resource_envelope.wall_ms
+                > clock.plan.envelope.wall_ms + 1e-12
+                or resource_plan.resource_envelope.cpu_ms
+                > clock.plan.envelope.cpu_ms + 1e-12
+                or resource_plan.resource_envelope.gpu_ms
+                > clock.plan.envelope.gpu_ms + 1e-12
+            ):
+                raise RoutingError("MoveResourcePlan exceeds its parent TimePlan")
+            self.envelope = resource_plan.resource_envelope
+        else:
+            self.envelope = (
+                self._configured_envelope if clock is None else clock.plan.envelope
+            )
         if clock is not None and (clock.plan.generation != context.generation
                 or clock.plan.position_id != context.position.position_id
                 or clock.plan.external_go_command != context.external_go_command
@@ -924,6 +951,9 @@ class ConservativeRouter:
             payload["time_plan"] = clock.plan.as_dict()
             payload["clock_outcome"] = clock.outcome()
             payload["envelope_claim"]["clock_output_complete"] = clock_complete
+        move_plan = getattr(context, "move_resource_plan", None)
+        if isinstance(move_plan, MoveResourcePlan):
+            payload["move_resource_plan"] = move_plan.as_dict()
         try:
             atomic_write_text(
                 Path(context.run_dir) / "route.json",

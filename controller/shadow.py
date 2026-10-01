@@ -51,6 +51,7 @@ from controller.crossfeed import (
     seal_crossfeed_artifact,
 )
 from controller.online_time import ClockSearch
+from controller.move_resource_plan import MoveResourcePlan
 from controller.counterfactual import (
     CounterfactualError,
     prepare_counterfactual_from_sources,
@@ -215,6 +216,7 @@ class RunContext:
     started_monotonic: float
     _coordinator: "ShadowRunCoordinator"
     clock: ClockSearch | None = None
+    move_resource_plan: MoveResourcePlan | None = None
 
     def elapsed_ms(self) -> float:
         return (time.monotonic() - self.started_monotonic) * 1000.0
@@ -888,7 +890,14 @@ class ShadowRunCoordinator:
                 self._cleanup_prepared_root()
             return None
 
-    def prepare_run(self, *, generation: int, go_command: str, clock: ClockSearch | None = None) -> bool:
+    def prepare_run(
+        self,
+        *,
+        generation: int,
+        go_command: str,
+        clock: ClockSearch | None = None,
+        resource_plan: MoveResourcePlan | None = None,
+    ) -> bool:
         """Create the run bundle and anchor stream *before* the anchor starts.
 
         This performs no engine IO. Normally it claims a directory and anchor
@@ -902,6 +911,24 @@ class ShadowRunCoordinator:
                 raise ControllerRuntimeError("clock plan does not match external request/generation")
             if not clock.work_open():
                 return False
+        if resource_plan is not None:
+            if clock is None:
+                raise ControllerRuntimeError(
+                    "MoveResourcePlan requires a baseline ClockSearch"
+                )
+            if not isinstance(resource_plan, MoveResourcePlan):
+                raise ControllerRuntimeError(
+                    "resource_plan must be MoveResourcePlan"
+                )
+            if (
+                resource_plan.generation != generation
+                or resource_plan.position_id != clock.plan.position_id
+                or resource_plan.baseline_time_plan_id
+                != clock.plan.as_dict().get("plan_id")
+            ):
+                raise ControllerRuntimeError(
+                    "MoveResourcePlan does not bind the current TimePlan"
+                )
         with self._lock:
             if self._closed:
                 return False
@@ -1005,6 +1032,8 @@ class ShadowRunCoordinator:
         run.oracle_instance = self.settings.oracle
         if clock is not None:
             run.time_plan = clock.plan.as_dict()
+        if resource_plan is not None:
+            run.move_resource_plan = resource_plan.as_dict()
 
         if anchor_stream is None:
             # A missing prepared slot retains the original bounded fallback.
@@ -1061,6 +1090,7 @@ class ShadowRunCoordinator:
             started_monotonic=started,
             _coordinator=self,
             clock=clock,
+            move_resource_plan=resource_plan,
         )
         resource_settings = self.runtime.config.resource_measurement
         resources = (

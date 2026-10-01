@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "profile_id": "m14-j-j8-adaptive-clock-v1",
+  "stage": "M14-J/J8",
+  "source_profile": "engine-opt-v2",
+  "baseline_config": "config/allfather.online-engine-opt-v2.json",
+  "runtime_config": "config/allfather.m14-j-j8.validation.json",
+  "resource_catalog": "qualification/resource-profile-catalog-v1.json",
+  "composition_id": "composition/engine-opt-v2-exact-host",
+  "policy": "adaptive_clock_envelope_v1",
+  "baseline_clock_policy": "clock_envelope_v1",
+  "allocator_policy_id": "legacy-fixed-stage-compat-v1",
+  "fallback_profile": "engine-opt-v2",
+  "resource_policy": {
+    "mode": "clamp_only",
+    "host_capacity_inputs": [
+      "allowed_cpus",
+      "cpu_quota_status",
+      "cpu_quota_equivalents",
+      "effective_memory_limit_bytes"
+    ],
+    "wall_behavior": "preserve_clock_envelope_v1",
+    "cpu_behavior": "min(baseline_cpu_ms, baseline_wall_ms * effective_parallelism)",
+    "gpu_ms": 0,
+    "position_complexity_consumed": false,
+    "clock_differential_consumed": false,
+    "j7_profile_selection_consumed": false
+  },
+  "evidence_policy": {
+    "retain_game_environment": true,
+    "retain_host_capabilities": true,
+    "retain_composition_profile": true,
+    "retain_baseline_time_plan_identity": true,
+    "composition_qualification_established": false,
+    "generic_host_portability_established": false
+  },
+  "claim_boundary": {
+    "resource_plan": true,
+    "resource_authorization": false,
+    "runtime_profile_selection": false,
+    "work_grant": false,
+    "hybrid_authority": false,
+    "outward_move": false,
+    "strength": false,
+    "elo": false,
+    "equal_compute": false,
+    "deployment": false
+  }
+}

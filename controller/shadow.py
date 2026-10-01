@@ -1440,6 +1440,11 @@ class ShadowRunCoordinator:
             controller_fallback_latched=bool(
                 route.get("controller_fallback_latched", True)
             ),
+            orchestration_provenance=(
+                dict(route["orchestration_provenance"])
+                if isinstance(route.get("orchestration_provenance"), dict)
+                else None
+            ),
             **self._clocked_authority_snapshot_fields(active, settings),
         )
 

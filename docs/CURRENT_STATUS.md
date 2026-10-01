@@ -142,7 +142,7 @@ M14-G3 and LC0 real-inference workflows also passed. STOP remains intentionally 
 
 J11 does not change chess search or enable HYBRID authority. It adds an append-only
 BudgetLedger admission/settlement journal, sealed `resource-plan.json`,
-`resource/allocation.jsonl` and `orchestration.json`, and an independent
+`resource/allocation.jsonl`, `engine-bundle.json` and `orchestration.json`, and an independent
 `validate-resource-orchestration.py` verifier. The verifier reconstructs the
 MoveResourcePlan, J10 AllocationDecision, J9 WorkGrants, effective-option/native-limit
 bindings, admission-time budget affordability, settlement arithmetic, host/composition
@@ -150,8 +150,10 @@ capacity and physical-resource evidence without trusting producer-written
 `qualified: true`.
 
 `orchestration.json` is the terminal J11 evidence root: it hash-binds the finalized parent
-replay, VERIFY/staged-VERIFY manifests, route/resource reports, resource plan and allocation
-trace. This ordering avoids a circular dependency while ensuring the exact stage manifests
+replay, VERIFY/staged-VERIFY manifests, route/resource reports, resource plan, allocation
+trace and the exact-head ENGINE-OPT-V2 build manifest. The qualifier independently binds
+that engine bundle back to the current source commit and source-controlled build contracts.
+This ordering avoids a circular dependency while ensuring the exact stage manifests
 used for WorkGrant reconstruction cannot drift. DecisionAuthorization gains an optional
 orchestration provenance field that is absent from
 all historical G3 snapshots, preserving their canonical identity; when populated by the

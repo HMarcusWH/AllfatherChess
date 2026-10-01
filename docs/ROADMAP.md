@@ -1,9 +1,9 @@
 # AllfatherChess roadmap
 
 **Status date:** 1 October 2026  
-**Current main:** `ddb63157749ebdd8c10120d25b9c4b2e1d3b2649`  
-**Latest merged milestone:** PR #56 / M14-J J9 — WorkGrant compatibility scheduler  
-**Current execution milestone:** PR #57 / M14-J J10 — deterministic adaptive allocation substrate  
+**Current main:** `7a8ac8f803d7c58d3c16daf81a52c7fa86f2f9ca`  
+**Latest merged milestone:** PR #57 / M14-J J10 — deterministic adaptive allocation  
+**Current execution milestone:** M14-J J11 — allocation evidence + authority binding  
 **Current-state authority:** [CURRENT_STATUS.md](CURRENT_STATUS.md)  
 **M14-J implementation plan:** [M14_J_ADAPTIVE_RESOURCE_ORCHESTRATION.md](M14_J_ADAPTIVE_RESOURCE_ORCHESTRATION.md)  
 **Detailed deployment audit:** [ONLINE_RELEASE_PLAN.md](ONLINE_RELEASE_PLAN.md)
@@ -50,10 +50,13 @@ without changing the retained J6 evidence. PR #54 then merged J7 as a determinis
 source-controlled selection/evidence layer while leaving the J3 runtime catalog disabled and
 unchanged. PR #55 then merged J8: an additive, clamp-only `MoveResourcePlan` below the
 unchanged `clock_envelope_v1` TimePlan. PR #56 merged J9: fixed historical optional searches
-cross a typed WorkGrant plus the existing BudgetLedger authority before dispatch. PR #57 is
-the J10 candidate: only the staged round becomes an adaptive bundle nomination, while STOP
+cross a typed WorkGrant plus the existing BudgetLedger authority before dispatch. PR #57
+then merged J10: only the staged round becomes an adaptive bundle nomination, while STOP
 remains unpromoted because the frozen independent calibration seed has 16 groups against a
-32-group minimum. The project is **not** yet deployable as a qualified service and has not
+32-group minimum. Exact-head real-process evidence exercised 9 admitted/settled WorkGrants
+with zero open reservations. J11 now hardens that path into independently reconstructible
+allocation/resource provenance before J12 is allowed to compose orchestration with HYBRID
+move authority. The project is **not** yet deployable as a qualified service and has not
 established superiority over a constituent engine.
 
 ## 2. Critical path to the first public canary
@@ -94,14 +97,14 @@ M14-J J9 / PR #56
 typed compatibility WorkGrants + single-ledger admission
         |
         v
-IN PROGRESS
+DONE
 M14-J J10 / PR #57
 round-2 adaptive bundle nomination; STOP calibration gated
         |
         v
-NEXT
+IN PROGRESS
 M14-J J11
-allocation evidence hardening
+independently sealed allocation evidence + authority binding
         |
         v
 M14-J J12

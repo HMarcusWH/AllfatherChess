@@ -29,10 +29,12 @@ _M14C_EVIDENCE_PATHS = (
     "decision/counterfactual.json",
 )
 _STAGED_PATH = "staged_verification/manifest.json"
+_ORCHESTRATION_PATH = "orchestration.json"
 _ALL_KNOWN_SOURCE_PATHS = (
     *_BASE_SOURCE_PATHS,
     *_M14C_EVIDENCE_PATHS,
     _STAGED_PATH,
+    _ORCHESTRATION_PATH,
 )
 
 
@@ -70,6 +72,8 @@ def _required_source_paths_from_payload(decision: dict[str, Any]) -> tuple[str, 
                 "decision/counterfactual.json",
             )
         )
+    if isinstance(snapshot.get("orchestration_provenance"), dict):
+        required.append(_ORCHESTRATION_PATH)
     return tuple(required)
 
 
@@ -401,6 +405,45 @@ def _verify_clocked_authority(
             problems.append("denied G3 authorization changed the anchor move")
 
 
+def _verify_orchestration_provenance(
+    run_dir: Path,
+    snapshot: dict[str, Any],
+    problems: list[str],
+) -> None:
+    provenance = snapshot.get("orchestration_provenance")
+    if provenance is None:
+        return
+    if not isinstance(provenance, dict):
+        problems.append("final decision orchestration provenance is not an object")
+        return
+    source = _load_json_source(run_dir, _ORCHESTRATION_PATH, problems)
+    if source is None:
+        return
+    binding = source.get("authority_binding")
+    if binding != provenance:
+        problems.append(
+            "final decision orchestration provenance differs from sealed J11 binding"
+        )
+    try:
+        from controller.orchestration_integrity import (
+            verify_orchestration_integrity,
+        )
+
+        repository_root = Path(__file__).resolve().parents[1]
+        for problem in verify_orchestration_integrity(
+            run_dir,
+            root=repository_root,
+        ):
+            problems.append(
+                f"final decision orchestration integrity: {problem}"
+            )
+    except Exception as exc:
+        problems.append(
+            "final decision could not independently verify J11 orchestration: "
+            f"{type(exc).__name__}: {exc}"
+        )
+
+
 def verify_final_decision_integrity(run_dir: Path | str) -> list[str]:
     """Check self-digest, source hashes, and versioned authority provenance."""
 
@@ -483,6 +526,12 @@ def verify_final_decision_integrity(run_dir: Path | str) -> list[str]:
             run_dir,
             decision,
             authorization,
+            snapshot,
+            problems,
+        )
+    if snapshot is not None:
+        _verify_orchestration_provenance(
+            run_dir,
             snapshot,
             problems,
         )

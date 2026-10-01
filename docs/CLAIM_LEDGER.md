@@ -1,6 +1,6 @@
 # Claim ledger
 
-## Current repository synchronization after PR #56
+## Current repository synchronization after PR #57
 
 - **PROVED / CI-GATED FALLBACK:** ENGINE-OPT-V2 / PR #44 remains the frozen qualified
   fallback composition. J6 does not rewrite its clocks, authority policy or historical
@@ -33,9 +33,13 @@
 - **PROVED / J9 WORKGRANT MECHANISM:** PR #56 merged the fixed 3×3 WorkGrant compatibility
   scheduler over the unchanged J3 catalog. Real-process evidence exercised nine admitted grants,
   nine settlements and zero open reservations while outward authority remained Stockfish.
-- **OPEN ORCHESTRATION GATE:** PR #57 / J10 is the current adaptive-allocation gate. The
-  allocator mechanism is being qualified, but source-controlled STOP promotion remains false
-  until leakage-free independent calibration passes. J11 remains the evidence-hardening boundary.
+- **PROVED / J10 ADAPTIVE ALLOCATION MECHANISM:** PR #57 merged the deterministic
+  round-2 allocator. Real ENGINE-OPT-V2 evidence exercised one fail-closed `BUY_BUNDLE`,
+  nine admitted WorkGrants, nine settlements and zero open reservations. STOP promotion
+  remains false because 16 frozen independent seed groups are below the 32-group minimum.
+- **OPEN / J11 EVIDENCE HARDENING:** independently seal and reconstruct the plan →
+  allocation → WorkGrant → budget/resource chain before J12 may consume orchestration
+  provenance in move authority.
 - **OPEN RELEASE GATES:** ONLINE-3 packaging/bridge, ONLINE-4
   network/restart/rollback, aggregate release qualification, ONLINE-RC, main governance,
   and combined-distribution licensing.
@@ -110,7 +114,7 @@
 - no J9 result establishes deployment-host/composition qualification, generic portability,
   Elo, move quality, strength or equal-resource superiority.
 
-## M14-J J10 deterministic adaptive allocation — PR #57 candidate
+## M14-J J10 deterministic adaptive allocation — MERGED / PR #57
 
 ### IMPLEMENTED / QUALIFICATION-GATED BY THIS PR
 
@@ -150,6 +154,38 @@
 - no host/composition portability from the test-only synthetic-capacity mechanism witness;
 - no move-quality, correctness, win-probability, Elo, strength, equal-resource or deployment claim;
 - J11 independently sealed allocation evidence and J12 full orchestrated move authority remain later gates.
+
+## M14-J J11 allocation evidence + authority binding — IN PROGRESS
+
+### IMPLEMENTED / QUALIFICATION-GATED BY THIS PR
+
+- BudgetLedger records an append-only reserve/settle/release/controller-charge journal without
+  changing historical `snapshot()` payloads or J10 budget-snapshot identities;
+- J10 replays seal `resource-plan.json`, `resource/allocation.jsonl` and the exact
+  ENGINE-OPT-V2 `engine-bundle.json`, then seal `orchestration.json` as the terminal
+  J11 evidence root after the parent replay plus
+  VERIFY/staged-VERIFY manifests have finalized;
+- `orchestration.json` hash-binds the exact parent/stage manifests, route/resource,
+  exact-head engine bundle,
+  plan and allocation trace used by reconstruction; no child artifact has to hash a later
+  parent, avoiding circular evidence;
+- ENGINE-OPT-V2 retains the complete validated J11 replay beside the qualification
+  report and re-validates the copied evidence bundle before artifact upload;
+- the independent validator reconstructs J10 AllocationDecision identity, J9 WorkGrant
+  legality, effective engine options/native limits, reservation provenance, admission-time
+  affordability, settlement arithmetic, host/composition capacity and physical CPU totals;
+- producer-written `qualified` flags are checked against underlying coverage/arithmetic
+  rather than treated as authority;
+- DecisionAuthorizationSnapshot accepts an optional J11 orchestration provenance binding only;
+  historical G3 snapshots omit it and preserve their exact canonical digest;
+- when that future binding is present, move authority fails closed unless WorkGrant settlement
+  is complete and zero WorkGrant reservations remain open.
+
+### NOT PROMOTED BY J11
+
+- J11 does not enable orchestration + HYBRID authority, promote STOP_BUYING, consume J7
+  Hash32/MaxPrefetch0 selections, establish generic-host portability or change engine search;
+- no move-quality, Elo, strength, equal-resource or deployment claim follows from J11.
 
 ## LOCAL-1 full-game lifecycle — PROVED / CI-GATED
 

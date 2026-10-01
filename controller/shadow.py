@@ -68,6 +68,7 @@ from controller.decision import (
     DecisionEvidence,
     DecisionProposal,
     FinalDecision,
+    OrchestrationAuthorityProvenance,
     authorize_decision,
     canonical_digest,
     freeze_decision_proposal,
@@ -1440,6 +1441,13 @@ class ShadowRunCoordinator:
             controller_fallback_latched=bool(
                 route.get("controller_fallback_latched", True)
             ),
+            orchestration_provenance=(
+                OrchestrationAuthorityProvenance.from_dict(
+                    route["orchestration_provenance"]
+                )
+                if isinstance(route.get("orchestration_provenance"), dict)
+                else None
+            ),
             **self._clocked_authority_snapshot_fields(active, settings),
         )
 
@@ -2784,6 +2792,33 @@ class ShadowRunCoordinator:
                         self._diagnostic(
                             f"counterfactual finalization failed: {exc}"
                         )
+                # J11 is the terminal resource/allocation evidence root.
+                # Parent/VERIFY/staged manifests are already immutable here, so
+                # orchestration.json can bind every stage source used to
+                # reconstruct WorkGrants without a circular hash dependency.
+                if (
+                    self.router is not None
+                    and active.context.move_resource_plan is not None
+                    and self.runtime.config.resource_allocator is not None
+                ):
+                    try:
+                        from controller.orchestration_integrity import (
+                            seal_orchestration_evidence,
+                        )
+
+                        seal_orchestration_evidence(
+                            active.run.run_dir,
+                            move_plan=active.context.move_resource_plan,
+                            budget_journal=self.router.ledger.journal(),
+                        )
+                    except Exception as exc:
+                        # Outward publication is already complete. J11 failure
+                        # invalidates the audit/qualification run only.
+                        self._diagnostic(
+                            "J11 orchestration evidence failed: "
+                            f"{type(exc).__name__}: {exc}"
+                        )
+
                 if active.final_decision is not None:
                     try:
                         seal_final_decision_artifact(

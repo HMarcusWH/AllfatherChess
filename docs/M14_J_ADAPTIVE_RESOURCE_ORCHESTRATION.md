@@ -1,9 +1,9 @@
 # AllfatherChess — M14-J Adaptive Resource Orchestration Rebuild Plan
 
-> **Status:** active implementation; J0-J9 merged, J10 in progress / PR #57  
-> **Current main:** `ddb63157749ebdd8c10120d25b9c4b2e1d3b2649` (PR #56 merge)  
+> **Status:** active implementation; J0-J10 merged, J11 in progress  
+> **Current main:** `7a8ac8f803d7c58d3c16daf81a52c7fa86f2f9ca` (PR #57 merge)  
 > **Frozen fallback composition:** ENGINE-OPT-V2 / PR #44  
-> **Latest completed stage:** J9 WorkGrant compatibility scheduler / PR #56  
+> **Latest completed stage:** J10 deterministic adaptive allocation / PR #57  
 > **Authority:** documentation only; this plan does not itself promote M14-J behavior  
 
 **Program:** M14-J — Adaptive Resource Orchestration
@@ -1418,7 +1418,7 @@ adaptive WorkGrant selection; J11 owns independently sealed allocation evidence.
 
 ---
 
-## 39. J10 — Deterministic Adaptive Allocation — **PR #57**
+## 39. J10 — Deterministic Adaptive Allocation — **MERGED / PR #57**
 
 J10 does not replace J9 and does not synthesize arbitrary per-engine work. Rounds 0/1 retain
 the exact J9 compatibility decisions:
@@ -1475,14 +1475,20 @@ J11 next independently seals/recomputes allocation provenance.
 
 ---
 
-## 40. J11 — Evidence Hardening
+## 40. J11 — Evidence Hardening — **IN PROGRESS**
 
-Extend:
+J11 is evidence-only. J10 search behavior, BUY-only fallback, WorkGrant authority and the
+runtime prohibition on orchestration + HYBRID authority remain unchanged.
 
-- replay manifest
-- `resource.json`
-- route evidence
-- final authorization snapshot
+Add/seal:
+
+- append-only BudgetLedger reserve/settle/release/controller-charge journal;
+- `resource-plan.json`;
+- `resource/allocation.jsonl`;
+- `engine-bundle.json` copied from the exact ENGINE-OPT-V2 candidate build;
+- `orchestration.json`;
+- terminal orchestration-root SHA bindings for parent replay, VERIFY and staged-VERIFY manifests;
+- optional future `DecisionAuthorizationSnapshot.orchestration_provenance`.
 
 Add:
 
@@ -1490,15 +1496,28 @@ Add:
 
 Independently recompute:
 
-- profile admissibility
-- budget availability
-- grant legality
-- CPU-slot feasibility
-- effective engine options
-- settlement arithmetic
-- plan → evidence → final decision identity
+- MoveResourcePlan / GameEnvironment / HostCapabilities / composition / catalog identity;
+- J10 AllocationDecision identity and frozen allocation-policy binding;
+- J9 WorkGrant legality, profile/chunk/license identity and native UCI work limits;
+- exact executed binary/network identities against the sealed exact-head ENGINE-OPT-V2
+  build manifest and its source-controlled build contracts;
+- admission-time budget availability from the append-only journal;
+- CPU-slot and resident-memory feasibility;
+- effective engine option digests from sealed stage evidence;
+- reservation provenance and settlement arithmetic;
+- physical CPU total and resource-coverage qualification;
+- plan → allocation → grant → route/resource → replay identity.
 
-Never trust producer-written `qualified: true`.
+The evidence DAG is deliberately one-way: the historical parent replay finalizes first,
+VERIFY and staged-VERIFY retain their existing parent/source hashes, and then
+`orchestration.json` becomes the terminal J11 root that hashes all of those manifests plus
+route/resource/plan/trace evidence. A future final-decision artifact may hash-bind that terminal
+root when J12 supplies orchestration provenance. No J11 source must hash a later parent.
+
+ENGINE-OPT-V2 retains the full J11 replay beside its qualification report and independently
+validates the copied evidence bundle before artifact upload.
+
+Never trust producer-written `qualified: true`. J11 must reconstruct the underlying facts.
 
 ---
 

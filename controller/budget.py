@@ -19,7 +19,10 @@ not the same quantity.
 
 from __future__ import annotations
 
+import copy
+import hashlib
 import itertools
+import json
 import math
 import threading
 import time
@@ -283,6 +286,45 @@ class BudgetLedger:
         # extra envelope.
         self._started = self._clock() if started is None else started
         self._denials: list[dict[str, Any]] = []
+        # J11 keeps an append-only accounting journal separate from snapshot()
+        # so historical budget-snapshot digests remain byte/semantics stable.
+        # Successful reservations and every terminal accounting transition are
+        # recorded under the same ledger lock that mutates the accounts.
+        self._journal_sequence = itertools.count(1)
+        self._journal: list[dict[str, Any]] = []
+
+    def _append_journal(self, event: str, **payload: Any) -> None:
+        if not isinstance(event, str) or not event:
+            raise BudgetError("budget journal event must be non-empty")
+        self._journal.append(
+            {
+                "sequence": next(self._journal_sequence),
+                "event": event,
+                **payload,
+            }
+        )
+
+    def journal(self) -> list[dict[str, Any]]:
+        """Return a detached append-only J11 accounting trace."""
+        with self._lock:
+            return copy.deepcopy(self._journal)
+
+    def journal_event_count(self) -> int:
+        """Return the current causal cut without copying or hashing the trace."""
+        with self._lock:
+            return len(self._journal)
+
+    def journal_digest(self) -> str:
+        """Content identity of the exact accounting trace, not the snapshot."""
+        with self._lock:
+            encoded = json.dumps(
+                self._journal,
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=False,
+                allow_nan=False,
+            ).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
 
     # -- clock ---------------------------------------------------------------
 
@@ -476,6 +518,17 @@ class BudgetLedger:
             self._open[reservation.reservation_id] = reservation
             self._purpose_reserved_cpu[group] = self._purpose_reserved_cpu.get(group, 0.0) + cpu_ms
             self._purpose_reserved_gpu[group] = self._purpose_reserved_gpu.get(group, 0.0) + gpu_ms
+            self._append_journal(
+                "reserve",
+                reservation_id=reservation.reservation_id,
+                lane=reservation.lane,
+                purpose=reservation.purpose,
+                cpu_ms=reservation.cpu_ms,
+                gpu_ms=reservation.gpu_ms,
+                grant_id=reservation.grant_id,
+                profile_id=reservation.profile_id,
+                allocator_decision_digest=reservation.allocator_decision_digest,
+            )
             return reservation
 
     def settle(
@@ -554,6 +607,21 @@ class BudgetLedger:
                 account.declared_fallback_gpu_ms += spent_gpu
             self._purpose_spent_cpu[group] = self._purpose_spent_cpu.get(group, 0.0) + spent_cpu
             self._purpose_spent_gpu[group] = self._purpose_spent_gpu.get(group, 0.0) + spent_gpu
+            self._append_journal(
+                "settle",
+                reservation_id=reservation.reservation_id,
+                lane=reservation.lane,
+                purpose=reservation.purpose,
+                declared_cpu_ms=reservation.cpu_ms,
+                declared_gpu_ms=reservation.gpu_ms,
+                actual_cpu_ms=spent_cpu,
+                actual_gpu_ms=spent_gpu,
+                cpu_source=cpu_source,
+                gpu_source=gpu_source,
+                grant_id=reservation.grant_id,
+                profile_id=reservation.profile_id,
+                allocator_decision_digest=reservation.allocator_decision_digest,
+            )
 
     def release(self, reservation: Reservation) -> None:
         """Return unspent capacity, for example after a worker is stopped early."""
@@ -569,6 +637,17 @@ class BudgetLedger:
             )
             self._purpose_reserved_gpu[group] = max(
                 0.0, self._purpose_reserved_gpu.get(group, 0.0) - reservation.gpu_ms
+            )
+            self._append_journal(
+                "release",
+                reservation_id=reservation.reservation_id,
+                lane=reservation.lane,
+                purpose=reservation.purpose,
+                cpu_ms=reservation.cpu_ms,
+                gpu_ms=reservation.gpu_ms,
+                grant_id=reservation.grant_id,
+                profile_id=reservation.profile_id,
+                allocator_decision_digest=reservation.allocator_decision_digest,
             )
 
     def charge_elapsed(self, lane: str, *, cpu_ms: float, note: str = "", purpose: str = "controller") -> None:
@@ -587,6 +666,13 @@ class BudgetLedger:
             self._purpose_spent_cpu[group] = self._purpose_spent_cpu.get(group, 0.0) + cpu_ms
             if note:
                 account.native_work[note] = account.native_work.get(note, 0.0) + cpu_ms
+            self._append_journal(
+                "controller_charge",
+                lane=lane,
+                purpose=purpose,
+                cpu_ms=cpu_ms,
+                label=note,
+            )
 
     def record_native_work(
         self,
@@ -646,6 +732,13 @@ class BudgetLedger:
                 )
                 account.native_work[f"controller.{label}_ms"] = (
                     account.native_work.get(f"controller.{label}_ms", 0.0) + elapsed_ms
+                )
+                self._append_journal(
+                    "controller_charge",
+                    lane=CONTROLLER_LANE,
+                    purpose="controller",
+                    cpu_ms=elapsed_ms,
+                    label=label,
                 )
 
     # -- reporting -----------------------------------------------------------

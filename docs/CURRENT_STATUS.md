@@ -1,12 +1,12 @@
 # AllfatherChess current build and release status
 
 **Status date:** 1 October 2026  
-**Authoritative main commit:** `ddb63157749ebdd8c10120d25b9c4b2e1d3b2649`  
-**Latest merged milestone:** PR #56 / M14-J J9 — WorkGrant compatibility scheduler  
+**Authoritative main commit:** `7a8ac8f803d7c58d3c16daf81a52c7fa86f2f9ca`  
+**Latest merged milestone:** PR #57 / M14-J J10 — deterministic adaptive allocation  
 **Qualified J6 PR head:** `6aecd0bae7848ca8a9893377fadffb049d336c3a`  
 **Frozen fallback:** ENGINE-OPT-V2 / PR #44 remains unchanged  
-**Current execution milestone:** PR #57 / M14-J J10 — deterministic adaptive allocation substrate  
-**Next milestone after J10:** M14-J J11 — allocation evidence hardening  
+**Current execution milestone:** M14-J J11 — independently sealed allocation evidence and authority binding  
+**Next milestone after J11:** M14-J J12 — full orchestrated composition  
 **Forward roadmap:** [ROADMAP.md](ROADMAP.md)  
 **M14-J rebuild plan:** [M14_J_ADAPTIVE_RESOURCE_ORCHESTRATION.md](M14_J_ADAPTIVE_RESOURCE_ORCHESTRATION.md)  
 **Detailed deployment plan:** [ONLINE_RELEASE_PLAN.md](ONLINE_RELEASE_PLAN.md)
@@ -110,7 +110,7 @@ means no engine write. J9 still does not consume the J7 Hash32/MaxPrefetch0 sele
 REFINE, choose computation by value, or grant outward move authority. J10 owns adaptive grant
 selection.
 
-## M14-J J10 adaptive allocation substrate — PR #57 candidate
+## M14-J J10 adaptive allocation substrate — MERGED / PR #57
 
 J10 leaves J9 rounds 0/1 unchanged and makes only round 2 claim-bearing: after a clean
 three-engine n16 VERIFY round, an immutable `AllocationDecision` nominates either the frozen
@@ -131,6 +131,37 @@ reserved before any staged search write, and all three effective STAGED_VERIFY o
 must match before dispatch begins. J7 profile selections, hybrid DecisionAuthorization,
 REFINE/crossfeed/counterfactual, host portability, strength/Elo and deployment remain outside
 this milestone.
+
+Exact-head PR #57 evidence exercised the real ENGINE-OPT-V2 processes with one J10
+`BUY_BUNDLE` decision, **9/9 WorkGrants authorized, 9/9 settled, and zero open
+reservations**. The post-merge `main` merge gate, controller shell, ONLINE-2, baseline,
+M14-G3 and LC0 real-inference workflows also passed. STOP remains intentionally unpromoted:
+16 frozen independent seed groups are still below the source-controlled 32-group minimum.
+
+## M14-J J11 allocation evidence hardening — IN PROGRESS
+
+J11 does not change chess search or enable HYBRID authority. It adds an append-only
+BudgetLedger admission/settlement journal, sealed `resource-plan.json`,
+`resource/allocation.jsonl`, `engine-bundle.json` and `orchestration.json`, and an independent
+`validate-resource-orchestration.py` verifier. The verifier reconstructs the
+MoveResourcePlan, J10 AllocationDecision, J9 WorkGrants, effective-option/native-limit
+bindings, admission-time budget affordability, settlement arithmetic, host/composition
+capacity and physical-resource evidence without trusting producer-written
+`qualified: true`.
+
+`orchestration.json` is the terminal J11 evidence root: it hash-binds the finalized parent
+replay, VERIFY/staged-VERIFY manifests, route/resource reports, resource plan, allocation
+trace and the exact-head ENGINE-OPT-V2 build manifest. The qualifier independently binds
+that engine bundle back to the current source commit and source-controlled build contracts.
+This ordering avoids a circular dependency while ensuring the exact stage manifests
+used for WorkGrant reconstruction cannot drift. ENGINE-OPT-V2 copies the complete validated
+J11 replay into the retained profile-domain artifact and validates that copied bundle in place,
+so the qualification report is accompanied by the evidence it attests. DecisionAuthorization gains an optional
+orchestration provenance field that is absent from
+all historical G3 snapshots, preserving their canonical identity; when populated by the
+future J12 composition it requires complete WorkGrant settlement and zero open WorkGrant
+reservations. J11 itself keeps the existing runtime prohibition on orchestration plus
+HYBRID authority.
 
 ## LOCAL-1 qualification result
 

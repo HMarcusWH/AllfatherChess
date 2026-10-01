@@ -59,4 +59,6 @@ jobs:
           python3 tests/controller/test_resource_allocator.py
           python3 tests/controller/test_adaptive_resource_router.py
           python3 tests/controller/test_allocation_features.py
+          python3 tests/controller/test_orchestration_integrity.py
           python3 scripts/qualify-adaptive-resource-allocator.py
+          python3 -m py_compile scripts/validate-resource-orchestration.py

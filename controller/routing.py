@@ -218,6 +218,7 @@ class RouteAudit:
     specialist_actions: list[dict[str, Any]] = field(default_factory=list)
     work_grants: list[dict[str, Any]] = field(default_factory=list)
     allocation_decisions: list[dict[str, Any]] = field(default_factory=list)
+    allocation_contexts: list[dict[str, Any]] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
     value_decisions: list[dict[str, Any]] = field(default_factory=list)
 
@@ -261,6 +262,17 @@ class RouteAudit:
 
     def record_allocation_decision(self, payload: dict[str, Any]) -> None:
         self.allocation_decisions.append(dict(payload))
+
+    def record_allocation_context(self, payload: dict[str, Any]) -> None:
+        self.allocation_contexts.append(
+            json.loads(
+                json.dumps(
+                    payload,
+                    sort_keys=True,
+                    allow_nan=False,
+                )
+            )
+        )
 
     def record_value_decision(self, payload: dict[str, Any]) -> None:
         self.value_decisions.append(dict(payload))
@@ -1488,6 +1500,8 @@ class ConservativeRouter:
             payload["move_resource_plan"] = move_plan.as_dict()
         if audit.allocation_decisions:
             payload["allocation_decisions"] = audit.allocation_decisions
+        if audit.allocation_contexts:
+            payload["allocation_contexts"] = audit.allocation_contexts
         try:
             atomic_write_text(
                 Path(context.run_dir) / "route.json",

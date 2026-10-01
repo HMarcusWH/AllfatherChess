@@ -32,6 +32,7 @@ on:
       - 'scripts/work-grant-contract.py'
       - 'scripts/qualify-adaptive-resource-allocator.py'
       - 'scripts/adaptive-resource-contract.py'
+      - 'scripts/validate-resource-orchestration.py'
       - 'scripts/collect-j10-staged-calibration.py'
       - 'scripts/build-j10-allocation-calibration.py'
       - 'scripts/qualify-online-hybrid-v2.py'
@@ -44,6 +45,7 @@ on:
       - 'tests/controller/test_resource_allocator.py'
       - 'tests/controller/test_adaptive_resource_router.py'
       - 'tests/controller/test_allocation_features.py'
+      - 'tests/controller/test_orchestration_integrity.py'
       - 'tests/controller/test_resource_profile_catalog.py'
       - 'tests/controller/test_runtime_profiles.py'
       - 'tests/controller/test_resource_control.py'
@@ -132,8 +134,9 @@ jobs:
           python3 tests/controller/test_resource_allocator.py
           python3 tests/controller/test_adaptive_resource_router.py
           python3 tests/controller/test_allocation_features.py
+          python3 tests/controller/test_orchestration_integrity.py
           python3 scripts/qualify-adaptive-resource-allocator.py
-          python3 -m py_compile scripts/adaptive-resource-contract.py
+          python3 -m py_compile scripts/adaptive-resource-contract.py scripts/validate-resource-orchestration.py
           python3 tests/controller/test_resource_profile_catalog.py
           python3 tests/controller/test_runtime_profiles.py
           python3 tests/adapters/test_linux_affinity.py
@@ -339,6 +342,21 @@ jobs:
         run: python3 scripts/work-grant-contract.py
       - name: Exercise J10 adaptive allocation on real ENGINE-OPT-V2 processes
         run: python3 scripts/adaptive-resource-contract.py
+      - name: Exercise J11 independent orchestration evidence
+        run: |
+          latest="$(
+            find build/replays-m14-j-j10 -mindepth 1 -maxdepth 1 -type d \
+              | sort \
+              | tail -n 1
+          )"
+          test -n "$latest"
+          mkdir -p build/test-results/engine-opt-v2-profile-domain/j11
+          rm -rf build/test-results/engine-opt-v2-profile-domain/j11/replay
+          cp -a "$latest" build/test-results/engine-opt-v2-profile-domain/j11/replay
+          python3 scripts/validate-resource-orchestration.py \
+            --run-dir build/test-results/engine-opt-v2-profile-domain/j11/replay \
+            --expected-source-commit "$ALLFATHER_SOURCE_SHA" \
+            --output build/test-results/engine-opt-v2-profile-domain/j11/report.json
       - name: Build pinned Fastchess against source-test attestation
         run: make -f Makefile.local-game build-fastchess
       - name: Run LOCAL-1 contract regressions

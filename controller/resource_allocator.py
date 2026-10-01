@@ -346,6 +346,104 @@ class AllocationDecision:
             **self.payload_dict(),
         }
 
+    @classmethod
+    def from_dict(cls, raw: Mapping[str, Any]) -> "AllocationDecision":
+        raw = _mapping(raw, "allocation decision")
+        if raw.get("schema_version") != ORCHESTRATION_SCHEMA_VERSION:
+            raise ResourceAllocatorError(
+                "unsupported AllocationDecision schema_version"
+            )
+        _reject_unknown(
+            raw,
+            {
+                "allocation_id",
+                "schema_version",
+                "policy_id",
+                "allocation_policy_digest",
+                "generation",
+                "position_id",
+                "move_resource_plan_id",
+                "allocation_round",
+                "candidate_bundle_ids",
+                "selected_bundle_id",
+                "action",
+                "feature_digest",
+                "budget_snapshot_digest",
+                "staged_model_id",
+                "regime_model_id",
+                "change_probability",
+                "support",
+                "position_group_support",
+                "heldout_bucket_observed",
+                "regime_bucket",
+                "regime_in_domain",
+                "gates",
+                "reason",
+                "authority",
+                "claim_boundary",
+            },
+            "allocation decision",
+        )
+        candidates = raw.get("candidate_bundle_ids")
+        gates_raw = raw.get("gates")
+        if not isinstance(candidates, list):
+            raise ResourceAllocatorError(
+                "allocation candidate_bundle_ids must be an array"
+            )
+        if not isinstance(gates_raw, list):
+            raise ResourceAllocatorError("allocation gates must be an array")
+        gates: list[AllocationGate] = []
+        for index, item in enumerate(gates_raw):
+            gate = _mapping(item, f"allocation gates[{index}]")
+            _reject_unknown(
+                gate,
+                {"name", "passed", "detail"},
+                f"allocation gates[{index}]",
+            )
+            gates.append(
+                AllocationGate(
+                    name=gate.get("name"),
+                    passed=gate.get("passed"),
+                    detail=gate.get("detail"),
+                )
+            )
+        decision = cls(
+            policy_id=raw.get("policy_id"),
+            allocation_policy_digest=raw.get("allocation_policy_digest"),
+            generation=raw.get("generation"),
+            position_id=raw.get("position_id"),
+            move_resource_plan_id=raw.get("move_resource_plan_id"),
+            allocation_round=raw.get("allocation_round"),
+            candidate_bundle_ids=tuple(candidates),
+            selected_bundle_id=raw.get("selected_bundle_id"),
+            action=raw.get("action"),
+            feature_digest=raw.get("feature_digest"),
+            budget_snapshot_digest=raw.get("budget_snapshot_digest"),
+            staged_model_id=raw.get("staged_model_id"),
+            regime_model_id=raw.get("regime_model_id"),
+            change_probability=raw.get("change_probability"),
+            support=raw.get("support"),
+            position_group_support=raw.get("position_group_support"),
+            heldout_bucket_observed=raw.get("heldout_bucket_observed"),
+            regime_bucket=raw.get("regime_bucket"),
+            regime_in_domain=raw.get("regime_in_domain"),
+            gates=tuple(gates),
+            reason=raw.get("reason"),
+        )
+        if raw.get("authority") != decision.payload_dict()["authority"]:
+            raise ResourceAllocatorError(
+                "AllocationDecision authority marker is invalid"
+            )
+        if raw.get("claim_boundary") != decision.payload_dict()["claim_boundary"]:
+            raise ResourceAllocatorError(
+                "AllocationDecision claim boundary is invalid"
+            )
+        if raw.get("allocation_id") != decision.allocation_id:
+            raise ResourceAllocatorError(
+                "AllocationDecision allocation_id does not match canonical payload"
+            )
+        return decision
+
 
 @dataclass(frozen=True)
 class AllocationBundle:

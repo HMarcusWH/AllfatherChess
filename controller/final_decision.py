@@ -424,6 +424,24 @@ def _verify_orchestration_provenance(
         problems.append(
             "final decision orchestration provenance differs from sealed J11 binding"
         )
+    try:
+        from controller.orchestration_integrity import (
+            verify_orchestration_integrity,
+        )
+
+        repository_root = Path(__file__).resolve().parents[1]
+        for problem in verify_orchestration_integrity(
+            run_dir,
+            root=repository_root,
+        ):
+            problems.append(
+                f"final decision orchestration integrity: {problem}"
+            )
+    except Exception as exc:
+        problems.append(
+            "final decision could not independently verify J11 orchestration: "
+            f"{type(exc).__name__}: {exc}"
+        )
 
 
 def verify_final_decision_integrity(run_dir: Path | str) -> list[str]:

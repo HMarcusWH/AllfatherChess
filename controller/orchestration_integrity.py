@@ -2683,13 +2683,9 @@ def verify_orchestrated_composition_integrity(
             problems.append("J12 outward decision uses the wrong authority policy")
         if authorization.get("authorized") is True:
             provider = snapshot.get("orchestration_host_provider_id")
-            if (
-                not isinstance(provider, str)
-                or not provider
-                or "synthetic" in provider.lower()
-            ):
+            if provider != "linux-host-v2":
                 problems.append(
-                    "J12 authorized HYBRID with missing or synthetic host capacity"
+                    "J12 authorized HYBRID without the real linux-host-v2 capacity provider"
                 )
             if snapshot.get("orchestration_host_capacity_claim") is not True:
                 problems.append(

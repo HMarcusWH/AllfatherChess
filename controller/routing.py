@@ -1452,7 +1452,6 @@ class ConservativeRouter:
                     "events": audit.work_grants,
                 }
             ),
-            "allocation_decisions": audit.allocation_decisions,
             "value_decisions": audit.value_decisions,
             "denials": audit.denials,
             "notes": audit.notes,
@@ -1471,6 +1470,8 @@ class ConservativeRouter:
         move_plan = getattr(context, "move_resource_plan", None)
         if isinstance(move_plan, MoveResourcePlan):
             payload["move_resource_plan"] = move_plan.as_dict()
+        if audit.allocation_decisions:
+            payload["allocation_decisions"] = audit.allocation_decisions
         try:
             atomic_write_text(
                 Path(context.run_dir) / "route.json",

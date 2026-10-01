@@ -68,6 +68,7 @@ from controller.decision import (
     DecisionEvidence,
     DecisionProposal,
     FinalDecision,
+    OrchestrationAuthorityProvenance,
     authorize_decision,
     canonical_digest,
     freeze_decision_proposal,
@@ -1441,7 +1442,9 @@ class ShadowRunCoordinator:
                 route.get("controller_fallback_latched", True)
             ),
             orchestration_provenance=(
-                dict(route["orchestration_provenance"])
+                OrchestrationAuthorityProvenance.from_dict(
+                    route["orchestration_provenance"]
+                )
                 if isinstance(route.get("orchestration_provenance"), dict)
                 else None
             ),

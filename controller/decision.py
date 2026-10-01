@@ -435,7 +435,10 @@ class DecisionAuthorizationSnapshot:
                     raise DecisionError(
                         f"authorization snapshot orchestration {key} must be lowercase SHA-256"
                     )
-            if provenance.get("work_grant_settlement_complete") not in (True, False):
+            if not isinstance(
+                provenance.get("work_grant_settlement_complete"),
+                bool,
+            ):
                 raise DecisionError(
                     "authorization snapshot orchestration settlement flag must be boolean"
                 )

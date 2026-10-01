@@ -15,7 +15,10 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from common.search_request import parse_go_request
-from controller.decision import canonical_digest
+from controller.decision import (
+    OrchestrationAuthorityProvenance,
+    canonical_digest,
+)
 from controller.move_resource_plan import MoveResourcePlan
 from controller.adaptive_time import verify_move_resource_plan_manifest
 from controller.replay import (
@@ -279,7 +282,7 @@ def seal_orchestration_evidence(
     move_plan: MoveResourcePlan,
     budget_journal: Sequence[Mapping[str, Any]],
 ) -> dict[str, Any]:
-    """Seal the non-circular J11 evidence DAG before manifest finalization."""
+    """Seal the non-circular J11 terminal evidence root after source finalization."""
 
     run_dir = Path(run_dir)
     route_path = run_dir / "route.json"
@@ -1115,7 +1118,14 @@ def verify_orchestration_integrity(
     binding = artifact.get("authority_binding")
     if not isinstance(binding, dict):
         problems.append("orchestration authority_binding is missing")
-    elif plan is not None:
+    else:
+        try:
+            OrchestrationAuthorityProvenance.from_dict(binding)
+        except Exception as exc:
+            problems.append(
+                f"orchestration authority binding schema is invalid: {exc}"
+            )
+    if isinstance(binding, dict) and plan is not None:
         try:
             reconstructed = build_authority_binding(move_plan=plan, route=route)
             if binding != reconstructed:
@@ -1667,6 +1677,17 @@ def verify_orchestration_integrity(
                         f"WorkGrant {grant.grant_id} route/journal terminal semantics differ"
                     )
                 if terminal_event == "settle":
+                    if not _approx_equal(
+                        journal_terminal.get("actual_gpu_ms"),
+                        0.0,
+                    ):
+                        problems.append(
+                            f"WorkGrant {grant.grant_id} CPU-only settlement recorded GPU spend"
+                        )
+                    if journal_terminal.get("gpu_source") != "declared_fallback":
+                        problems.append(
+                            f"WorkGrant {grant.grant_id} CPU-only settlement has unexpected GPU source"
+                        )
                     if terminal.get("cpu_source") != journal_terminal.get(
                         "cpu_source"
                     ):
@@ -1857,6 +1878,20 @@ def verify_orchestration_integrity(
                         f"WorkGrant {grant.grant_id} backend differs from qualified profile"
                     )
                 actual_artifacts = engine_identity.get("artifacts")
+                if not process_identity.artifacts and actual_artifacts not in (
+                    None,
+                    {},
+                ):
+                    problems.append(
+                        f"WorkGrant {grant.grant_id} replay carries unexpected process artifacts"
+                    )
+                if process_identity.artifacts and (
+                    not isinstance(actual_artifacts, dict)
+                    or set(actual_artifacts) != {"weights"}
+                ):
+                    problems.append(
+                        f"WorkGrant {grant.grant_id} replay artifact set differs from qualified profile"
+                    )
                 for artifact_identity in process_identity.artifacts:
                     if artifact_identity.name != "network":
                         problems.append(

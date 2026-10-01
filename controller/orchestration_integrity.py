@@ -799,29 +799,41 @@ def verify_orchestration_integrity(
     if evidence_id != f"orchestration/{expected_content}":
         problems.append("orchestration evidence_id mismatch")
 
-    for section in (
-        "replay",
-        "verification",
-        "staged_verification",
-        "move_resource_plan",
-        "allocation_trace",
-        "route",
-        "resource",
-    ):
+    expected_source_paths = {
+        "replay": "manifest.json",
+        "verification": "verification/manifest.json",
+        "staged_verification": "staged_verification/manifest.json",
+        "move_resource_plan": RESOURCE_PLAN_PATH,
+        "allocation_trace": ALLOCATION_TRACE_PATH,
+        "route": "route.json",
+        "resource": "resource.json",
+    }
+    for section, expected_relative in expected_source_paths.items():
         row = artifact.get(section)
         if not isinstance(row, dict):
             problems.append(f"orchestration {section} section is missing")
             continue
         relative = row.get("path")
         stored_sha = row.get("sha256")
-        if not isinstance(relative, str):
-            problems.append(f"orchestration {section} path is invalid")
+        if relative != expected_relative:
+            problems.append(
+                f"orchestration {section} path differs from the frozen J11 layout"
+            )
             continue
-        source = run_dir / relative
+        if (
+            not isinstance(stored_sha, str)
+            or len(stored_sha) != 64
+            or any(ch not in "0123456789abcdef" for ch in stored_sha)
+        ):
+            problems.append(f"orchestration {section} SHA is invalid")
+            continue
+        source = run_dir / expected_relative
         if not source.is_file():
-            problems.append(f"orchestration source missing: {relative}")
+            problems.append(f"orchestration source missing: {expected_relative}")
         elif sha256_file(source) != stored_sha:
-            problems.append(f"orchestration source hash mismatch: {relative}")
+            problems.append(
+                f"orchestration source hash mismatch: {expected_relative}"
+            )
 
     manifest: dict[str, Any] | None = None
     try:
@@ -1159,6 +1171,20 @@ def verify_orchestration_integrity(
                         f"allocation-time budget reconstruction failed: {exc}"
                     )
 
+    route_scheduler = route.get("work_scheduler")
+    if not isinstance(route_scheduler, dict):
+        problems.append("route work_scheduler is not an object")
+        route_scheduler = {}
+    expected_scheduler_summary = {
+        "policy_id": route_scheduler.get("policy_id"),
+        "catalog_id": route_scheduler.get("catalog_id"),
+        "catalog_digest": route_scheduler.get("catalog_digest"),
+    }
+    if artifact.get("work_scheduler") != expected_scheduler_summary:
+        problems.append(
+            "orchestration WorkGrant scheduler summary does not reconstruct"
+        )
+
     scheduler_events = (
         (route.get("work_scheduler") or {}).get("events", [])
         if isinstance(route.get("work_scheduler"), dict)
@@ -1168,6 +1194,25 @@ def verify_orchestration_integrity(
         authorized_ids, settled_ids, released_ids, unresolved_ids = (
             _terminal_grant_state(scheduler_events)
         )
+        terminal_ids = set(settled_ids) | set(released_ids) | set(unresolved_ids)
+        open_ids = set(authorized_ids) - terminal_ids
+        settlement_complete = bool(
+            route_scheduler.get("settlement_complete") is True
+            and not open_ids
+            and not unresolved_ids
+        )
+        expected_work_grants = {
+            "authorized": len(authorized_ids),
+            "settled": len(settled_ids),
+            "released": len(released_ids),
+            "unresolved": len(unresolved_ids),
+            "settlement_complete": settlement_complete,
+            "open_reservations": len(open_ids),
+        }
+        if artifact.get("work_grants") != expected_work_grants:
+            problems.append(
+                "orchestration WorkGrant summary does not reconstruct"
+            )
         if decision is not None and decision.action == BUY_BUNDLE:
             if (
                 len(authorized_ids) != 9
@@ -1421,6 +1466,15 @@ def verify_orchestration_integrity(
             route_resource = {}
         if route_resource.get("sha256") != sha256_file(resource_path):
             problems.append("route does not bind sealed resource.json")
+        expected_resource_summary = {
+            "path": "resource.json",
+            "sha256": sha256_file(resource_path),
+            "report_id": resource.get("report_id"),
+        }
+        if artifact.get("resource") != expected_resource_summary:
+            problems.append(
+                "orchestration resource summary does not reconstruct"
+            )
         if route_resource.get("report_id") != resource.get("report_id"):
             problems.append("route resource report identity mismatch")
         if route_resource.get("qualified") is not resource_qualified:

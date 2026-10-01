@@ -143,6 +143,20 @@ def policy(root: Path = ROOT, path: Path | str | None = None) -> dict:
             type(p.get("games_per_pair")) is int and p["games_per_pair"] == 2,
             "LOCAL-1 requires serial, color-reversed pairs")
     require(p.get("same_compute_claim") is False, "LOCAL-1 is not equal-compute qualification")
+    if p.get("profile_id") == "local-full-game-orchestrated-v1":
+        qualification = p.get("qualification")
+        require(
+            isinstance(qualification, dict)
+            and qualification.get("require_j12_mechanism_prerequisite") is True,
+            "orchestrated LOCAL-1 must require the J12 mechanism prerequisite",
+        )
+        prerequisites = p.get("prerequisites")
+        require(
+            isinstance(prerequisites, list)
+            and [row.get("id") for row in prerequisites]
+            == ["engine-opt-v2", "j12"],
+            "orchestrated LOCAL-1 prerequisite order/identity drift",
+        )
     return p
 
 

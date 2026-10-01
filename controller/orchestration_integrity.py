@@ -301,12 +301,15 @@ def seal_orchestration_evidence(
         staged_path,
         route_path,
         resource_path,
-        bundle_source_path,
     ):
         if not required.is_file():
             raise OrchestrationIntegrityError(
                 f"J11 terminal source is missing: {required.relative_to(run_dir)}"
             )
+    if not bundle_source_path.is_file():
+        raise OrchestrationIntegrityError(
+            "J11 exact-head ENGINE-OPT-V2 build manifest is missing"
+        )
     route = _load_json(route_path, "route")
     if route.get("run_id") is None:
         raise OrchestrationIntegrityError("route lacks run_id")

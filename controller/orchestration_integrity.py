@@ -2692,6 +2692,81 @@ def verify_orchestrated_composition_integrity(
                     "J12 authorized HYBRID without an adaptive host-capacity claim"
                 )
 
+        scheduler = route.get("work_scheduler")
+        events = (
+            scheduler.get("events", [])
+            if isinstance(scheduler, dict)
+            else []
+        )
+        authorized_rows = [
+            row
+            for row in events
+            if (
+                isinstance(row, dict)
+                and row.get("event") == "authorize"
+                and row.get("granted") is True
+                and isinstance(row.get("grant"), dict)
+            )
+        ]
+        terminal_rows = [
+            row
+            for row in events
+            if (
+                isinstance(row, dict)
+                and row.get("event")
+                in (
+                    "settle",
+                    "release",
+                    "bundle_rollback",
+                    "finalize_unresolved",
+                )
+            )
+        ]
+        expected_grid = {
+            (round_, owner, phase)
+            for round_, phase in (
+                (0, "EXPLORE"),
+                (1, "VERIFY"),
+                (2, "STAGED_VERIFY"),
+            )
+            for owner in ("stockfish", "reckless", "lc0")
+        }
+        actual_grid = {
+            (
+                row["grant"].get("allocation_round"),
+                row["grant"].get("owner"),
+                row["grant"].get("phase"),
+            )
+            for row in authorized_rows
+        }
+        authorized_ids = {
+            row["grant"].get("grant_id")
+            for row in authorized_rows
+        }
+        terminal_ids = {
+            row.get("grant_id")
+            for row in terminal_rows
+        }
+        grid_complete = bool(
+            len(authorized_rows) == 9
+            and len(authorized_ids) == 9
+            and actual_grid == expected_grid
+            and len(terminal_rows) == 9
+            and terminal_ids == authorized_ids
+            and all(row.get("event") == "settle" for row in terminal_rows)
+        )
+        if (
+            snapshot.get("orchestration_work_grant_grid_complete")
+            is not grid_complete
+        ):
+            problems.append(
+                "J12 live WorkGrant-grid claim differs from sealed scheduler evidence"
+            )
+        if authorization.get("authorized") is True and not grid_complete:
+            problems.append(
+                "J12 authorized HYBRID without the exact settled 3x3 WorkGrant grid"
+            )
+
         binding = artifact.get("authority_binding")
         provenance = snapshot.get("orchestration_provenance")
         if not isinstance(binding, dict) or provenance != binding:

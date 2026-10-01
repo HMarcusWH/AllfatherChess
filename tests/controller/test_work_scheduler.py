@@ -223,6 +223,34 @@ class WorkSchedulerGrantTests(unittest.TestCase):
                 elapsed_ms=0.0,
             )
 
+    def test_parent_catalog_and_composition_provenance_are_frozen(self):
+        plan = parent_plan()
+        with self.assertRaises(WorkSchedulerDenied):
+            SCHEDULER.create_grant(
+                move_plan=replace(plan, catalog_digest="f" * 64),
+                owner="stockfish",
+                instance="stockfish-shadow",
+                phase="EXPLORE",
+                allocation_round=0,
+                effective_options_digest="a" * 64,
+                elapsed_ms=100.0,
+            )
+
+        altered_composition = replace(
+            plan.composition,
+            expected_memory_mib=plan.composition.expected_memory_mib + 1,
+        )
+        with self.assertRaises(WorkSchedulerDenied):
+            SCHEDULER.create_grant(
+                move_plan=replace(plan, composition=altered_composition),
+                owner="stockfish",
+                instance="stockfish-shadow",
+                phase="EXPLORE",
+                allocation_round=0,
+                effective_options_digest="a" * 64,
+                elapsed_ms=100.0,
+            )
+
     def test_wrong_round_phase_or_instance_is_rejected(self):
         plan = parent_plan()
         for kwargs in (

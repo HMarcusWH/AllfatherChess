@@ -635,6 +635,34 @@ class LegacyFixedWorkGrantScheduler:
     def policy_id(self) -> str:
         return self.catalog.policy_id
 
+    def _validate_parent_plan(self, move_plan: MoveResourcePlan) -> None:
+        if not isinstance(move_plan, MoveResourcePlan):
+            raise WorkSchedulerDenied("J9 requires MoveResourcePlan")
+        if move_plan.disposition != ADAPTIVE_DISPOSITION:
+            raise WorkSchedulerDenied(
+                "J9 compatibility WorkGrants require an ADAPTIVE parent MoveResourcePlan"
+            )
+        if (
+            move_plan.catalog_id != self.resource_catalog.catalog_id
+            or move_plan.catalog_digest != self.resource_catalog.digest
+        ):
+            raise WorkSchedulerDenied(
+                "parent MoveResourcePlan does not bind the frozen J3 catalog"
+            )
+        try:
+            frozen_composition = self.resource_catalog.composition(
+                move_plan.composition.composition_id
+            )
+        except ResourceProfileCatalogError as exc:
+            raise WorkSchedulerDenied(str(exc)) from exc
+        if (
+            move_plan.composition.digest != frozen_composition.digest
+            or move_plan.composition.as_dict() != frozen_composition.as_dict()
+        ):
+            raise WorkSchedulerDenied(
+                "parent MoveResourcePlan composition differs from frozen J3 catalog"
+            )
+
     def create_grant(
         self,
         *,
@@ -647,12 +675,7 @@ class LegacyFixedWorkGrantScheduler:
         elapsed_ms: float,
         target_id: str | None = None,
     ) -> WorkGrant:
-        if not isinstance(move_plan, MoveResourcePlan):
-            raise WorkSchedulerDenied("J9 requires MoveResourcePlan")
-        if move_plan.disposition != ADAPTIVE_DISPOSITION:
-            raise WorkSchedulerDenied(
-                "J9 compatibility WorkGrants require an ADAPTIVE parent MoveResourcePlan"
-            )
+        self._validate_parent_plan(move_plan)
         family = _family(owner)
         _nonnegative_int(allocation_round, "allocation_round")
         if allocation_round >= self.catalog.round_count:
@@ -751,14 +774,9 @@ class LegacyFixedWorkGrantScheduler:
         Recompute every static compatibility identity before reservation.
         """
 
-        if not isinstance(move_plan, MoveResourcePlan):
-            raise WorkSchedulerDenied("J9 grant validation requires MoveResourcePlan")
+        self._validate_parent_plan(move_plan)
         if not isinstance(grant, WorkGrant):
             raise WorkSchedulerDenied("J9 grant validation requires WorkGrant")
-        if move_plan.disposition != ADAPTIVE_DISPOSITION:
-            raise WorkSchedulerDenied(
-                "J9 WorkGrants require an ADAPTIVE parent MoveResourcePlan"
-            )
         if grant.move_resource_plan_id != move_plan.plan_id:
             raise WorkSchedulerDenied("grant parent MoveResourcePlan mismatch")
         if (

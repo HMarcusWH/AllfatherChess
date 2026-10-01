@@ -376,6 +376,11 @@ class ResourceAllocatorTests(unittest.TestCase):
             )
         )
         raw["orchestration"]["allocator_policy_id"] = "adaptive-resource-v1"
+        # Make runtime parsing reach the orchestration identity check rather
+        # than passing this regression for an unrelated missing-engine error.
+        for spec in raw["instances"].values():
+            spec["binary"] = sys.executable
+            spec.pop("fallback_glob", None)
         handle = tempfile.NamedTemporaryFile(
             mode="w",
             suffix=".json",
@@ -388,7 +393,10 @@ class ResourceAllocatorTests(unittest.TestCase):
         try:
             json.dump(raw, handle)
             handle.close()
-            with self.assertRaises(ControllerRuntimeError):
+            with self.assertRaisesRegex(
+                ControllerRuntimeError,
+                "J8-only profiles must keep allocator_policy_id",
+            ):
                 load_runtime_config(path)
         finally:
             try:

@@ -13,7 +13,11 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from common.search_request import parse_position_command
-from controller.adaptive_resource_router import AdaptiveResourceRouter
+from controller.adaptive_resource_router import (
+    AdaptiveResourceRouter,
+    AdaptiveResourceRoutingError,
+    _validate_promoted_model_bindings,
+)
 from controller.adaptive_time import AdaptiveTimeSettings, build_move_resource_plan
 from controller.budget import ResourceEnvelope
 from controller.decision import canonical_digest
@@ -439,6 +443,52 @@ class AdaptiveResourceRouterTests(unittest.TestCase):
             effective_options_digest="a" * 64,
         )
         self.assertIsNone(grant)
+
+    def test_promoted_stop_cannot_claim_more_groups_than_frozen_corpus(self):
+        from controller.resource_allocator import AllocationBundle, AllocationPolicy
+
+        promoted = AllocationPolicy(
+            catalog_id="adaptive-resource-allocation-v1",
+            policy_id="adaptive_resource_v1",
+            work_scheduler_catalog_id="work-grant-scheduler-v1",
+            work_scheduler_catalog_digest="a" * 64,
+            bundle=AllocationBundle(
+                bundle_id=STAGED_BUNDLE_ID,
+                allocation_round=2,
+                chunk_ids=(
+                    "compat/stockfish/staged-verify/n32",
+                    "compat/reckless/staged-verify/n32",
+                    "compat/lc0/staged-verify/n32",
+                ),
+            ),
+            skip_max_change_probability=0.10,
+            max_allocation_rounds=3,
+            stop_promotion=True,
+            promotion_reason="test promoted policy",
+            minimum_independent_groups=32,
+            calibration_independent_groups=32,
+            calibration_corpus_id="j10-calibration-corpus-v1",
+            staged_model_path="qualification/staged.json",
+            regime_model_path="qualification/regime.json",
+        )
+
+        class FakeModel:
+            model_id = "fake"
+            split_by_position = {
+                f"group-{index}": "train"
+                for index in range(32)
+            }
+
+        with self.assertRaisesRegex(
+            AdaptiveResourceRoutingError,
+            "independent-group floor",
+        ):
+            _validate_promoted_model_bindings(
+                root=ROOT,
+                allocation_policy=promoted,
+                staged_model=FakeModel(),
+                regime_model=FakeModel(),
+            )
 
     def test_round0_remains_j9_compat_decision(self):
         base, plan = parent()

@@ -1514,6 +1514,9 @@ VERIFY and staged-VERIFY retain their existing parent/source hashes, and then
 route/resource/plan/trace evidence. A future final-decision artifact may hash-bind that terminal
 root when J12 supplies orchestration provenance. No J11 source must hash a later parent.
 
+ENGINE-OPT-V2 retains the full J11 replay beside its qualification report and independently
+validates the copied evidence bundle before artifact upload.
+
 Never trust producer-written `qualified: true`. J11 must reconstruct the underlying facts.
 
 ---

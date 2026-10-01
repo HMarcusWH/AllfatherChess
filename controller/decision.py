@@ -561,7 +561,8 @@ class DecisionAuthorizationSnapshot:
         if self.route_allocation_decision_digest is not None:
             value = self.route_allocation_decision_digest
             if (
-                len(value) != 64
+                not isinstance(value, str)
+                or len(value) != 64
                 or any(ch not in "0123456789abcdef" for ch in value)
             ):
                 raise DecisionError(
@@ -570,8 +571,13 @@ class DecisionAuthorizationSnapshot:
         if self.route_move_resource_plan_id is not None:
             value = self.route_move_resource_plan_id
             if (
-                not value.startswith("move-plan/")
+                not isinstance(value, str)
+                or not value.startswith("move-plan/")
                 or len(value) != len("move-plan/") + 64
+                or any(
+                    ch not in "0123456789abcdef"
+                    for ch in value.split("/", 1)[1]
+                )
             ):
                 raise DecisionError(
                     "authorization snapshot route MoveResourcePlan identity is invalid"

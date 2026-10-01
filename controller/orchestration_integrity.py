@@ -361,7 +361,7 @@ def seal_orchestration_evidence(
             "digest": move_plan.game_environment.digest,
         },
         "host_capabilities": {
-            "host_id": move_plan.host_capabilities.host_id
+            "host_id": move_plan.host_capabilities.capability_id
             if move_plan.host_capabilities is not None
             else None,
             "digest": move_plan.host_capabilities.digest
@@ -1105,7 +1105,7 @@ def verify_orchestration_integrity(
             problems.append("adaptive J11 evidence lacks HostCapabilities")
         else:
             expected_host = {
-                "host_id": host.host_id,
+                "host_id": host.capability_id,
                 "digest": host.digest,
             }
             if artifact.get("host_capabilities") != expected_host:

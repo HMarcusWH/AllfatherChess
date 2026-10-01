@@ -347,6 +347,7 @@ jobs:
           python3 scripts/validate-resource-orchestration.py \
             --replay-root build/replays-m14-j-j10 \
             --latest \
+            --expected-source-commit "$ALLFATHER_SOURCE_SHA" \
             --output build/test-results/engine-opt-v2-profile-domain/j11/report.json
       - name: Build pinned Fastchess against source-test attestation
         run: make -f Makefile.local-game build-fastchess

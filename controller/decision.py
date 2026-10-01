@@ -488,6 +488,8 @@ class DecisionAuthorizationSnapshot:
     orchestration_host_provider_id: str | None = None
     orchestration_host_capacity_claim: bool | None = None
     orchestration_host_qualification_domain_complete: bool | None = None
+    route_allocation_decision_digest: str | None = None
+    route_move_resource_plan_id: str | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.run_id, str) or not self.run_id:
@@ -556,6 +558,24 @@ class DecisionAuthorizationSnapshot:
                 raise DecisionError(
                     f"authorization snapshot {label} must be boolean when present"
                 )
+        if self.route_allocation_decision_digest is not None:
+            value = self.route_allocation_decision_digest
+            if (
+                len(value) != 64
+                or any(ch not in "0123456789abcdef" for ch in value)
+            ):
+                raise DecisionError(
+                    "authorization snapshot route allocation digest must be lowercase SHA-256"
+                )
+        if self.route_move_resource_plan_id is not None:
+            value = self.route_move_resource_plan_id
+            if (
+                not value.startswith("move-plan/")
+                or len(value) != len("move-plan/") + 64
+            ):
+                raise DecisionError(
+                    "authorization snapshot route MoveResourcePlan identity is invalid"
+                )
 
     def as_dict(self) -> dict[str, Any]:
         payload = {
@@ -617,6 +637,14 @@ class DecisionAuthorizationSnapshot:
         if self.orchestration_host_qualification_domain_complete is not None:
             payload["orchestration_host_qualification_domain_complete"] = (
                 self.orchestration_host_qualification_domain_complete
+            )
+        if self.route_allocation_decision_digest is not None:
+            payload["route_allocation_decision_digest"] = (
+                self.route_allocation_decision_digest
+            )
+        if self.route_move_resource_plan_id is not None:
+            payload["route_move_resource_plan_id"] = (
+                self.route_move_resource_plan_id
             )
         return payload
 
@@ -1090,6 +1118,21 @@ def authorize_decision(
             reasons.append(
                 "orchestrated authority requires frozen J11 orchestration provenance"
             )
+        else:
+            if (
+                snapshot.route_allocation_decision_digest
+                != provenance.allocation_decision_digest
+            ):
+                reasons.append(
+                    "orchestrated route does not bind the J11 AllocationDecision"
+                )
+            if (
+                snapshot.route_move_resource_plan_id
+                != provenance.move_resource_plan_id
+            ):
+                reasons.append(
+                    "orchestrated route does not bind the J11 MoveResourcePlan"
+                )
         if snapshot.orchestration_host_capacity_claim is not True:
             reasons.append(
                 "orchestrated authority requires a real complete adaptive host-capacity claim"

@@ -1486,7 +1486,7 @@ Add/seal:
 - `resource-plan.json`;
 - `resource/allocation.jsonl`;
 - `orchestration.json`;
-- replay-manifest SHA binding for the orchestration artifact;
+- terminal orchestration-root SHA bindings for parent replay, VERIFY and staged-VERIFY manifests;
 - optional future `DecisionAuthorizationSnapshot.orchestration_provenance`.
 
 Add:
@@ -1505,8 +1505,11 @@ Independently recompute:
 - physical CPU total and resource-coverage qualification;
 - plan → allocation → grant → route/resource → replay identity.
 
-The evidence DAG is deliberately one-way: `orchestration.json` hashes its source artifacts,
-then `manifest.json` hashes `orchestration.json`. No artifact hashes its parent.
+The evidence DAG is deliberately one-way: the historical parent replay finalizes first,
+VERIFY and staged-VERIFY retain their existing parent/source hashes, and then
+`orchestration.json` becomes the terminal J11 root that hashes all of those manifests plus
+route/resource/plan/trace evidence. A future final-decision artifact may hash-bind that terminal
+root when J12 supplies orchestration provenance. No J11 source must hash a later parent.
 
 Never trust producer-written `qualified: true`. J11 must reconstruct the underlying facts.
 

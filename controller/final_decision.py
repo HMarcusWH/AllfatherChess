@@ -295,13 +295,9 @@ def _verify_clocked_authority(
                 "authorized J12 decision did not bind fully settled WorkGrants"
             )
         provider = snapshot.get("orchestration_host_provider_id")
-        if (
-            not isinstance(provider, str)
-            or not provider
-            or "synthetic" in provider.lower()
-        ):
+        if provider != "linux-host-v2":
             problems.append(
-                "authorized J12 decision used missing or synthetic host-capacity evidence"
+                "authorized J12 decision did not use the real linux-host-v2 capacity provider"
             )
         if snapshot.get("orchestration_host_capacity_claim") is not True:
             problems.append(

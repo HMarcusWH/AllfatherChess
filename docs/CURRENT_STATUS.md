@@ -149,8 +149,11 @@ bindings, admission-time budget affordability, settlement arithmetic, host/compo
 capacity and physical-resource evidence without trusting producer-written
 `qualified: true`.
 
-The replay manifest hash-binds the sealed J11 artifact without a circular dependency.
-DecisionAuthorization gains an optional orchestration provenance field that is absent from
+`orchestration.json` is the terminal J11 evidence root: it hash-binds the finalized parent
+replay, VERIFY/staged-VERIFY manifests, route/resource reports, resource plan and allocation
+trace. This ordering avoids a circular dependency while ensuring the exact stage manifests
+used for WorkGrant reconstruction cannot drift. DecisionAuthorization gains an optional
+orchestration provenance field that is absent from
 all historical G3 snapshots, preserving their canonical identity; when populated by the
 future J12 composition it requires complete WorkGrant settlement and zero open WorkGrant
 reservations. J11 itself keeps the existing runtime prohibition on orchestration plus

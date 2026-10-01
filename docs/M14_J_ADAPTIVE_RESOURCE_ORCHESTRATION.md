@@ -1,9 +1,9 @@
 # AllfatherChess — M14-J Adaptive Resource Orchestration Rebuild Plan
 
-> **Status:** active implementation; J0-J10 merged, J11 in progress  
-> **Current main:** `7a8ac8f803d7c58d3c16daf81a52c7fa86f2f9ca` (PR #57 merge)  
+> **Status:** active implementation; J0-J11 merged, J12 in progress  
+> **Current main:** `10664a27c5f4d88b087b1d008ef4e0eb4a317ef0` (PR #58 merge)  
 > **Frozen fallback composition:** ENGINE-OPT-V2 / PR #44  
-> **Latest completed stage:** J10 deterministic adaptive allocation / PR #57  
+> **Latest completed stage:** J11 allocation evidence + authority binding / PR #58  
 > **Authority:** documentation only; this plan does not itself promote M14-J behavior  
 
 **Program:** M14-J — Adaptive Resource Orchestration
@@ -1475,7 +1475,7 @@ J11 next independently seals/recomputes allocation provenance.
 
 ---
 
-## 40. J11 — Evidence Hardening — **IN PROGRESS**
+## 40. J11 — Evidence Hardening — **MERGED / PR #58**
 
 J11 is evidence-only. J10 search behavior, BUY-only fallback, WorkGrant authority and the
 runtime prohibition on orchestration + HYBRID authority remain unchanged.
@@ -1521,11 +1521,30 @@ Never trust producer-written `qualified: true`. J11 must reconstruct the underly
 
 ---
 
-## 41. J12 — Full Orchestrated Composition
+## 41. J12 — Full Orchestrated Composition — **IN PROGRESS / PR #59**
 
 Add:
 
 `config/allfather.orchestrated-v1.validation.json`
+
+J12 does not compose two independent staged-buy policies. J10 remains the single resource
+allocator. Its immutable decision is projected into the route vocabulary required by G3:
+
+```text
+BUY_BUNDLE   -> BUY_STAGED_VERIFY
+STOP_BUYING  -> SKIP_STAGED_VERIFY
+FALLBACK     -> FALLBACK_ANCHOR
+```
+
+The projection is resource-inert and move-inert and binds the exact AllocationDecision and
+MoveResourcePlan digests. The new
+`orchestrated_clocked_staged_preanchor_v1` DecisionAuthorization policy consumes that route
+identity plus the J11 orchestration binding. Historical
+`clocked_staged_preanchor_v1` remains unchanged.
+
+Synthetic HostCapabilities may exercise J12 mechanism wiring, but their provider identity is
+an explicit hard denial at the outward authority gate. Positive J12 HYBRID qualification
+requires naturally complete adaptive host-capacity evidence.
 
 Add qualifier:
 

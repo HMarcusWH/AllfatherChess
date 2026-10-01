@@ -1,12 +1,12 @@
 # AllfatherChess current build and release status
 
 **Status date:** 1 October 2026  
-**Authoritative main commit:** `7a8ac8f803d7c58d3c16daf81a52c7fa86f2f9ca`  
-**Latest merged milestone:** PR #57 / M14-J J10 — deterministic adaptive allocation  
+**Authoritative main commit:** `10664a27c5f4d88b087b1d008ef4e0eb4a317ef0`  
+**Latest merged milestone:** PR #58 / M14-J J11 — sealed allocation provenance and authority binding  
 **Qualified J6 PR head:** `6aecd0bae7848ca8a9893377fadffb049d336c3a`  
 **Frozen fallback:** ENGINE-OPT-V2 / PR #44 remains unchanged  
-**Current execution milestone:** M14-J J11 — independently sealed allocation evidence and authority binding  
-**Next milestone after J11:** M14-J J12 — full orchestrated composition  
+**Current execution milestone:** M14-J J12 — full orchestrated composition  
+**Next milestone after J12:** M14-J J13 / META-1 — same-resource authority-value control  
 **Forward roadmap:** [ROADMAP.md](ROADMAP.md)  
 **M14-J rebuild plan:** [M14_J_ADAPTIVE_RESOURCE_ORCHESTRATION.md](M14_J_ADAPTIVE_RESOURCE_ORCHESTRATION.md)  
 **Detailed deployment plan:** [ONLINE_RELEASE_PLAN.md](ONLINE_RELEASE_PLAN.md)
@@ -138,7 +138,7 @@ reservations**. The post-merge `main` merge gate, controller shell, ONLINE-2, ba
 M14-G3 and LC0 real-inference workflows also passed. STOP remains intentionally unpromoted:
 16 frozen independent seed groups are still below the source-controlled 32-group minimum.
 
-## M14-J J11 allocation evidence hardening — IN PROGRESS
+## M14-J J11 allocation evidence hardening — MERGED / PR #58
 
 J11 does not change chess search or enable HYBRID authority. It adds an append-only
 BudgetLedger admission/settlement journal, sealed `resource-plan.json`,
@@ -162,6 +162,30 @@ all historical G3 snapshots, preserving their canonical identity; when populated
 future J12 composition it requires complete WorkGrant settlement and zero open WorkGrant
 reservations. J11 itself keeps the existing runtime prohibition on orchestration plus
 HYBRID authority.
+
+## M14-J J12 full orchestrated composition — IN PROGRESS / PR #59
+
+J12 is the first milestone allowed to compose the adaptive resource plane with live move
+authority. It does **not** run G2 `unified_value_v1` beside J10 as a second allocator.
+Instead, the single J10 `AllocationDecision` is projected deterministically into the
+existing G3 staged-route vocabulary:
+
+```text
+BUY_BUNDLE   -> BUY_STAGED_VERIFY
+STOP_BUYING  -> SKIP_STAGED_VERIFY
+FALLBACK     -> FALLBACK_ANCHOR
+```
+
+The new `orchestrated_clocked_staged_preanchor_v1` policy leaves historical
+`clocked_staged_preanchor_v1` untouched. HYBRID authority requires the typed J11
+orchestration provenance, complete WorkGrant settlement, zero open WorkGrant reservations,
+and a real non-synthetic adaptive host-capacity observation. Hosted-runner synthetic capacity
+may exercise the mechanism but is deliberately forbidden from promoting outward HYBRID
+authority.
+
+The initial J12 profile preserves the frozen n16 EXPLORE / n16 VERIFY / n32 staged VERIFY
+grid, `conservative_v1`, the existing ENGINE-OPT-V2 fallback, and unpromoted
+`STOP_BUYING`. J7 Hash32/MaxPrefetch0 selections remain outside the runtime.
 
 ## LOCAL-1 qualification result
 

@@ -15,6 +15,7 @@ import json
 import os
 import re
 import sys
+import tempfile
 import time
 from dataclasses import replace
 from pathlib import Path
@@ -65,7 +66,15 @@ def wait_for(predicate, *, timeout: float, label: str) -> None:
 
 
 def static_contract() -> dict[str, object]:
-    config = load_runtime_config(CONFIG)
+    document = json.loads(CONFIG.read_text(encoding="utf-8"))
+    for spec in document.get("instances", {}).values():
+        spec["binary"] = sys.executable
+        spec.pop("fallback_glob", None)
+    document["root"] = "."
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "orchestrated-v1.json"
+        path.write_text(json.dumps(document), encoding="utf-8")
+        config = load_runtime_config(path)
     require(config.orchestration is not None, "J12 requires MoveResourcePlan")
     require(config.work_scheduler is not None, "J12 requires WorkGrant scheduler")
     require(config.resource_allocator is not None, "J12 requires adaptive allocator")

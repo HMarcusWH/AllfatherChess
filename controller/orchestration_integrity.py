@@ -119,15 +119,20 @@ def _trace_rows(
     position_id: str,
 ) -> list[dict[str, Any]]:
     decisions = route.get("allocation_decisions", [])
+    contexts = route.get("allocation_contexts", [])
     scheduler = route.get("work_scheduler")
     work_events = (
         scheduler.get("events", [])
         if isinstance(scheduler, Mapping)
         else []
     )
-    if not isinstance(decisions, list) or not isinstance(work_events, list):
+    if (
+        not isinstance(decisions, list)
+        or not isinstance(contexts, list)
+        or not isinstance(work_events, list)
+    ):
         raise OrchestrationIntegrityError(
-            "route allocation/work-grant evidence must be arrays"
+            "route allocation/context/work-grant evidence must be arrays"
         )
     rows: list[dict[str, Any]] = [
         {
@@ -145,6 +150,14 @@ def _trace_rows(
             "payload": value,
         }
         for index, value in enumerate(decisions)
+    )
+    rows.extend(
+        {
+            "record_type": "allocation_context",
+            "ordinal": index,
+            "payload": value,
+        }
+        for index, value in enumerate(contexts)
     )
     rows.extend(
         {

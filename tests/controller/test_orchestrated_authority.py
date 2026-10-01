@@ -245,7 +245,7 @@ class OrchestratedAuthorityTests(unittest.TestCase):
             policy=ORCHESTRATED_CLOCKED_AUTHORIZATION_POLICY,
         )
         self.assertFalse(authorization.authorized)
-        self.assertIn("synthetic host-capacity evidence", authorization.reason)
+        self.assertIn("linux-host-v2", authorization.reason)
 
     def test_j12_authorizes_only_with_complete_real_orchestration(self):
         ev = evidence()

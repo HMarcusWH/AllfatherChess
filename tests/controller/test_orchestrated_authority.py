@@ -165,6 +165,8 @@ def snapshot(**changes) -> DecisionAuthorizationSnapshot:
         route_action="BUY_STAGED_VERIFY",
         route_buy_extension=True,
         route_decision_digest="c" * 64,
+        route_allocation_decision_digest="4" * 64,
+        route_move_resource_plan_id="move-plan/" + "2" * 64,
         authority_evidence_frozen_before_soft_deadline=True,
         authority_blocked=False,
     )
@@ -260,6 +262,23 @@ class OrchestratedAuthorityTests(unittest.TestCase):
         )
         self.assertTrue(authorization.authorized)
         self.assertEqual(authorization.move, "e2e4")
+
+    def test_j12_rejects_route_from_different_allocation(self):
+        ev = evidence()
+        authorization = authorize_decision(
+            proposal(ev),
+            ev,
+            snapshot(
+                orchestration_provenance=provenance(),
+                orchestration_host_provider_id="linux-host-v2",
+                orchestration_host_capacity_claim=True,
+                orchestration_host_qualification_domain_complete=False,
+                route_allocation_decision_digest="f" * 64,
+            ),
+            policy=ORCHESTRATED_CLOCKED_AUTHORIZATION_POLICY,
+        )
+        self.assertFalse(authorization.authorized)
+        self.assertIn("AllocationDecision", authorization.reason)
 
     def test_j12_rejects_open_work_grant(self):
         ev = evidence()

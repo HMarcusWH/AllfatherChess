@@ -531,6 +531,60 @@ def replay_budget_journal(
                 "budget journal sequence is not contiguous"
             )
         event = row.get("event")
+        expected_keys = {
+            "reserve": {
+                "sequence",
+                "event",
+                "reservation_id",
+                "lane",
+                "purpose",
+                "cpu_ms",
+                "gpu_ms",
+                "grant_id",
+                "profile_id",
+                "allocator_decision_digest",
+            },
+            "settle": {
+                "sequence",
+                "event",
+                "reservation_id",
+                "lane",
+                "purpose",
+                "declared_cpu_ms",
+                "declared_gpu_ms",
+                "actual_cpu_ms",
+                "actual_gpu_ms",
+                "cpu_source",
+                "gpu_source",
+                "grant_id",
+                "profile_id",
+                "allocator_decision_digest",
+            },
+            "release": {
+                "sequence",
+                "event",
+                "reservation_id",
+                "lane",
+                "purpose",
+                "cpu_ms",
+                "gpu_ms",
+                "grant_id",
+                "profile_id",
+                "allocator_decision_digest",
+            },
+            "controller_charge": {
+                "sequence",
+                "event",
+                "lane",
+                "purpose",
+                "cpu_ms",
+                "label",
+            },
+        }
+        if event not in expected_keys or set(row) != expected_keys[event]:
+            raise OrchestrationIntegrityError(
+                f"budget journal event {event!r} has an invalid schema"
+            )
         if event == "reserve":
             reservation_id = row.get("reservation_id")
             if (
@@ -598,6 +652,22 @@ def replay_budget_journal(
                     raise OrchestrationIntegrityError(
                         f"{event} provenance differs from reservation for {key}"
                     )
+            if event == "release":
+                released_cpu = _finite_nonnegative(
+                    row.get("cpu_ms"),
+                    "release.cpu_ms",
+                )
+                released_gpu = _finite_nonnegative(
+                    row.get("gpu_ms"),
+                    "release.gpu_ms",
+                )
+                if (
+                    abs(released_cpu - float(reservation["cpu_ms"])) > 1e-9
+                    or abs(released_gpu - float(reservation["gpu_ms"])) > 1e-9
+                ):
+                    raise OrchestrationIntegrityError(
+                        "release amount differs from reservation"
+                    )
             if event == "settle":
                 declared_cpu = _finite_nonnegative(
                     row.get("declared_cpu_ms"),
@@ -622,6 +692,18 @@ def replay_budget_journal(
                     row.get("actual_gpu_ms"),
                     "settle.actual_gpu_ms",
                 )
+                valid_sources = {
+                    "measured",
+                    "estimated_fallback",
+                    "declared_fallback",
+                }
+                if (
+                    row.get("cpu_source") not in valid_sources
+                    or row.get("gpu_source") not in valid_sources
+                ):
+                    raise OrchestrationIntegrityError(
+                        "settlement source is unsupported"
+                    )
                 group = reservation["group"]
                 spent_cpu[group] += actual_cpu
                 spent_gpu[group] += actual_gpu
@@ -1145,6 +1227,15 @@ def verify_orchestration_integrity(
         if not isinstance(context, dict):
             problems.append("allocation context is not an object")
         else:
+            expected_context_keys = {
+                "allocation_id",
+                "budget_snapshot",
+                "budget_snapshot_digest",
+                "budget_journal_event_count",
+                "budget_journal_digest",
+            }
+            if set(context) != expected_context_keys:
+                problems.append("allocation context schema is invalid")
             snapshot = context.get("budget_snapshot")
             count = context.get("budget_journal_event_count")
             if context.get("allocation_id") != decision.allocation_id:

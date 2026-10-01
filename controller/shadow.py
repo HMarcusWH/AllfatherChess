@@ -4293,17 +4293,6 @@ class ShadowRunCoordinator:
                 )
                 return
 
-        if self._j10_adaptive(active):
-            if not self._prepare_staged_work_grant_bundle(
-                active,
-                verification,
-            ):
-                active.run.note(
-                    "J10 staged bundle not dispatched: transactional "
-                    "grant/phase preparation failed"
-                )
-                return
-
         staged = StagedVerificationRun(
             run_dir=active.run.run_dir,
             source_run_id=active.run.run_id,
@@ -4361,6 +4350,21 @@ class ShadowRunCoordinator:
                 )
                 return
             staged.register_stream(stream)
+
+        if self._j10_adaptive(active):
+            if not self._prepare_staged_work_grant_bundle(
+                active,
+                verification,
+            ):
+                staged.set_disposition(
+                    "incomplete",
+                    "J10 transactional grant/phase preparation failed",
+                )
+                active.run.note(
+                    "J10 staged bundle not dispatched: transactional "
+                    "grant/phase preparation failed"
+                )
+                return
 
         dispatched = 0
         for owner in verification.plan.owners:

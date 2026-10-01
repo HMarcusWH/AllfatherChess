@@ -2669,6 +2669,40 @@ class ShadowRunCoordinator:
                             f"router finalization error: {type(exc).__name__}: {exc}"
                         )
 
+                # J11 seals a non-circular resource/allocation evidence DAG only
+                # for the J10 adaptive allocator. It runs after route.json and
+                # resource.json are immutable, but before manifest.json so the
+                # parent replay can hash-bind orchestration.json.
+                if (
+                    self.router is not None
+                    and active.context.move_resource_plan is not None
+                    and self.runtime.config.resource_allocator is not None
+                ):
+                    try:
+                        from controller.orchestration_integrity import (
+                            seal_orchestration_evidence,
+                        )
+
+                        active.run.orchestration_evidence = (
+                            seal_orchestration_evidence(
+                                active.run.run_dir,
+                                move_plan=active.context.move_resource_plan,
+                                budget_journal=self.router.ledger.journal(),
+                            )
+                        )
+                    except Exception as exc:
+                        # The outward move, if any, is already published. A J11
+                        # persistence failure invalidates the evidence run but
+                        # may never rewrite chess authority retroactively.
+                        active.run.note(
+                            "J11 orchestration evidence could not be sealed: "
+                            f"{type(exc).__name__}: {exc}"
+                        )
+                        self._diagnostic(
+                            "J11 orchestration evidence failed: "
+                            f"{type(exc).__name__}: {exc}"
+                        )
+
                 resource_interval_frozen = process_endpoints_frozen
                 if (
                     active.anchor_done.is_set()

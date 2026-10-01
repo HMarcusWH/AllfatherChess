@@ -277,6 +277,37 @@ def _verify_clocked_authority(
                             "J12 HYBRID route was not projected from BUY_BUNDLE"
                         )
 
+    if (
+        authorization.get("policy")
+        == ORCHESTRATED_CLOCKED_AUTHORIZATION_POLICY
+        and authorized
+    ):
+        provenance = snapshot.get("orchestration_provenance")
+        if not isinstance(provenance, dict):
+            problems.append(
+                "authorized J12 decision is missing orchestration provenance"
+            )
+        elif (
+            provenance.get("work_grant_settlement_complete") is not True
+            or provenance.get("open_work_grant_reservations") != 0
+        ):
+            problems.append(
+                "authorized J12 decision did not bind fully settled WorkGrants"
+            )
+        provider = snapshot.get("orchestration_host_provider_id")
+        if (
+            not isinstance(provider, str)
+            or not provider
+            or "synthetic" in provider.lower()
+        ):
+            problems.append(
+                "authorized J12 decision used missing or synthetic host-capacity evidence"
+            )
+        if snapshot.get("orchestration_host_capacity_claim") is not True:
+            problems.append(
+                "authorized J12 decision lacks a real adaptive host-capacity claim"
+            )
+
     if authorized:
         if decision.get("authority") != "HYBRID":
             problems.append("authorized G3 decision is not marked HYBRID")

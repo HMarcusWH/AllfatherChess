@@ -272,9 +272,24 @@ def _verify_clocked_authority(
                         problems.append(
                             "J12 route projection does not bind the authorized MoveResourcePlan"
                         )
+                    if (
+                        chosen.get("version")
+                        != "j12-allocation-route-projection-v1"
+                    ):
+                        problems.append(
+                            "J12 route projection version is invalid"
+                        )
                     if chosen.get("allocation_action") != "BUY_BUNDLE":
                         problems.append(
                             "J12 HYBRID route was not projected from BUY_BUNDLE"
+                        )
+                    expected_allocation_id = (
+                        "allocation/"
+                        + str(provenance.get("allocation_decision_digest"))
+                    )
+                    if chosen.get("allocation_id") != expected_allocation_id:
+                        problems.append(
+                            "J12 route projection allocation_id differs from its digest"
                         )
 
     if (

@@ -1,6 +1,6 @@
 # AllfatherChess
 
-> **Current synchronized build state:** PR #53 is merged; main is synchronized at `01b4c5b5f8a0ffeced8db1c1f4951c89bdf6bb58`. J0-J6 are implemented, ENGINE-OPT-V2 remains the fail-closed fallback, and **PR #54 / J7** freezes evidence-backed isolated resource-profile selections without enabling runtime selection.  
+> **Current synchronized build state:** PR #54 / M14-J J7 is merged; main is synchronized at `730d8884c5878b28b5d67492583efb678750bc04`. J0-J7 are implemented, ENGINE-OPT-V2 remains the fail-closed fallback, and **PR #55 / J8** adds a clamp-only per-move `MoveResourcePlan` beneath the unchanged `clock_envelope_v1` safety plan.  
 > See [docs/CURRENT_STATUS.md](docs/CURRENT_STATUS.md) for the exact implemented surface and
 > [docs/ROADMAP.md](docs/ROADMAP.md) for the canonical forward execution order.
 
@@ -90,16 +90,17 @@ make run-allfather-online-hybrid
 ```
 
 PR #41 completed LOCAL-1, PR #44 completed ENGINE-OPT-V2, PR #52 completed J6 of
-M14-J, and PR #53 repaired the LOCAL-1 prerequisite boundary without changing J6 evidence.
-PR #54 is the J7 evidence-backed selection freeze. The remaining first-canary path is now:
+M14-J, PR #53 repaired the LOCAL-1 prerequisite boundary, and PR #54 merged the J7
+evidence-backed selection freeze without enabling runtime profile selection. PR #55 is the
+J8 clamp-only outer-resource-plan candidate. The remaining first-canary path is now:
 
 ```text
 LOCAL-1 full-game lifecycle qualification  [DONE]
     -> ENGINE-OPT-V2 measured constituent/profile optimization  [DONE]
     -> M14-J J0-J6 orchestration substrate + resource laboratory  [DONE]
-    -> M14-J J7 evidence-backed isolated profile selection  [PR #54]
-    -> M14-J J8 adaptive outer time  [NEXT AFTER J7]
-    -> M14-J J9 WorkGrant scheduler
+    -> M14-J J7 evidence-backed isolated profile selection  [DONE]
+    -> M14-J J8 clamp-only adaptive outer resource plan  [PR #55]
+    -> M14-J J9 WorkGrant scheduler  [NEXT AFTER J8]
     -> M14-J J10 deterministic adaptive allocator
     -> M14-J J11 allocation evidence + authority binding
     -> M14-J J12 full orchestrated composition

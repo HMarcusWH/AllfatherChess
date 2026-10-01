@@ -75,6 +75,7 @@ class UciFrontend:
                 )
             self._online_atomic_write_limit = limit
         self._clock_search: ClockSearch | None = None
+        self._move_resource_plan = None
         self._receipt_monotonic: float | None = None
         self._receipt_cpu_ns: int | None = None
         self.runtime.set_failure_handler(self._runtime_failed)
@@ -673,17 +674,33 @@ class UciFrontend:
                 self._diagnostic(f"clock request rejected: {exc}")
                 self._write("bestmove 0000")  # Protocol failure, not a legal fallback move.
                 return
+            try:
+                resource_plan = self.runtime.make_move_resource_plan(plan)
+            except RuntimeError as exc:
+                # J8 is strictly subordinate to the already-qualified TimePlan.
+                # A planner failure may remove the adaptive resource claim but
+                # must not create a new way to lose an otherwise valid move.
+                self._diagnostic(
+                    f"adaptive resource plan unavailable; using clock fallback: {exc}"
+                )
+                resource_plan = None
             self._generation = token
             self._active_generation = token
             self._post_output_generation = None
             self._state = ShellState.SEARCHING
             clock = ClockSearch(plan)
             self._clock_search = clock
+            self._move_resource_plan = resource_plan
         clock.start(lambda: self._clock_stop(token), lambda: self._clock_fail(token, "clock hard deadline exceeded"))
         prepared = False
         if self.shadow is not None:
             try:
-                prepared = self.shadow.prepare_run(generation=token, go_command=command, clock=clock)
+                prepared = self.shadow.prepare_run(
+                    generation=token,
+                    go_command=command,
+                    clock=clock,
+                    resource_plan=resource_plan,
+                )
             except Exception as exc:
                 self._diagnostic(f"clock observation setup unavailable: {exc}")
         if not clock.work_open():

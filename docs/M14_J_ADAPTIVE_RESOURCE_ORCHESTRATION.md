@@ -1,9 +1,9 @@
 # AllfatherChess — M14-J Adaptive Resource Orchestration Rebuild Plan
 
-> **Status:** active implementation; J0-J6 merged, J7 next  
-> **Current main:** `fb690e435da39808adaa5c02345c77d407bc8043` (PR #52 merge)  
+> **Status:** active implementation; J0-J7 merged, J8 in progress / PR #55  
+> **Current main:** `730d8884c5878b28b5d67492583efb678750bc04` (PR #54 merge)  
 > **Frozen fallback composition:** ENGINE-OPT-V2 / PR #44  
-> **Latest completed stage:** J6 Resource Laboratory on exact head `6aecd0bae7848ca8a9893377fadffb049d336c3a`  
+> **Latest completed stage:** J7 evidence-backed profile-selection freeze / PR #54  
 > **Authority:** documentation only; this plan does not itself promote M14-J behavior  
 
 **Program:** M14-J — Adaptive Resource Orchestration
@@ -1193,7 +1193,7 @@ No production behavior changes and no profile-selection authority were granted b
 
 ---
 
-## 36. J7 — Freeze Evidence-Backed Profile Selection — **PR #54**
+## 36. J7 — Freeze Evidence-Backed Profile Selection — **MERGED / PR #54**
 
 J7 does **not** replace or mutate the J3 runtime catalog. The existing
 `qualification/resource-profile-catalog-v1.json` remains the frozen J3/J4 contract,
@@ -1254,31 +1254,89 @@ retry-until-green laboratory is part of J7.
 
 ---
 
-## 37. J8 — Adaptive Outer Time
+## 37. J8 — Adaptive Outer Time / MoveResourcePlan — **PR #55**
+
+J8 deliberately does **not** replace `clock_envelope_v1`. The historical ONLINE
+`TimePlan` remains the clock/deadline safety object, the anchor request source, and the
+timing identity consumed by existing G3 authority/replay checks.
 
 Add:
 
-`controller/adaptive_time.py`
+```text
+controller/move_resource_plan.py
+controller/adaptive_time.py
+config/allfather.m14-j-j8.validation.json
+qualification/adaptive-clock-v1.json
+scripts/qualify-adaptive-time.py
+tests/controller/test_move_resource_plan.py
+tests/controller/test_adaptive_time.py
+```
 
-New config block:
+The J8 relationship is:
+
+```text
+external UCI clock
+      ↓
+clock_envelope_v1 TimePlan             [unchanged safety ceiling]
+      ↓
+adaptive_clock_envelope_v1
+      ↓
+MoveResourcePlan                        [resource ceiling only]
+      ↓
+legacy fixed stages / conservative_v1   [J9 replaces with WorkGrants]
+```
+
+The first adaptive policy is intentionally **clamp-only**. It does not introduce an
+uncalibrated chess time manager. Soft/hard deadlines, network reserve, output margin and
+anchor `go movetime` remain those reconstructed by `clock_envelope_v1`. J8 derives only
+a stricter CPU resource ceiling from the TimePlan, current fixed composition and live host
+capacity:
+
+```text
+effective_parallelism =
+    min(
+        TimePlan.cpu_parallelism,
+        composition.declared_cpu_slots,
+        host allowed CPU count,
+        cgroup quota equivalents when limited
+    )
+
+J8 CPU =
+    min(TimePlan CPU, TimePlan wall × effective_parallelism)
+```
+
+GPU remains zero. Unknown CPU quota/cpuset/memory or insufficient memory produces explicit
+fallback evidence and retains the existing TimePlan envelope rather than inventing capacity.
+
+The validation runtime derives from the anchor-authoritative ENGINE-OPT-V2 profile and adds
+only:
 
 ```json
 "orchestration": {
   "enabled": true,
-  "clock_policy": "adaptive_clock_envelope_v1",
-  "fallback_profile": "engine-opt-v2"
+  "policy": "adaptive_clock_envelope_v1",
+  "catalog": "qualification/resource-profile-catalog-v1.json",
+  "composition_id": "composition/engine-opt-v2-exact-host",
+  "fallback_clock_policy": "clock_envelope_v1",
+  "fallback_profile": "engine-opt-v2",
+  "allocator_policy_id": "legacy-fixed-stage-compat-v1",
+  "concurrency": 1,
+  "network_policy": "clock-envelope-v1"
 }
 ```
 
-Tests include:
+J8 reads the J3 composition metadata but does not bind stored exact-host qualification as
+proof of the current machine. Mechanical host-capacity planning and composition qualification
+remain separate. It also does **not** consume the J7 isolated operating-point selections:
+Stockfish stays at Hash 16 and LC0 stays at MaxPrefetch 8 in the J8 runtime.
 
-- 30+1
-- 10+5
-- 3+2
-- tiny remaining clock
-- huge increment
-- clock deficit
-- unsupported input
+`MoveResourcePlan` is content-addressed and replay-bound but grants neither a WorkGrant nor
+outward move authority. J9 owns executable WorkGrant scheduling; J12 owns composition with
+hybrid DecisionAuthorization.
+
+Tests/qualification cover 30+1, 10+5, 3+2, movetime, movestogo, huge increment, 8→4 CPU
+composition clamp, 2-CPU clamp, fractional quota, unknown-host fallback, insufficient memory,
+J7 non-consumption and destructive plan/provenance/authority mutations.
 
 ---
 

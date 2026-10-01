@@ -8,9 +8,13 @@ on:
     paths:
       - qualification/online-cpu-reference.json
       - qualification/lc0-strength-*.json
+      - qualification/adaptive-clock-v1.json
       - config/allfather.online.cpu-reference.json
+      - config/allfather.m14-j-j8.validation.json
       - controller/online_profile.py
       - controller/online_time.py
+      - controller/adaptive_time.py
+      - controller/move_resource_plan.py
       - controller/runtime.py
       - controller/resource_measurement.py
       - controller/replay.py
@@ -20,6 +24,7 @@ on:
       - common/**
       - scripts/build-online-cpu-reference.sh
       - scripts/qualify-online-profile.py
+      - scripts/qualify-adaptive-time.py
       - scripts/online-hardware-probe.py
       - scripts/build-lc0-strength.sh
       - scripts/fetch-*.py
@@ -27,6 +32,8 @@ on:
       - scripts/lc0-*.py
       - tests/controller/test_online_profile.py
       - tests/controller/test_online_time.py
+      - tests/controller/test_adaptive_time.py
+      - tests/controller/test_move_resource_plan.py
       - tests/controller/test_online_deadlines.py
       - tests/adapters/test_uci_process.py
       - tests/harness/**
@@ -38,9 +45,13 @@ on:
     paths:
       - qualification/online-cpu-reference.json
       - qualification/lc0-strength-*.json
+      - qualification/adaptive-clock-v1.json
       - config/allfather.online.cpu-reference.json
+      - config/allfather.m14-j-j8.validation.json
       - controller/online_profile.py
       - controller/online_time.py
+      - controller/adaptive_time.py
+      - controller/move_resource_plan.py
       - controller/runtime.py
       - controller/resource_measurement.py
       - controller/replay.py
@@ -50,6 +61,7 @@ on:
       - common/**
       - scripts/build-online-cpu-reference.sh
       - scripts/qualify-online-profile.py
+      - scripts/qualify-adaptive-time.py
       - scripts/online-hardware-probe.py
       - scripts/build-lc0-strength.sh
       - scripts/fetch-*.py
@@ -57,6 +69,8 @@ on:
       - scripts/lc0-*.py
       - tests/controller/test_online_profile.py
       - tests/controller/test_online_time.py
+      - tests/controller/test_adaptive_time.py
+      - tests/controller/test_move_resource_plan.py
       - tests/controller/test_online_deadlines.py
       - tests/adapters/test_uci_process.py
       - tests/harness/**
@@ -134,8 +148,13 @@ jobs:
           ./scripts/verify-vendor.sh
           python3 scripts/lc0-strength-lock.py validate-frozen
           python3 tests/controller/test_online_profile.py
+          python3 tests/controller/test_move_resource_plan.py
+          python3 tests/controller/test_adaptive_time.py
+          python3 scripts/qualify-adaptive-time.py
           python3 tests/adapters/test_uci_process.py
           python3 -m json.tool qualification/online-cpu-reference.json >/dev/null
+          python3 -m json.tool qualification/adaptive-clock-v1.json >/dev/null
+          python3 -m json.tool config/allfather.m14-j-j8.validation.json >/dev/null
           python3 -m json.tool config/allfather.online.cpu-reference.json >/dev/null
           python3 -m py_compile controller/online_profile.py scripts/qualify-online-profile.py scripts/online-hardware-probe.py
           bash -n scripts/build-online-cpu-reference.sh

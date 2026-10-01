@@ -16,7 +16,7 @@ import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Iterable
+from typing import TYPE_CHECKING, Callable, Iterable
 
 from adapters.process import UciDispatchRejected, UciProcess, UciProcessError
 from adapters.telemetry import SUPPORTED_SCORE_TYPES
@@ -24,6 +24,9 @@ from common.search_request import SearchRequestError, parse_position_command
 from controller.resource_measurement import ResourceMeasurementError, ResourceMeasurementSettings
 from controller.online_time import ClockSearch, OnlineTimeSettings, OnlineTimeError
 from adapters.process.deferred_observer import DeferredObserver
+
+if TYPE_CHECKING:
+    from controller.adaptive_time import AdaptiveTimeSettings
 
 
 class RuntimeError(RuntimeError):
@@ -231,6 +234,7 @@ class RuntimeConfig:
     budget: dict[str, object] | None = None
     routing: dict[str, object] | None = None
     online_time: OnlineTimeSettings | None = None
+    orchestration: "AdaptiveTimeSettings | None" = None
 
     @property
     def instances(self) -> dict[str, BackendSpec]:
@@ -1133,6 +1137,8 @@ def load_runtime_config(path: Path) -> RuntimeConfig:
     if version == 1:
         if "online_time" in data:
             raise RuntimeError("online_time requires schema_version 2; legacy profiles are unchanged")
+        if "orchestration" in data:
+            raise RuntimeError("orchestration requires schema_version 2; legacy profiles are unchanged")
         anchor, specs = _load_legacy_backends(data, root)
         return RuntimeConfig(path=path, root=root, mode="anchor", anchor=anchor, backends=specs)
 
@@ -1322,6 +1328,35 @@ def load_runtime_config(path: Path) -> RuntimeConfig:
                     f"{sorted(cpu_only_lc0_backends)}"
                 )
 
+
+    from controller.adaptive_time import AdaptiveTimeError, AdaptiveTimeSettings
+    try:
+        orchestration = AdaptiveTimeSettings.from_config(data.get("orchestration"))
+    except AdaptiveTimeError as exc:
+        raise RuntimeError(str(exc)) from exc
+    if orchestration is not None:
+        if online_time is None:
+            raise RuntimeError("M14-J J8 requires the frozen ONLINE TimePlan safety layer")
+        if mode != "active":
+            raise RuntimeError("M14-J J8 requires active resource routing")
+        if hybrid_authority is not None:
+            raise RuntimeError(
+                "M14-J J8 is resource-plan qualification only; hybrid authority is deferred to J12"
+            )
+        if any(
+            item is not None
+            for item in (verification, refinement, crossfeed, counterfactual)
+        ):
+            raise RuntimeError(
+                "M14-J J8 validation profile may not compose VERIFY/REFINE/crossfeed/counterfactual"
+            )
+        if routing is None or routing.get("policy") != "conservative_v1":
+            raise RuntimeError(
+                "M14-J J8 validation profile requires routing.policy='conservative_v1'"
+            )
+        if budget is None or budget.get("gpu_ms", 0) != 0:
+            raise RuntimeError("M14-J J8 validation profile is CPU-only")
+
     return RuntimeConfig(
         path=path,
         root=root,
@@ -1338,6 +1373,7 @@ def load_runtime_config(path: Path) -> RuntimeConfig:
         budget=budget,
         routing=routing,
         online_time=online_time,
+        orchestration=orchestration,
     )
 
 
@@ -1404,6 +1440,14 @@ class BackendManager:
         self._resource_control = None
         self._resource_placement_states: dict[str, object] = {}
 
+        # J8 planning context is read-only and separate from J3/J4 runtime
+        # binding. It may clamp resource ceilings but cannot select a profile,
+        # apply engine options, create a WorkGrant, or grant move authority.
+        self._adaptive_catalog = None
+        self._adaptive_composition = None
+        self._adaptive_host = None
+        self._adaptive_host_error: str | None = None
+
         # Provenance is captured here, before `start()` launches anything. It
         # used to be computed when the shadow coordinator was constructed --
         # after every process was already running -- so a config or binary
@@ -1427,6 +1471,8 @@ class BackendManager:
         anchor_first = [config.anchor]
         anchor_first += [name for name in config.backends if name != config.anchor]
         self._startup_order: tuple[str, ...] = tuple(anchor_first)
+
+        self._initialize_adaptive_planning_context()
 
     @classmethod
     def from_path(cls, path: Path) -> "BackendManager":
@@ -1491,6 +1537,115 @@ class BackendManager:
         spec = self.spec(instance)
         with self._lock:
             return dict(self._effective_options.get(instance, spec.options))
+
+    def _initialize_adaptive_planning_context(self) -> None:
+        """Load J8's fixed composition metadata and observe the host once.
+
+        This deliberately does not call bind_resource_catalog(): J3 remains an
+        exact-host qualification artifact and J8 is not allowed to turn stored
+        execution-domain identity into circular runtime qualification.
+        """
+
+        settings = self.config.orchestration
+        if settings is None:
+            return
+        from controller.resource_profile_catalog import (
+            ResourceProfileCatalogError,
+            load_resource_profile_catalog,
+        )
+
+        catalog_path = (self.config.root / settings.catalog).resolve()
+        try:
+            catalog = load_resource_profile_catalog(catalog_path)
+            if catalog.selection_enabled:
+                raise RuntimeError(
+                    "J8 refuses a catalog with runtime profile selection enabled"
+                )
+            if catalog.fallback_profile != settings.fallback_profile:
+                raise RuntimeError(
+                    "J8 fallback profile differs from the frozen resource catalog"
+                )
+            composition = catalog.composition(settings.composition_id)
+        except (ResourceProfileCatalogError, OSError, ValueError) as exc:
+            raise RuntimeError(f"cannot initialize J8 resource catalog: {exc}") from exc
+
+        by_instance = {binding.instance: binding for binding in composition.bindings}
+        if set(by_instance) != set(self.config.backends):
+            raise RuntimeError(
+                "J8 composition instances differ from RuntimeConfig instances"
+            )
+        for instance in sorted(self.config.backends):
+            binding = by_instance[instance]
+            profile = catalog.profile(binding.profile_id)
+            spec = self.spec(instance)
+            expected_role = "anchor" if binding.role.value == "anchor" else "shadow"
+            if spec.family != binding.family or spec.role != expected_role:
+                raise RuntimeError(
+                    f"{instance}: J8 composition role/family differs from RuntimeConfig"
+                )
+            if profile.accelerator.value != "cpu":
+                raise RuntimeError(
+                    f"{instance}: J8 validation composition must remain CPU-only"
+                )
+            if dict(spec.options) != catalog.startup_options(profile.profile_id):
+                raise RuntimeError(
+                    f"{instance}: J8 RuntimeConfig startup options differ from J3 catalog"
+                )
+            if {
+                phase: dict(values)
+                for phase, values in sorted(spec.phase_options.items())
+            } != catalog.phase_options(profile.profile_id):
+                raise RuntimeError(
+                    f"{instance}: J8 RuntimeConfig phase options differ from J3 catalog"
+                )
+            if tuple(spec.args) != profile.process_identity.args:
+                raise RuntimeError(
+                    f"{instance}: J8 process argv differs from J3 composition metadata"
+                )
+            if tuple(sorted(spec.environment.items())) != profile.process_identity.environment:
+                raise RuntimeError(
+                    f"{instance}: J8 process environment differs from J3 composition metadata"
+                )
+            if self._warmup_dict(spec.warmup) != catalog.warmup(profile.profile_id):
+                raise RuntimeError(
+                    f"{instance}: J8 warmup differs from J3 composition metadata"
+                )
+
+        self._adaptive_catalog = catalog
+        self._adaptive_composition = composition
+        from controller.host_capabilities import discover_host_capabilities
+        try:
+            self._adaptive_host = discover_host_capabilities()
+        except Exception as exc:  # host uncertainty is a recorded J8 fallback
+            self._adaptive_host = None
+            self._adaptive_host_error = f"{type(exc).__name__}: {exc}"
+
+    def make_move_resource_plan(self, baseline):
+        """Create J8's additive per-move resource ceiling.
+
+        A missing/incomplete host observation becomes a structured fallback
+        plan. Static catalog/config drift is rejected earlier at construction.
+        """
+
+        settings = self.config.orchestration
+        if settings is None:
+            return None
+        catalog = self._adaptive_catalog
+        composition = self._adaptive_composition
+        if catalog is None or composition is None:
+            raise RuntimeError("J8 planning context is not initialized")
+        from controller.adaptive_time import AdaptiveTimeError, build_move_resource_plan
+        try:
+            return build_move_resource_plan(
+                baseline=baseline,
+                settings=settings,
+                host=self._adaptive_host,
+                composition=composition,
+                catalog_id=catalog.catalog_id,
+                catalog_digest=catalog.digest,
+            )
+        except AdaptiveTimeError as exc:
+            raise RuntimeError(str(exc)) from exc
 
     def _catalog_required(self) -> ResourceProfileCatalog:
         catalog = self._resource_catalog

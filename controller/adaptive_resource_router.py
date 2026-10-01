@@ -218,6 +218,63 @@ class AdaptiveResourceRouter(ConservativeRouter):
                 "work_grants": audit.work_grants,
             }
         )
+        authorized_grants = [
+            row
+            for row in audit.work_grants
+            if (
+                isinstance(row, dict)
+                and row.get("event") == "authorize"
+                and row.get("granted") is True
+                and isinstance(row.get("grant"), dict)
+            )
+        ]
+        terminal_grants = [
+            row
+            for row in audit.work_grants
+            if (
+                isinstance(row, dict)
+                and row.get("event")
+                in (
+                    "settle",
+                    "release",
+                    "bundle_rollback",
+                    "finalize_unresolved",
+                )
+            )
+        ]
+        expected_grid = {
+            (allocation_round, owner, phase)
+            for allocation_round, phase in (
+                (0, "EXPLORE"),
+                (1, "VERIFY"),
+                (2, "STAGED_VERIFY"),
+            )
+            for owner in ("stockfish", "reckless", "lc0")
+        }
+        actual_grid = {
+            (
+                row["grant"].get("allocation_round"),
+                row["grant"].get("owner"),
+                row["grant"].get("phase"),
+            )
+            for row in authorized_grants
+        }
+        authorized_ids = {
+            row["grant"].get("grant_id")
+            for row in authorized_grants
+        }
+        terminal_ids = {
+            row.get("grant_id")
+            for row in terminal_grants
+        }
+        payload["orchestration_work_grant_grid_complete"] = bool(
+            len(authorized_grants) == 9
+            and len(authorized_ids) == 9
+            and actual_grid == expected_grid
+            and len(terminal_grants) == 9
+            and terminal_ids == authorized_ids
+            and all(row.get("event") == "settle" for row in terminal_grants)
+        )
         payload["orchestration_host_provider_id"] = (
             plan.host_capabilities.provider_id
         )

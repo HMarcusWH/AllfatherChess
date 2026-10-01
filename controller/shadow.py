@@ -1465,6 +1465,14 @@ class ShadowRunCoordinator:
                 if isinstance(route.get("orchestration_provenance"), dict)
                 else None
             ),
+            orchestration_work_grant_grid_complete=(
+                route.get("orchestration_work_grant_grid_complete")
+                if isinstance(
+                    route.get("orchestration_work_grant_grid_complete"),
+                    bool,
+                )
+                else None
+            ),
             orchestration_host_provider_id=(
                 str(route["orchestration_host_provider_id"])
                 if isinstance(

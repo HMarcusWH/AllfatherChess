@@ -27,6 +27,7 @@ from adapters.process.deferred_observer import DeferredObserver
 
 if TYPE_CHECKING:
     from controller.adaptive_time import AdaptiveTimeSettings
+    from controller.work_scheduler import WorkSchedulerSettings
 
 
 class RuntimeError(RuntimeError):
@@ -235,6 +236,7 @@ class RuntimeConfig:
     routing: dict[str, object] | None = None
     online_time: OnlineTimeSettings | None = None
     orchestration: "AdaptiveTimeSettings | None" = None
+    work_scheduler: "WorkSchedulerSettings | None" = None
 
     @property
     def instances(self) -> dict[str, BackendSpec]:
@@ -1139,6 +1141,8 @@ def load_runtime_config(path: Path) -> RuntimeConfig:
             raise RuntimeError("online_time requires schema_version 2; legacy profiles are unchanged")
         if "orchestration" in data:
             raise RuntimeError("orchestration requires schema_version 2; legacy profiles are unchanged")
+        if "work_scheduler" in data:
+            raise RuntimeError("work_scheduler requires schema_version 2; legacy profiles are unchanged")
         anchor, specs = _load_legacy_backends(data, root)
         return RuntimeConfig(path=path, root=root, mode="anchor", anchor=anchor, backends=specs)
 
@@ -1330,32 +1334,69 @@ def load_runtime_config(path: Path) -> RuntimeConfig:
 
 
     from controller.adaptive_time import AdaptiveTimeError, AdaptiveTimeSettings
+    from controller.work_scheduler import WorkSchedulerError, WorkSchedulerSettings
     try:
         orchestration = AdaptiveTimeSettings.from_config(data.get("orchestration"))
     except AdaptiveTimeError as exc:
         raise RuntimeError(str(exc)) from exc
+    try:
+        work_scheduler = WorkSchedulerSettings.from_config(data.get("work_scheduler"))
+    except WorkSchedulerError as exc:
+        raise RuntimeError(str(exc)) from exc
+
+    if work_scheduler is not None and orchestration is None:
+        raise RuntimeError("M14-J J9 WorkGrant scheduling requires J8 orchestration")
+
     if orchestration is not None:
         if online_time is None:
-            raise RuntimeError("M14-J J8 requires the frozen ONLINE TimePlan safety layer")
+            raise RuntimeError("M14-J J8/J9 requires the frozen ONLINE TimePlan safety layer")
         if mode != "active":
-            raise RuntimeError("M14-J J8 requires active resource routing")
+            raise RuntimeError("M14-J J8/J9 requires active resource routing")
         if hybrid_authority is not None:
             raise RuntimeError(
-                "M14-J J8 is resource-plan qualification only; hybrid authority is deferred to J12"
-            )
-        if any(
-            item is not None
-            for item in (verification, refinement, crossfeed, counterfactual)
-        ):
-            raise RuntimeError(
-                "M14-J J8 validation profile may not compose VERIFY/REFINE/crossfeed/counterfactual"
+                "M14-J J8/J9 is resource qualification only; hybrid authority is deferred to J12"
             )
         if routing is None or routing.get("policy") != "conservative_v1":
             raise RuntimeError(
-                "M14-J J8 validation profile requires routing.policy='conservative_v1'"
+                "M14-J J8/J9 validation requires routing.policy='conservative_v1'"
             )
         if budget is None or budget.get("gpu_ms", 0) != 0:
-            raise RuntimeError("M14-J J8 validation profile is CPU-only")
+            raise RuntimeError("M14-J J8/J9 validation is CPU-only")
+
+        if work_scheduler is None:
+            if any(
+                item is not None
+                for item in (verification, refinement, crossfeed, counterfactual)
+            ):
+                raise RuntimeError(
+                    "M14-J J8 validation profile may not compose "
+                    "VERIFY/REFINE/crossfeed/counterfactual"
+                )
+        else:
+            if verification is None or verification.staged_extension is None:
+                raise RuntimeError(
+                    "M14-J J9 requires base VERIFY plus staged VERIFY"
+                )
+            if refinement is not None or crossfeed is not None or counterfactual is not None:
+                raise RuntimeError(
+                    "M14-J J9 does not compose REFINE/crossfeed/counterfactual"
+                )
+            if dict(verification.dispatch_limit) != {"nodes": 16}:
+                raise RuntimeError(
+                    "M14-J J9 compatibility VERIFY must remain n16"
+                )
+            if dict(verification.staged_extension.dispatch_limit) != {"nodes": 32}:
+                raise RuntimeError(
+                    "M14-J J9 compatibility staged VERIFY must remain n32"
+                )
+            if shadow is None or dict(shadow.dispatch_limit) != {"nodes": 16}:
+                raise RuntimeError(
+                    "M14-J J9 compatibility EXPLORE must remain n16"
+                )
+            if routing.get("max_stages_per_owner") != 1:
+                raise RuntimeError(
+                    "M14-J J9 compatibility scheduler forbids legacy EXPLORE extensions"
+                )
 
     return RuntimeConfig(
         path=path,
@@ -1374,6 +1415,7 @@ def load_runtime_config(path: Path) -> RuntimeConfig:
         routing=routing,
         online_time=online_time,
         orchestration=orchestration,
+        work_scheduler=work_scheduler,
     )
 
 
@@ -2156,6 +2198,28 @@ class BackendManager:
             self._effective_profile_phases[instance] = phase
         return self.assert_effective_profile(instance)
 
+    def expected_shadow_phase_options(
+        self,
+        instance: str,
+        phase: str,
+    ) -> dict[str, object]:
+        """Return the exact phase option state J9 may bind before mutation.
+
+        This is a pure read. WorkGrant admission must happen before
+        configure_shadow_phase() can touch the engine.
+        """
+
+        spec = self.spec(instance)
+        if spec.role != "shadow":
+            raise RuntimeError(
+                f"phase options require a shadow instance: {instance!r}"
+            )
+        if phase not in PHASE_OPTION_NAMES:
+            raise RuntimeError(f"unsupported shadow phase: {phase!r}")
+        desired = dict(spec.options)
+        desired.update(spec.phase_options.get(phase, {}))
+        return dict(sorted(desired.items()))
+
     def configure_shadow_phase(self, instance: str, phase: str) -> dict[str, object]:
         """Compatibility wrapper for the pre-catalog phase-option path."""
         if self._resource_catalog is not None:
@@ -2163,12 +2227,7 @@ class BackendManager:
             return self.effective_options(instance)
 
         spec = self.spec(instance)
-        if spec.role != "shadow":
-            raise RuntimeError(f"phase configuration requires a shadow instance: {instance!r}")
-        if phase not in PHASE_OPTION_NAMES:
-            raise RuntimeError(f"unsupported shadow phase: {phase!r}")
-        desired = dict(spec.options)
-        desired.update(spec.phase_options.get(phase, {}))
+        desired = self.expected_shadow_phase_options(instance, phase)
         if not spec.phase_options:
             return desired
         process = self.backends.get(instance)

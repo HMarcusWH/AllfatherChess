@@ -43,3 +43,8 @@ jobs:
           python3 tests/controller/test_move_resource_plan.py
           python3 tests/controller/test_adaptive_time.py
           python3 scripts/qualify-adaptive-time.py
+          python3 -m json.tool qualification/work-grant-scheduler-v1.json >/dev/null
+          python3 -m json.tool config/allfather.m14-j-j9.validation.json >/dev/null
+          python3 tests/controller/test_work_grant.py
+          python3 tests/controller/test_work_scheduler.py
+          python3 scripts/qualify-work-grant-scheduler.py

@@ -51,7 +51,9 @@ from controller.crossfeed import (
     seal_crossfeed_artifact,
 )
 from controller.online_time import ClockSearch
-from controller.move_resource_plan import MoveResourcePlan
+from controller.move_resource_plan import ADAPTIVE_DISPOSITION, MoveResourcePlan
+from controller.work_grant import NativeLimitKind, WorkGrant
+from controller.work_scheduler import GrantAdmission
 from controller.counterfactual import (
     CounterfactualError,
     prepare_counterfactual_from_sources,
@@ -67,6 +69,7 @@ from controller.decision import (
     DecisionProposal,
     FinalDecision,
     authorize_decision,
+    canonical_digest,
     freeze_decision_proposal,
     select_final_decision,
 )
@@ -147,6 +150,51 @@ class ShadowRouter(Protocol):
         ...
 
     def release_specialist(self, token: str, *, reason: str) -> None:
+        ...
+
+    @property
+    def work_scheduler_enabled(self) -> bool:
+        ...
+
+    def propose_work_grant(
+        self,
+        context: "RunContext",
+        *,
+        owner: str,
+        instance: str,
+        phase: str,
+        allocation_round: int,
+        effective_options_digest: str,
+        target_id: str | None = None,
+    ) -> WorkGrant | None:
+        ...
+
+    def authorize_work_grant(
+        self,
+        context: "RunContext",
+        *,
+        grant: WorkGrant,
+        search_id: str,
+    ) -> GrantAdmission | None:
+        ...
+
+    def settle_work_grant(
+        self,
+        admission: GrantAdmission,
+        *,
+        actual_wall_ms: float | None = None,
+        threads: int = 1,
+        actual_cpu_ms: float | None = None,
+        measurement_source: str = "estimated_fallback",
+    ) -> None:
+        ...
+
+    def release_work_grant(
+        self,
+        admission: GrantAdmission,
+        *,
+        reason: str,
+    ) -> None:
         ...
 
     def charge_controller_elapsed(self, label: str, elapsed_ms: float) -> None:
@@ -401,6 +449,7 @@ class _ActiveRun:
     refinement_positioned: set[str] = field(default_factory=set)
     refinement_oracle_active: bool = False
     specialist_tokens: dict[str, str] = field(default_factory=dict)
+    grant_admissions: dict[str, GrantAdmission] = field(default_factory=dict)
     _cancelled: bool = False
     cancel_reason: str | None = None
     worker: threading.Thread | None = None
@@ -2007,14 +2056,24 @@ class ShadowRunCoordinator:
                         stage.instance, message, generation=active.generation
                     )
                     failed_ms = (time.monotonic() - active.started_monotonic) * 1000.0
-                    self._settle_specialist(
-                        active,
-                        key=f"verify:{stage.owner}",
-                        dispatched_ms=stage.dispatched_ms,
-                        completed_ms=failed_ms,
-                        instance=stage.instance,
-                        resource_key=stage.search_id,
-                    )
+                    if stage.search_id in active.grant_admissions:
+                        self._settle_work_grant(
+                            active,
+                            search_id=stage.search_id,
+                            dispatched_ms=stage.dispatched_ms,
+                            completed_ms=failed_ms,
+                            instance=stage.instance,
+                            resource_key=stage.search_id,
+                        )
+                    else:
+                        self._settle_specialist(
+                            active,
+                            key=f"verify:{stage.owner}",
+                            dispatched_ms=stage.dispatched_ms,
+                            completed_ms=failed_ms,
+                            instance=stage.instance,
+                            resource_key=stage.search_id,
+                        )
                     active.verification.record_completion(
                         stage,
                         completed_ms=failed_ms,
@@ -2857,6 +2916,236 @@ class ShadowRunCoordinator:
                 f"{type(exc).__name__}: {exc}"
             )
 
+    def _j9_adaptive(self, active: _ActiveRun) -> bool:
+        return bool(
+            self.runtime.config.work_scheduler is not None
+            and isinstance(active.context.move_resource_plan, MoveResourcePlan)
+            and active.context.move_resource_plan.disposition
+            == ADAPTIVE_DISPOSITION
+        )
+
+    def _j9_parent_fallback(self, active: _ActiveRun) -> bool:
+        return bool(
+            self.runtime.config.work_scheduler is not None
+            and not self._j9_adaptive(active)
+        )
+
+    @staticmethod
+    def _grant_limit(grant: WorkGrant) -> dict[str, int]:
+        if grant.native_limit.kind is NativeLimitKind.NODES:
+            return {"nodes": int(grant.native_limit.value)}
+        if grant.native_limit.kind is NativeLimitKind.MOVETIME_MS:
+            return {"movetime": int(grant.native_limit.value)}
+        raise ControllerRuntimeError(
+            f"unsupported WorkGrant native limit: {grant.native_limit.kind!r}"
+        )
+
+    def _prepare_work_grant(
+        self,
+        active: _ActiveRun,
+        *,
+        search_id: str,
+        owner: str,
+        instance: str,
+        phase: str,
+        allocation_round: int,
+        target_id: str | None = None,
+    ) -> GrantAdmission | None:
+        """Create then admit a J9 WorkGrant without mutating engine state."""
+
+        if not self._j9_adaptive(active) or self.router is None:
+            return None
+        propose = getattr(self.router, "propose_work_grant", None)
+        authorize = getattr(self.router, "authorize_work_grant", None)
+        if propose is None or authorize is None:
+            active.run.note(
+                f"J9 WorkGrant interface unavailable for {search_id}; no dispatch"
+            )
+            return None
+        try:
+            expected_options = self.runtime.expected_shadow_phase_options(
+                instance,
+                phase,
+            )
+            expected_digest = canonical_digest(expected_options)
+            grant = propose(
+                active.context,
+                owner=owner,
+                instance=instance,
+                phase=phase,
+                allocation_round=allocation_round,
+                effective_options_digest=expected_digest,
+                target_id=target_id,
+            )
+            if grant is None:
+                active.run.note(
+                    f"J9 scheduler denied {phase} grant for {owner}; no dispatch"
+                )
+                return None
+            admission = authorize(
+                active.context,
+                grant=grant,
+                search_id=search_id,
+            )
+        except Exception as exc:
+            active.run.note(
+                f"J9 WorkGrant admission failed for {search_id}: "
+                f"{type(exc).__name__}: {exc}"
+            )
+            return None
+        if admission is None:
+            active.run.note(
+                f"J9 resource authority denied grant for {search_id}; no dispatch"
+            )
+            return None
+        active.grant_admissions[search_id] = admission
+        return admission
+
+    def _assert_grant_effective_options(
+        self,
+        active: _ActiveRun,
+        *,
+        admission: GrantAdmission,
+        effective_options: dict[str, object],
+    ) -> bool:
+        actual = canonical_digest(dict(sorted(effective_options.items())))
+        if actual == admission.grant.effective_options_digest:
+            return True
+        self._release_work_grant(
+            active,
+            search_id=admission.search_id,
+            reason=(
+                "WorkGrant released because applied phase options differed "
+                "from the pre-authorized digest"
+            ),
+        )
+        self.runtime.record_shadow_failure(
+            admission.grant.instance,
+            (
+                f"{admission.grant.phase} effective options digest "
+                "differed from WorkGrant"
+            ),
+            generation=active.generation,
+        )
+        active.run.note(
+            f"{admission.search_id}: effective options did not match WorkGrant"
+        )
+        return False
+
+    def _work_grant_dispatch_permitted(
+        self,
+        active: _ActiveRun,
+        admission: GrantAdmission,
+    ) -> bool:
+        if not self._shadow_dispatch_permitted(active):
+            return False
+        elapsed_ms = (
+            time.monotonic() - active.started_monotonic
+        ) * 1000.0
+        return elapsed_ms < admission.grant.wall_deadline_ms
+
+    def _release_work_grant(
+        self,
+        active: _ActiveRun,
+        *,
+        search_id: str,
+        reason: str,
+    ) -> None:
+        admission = active.grant_admissions.pop(search_id, None)
+        if admission is None or self.router is None:
+            return
+        release = getattr(self.router, "release_work_grant", None)
+        if release is None:
+            active.run.note(
+                f"router lacks J9 release hook for {search_id}"
+            )
+            return
+        try:
+            release(admission, reason=reason)
+        except Exception as exc:
+            active.run.note(
+                f"WorkGrant release failed for {search_id}: "
+                f"{type(exc).__name__}: {exc}"
+            )
+
+    def _settle_work_grant(
+        self,
+        active: _ActiveRun,
+        *,
+        search_id: str,
+        dispatched_ms: float,
+        completed_ms: float,
+        instance: str,
+        resource_key: str | None = None,
+        declared_fallback: bool = False,
+    ) -> None:
+        measured_cpu: float | None = None
+        source = "estimated_fallback"
+        if resource_key is not None:
+            measured = self._finish_resource_stage(active, resource_key)
+            if (
+                measured is not None
+                and measured.complete
+                and measured.cpu_ms is not None
+            ):
+                measured_cpu = float(measured.cpu_ms)
+                source = "measured"
+
+        admission = active.grant_admissions.pop(search_id, None)
+        if admission is None or self.router is None:
+            return
+        settle = getattr(self.router, "settle_work_grant", None)
+        if settle is None:
+            active.run.note(
+                f"router lacks J9 settlement hook for {search_id}"
+            )
+            return
+        threads = 1
+        try:
+            threads = max(
+                1,
+                int(
+                    self.runtime.effective_options(instance).get(
+                        "Threads",
+                        1,
+                    )
+                ),
+            )
+        except (TypeError, ValueError):
+            threads = 1
+        try:
+            settle(
+                admission,
+                actual_wall_ms=(
+                    None
+                    if declared_fallback
+                    else max(0.0, completed_ms - dispatched_ms)
+                ),
+                threads=threads,
+                actual_cpu_ms=measured_cpu,
+                measurement_source=(
+                    "declared_fallback"
+                    if declared_fallback
+                    else source
+                ),
+            )
+        except Exception as exc:
+            active.run.note(
+                f"WorkGrant settlement failed for {search_id}: "
+                f"{type(exc).__name__}: {exc}"
+            )
+
+    def _grant_deadline_ms(
+        self,
+        active: _ActiveRun,
+        search_id: str,
+        fallback_ms: float,
+    ) -> float:
+        admission = active.grant_admissions.get(search_id)
+        if admission is None:
+            return fallback_ms
+        return min(fallback_ms, float(admission.grant.wall_deadline_ms))
+
     def _charge_controller_elapsed(
         self,
         active: _ActiveRun,
@@ -3002,7 +3291,8 @@ class ShadowRunCoordinator:
 
         for owner in dispatchable:
             state = active.owners[owner]
-            if self.router is not None:
+            j9_adaptive = self._j9_adaptive(active)
+            if self.router is not None and not j9_adaptive:
                 try:
                     authorized = self.router.authorize_initial(active.context, owner)
                 except Exception as exc:  # pragma: no cover - router isolation
@@ -3013,11 +3303,11 @@ class ShadowRunCoordinator:
                     state.done.set()
                     continue
             if not self._dispatch_stage(active, state, limit=dict(settings.dispatch_limit)):
-                # `authorize_initial` already reserved this stage's compute. If
-                # the dispatch did not happen -- the anchor completed while the
-                # stage was being prepared, the backend refused -- that
-                # reservation covers a stage that will never exist.
-                self._release_undispatched(active, owner)
+                # Legacy routing reserves before entering _dispatch_stage().
+                # J9 adaptive dispatch reserves inside WorkGrant admission and
+                # releases/settles that exact reservation itself.
+                if not j9_adaptive:
+                    self._release_undispatched(active, owner)
 
         # 5. Wait for completion, running router checkpoints in active mode.
         self._await_completion(active)
@@ -3197,6 +3487,12 @@ class ShadowRunCoordinator:
         settings = self.runtime.config.verification
         if settings is None or active.cancelled or self._closed:
             return
+        if self._j9_parent_fallback(active):
+            active.run.note(
+                "J9 VERIFY skipped: parent MoveResourcePlan is FALLBACK; "
+                "preserving exact J8 legacy execution"
+            )
+            return
         if active.anchor_completed.is_set():
             return
 
@@ -3291,7 +3587,11 @@ class ShadowRunCoordinator:
         elif verification.disposition == "running":
             verification.set_disposition("incomplete", "verification stages did not all complete")
 
-    def _dispatch_verification_stage(self, active: _ActiveRun, owner: str) -> bool:
+    def _dispatch_verification_stage(
+        self,
+        active: _ActiveRun,
+        owner: str,
+    ) -> bool:
         verification = active.verification
         settings = self.runtime.config.verification
         if verification is None or settings is None:
@@ -3302,14 +3602,11 @@ class ShadowRunCoordinator:
         stream = verification.stream(instance)
         if stream is None:
             return False
-        try:
-            command = build_go_command(
-                limit=dict(settings.dispatch_limit),
-                searchmoves=plan.candidate_roots,
-            )
-        except SearchRequestError:
-            return False
+
+        search_id = f"{active.run.run_id}:verify:{instance}:0"
         reservation_key = f"verify:{owner}"
+        admission: GrantAdmission | None = None
+
         with self._lock:
             if (
                 active.cancelled
@@ -3318,26 +3615,78 @@ class ShadowRunCoordinator:
                 or not self.runtime.shadow_available(instance)
             ):
                 return False
-            if not self._authorize_specialist(
-                active,
-                key=reservation_key,
-                phase="verify",
-                owner=owner,
-            ):
-                return False
 
-        # Phase reconfiguration is optional specialist work too. It may not
-        # touch an engine until the same resource authority that covers the
-        # following VERIFY search has reserved capacity.
+        if self._j9_adaptive(active):
+            admission = self._prepare_work_grant(
+                active,
+                search_id=search_id,
+                owner=owner,
+                instance=instance,
+                phase="VERIFY",
+                allocation_round=1,
+                target_id=verification.plan.verification_id,
+            )
+            if admission is None:
+                return False
+            dispatch_limit = self._grant_limit(admission.grant)
+        else:
+            try:
+                if not self._authorize_specialist(
+                    active,
+                    key=reservation_key,
+                    phase="verify",
+                    owner=owner,
+                ):
+                    return False
+            except Exception:
+                return False
+            dispatch_limit = dict(settings.dispatch_limit)
+
+        try:
+            command = build_go_command(
+                limit=dispatch_limit,
+                searchmoves=plan.candidate_roots,
+            )
+        except SearchRequestError:
+            if admission is not None:
+                self._release_work_grant(
+                    active,
+                    search_id=search_id,
+                    reason="WorkGrant released because VERIFY command compilation failed",
+                )
+            else:
+                self._release_specialist(
+                    active,
+                    key=reservation_key,
+                    reason="VERIFY reservation released because command compilation failed",
+                )
+            return False
+
         phase_config_started = time.monotonic()
         try:
-            effective_options = self.runtime.configure_shadow_phase(instance, "VERIFY")
-        except ControllerRuntimeError as exc:
-            self._release_specialist(
-                active,
-                key=reservation_key,
-                reason="VERIFY reservation released because phase configuration failed",
+            effective_options = self.runtime.configure_shadow_phase(
+                instance,
+                "VERIFY",
             )
+        except ControllerRuntimeError as exc:
+            if admission is not None:
+                self._release_work_grant(
+                    active,
+                    search_id=search_id,
+                    reason=(
+                        "WorkGrant released because VERIFY phase "
+                        "configuration failed"
+                    ),
+                )
+            else:
+                self._release_specialist(
+                    active,
+                    key=reservation_key,
+                    reason=(
+                        "VERIFY reservation released because phase "
+                        "configuration failed"
+                    ),
+                )
             verification.set_disposition(
                 "incomplete",
                 f"VERIFY phase configuration failed for {instance}: {exc}",
@@ -3349,7 +3698,18 @@ class ShadowRunCoordinator:
                 label=f"phase_config_verify_{owner}",
                 elapsed_ms=(time.monotonic() - phase_config_started) * 1000.0,
             )
-        search_id = f"{active.run.run_id}:verify:{instance}:0"
+
+        if admission is not None and not self._assert_grant_effective_options(
+            active,
+            admission=admission,
+            effective_options=effective_options,
+        ):
+            verification.set_disposition(
+                "incomplete",
+                f"VERIFY WorkGrant option digest mismatch for {instance}",
+            )
+            return False
+
         generation = active.generation
 
         def on_info(token: int, line: str) -> None:
@@ -3358,26 +3718,38 @@ class ShadowRunCoordinator:
         def on_complete(token: int, line: str) -> None:
             self._on_verification_complete(generation, owner, token, line)
 
-        # The final decision-boundary check and dispatch use the same lock as
-        # note_anchor_complete(). If the anchor wins the race this stage never
-        # starts; if this dispatch wins, it is already in flight and the
-        # declared drain/cancel policy applies.
         with self._lock:
+            grant_expired = bool(
+                admission is not None
+                and not self._work_grant_dispatch_permitted(active, admission)
+            )
             if (
                 active.cancelled
                 or self._closed
                 or active.anchor_completed.is_set()
                 or not self.runtime.shadow_available(instance)
+                or grant_expired
             ):
-                self._release_specialist(
-                    active,
-                    key=reservation_key,
-                    reason=(
-                        "VERIFY reservation released because the decision "
-                        "boundary closed during phase configuration"
-                    ),
-                )
+                if admission is not None:
+                    self._release_work_grant(
+                        active,
+                        search_id=search_id,
+                        reason=(
+                            "WorkGrant released because VERIFY dispatch window "
+                            "closed during phase configuration"
+                        ),
+                    )
+                else:
+                    self._release_specialist(
+                        active,
+                        key=reservation_key,
+                        reason=(
+                            "VERIFY reservation released because the decision "
+                            "boundary closed during phase configuration"
+                        ),
+                    )
                 return False
+
             verification.activate_stream(instance)
             stream.begin_stage(
                 search_id=search_id,
@@ -3409,26 +3781,47 @@ class ShadowRunCoordinator:
             instance=instance,
             phase="VERIFY",
         )
+        permit = (
+            (lambda: self._work_grant_dispatch_permitted(active, admission))
+            if admission is not None
+            else (lambda: self._shadow_dispatch_permitted(active))
+        )
         dispatched = self.runtime.start_shadow_search(
             instance,
             command,
             token=generation,
             on_info=on_info,
             on_complete=on_complete,
-            permit=lambda: self._shadow_dispatch_permitted(active),
+            permit=permit,
             dispatch_gate=active.dispatch_gate,
         )
         if not dispatched:
+            now_ms = (
+                time.monotonic() - active.started_monotonic
+            ) * 1000.0
             if self._dispatch_rejected_before_write(dispatched):
                 self._discard_resource_stage_before_dispatch(active, search_id)
-                self._release_specialist(
-                    active,
-                    key=reservation_key,
-                    reason="VERIFY reservation released because dispatch window closed before write",
-                )
+                if admission is not None:
+                    self._release_work_grant(
+                        active,
+                        search_id=search_id,
+                        reason=(
+                            "WorkGrant released because VERIFY dispatch "
+                            "closed before engine write"
+                        ),
+                    )
+                else:
+                    self._release_specialist(
+                        active,
+                        key=reservation_key,
+                        reason=(
+                            "VERIFY reservation released because dispatch "
+                            "window closed before write"
+                        ),
+                    )
                 verification.record_completion(
                     stage,
-                    completed_ms=(time.monotonic() - active.started_monotonic) * 1000.0,
+                    completed_ms=now_ms,
                     disposition="stopped",
                     stop_reason="dispatch_window_closed_before_write",
                 )
@@ -3437,24 +3830,38 @@ class ShadowRunCoordinator:
                     f"verification dispatch window closed before write for {instance}",
                 )
                 return False
+
             self._abandon_resource_stage(
                 active,
                 search_id,
                 reason="VERIFY backend dispatch failed",
             )
-            self._release_specialist(
-                active,
-                key=reservation_key,
-                reason="VERIFY reservation released because backend dispatch failed",
-            )
+            if admission is not None:
+                self._settle_work_grant(
+                    active,
+                    search_id=search_id,
+                    dispatched_ms=stage.dispatched_ms,
+                    completed_ms=now_ms,
+                    instance=instance,
+                    declared_fallback=True,
+                )
+            else:
+                self._release_specialist(
+                    active,
+                    key=reservation_key,
+                    reason=(
+                        "VERIFY reservation released because backend dispatch failed"
+                    ),
+                )
             verification.record_completion(
                 stage,
-                completed_ms=(time.monotonic() - active.started_monotonic) * 1000.0,
+                completed_ms=now_ms,
                 disposition="failed",
                 failure="verification dispatch failed; instance unavailable or unhealthy",
             )
             verification.set_disposition(
-                "incomplete", f"verification dispatch failed for {instance}"
+                "incomplete",
+                f"verification dispatch failed for {instance}",
             )
             return False
         return True
@@ -3510,14 +3917,24 @@ class ShadowRunCoordinator:
                         )
                         break
 
-        self._settle_specialist(
-            active,
-            key=f"verify:{owner}",
-            dispatched_ms=stage.dispatched_ms,
-            completed_ms=elapsed,
-            instance=stage.instance,
-            resource_key=stage.search_id,
-        )
+        if stage.search_id in active.grant_admissions:
+            self._settle_work_grant(
+                active,
+                search_id=stage.search_id,
+                dispatched_ms=stage.dispatched_ms,
+                completed_ms=elapsed,
+                instance=stage.instance,
+                resource_key=stage.search_id,
+            )
+        else:
+            self._settle_specialist(
+                active,
+                key=f"verify:{owner}",
+                dispatched_ms=stage.dispatched_ms,
+                completed_ms=elapsed,
+                instance=stage.instance,
+                resource_key=stage.search_id,
+            )
 
         if failure is not None:
             self.runtime.record_shadow_failure(
@@ -3558,7 +3975,12 @@ class ShadowRunCoordinator:
             overrun = [
                 stage
                 for stage in pending
-                if elapsed_ms - stage.dispatched_ms > stage_budget_ms
+                if elapsed_ms
+                > self._grant_deadline_ms(
+                    active,
+                    stage.search_id,
+                    stage.dispatched_ms + stage_budget_ms,
+                )
             ]
             if overrun:
                 instances = list(dict.fromkeys(stage.instance for stage in pending))
@@ -3600,6 +4022,8 @@ class ShadowRunCoordinator:
     def _execute_staged_verification_extension(self, active: _ActiveRun) -> None:
         settings = self.runtime.config.verification
         verification = active.verification
+        if self._j9_parent_fallback(active):
+            return
         if (
             settings is None
             or settings.staged_extension is None
@@ -3742,14 +4166,11 @@ class ShadowRunCoordinator:
         stream = staged.stream(instance)
         if stream is None:
             return False
-        try:
-            command = build_go_command(
-                limit=dict(settings.staged_extension.dispatch_limit),
-                searchmoves=staged.candidate_roots,
-            )
-        except SearchRequestError:
-            return False
+
+        search_id = f"{active.run.run_id}:verify-extension:{instance}:0"
         reservation_key = f"verify_extension:{owner}"
+        admission: GrantAdmission | None = None
+
         with self._lock:
             if (
                 active.cancelled
@@ -3758,6 +4179,21 @@ class ShadowRunCoordinator:
                 or not self.runtime.shadow_available(instance)
             ):
                 return False
+
+        if self._j9_adaptive(active):
+            admission = self._prepare_work_grant(
+                active,
+                search_id=search_id,
+                owner=owner,
+                instance=instance,
+                phase="STAGED_VERIFY",
+                allocation_round=2,
+                target_id="staged_extension",
+            )
+            if admission is None:
+                return False
+            dispatch_limit = self._grant_limit(admission.grant)
+        else:
             if not self._authorize_specialist(
                 active,
                 key=reservation_key,
@@ -3766,21 +4202,59 @@ class ShadowRunCoordinator:
                 target_id="staged_extension",
             ):
                 return False
+            dispatch_limit = dict(settings.staged_extension.dispatch_limit)
+
+        try:
+            command = build_go_command(
+                limit=dispatch_limit,
+                searchmoves=staged.candidate_roots,
+            )
+        except SearchRequestError:
+            if admission is not None:
+                self._release_work_grant(
+                    active,
+                    search_id=search_id,
+                    reason=(
+                        "WorkGrant released because staged VERIFY command "
+                        "compilation failed"
+                    ),
+                )
+            else:
+                self._release_specialist(
+                    active,
+                    key=reservation_key,
+                    reason=(
+                        "staged VERIFY reservation released because command "
+                        "compilation failed"
+                    ),
+                )
+            return False
 
         phase_config_started = time.monotonic()
         try:
             effective_options = self.runtime.configure_shadow_phase(
-                instance, "STAGED_VERIFY"
+                instance,
+                "STAGED_VERIFY",
             )
         except ControllerRuntimeError as exc:
-            self._release_specialist(
-                active,
-                key=reservation_key,
-                reason=(
-                    "staged VERIFY reservation released because phase "
-                    "configuration failed"
-                ),
-            )
+            if admission is not None:
+                self._release_work_grant(
+                    active,
+                    search_id=search_id,
+                    reason=(
+                        "WorkGrant released because staged VERIFY phase "
+                        "configuration failed"
+                    ),
+                )
+            else:
+                self._release_specialist(
+                    active,
+                    key=reservation_key,
+                    reason=(
+                        "staged VERIFY reservation released because phase "
+                        "configuration failed"
+                    ),
+                )
             staged.set_disposition(
                 "incomplete",
                 f"staged VERIFY phase configuration failed for {instance}: {exc}",
@@ -3792,7 +4266,18 @@ class ShadowRunCoordinator:
                 label=f"phase_config_staged_verify_{owner}",
                 elapsed_ms=(time.monotonic() - phase_config_started) * 1000.0,
             )
-        search_id = f"{active.run.run_id}:verify-extension:{instance}:0"
+
+        if admission is not None and not self._assert_grant_effective_options(
+            active,
+            admission=admission,
+            effective_options=effective_options,
+        ):
+            staged.set_disposition(
+                "incomplete",
+                f"staged VERIFY WorkGrant option digest mismatch for {instance}",
+            )
+            return False
+
         generation = active.generation
 
         def on_info(token: int, line: str) -> None:
@@ -3807,21 +4292,37 @@ class ShadowRunCoordinator:
             )
 
         with self._lock:
+            grant_expired = bool(
+                admission is not None
+                and not self._work_grant_dispatch_permitted(active, admission)
+            )
             if (
                 active.cancelled
                 or self._closed
                 or active.anchor_completed.is_set()
                 or not self.runtime.shadow_available(instance)
+                or grant_expired
             ):
-                self._release_specialist(
-                    active,
-                    key=reservation_key,
-                    reason=(
-                        "staged VERIFY reservation released because the decision "
-                        "boundary closed during phase configuration"
-                    ),
-                )
+                if admission is not None:
+                    self._release_work_grant(
+                        active,
+                        search_id=search_id,
+                        reason=(
+                            "WorkGrant released because staged VERIFY dispatch "
+                            "window closed during phase configuration"
+                        ),
+                    )
+                else:
+                    self._release_specialist(
+                        active,
+                        key=reservation_key,
+                        reason=(
+                            "staged VERIFY reservation released because the "
+                            "decision boundary closed during phase configuration"
+                        ),
+                    )
                 return False
+
             staged.activate_stream(instance)
             stream.begin_stage(
                 search_id=search_id,
@@ -3854,29 +4355,47 @@ class ShadowRunCoordinator:
             instance=instance,
             phase="VERIFY_EXTENSION",
         )
+        permit = (
+            (lambda: self._work_grant_dispatch_permitted(active, admission))
+            if admission is not None
+            else (lambda: self._shadow_dispatch_permitted(active))
+        )
         dispatched = self.runtime.start_shadow_search(
             instance,
             command,
             token=generation,
             on_info=on_info,
             on_complete=on_complete,
-            permit=lambda: self._shadow_dispatch_permitted(active),
+            permit=permit,
             dispatch_gate=active.dispatch_gate,
         )
         if not dispatched:
+            now_ms = (
+                time.monotonic() - active.started_monotonic
+            ) * 1000.0
             if self._dispatch_rejected_before_write(dispatched):
                 self._discard_resource_stage_before_dispatch(active, search_id)
-                self._release_specialist(
-                    active,
-                    key=reservation_key,
-                    reason=(
-                        "staged VERIFY reservation released because dispatch "
-                        "window closed before write"
-                    ),
-                )
+                if admission is not None:
+                    self._release_work_grant(
+                        active,
+                        search_id=search_id,
+                        reason=(
+                            "WorkGrant released because staged VERIFY dispatch "
+                            "window closed before engine write"
+                        ),
+                    )
+                else:
+                    self._release_specialist(
+                        active,
+                        key=reservation_key,
+                        reason=(
+                            "staged VERIFY reservation released because dispatch "
+                            "window closed before write"
+                        ),
+                    )
                 staged.record_completion(
                     stage,
-                    completed_ms=(time.monotonic() - active.started_monotonic) * 1000.0,
+                    completed_ms=now_ms,
                     disposition="stopped",
                     stop_reason="dispatch_window_closed_before_write",
                 )
@@ -3885,21 +4404,33 @@ class ShadowRunCoordinator:
                     f"staged VERIFY dispatch window closed before write for {instance}",
                 )
                 return False
+
             self._abandon_resource_stage(
                 active,
                 search_id,
                 reason="staged VERIFY backend dispatch failed",
             )
-            self._release_specialist(
-                active,
-                key=reservation_key,
-                reason=(
-                    "staged VERIFY reservation released because backend dispatch failed"
-                ),
-            )
+            if admission is not None:
+                self._settle_work_grant(
+                    active,
+                    search_id=search_id,
+                    dispatched_ms=stage.dispatched_ms,
+                    completed_ms=now_ms,
+                    instance=instance,
+                    declared_fallback=True,
+                )
+            else:
+                self._release_specialist(
+                    active,
+                    key=reservation_key,
+                    reason=(
+                        "staged VERIFY reservation released because backend "
+                        "dispatch failed"
+                    ),
+                )
             staged.record_completion(
                 stage,
-                completed_ms=(time.monotonic() - active.started_monotonic) * 1000.0,
+                completed_ms=now_ms,
                 disposition="failed",
                 failure="staged VERIFY dispatch failed; instance unavailable or unhealthy",
             )
@@ -3972,14 +4503,24 @@ class ShadowRunCoordinator:
                         )
                         break
 
-        self._settle_specialist(
-            active,
-            key=f"verify_extension:{owner}",
-            dispatched_ms=stage.dispatched_ms,
-            completed_ms=elapsed,
-            instance=stage.instance,
-            resource_key=stage.search_id,
-        )
+        if stage.search_id in active.grant_admissions:
+            self._settle_work_grant(
+                active,
+                search_id=stage.search_id,
+                dispatched_ms=stage.dispatched_ms,
+                completed_ms=elapsed,
+                instance=stage.instance,
+                resource_key=stage.search_id,
+            )
+        else:
+            self._settle_specialist(
+                active,
+                key=f"verify_extension:{owner}",
+                dispatched_ms=stage.dispatched_ms,
+                completed_ms=elapsed,
+                instance=stage.instance,
+                resource_key=stage.search_id,
+            )
 
         if failure is not None:
             self.runtime.record_shadow_failure(
@@ -4022,7 +4563,12 @@ class ShadowRunCoordinator:
             overrun = [
                 stage
                 for stage in pending
-                if elapsed_ms - stage.dispatched_ms > stage_budget_ms
+                if elapsed_ms
+                > self._grant_deadline_ms(
+                    active,
+                    stage.search_id,
+                    stage.dispatched_ms + stage_budget_ms,
+                )
             ]
             if overrun:
                 instances = list(
@@ -4049,14 +4595,24 @@ class ShadowRunCoordinator:
                     failed_ms = (
                         time.monotonic() - active.started_monotonic
                     ) * 1000.0
-                    self._settle_specialist(
-                        active,
-                        key=f"verify_extension:{stage.owner}",
-                        dispatched_ms=stage.dispatched_ms,
-                        completed_ms=failed_ms,
-                        instance=stage.instance,
-                        resource_key=stage.search_id,
-                    )
+                    if stage.search_id in active.grant_admissions:
+                        self._settle_work_grant(
+                            active,
+                            search_id=stage.search_id,
+                            dispatched_ms=stage.dispatched_ms,
+                            completed_ms=failed_ms,
+                            instance=stage.instance,
+                            resource_key=stage.search_id,
+                        )
+                    else:
+                        self._settle_specialist(
+                            active,
+                            key=f"verify_extension:{stage.owner}",
+                            dispatched_ms=stage.dispatched_ms,
+                            completed_ms=failed_ms,
+                            instance=stage.instance,
+                            resource_key=stage.search_id,
+                        )
                     staged.record_completion(
                         stage,
                         completed_ms=failed_ms,
@@ -5737,35 +6293,25 @@ class ShadowRunCoordinator:
             and not active.finished.is_set()
         )
 
-    def _dispatch_stage(self, active: _ActiveRun, state: _OwnerState, *, limit: dict[str, Any]) -> bool:
+    def _dispatch_stage(
+        self,
+        active: _ActiveRun,
+        state: _OwnerState,
+        *,
+        limit: dict[str, Any],
+    ) -> bool:
         if active.cancelled or self._closed:
             return False
         if active.anchor_completed.is_set():
-            # Stages exist to inform a decision. Once the outward decision has
-            # been emitted there is nothing left for any stage to inform, and in
-            # active mode it would spend envelope budget on an observation that
-            # cannot matter. This applies to the first stage too: a short
-            # fixed-node anchor routinely finishes before root qualification
-            # does, and `drain` means "let work already in flight finish", not
-            # "start new work afterwards".
             kind = "extension" if state.stage_index > 0 else "initial dispatch"
             active.run.note(
                 f"owner {state.owner} {kind} suppressed: outward decision already emitted"
             )
             return False
+
         run = active.run
         search_id = f"{run.run_id}:{state.instance}:{state.stage_index}"
         if state.stream is None:
-            # Create the stream only when a stage is actually dispatched, so a
-            # cancelled run never leaves an empty telemetry artifact behind.
-            #
-            # BOUNDED, like the pre-anchor path. A blocking open here stalls the
-            # coordinator after earlier owners may already be searching:
-            # `_await_completion` is never reached, so no stage deadline and no
-            # active-routing wall check runs while those engines keep spending
-            # envelope, and a later quiesce cannot finish either. Past the bound
-            # this owner contributes no evidence rather than freezing the ones
-            # that do.
             spec = self.runtime.spec(state.instance)
             stream_path = run.run_dir / f"{state.instance}.jsonl"
             opened, stream = self._within_prepare_budget(
@@ -5793,19 +6339,59 @@ class ShadowRunCoordinator:
                 return False
             state.stream = stream
             run.register_stream(state.stream)
+
+        admission: GrantAdmission | None = None
+        if self._j9_adaptive(active):
+            admission = self._prepare_work_grant(
+                active,
+                search_id=search_id,
+                owner=state.owner,
+                instance=state.instance,
+                phase="EXPLORE",
+                allocation_round=0,
+            )
+            if admission is None:
+                state.done.set()
+                return False
+            dispatch_limit = self._grant_limit(admission.grant)
+        else:
+            dispatch_limit = dict(limit)
+
         try:
-            command = build_go_command(limit=limit, searchmoves=state.roots)
-        except SearchRequestError as exc:  # pragma: no cover - configuration is validated
+            command = build_go_command(
+                limit=dispatch_limit,
+                searchmoves=state.roots,
+            )
+        except SearchRequestError as exc:
+            if admission is not None:
+                self._release_work_grant(
+                    active,
+                    search_id=search_id,
+                    reason="WorkGrant released because UCI command compilation failed",
+                )
             run.note(f"owner {state.owner} dispatch rejected: {exc}")
             state.done.set()
             return False
+
         phase_config_started = time.monotonic()
         try:
             effective_options = self.runtime.configure_shadow_phase(
-                state.instance, "EXPLORE"
+                state.instance,
+                "EXPLORE",
             )
         except ControllerRuntimeError as exc:
-            run.note(f"owner {state.owner} EXPLORE phase configuration failed: {exc}")
+            if admission is not None:
+                self._release_work_grant(
+                    active,
+                    search_id=search_id,
+                    reason=(
+                        "WorkGrant released because EXPLORE phase "
+                        "configuration failed"
+                    ),
+                )
+            run.note(
+                f"owner {state.owner} EXPLORE phase configuration failed: {exc}"
+            )
             state.failed = True
             state.done.set()
             return False
@@ -5816,6 +6402,15 @@ class ShadowRunCoordinator:
                 elapsed_ms=(time.monotonic() - phase_config_started) * 1000.0,
             )
 
+        if admission is not None and not self._assert_grant_effective_options(
+            active,
+            admission=admission,
+            effective_options=effective_options,
+        ):
+            state.failed = True
+            state.done.set()
+            return False
+
         generation = active.generation
 
         def on_info(token: int, line: str) -> None:
@@ -5824,20 +6419,33 @@ class ShadowRunCoordinator:
         def on_complete(token: int, line: str) -> None:
             self._on_shadow_complete(generation, state.owner, token, line)
 
-        # Commit under the coordinator lock, which `note_anchor_complete` also
-        # takes. Checking the flag only at the top of this method leaves a real
-        # window: stream creation is not free, and the anchor can return inside
-        # it, so a stage could still be launched against a decision that had
-        # already been emitted.
         with self._lock:
-            if active.cancelled or active.anchor_completed.is_set():
+            grant_expired = bool(
+                admission is not None
+                and not self._work_grant_dispatch_permitted(active, admission)
+            )
+            if (
+                active.cancelled
+                or active.anchor_completed.is_set()
+                or grant_expired
+            ):
+                if admission is not None:
+                    self._release_work_grant(
+                        active,
+                        search_id=search_id,
+                        reason=(
+                            "WorkGrant released because its dispatch window "
+                            "closed before the stage commit"
+                        ),
+                    )
                 run.note(
-                    f"owner {state.owner} dispatch abandoned: outward decision "
-                    "was emitted while the stage was being prepared"
+                    f"owner {state.owner} dispatch abandoned: outward/WorkGrant "
+                    "window closed while the stage was being prepared"
                 )
                 state.done.set()
                 return False
 
+            assert state.stream is not None
             state.stream.begin_stage(
                 search_id=search_id,
                 position=active.context.position.telemetry_position(),
@@ -5851,7 +6459,9 @@ class ShadowRunCoordinator:
                 },
                 observed_ms=(time.monotonic() - active.started_monotonic) * 1000.0,
             )
-            elapsed = (time.monotonic() - active.started_monotonic) * 1000.0
+            elapsed = (
+                time.monotonic() - active.started_monotonic
+            ) * 1000.0
             stage = run.record_dispatch(
                 instance=state.instance,
                 family=state.family,
@@ -5875,41 +6485,69 @@ class ShadowRunCoordinator:
             instance=state.instance,
             phase="EXPLORE",
         )
+        permit = (
+            (lambda: self._work_grant_dispatch_permitted(active, admission))
+            if admission is not None
+            else (lambda: self._shadow_dispatch_permitted(active))
+        )
         dispatched = self.runtime.start_shadow_search(
             state.instance,
             command,
             token=generation,
             on_info=on_info,
             on_complete=on_complete,
-            permit=lambda: self._shadow_dispatch_permitted(active),
+            permit=permit,
             dispatch_gate=active.dispatch_gate,
         )
         with self._lock:
             state.dispatch_pending = False
         if not dispatched:
+            now_ms = (
+                time.monotonic() - active.started_monotonic
+            ) * 1000.0
             if self._dispatch_rejected_before_write(dispatched):
                 self._discard_resource_stage_before_dispatch(active, search_id)
+                if admission is not None:
+                    self._release_work_grant(
+                        active,
+                        search_id=search_id,
+                        reason=(
+                            "WorkGrant released because dispatch window "
+                            "closed before any engine bytes were written"
+                        ),
+                    )
                 run.note(
                     f"owner {state.owner} dispatch window closed before write; "
                     "no shadow engine work was admitted"
                 )
                 run.record_completion(
                     stage,
-                    completed_ms=(time.monotonic() - active.started_monotonic) * 1000.0,
+                    completed_ms=now_ms,
                     disposition="stopped",
                     stop_reason="dispatch_window_closed_before_write",
                 )
                 state.done.set()
                 return False
+
             self._abandon_resource_stage(
                 active,
                 search_id,
                 reason="EXPLORE backend dispatch failed",
             )
+            if admission is not None:
+                self._settle_work_grant(
+                    active,
+                    search_id=search_id,
+                    dispatched_ms=elapsed,
+                    completed_ms=now_ms,
+                    instance=state.instance,
+                    resource_key=None,
+                    declared_fallback=True,
+                )
             state.failed = True
             run.record_completion(
                 stage,
-                completed_ms=(time.monotonic() - active.started_monotonic) * 1000.0,
+                completed_ms=now_ms,
                 disposition="failed",
                 failure="shadow dispatch failed; instance unavailable or unhealthy",
             )
@@ -5931,7 +6569,17 @@ class ShadowRunCoordinator:
             elapsed = (time.monotonic() - active.started_monotonic) * 1000.0
         if state is None or state.stage is None:
             return
-        self._finish_resource_stage(active, state.stage.search_id)
+        if state.stage.search_id in active.grant_admissions:
+            self._settle_work_grant(
+                active,
+                search_id=state.stage.search_id,
+                dispatched_ms=state.stage.dispatched_ms,
+                completed_ms=elapsed,
+                instance=state.instance,
+                resource_key=state.stage.search_id,
+            )
+        else:
+            self._finish_resource_stage(active, state.stage.search_id)
         tokens = line.split()
         bestmove = tokens[1] if line.startswith("bestmove ") and len(tokens) > 1 else None
         state.last_bestmove = bestmove
@@ -5996,7 +6644,18 @@ class ShadowRunCoordinator:
                 stage = state.stages_dispatched
                 if seen_stages.get(owner) != stage:
                     seen_stages[owner] = stage
-                    deadlines[owner] = now + budget
+                    deadline = now + budget
+                    if state.stage is not None:
+                        admission = active.grant_admissions.get(
+                            state.stage.search_id
+                        )
+                        if admission is not None:
+                            deadline = min(
+                                deadline,
+                                active.started_monotonic
+                                + admission.grant.wall_deadline_ms / 1000.0,
+                            )
+                    deadlines[owner] = deadline
 
         refresh(time.monotonic())
         while True:

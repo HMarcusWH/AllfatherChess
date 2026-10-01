@@ -825,6 +825,10 @@ def _stage_map(run_dir: Path) -> dict[str, dict[str, Any]]:
                 continue
             search_id = raw.get("search_id")
             if isinstance(search_id, str):
+                if search_id in result:
+                    raise OrchestrationIntegrityError(
+                        f"duplicate search_id across sealed stage manifests: {search_id}"
+                    )
                 result[search_id] = raw
     return result
 
@@ -1373,7 +1377,11 @@ def verify_orchestration_integrity(
         and row.get("event") == "authorize"
         and row.get("granted") is True
     ]
-    stage_by_id = _stage_map(run_dir)
+    try:
+        stage_by_id = _stage_map(run_dir)
+    except OrchestrationIntegrityError as exc:
+        problems.append(str(exc))
+        stage_by_id = {}
     scheduler_obj = None
     policy_obj = None
     if root is not None and plan is not None:
@@ -1413,6 +1421,10 @@ def verify_orchestration_integrity(
         except Exception as exc:
             problems.append(f"WorkGrant reconstruction failed: {exc}")
             continue
+        if event.get("grant_id") != grant.grant_id:
+            problems.append(
+                f"WorkGrant {grant.grant_id} route event identity mismatch"
+            )
         if plan is not None and grant.move_resource_plan_id != plan.plan_id:
             problems.append(f"WorkGrant {grant.grant_id} parent plan mismatch")
         if scheduler_obj is not None and plan is not None:
@@ -1456,6 +1468,18 @@ def verify_orchestration_integrity(
                 f"WorkGrant {grant.grant_id} has no sealed replay stage"
             )
             continue
+        if stage.get("instance") != grant.instance:
+            problems.append(
+                f"WorkGrant {grant.grant_id} stage instance differs from grant"
+            )
+        if stage.get("owner") != grant.owner:
+            problems.append(
+                f"WorkGrant {grant.grant_id} stage owner differs from grant"
+            )
+        if stage.get("phase") != grant.phase:
+            problems.append(
+                f"WorkGrant {grant.grant_id} stage phase differs from grant"
+            )
         effective = stage.get("effective_options")
         if not isinstance(effective, dict) or canonical_digest(effective) != grant.effective_options_digest:
             problems.append(

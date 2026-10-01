@@ -2681,6 +2681,20 @@ def verify_orchestrated_composition_integrity(
             != ORCHESTRATED_CLOCKED_AUTHORIZATION_POLICY
         ):
             problems.append("J12 outward decision uses the wrong authority policy")
+        if authorization.get("authorized") is True:
+            provider = snapshot.get("orchestration_host_provider_id")
+            if (
+                not isinstance(provider, str)
+                or not provider
+                or "synthetic" in provider.lower()
+            ):
+                problems.append(
+                    "J12 authorized HYBRID with missing or synthetic host capacity"
+                )
+            if snapshot.get("orchestration_host_capacity_claim") is not True:
+                problems.append(
+                    "J12 authorized HYBRID without an adaptive host-capacity claim"
+                )
 
         binding = artifact.get("authority_binding")
         provenance = snapshot.get("orchestration_provenance")

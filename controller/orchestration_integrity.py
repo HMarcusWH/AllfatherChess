@@ -873,6 +873,8 @@ def verify_orchestration_integrity(
     *,
     root: Path | str | None = None,
     expected_source_commit: str | None = None,
+    expected_config_relative: str = "config/allfather.m14-j-j10.validation.json",
+    allow_outward_decision: bool = False,
 ) -> list[str]:
     """Independently reconstruct J11 provenance. Empty list means valid."""
 
@@ -999,14 +1001,15 @@ def verify_orchestration_integrity(
     except Exception as exc:
         problems.append(f"parent replay manifest cannot be loaded: {exc}")
     if manifest is not None:
-        if manifest.get("outward_decision") is not None:
+        if (
+            not allow_outward_decision
+            and manifest.get("outward_decision") is not None
+        ):
             problems.append(
                 "J11 qualification is evidence-only and may not contain outward DecisionAuthorization"
             )
         if root is not None:
-            frozen_config_path = (
-                Path(root) / "config/allfather.m14-j-j10.validation.json"
-            )
+            frozen_config_path = Path(root) / expected_config_relative
             try:
                 frozen_config_sha = sha256_file(frozen_config_path)
                 controller = manifest.get("controller")
@@ -1163,7 +1166,7 @@ def verify_orchestration_integrity(
                 from controller.routing import RoutingPolicy
 
                 frozen_config = _load_json(
-                    Path(root) / "config/allfather.m14-j-j10.validation.json",
+                    Path(root) / expected_config_relative,
                     "frozen J10 config",
                 )
                 expected_routing = RoutingPolicy.from_config(
@@ -2354,7 +2357,7 @@ def verify_orchestration_integrity(
         if root is not None:
             try:
                 frozen_config = _load_json(
-                    Path(root) / "config/allfather.m14-j-j10.validation.json",
+                    Path(root) / expected_config_relative,
                     "frozen J10 config",
                 )
                 if frozen_config.get("resource_measurement") != settings:
@@ -2631,3 +2634,136 @@ def verify_orchestration_integrity(
             )
 
     return problems
+
+def verify_orchestrated_composition_integrity(
+    run_dir: Path | str,
+    *,
+    root: Path | str | None = None,
+    expected_source_commit: str | None = None,
+) -> list[str]:
+    """Reconstruct the J12 composition without weakening the J11 evidence core."""
+
+    problems = verify_orchestration_integrity(
+        run_dir,
+        root=root,
+        expected_source_commit=expected_source_commit,
+        expected_config_relative=(
+            "config/allfather.orchestrated-v1.validation.json"
+        ),
+        allow_outward_decision=True,
+    )
+    run_dir = Path(run_dir)
+    try:
+        artifact = _load_json(
+            run_dir / ORCHESTRATION_PATH,
+            "J12 orchestration evidence",
+        )
+        manifest = load_manifest(run_dir)
+        route = _load_json(run_dir / "route.json", "J12 route")
+        outward = manifest.get("outward_decision")
+        if not isinstance(outward, dict):
+            problems.append(
+                "J12 replay is missing the outward DecisionAuthorization record"
+            )
+            return problems
+        authorization = outward.get("authorization")
+        snapshot = outward.get("authorization_snapshot")
+        if not isinstance(authorization, dict) or not isinstance(snapshot, dict):
+            problems.append(
+                "J12 outward decision lacks authorization/snapshot evidence"
+            )
+            return problems
+        from controller.decision import (
+            ORCHESTRATED_CLOCKED_AUTHORIZATION_POLICY,
+        )
+        if (
+            authorization.get("policy")
+            != ORCHESTRATED_CLOCKED_AUTHORIZATION_POLICY
+        ):
+            problems.append("J12 outward decision uses the wrong authority policy")
+
+        binding = artifact.get("authority_binding")
+        provenance = snapshot.get("orchestration_provenance")
+        if not isinstance(binding, dict) or provenance != binding:
+            problems.append(
+                "J12 DecisionAuthorization provenance differs from sealed orchestration binding"
+            )
+
+        move_plan = manifest.get("move_resource_plan")
+        if not isinstance(move_plan, dict):
+            problems.append("J12 replay is missing MoveResourcePlan")
+        else:
+            host = move_plan.get("host_capabilities")
+            provider = (
+                host.get("provider_id")
+                if isinstance(host, dict)
+                else None
+            )
+            if snapshot.get("orchestration_host_provider_id") != provider:
+                problems.append(
+                    "J12 authority host provider differs from MoveResourcePlan"
+                )
+            if (
+                snapshot.get("orchestration_host_capacity_claim")
+                is not move_plan.get("host_capacity_claim")
+            ):
+                problems.append(
+                    "J12 authority host-capacity claim differs from MoveResourcePlan"
+                )
+            qualification_complete = (
+                host.get("qualification_domain_complete")
+                if isinstance(host, dict)
+                else None
+            )
+            if (
+                snapshot.get(
+                    "orchestration_host_qualification_domain_complete"
+                )
+                is not qualification_complete
+            ):
+                problems.append(
+                    "J12 authority host qualification-domain fact differs from MoveResourcePlan"
+                )
+
+        route_digest = snapshot.get("route_decision_digest")
+        decisions = route.get("value_decisions")
+        matches = (
+            [
+                item
+                for item in decisions
+                if (
+                    isinstance(item, dict)
+                    and canonical_digest(item) == route_digest
+                )
+            ]
+            if isinstance(decisions, list) and isinstance(route_digest, str)
+            else []
+        )
+        if len(matches) != 1:
+            problems.append(
+                "J12 route digest does not identify exactly one sealed allocation projection"
+            )
+        else:
+            projected = matches[0]
+            if (
+                isinstance(provenance, dict)
+                and projected.get("allocation_decision_digest")
+                != provenance.get("allocation_decision_digest")
+            ):
+                problems.append(
+                    "J12 route projection AllocationDecision digest mismatch"
+                )
+            if (
+                isinstance(provenance, dict)
+                and projected.get("move_resource_plan_id")
+                != provenance.get("move_resource_plan_id")
+            ):
+                problems.append(
+                    "J12 route projection MoveResourcePlan mismatch"
+                )
+    except Exception as exc:
+        problems.append(
+            f"J12 orchestration reconstruction failed: {type(exc).__name__}: {exc}"
+        )
+    return problems
+

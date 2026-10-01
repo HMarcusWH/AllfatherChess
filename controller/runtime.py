@@ -23,6 +23,11 @@ from adapters.telemetry import SUPPORTED_SCORE_TYPES
 from common.search_request import SearchRequestError, parse_position_command
 from controller.resource_measurement import ResourceMeasurementError, ResourceMeasurementSettings
 from controller.online_time import ClockSearch, OnlineTimeSettings, OnlineTimeError
+from controller.decision import (
+    CLOCKED_AUTHORIZATION_POLICIES,
+    CLOCKED_AUTHORIZATION_POLICY,
+    ORCHESTRATED_CLOCKED_AUTHORIZATION_POLICY,
+)
 from adapters.process.deferred_observer import DeferredObserver
 
 if TYPE_CHECKING:
@@ -1061,10 +1066,10 @@ def _load_hybrid_authority_settings(
         )
 
     policy = raw.get("policy", "bounded_preanchor_v0")
-    if policy not in ("bounded_preanchor_v0", "clocked_staged_preanchor_v1"):
+    if policy not in ("bounded_preanchor_v0", *CLOCKED_AUTHORIZATION_POLICIES):
         raise RuntimeError(
-            "hybrid_authority.policy must be 'bounded_preanchor_v0' or "
-            "'clocked_staged_preanchor_v1'"
+            "hybrid_authority.policy must be bounded_preanchor_v0 or one of "
+            f"{list(CLOCKED_AUTHORIZATION_POLICIES)!r}"
         )
 
     if policy == "bounded_preanchor_v0":
@@ -1206,7 +1211,7 @@ def load_runtime_config(path: Path) -> RuntimeConfig:
             "M14-G1 staged VERIFY remains incompatible with frozen "
             "bounded_preanchor_v0 authority"
         )
-    if hybrid_authority is not None and hybrid_authority.policy == "clocked_staged_preanchor_v1":
+    if hybrid_authority is not None and hybrid_authority.policy in CLOCKED_AUTHORIZATION_POLICIES:
         if verification is None or verification.staged_extension is None:
             raise RuntimeError(
                 "clocked_staged_preanchor_v1 requires verification.staged_extension"
@@ -1265,7 +1270,7 @@ def load_runtime_config(path: Path) -> RuntimeConfig:
         raise RuntimeError(str(exc)) from exc
     if (
         hybrid_authority is not None
-        and hybrid_authority.policy == "clocked_staged_preanchor_v1"
+        and hybrid_authority.policy in CLOCKED_AUTHORIZATION_POLICIES
         and online_time is None
     ):
         raise RuntimeError(
@@ -1276,7 +1281,7 @@ def load_runtime_config(path: Path) -> RuntimeConfig:
             raise RuntimeError("ONLINE-1 requires active resource routing")
         if (
             hybrid_authority is not None
-            and hybrid_authority.policy != "clocked_staged_preanchor_v1"
+            and hybrid_authority.policy not in CLOCKED_AUTHORIZATION_POLICIES
         ):
             raise RuntimeError(
                 "ONLINE timing may grant hybrid authority only through "
@@ -1287,9 +1292,20 @@ def load_runtime_config(path: Path) -> RuntimeConfig:
                 raise RuntimeError(
                     "clocked staged authority requires a configured staged VERIFY extension"
                 )
-            if routing is None or routing.get("policy") != "unified_value_v1":
+            expected_routing_policy = (
+                "conservative_v1"
+                if hybrid_authority.policy
+                == ORCHESTRATED_CLOCKED_AUTHORIZATION_POLICY
+                else "unified_value_v1"
+            )
+            if (
+                routing is None
+                or routing.get("policy") != expected_routing_policy
+            ):
                 raise RuntimeError(
-                    "clocked staged authority requires routing.policy='unified_value_v1'"
+                    "clocked staged authority requires routing.policy="
+                    f"{expected_routing_policy!r} for policy "
+                    f"{hybrid_authority.policy!r}"
                 )
             if hybrid_authority.allow_skipped_extension_authority:
                 raise RuntimeError(
@@ -1364,13 +1380,23 @@ def load_runtime_config(path: Path) -> RuntimeConfig:
         raise RuntimeError("M14-J J10 adaptive allocation requires J9 WorkGrant scheduling")
 
     if orchestration is not None:
+        orchestrated_authority = bool(
+            hybrid_authority is not None
+            and hybrid_authority.policy
+            == ORCHESTRATED_CLOCKED_AUTHORIZATION_POLICY
+        )
         if online_time is None:
             raise RuntimeError("M14-J J8/J9 requires the frozen ONLINE TimePlan safety layer")
         if mode != "active":
             raise RuntimeError("M14-J J8/J9 requires active resource routing")
-        if hybrid_authority is not None:
+        if hybrid_authority is not None and not orchestrated_authority:
             raise RuntimeError(
-                "M14-J J8/J9 is resource qualification only; hybrid authority is deferred to J12"
+                "M14-J orchestration may compose move authority only through "
+                "orchestrated_clocked_staged_preanchor_v1"
+            )
+        if orchestrated_authority and resource_allocator is None:
+            raise RuntimeError(
+                "M14-J J12 authority requires the J10 adaptive resource allocator"
             )
         if routing is None or routing.get("policy") != "conservative_v1":
             raise RuntimeError(
@@ -1402,9 +1428,21 @@ def load_runtime_config(path: Path) -> RuntimeConfig:
                 raise RuntimeError(
                     "M14-J J9/J10 requires base VERIFY plus staged VERIFY"
                 )
-            if refinement is not None or crossfeed is not None or counterfactual is not None:
+            if refinement is not None:
                 raise RuntimeError(
-                    "M14-J J9/J10 does not compose REFINE/crossfeed/counterfactual"
+                    "M14-J J9/J10/J12 does not compose recursive REFINE"
+                )
+            if not orchestrated_authority and (
+                crossfeed is not None or counterfactual is not None
+            ):
+                raise RuntimeError(
+                    "M14-J J9/J10 does not compose crossfeed/counterfactual"
+                )
+            if orchestrated_authority and (
+                crossfeed is None or counterfactual is None
+            ):
+                raise RuntimeError(
+                    "M14-J J12 requires crossfeed and counterfactual evidence"
                 )
             if dict(verification.dispatch_limit) != {"nodes": 16}:
                 raise RuntimeError(
@@ -1433,9 +1471,12 @@ def load_runtime_config(path: Path) -> RuntimeConfig:
                     raise RuntimeError(
                         "M14-J J10 requires allocator_policy_id='adaptive-resource-v1'"
                     )
-                if hybrid_authority is not None:
+                if (
+                    hybrid_authority is not None
+                    and not orchestrated_authority
+                ):
                     raise RuntimeError(
-                        "M14-J J10 grants no move authority; hybrid authority is deferred to J12"
+                        "M14-J J10 grants no move authority outside the explicit J12 policy"
                     )
                 if routing.get("policy") != "conservative_v1":
                     raise RuntimeError(

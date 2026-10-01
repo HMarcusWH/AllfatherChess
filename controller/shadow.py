@@ -62,6 +62,7 @@ from controller.counterfactual import (
 from controller.decision import (
     AUTHORIZATION_POLICY,
     CLOCKED_AUTHORIZATION_POLICY,
+    CLOCKED_AUTHORIZATION_POLICIES,
     DecisionAuthorization,
     DecisionAuthorizationSnapshot,
     DecisionError,
@@ -1262,7 +1263,7 @@ class ShadowRunCoordinator:
         active: _ActiveRun,
         settings: Any,
     ) -> dict[str, Any]:
-        if settings.policy != CLOCKED_AUTHORIZATION_POLICY:
+        if settings.policy not in CLOCKED_AUTHORIZATION_POLICIES:
             return {}
         clock = active.context.clock
         route_snapshot = None
@@ -1337,7 +1338,7 @@ class ShadowRunCoordinator:
         limits = request.get("limits") or []
         root_restriction = tuple(request.get("root_moves") or ())
         clock = active.context.clock
-        if settings.policy == CLOCKED_AUTHORIZATION_POLICY:
+        if settings.policy in CLOCKED_AUTHORIZATION_POLICIES:
             request_eligible = bool(
                 clock is not None
                 and clock.plan.generation == active.generation
@@ -1388,7 +1389,7 @@ class ShadowRunCoordinator:
         )
         authority_cancelled = (
             active._cancelled
-            if settings.policy == CLOCKED_AUTHORIZATION_POLICY
+            if settings.policy in CLOCKED_AUTHORIZATION_POLICIES
             else active.cancelled
         )
         backend_current = (
@@ -1446,6 +1447,34 @@ class ShadowRunCoordinator:
                     route["orchestration_provenance"]
                 )
                 if isinstance(route.get("orchestration_provenance"), dict)
+                else None
+            ),
+            orchestration_host_provider_id=(
+                str(route["orchestration_host_provider_id"])
+                if isinstance(
+                    route.get("orchestration_host_provider_id"),
+                    str,
+                )
+                else None
+            ),
+            orchestration_host_capacity_claim=(
+                route.get("orchestration_host_capacity_claim")
+                if isinstance(
+                    route.get("orchestration_host_capacity_claim"),
+                    bool,
+                )
+                else None
+            ),
+            orchestration_host_qualification_domain_complete=(
+                route.get(
+                    "orchestration_host_qualification_domain_complete"
+                )
+                if isinstance(
+                    route.get(
+                        "orchestration_host_qualification_domain_complete"
+                    ),
+                    bool,
+                )
                 else None
             ),
             **self._clocked_authority_snapshot_fields(active, settings),
@@ -3656,7 +3685,7 @@ class ShadowRunCoordinator:
         charged = False
         try:
             authority = self.runtime.config.hybrid_authority
-            if authority is not None and authority.policy == CLOCKED_AUTHORIZATION_POLICY:
+            if authority is not None and authority.policy in CLOCKED_AUTHORIZATION_POLICIES:
                 route_snapshot = None
                 if self.router is not None:
                     getter = getattr(self.router, "staged_route_authority_snapshot", None)

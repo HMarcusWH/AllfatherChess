@@ -11,12 +11,17 @@ import json
 from pathlib import Path
 from typing import Any
 
-from controller.decision import FinalDecision, canonical_digest
+from controller.decision import (
+    CLOCKED_AUTHORIZATION_POLICIES,
+    ORCHESTRATED_CLOCKED_AUTHORIZATION_POLICY,
+    FinalDecision,
+    canonical_digest,
+)
 from controller.replay import atomic_write_text, sha256_file
 
 
 FINAL_DECISION_SCHEMA_VERSION = 1
-_CLOCKED_POLICY = "clocked_staged_preanchor_v1"
+_CLOCKED_POLICIES = CLOCKED_AUTHORIZATION_POLICIES
 
 _BASE_SOURCE_PATHS = (
     "manifest.json",
@@ -50,7 +55,7 @@ def _required_source_paths_from_payload(decision: dict[str, Any]) -> tuple[str, 
     if not isinstance(authorization, dict) or not isinstance(snapshot, dict):
         return (*_BASE_SOURCE_PATHS, *_M14C_EVIDENCE_PATHS)
 
-    if authorization.get("policy") != _CLOCKED_POLICY:
+    if authorization.get("policy") not in _CLOCKED_POLICIES:
         # Frozen M14-C v0 compatibility: these sources were historically
         # mandatory for every live hybrid-authority artifact.
         return (*_BASE_SOURCE_PATHS, *_M14C_EVIDENCE_PATHS)
@@ -243,6 +248,34 @@ def _verify_clocked_authority(
                 problems.append(
                     "G3 route buy flag differs from authorization snapshot"
                 )
+            if (
+                authorization.get("policy")
+                == ORCHESTRATED_CLOCKED_AUTHORIZATION_POLICY
+            ):
+                provenance = snapshot.get("orchestration_provenance")
+                if not isinstance(provenance, dict):
+                    problems.append(
+                        "J12 route is missing orchestration provenance"
+                    )
+                else:
+                    if (
+                        chosen.get("allocation_decision_digest")
+                        != provenance.get("allocation_decision_digest")
+                    ):
+                        problems.append(
+                            "J12 route projection does not bind the authorized AllocationDecision"
+                        )
+                    if (
+                        chosen.get("move_resource_plan_id")
+                        != provenance.get("move_resource_plan_id")
+                    ):
+                        problems.append(
+                            "J12 route projection does not bind the authorized MoveResourcePlan"
+                        )
+                    if chosen.get("allocation_action") != "BUY_BUNDLE":
+                        problems.append(
+                            "J12 HYBRID route was not projected from BUY_BUNDLE"
+                        )
 
     if authorized:
         if decision.get("authority") != "HYBRID":
@@ -426,11 +459,11 @@ def _verify_orchestration_provenance(
         )
     try:
         from controller.orchestration_integrity import (
-            verify_orchestration_integrity,
+            verify_orchestrated_composition_integrity,
         )
 
         repository_root = Path(__file__).resolve().parents[1]
-        for problem in verify_orchestration_integrity(
+        for problem in verify_orchestrated_composition_integrity(
             run_dir,
             root=repository_root,
         ):
@@ -520,7 +553,7 @@ def verify_final_decision_integrity(run_dir: Path | str) -> list[str]:
         isinstance(decision, dict)
         and authorization is not None
         and snapshot is not None
-        and authorization.get("policy") == _CLOCKED_POLICY
+        and authorization.get("policy") in _CLOCKED_POLICIES
     ):
         _verify_clocked_authority(
             run_dir,

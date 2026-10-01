@@ -1144,32 +1144,181 @@ def verify_orchestration_integrity(
             )
 
     try:
-        resource = _load_json(run_dir / "resource.json", "resource")
-        controller = resource.get("controller") or {}
-        recomputed_physical = _finite_nonnegative(
-            resource.get("engine_cpu_ms"), "resource.engine_cpu_ms"
-        ) + _finite_nonnegative(
-            controller.get("cpu_ms"), "resource.controller.cpu_ms"
+        resource_path = run_dir / "resource.json"
+        resource = _load_json(resource_path, "resource")
+        controller = _mapping(resource.get("controller"), "resource.controller")
+        processes = _mapping(resource.get("processes"), "resource.processes")
+        stages = resource.get("stages")
+        if not isinstance(stages, list):
+            raise OrchestrationIntegrityError("resource.stages must be an array")
+
+        process_cpu = 0.0
+        process_complete = bool(processes)
+        for instance, raw_process in processes.items():
+            process = _mapping(
+                raw_process,
+                f"resource.processes[{instance!r}]",
+            )
+            complete = process.get("complete") is True
+            cpu = process.get("cpu_ms")
+            if not complete or cpu is None:
+                process_complete = False
+                continue
+            process_cpu += _finite_nonnegative(
+                cpu,
+                f"resource.processes[{instance!r}].cpu_ms",
+            )
+
+        stage_cpu = 0.0
+        stage_complete = bool(stages)
+        for index, raw_stage in enumerate(stages):
+            stage = _mapping(raw_stage, f"resource.stages[{index}]")
+            complete = stage.get("complete") is True
+            cpu = stage.get("cpu_ms")
+            if not complete or cpu is None:
+                stage_complete = False
+                continue
+            stage_cpu += _finite_nonnegative(
+                cpu,
+                f"resource.stages[{index}].cpu_ms",
+            )
+
+        controller_cpu = _finite_nonnegative(
+            controller.get("cpu_ms"),
+            "resource.controller.cpu_ms",
         )
-        if not _approx_equal(recomputed_physical, resource.get("physical_cpu_ms")):
+        if not _approx_equal(process_cpu, resource.get("engine_cpu_ms")):
+            problems.append(
+                "resource engine CPU total does not reconstruct from process endpoints"
+            )
+        if not _approx_equal(stage_cpu, resource.get("stage_engine_cpu_ms")):
+            problems.append(
+                "resource stage CPU total does not reconstruct from stage evidence"
+            )
+        recomputed_physical = process_cpu + controller_cpu
+        if not _approx_equal(
+            recomputed_physical,
+            resource.get("physical_cpu_ms"),
+        ):
             problems.append("resource physical CPU total does not reconstruct")
-        coverage = resource.get("coverage") or {}
-        settings = resource.get("settings") or {}
+
+        settings = _mapping(resource.get("settings"), "resource.settings")
+        coverage = _mapping(resource.get("coverage"), "resource.coverage")
+        provider_available = (
+            isinstance(resource.get("provider"), str)
+            and bool(resource.get("provider"))
+            and resource.get("provider_error") is None
+        )
+        cpu_complete = bool(
+            settings.get("enabled") is True
+            and provider_available
+            and resource.get("interval_error") is None
+            and process_complete
+            and stage_complete
+        )
+        stored_cpu_coverage = _mapping(
+            coverage.get("cpu"),
+            "resource.coverage.cpu",
+        )
+        if stored_cpu_coverage.get("complete") is not cpu_complete:
+            problems.append(
+                "resource CPU coverage does not reconstruct from raw evidence"
+            )
+
         cpu_required = settings.get("require_cpu_for_claim") is True
         gpu_required = settings.get("require_gpu_for_claim") is True
+        gpu_complete = (
+            _mapping(
+                coverage.get("gpu"),
+                "resource.coverage.gpu",
+            ).get("complete")
+            is True
+        )
         resource_qualified = bool(
             settings.get("enabled") is True
-            and (not cpu_required or (coverage.get("cpu") or {}).get("complete") is True)
-            and (not gpu_required or (coverage.get("gpu") or {}).get("complete") is True)
+            and (not cpu_required or cpu_complete)
+            and (not gpu_required or gpu_complete)
         )
         if resource.get("qualified") is not resource_qualified:
             problems.append("resource qualified flag does not reconstruct")
+
+        resource_core = {
+            key: value
+            for key, value in resource.items()
+            if key != "report_id"
+        }
+        report_digest = hashlib.sha256(
+            json.dumps(
+                resource_core,
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=True,
+            ).encode("utf-8")
+        ).hexdigest()
+        if resource.get("report_id") != f"resource-{report_digest[:16]}":
+            problems.append("resource report_id does not reconstruct")
+
         route_resource = route.get("resource_measurement") or {}
-        if route_resource.get("sha256") != sha256_file(run_dir / "resource.json"):
+        if not isinstance(route_resource, dict):
+            problems.append("route resource_measurement is not an object")
+            route_resource = {}
+        if route_resource.get("sha256") != sha256_file(resource_path):
             problems.append("route does not bind sealed resource.json")
-        if plan is not None and recomputed_physical > plan.resource_envelope.cpu_ms + 1e-9:
-            if (route.get("envelope_claim") or {}).get("claimed") is True:
-                problems.append("route claimed envelope despite physical CPU overrun")
+        if route_resource.get("report_id") != resource.get("report_id"):
+            problems.append("route resource report identity mismatch")
+        if route_resource.get("qualified") is not resource_qualified:
+            problems.append("route resource qualification differs from resource.json")
+        if not _approx_equal(
+            route_resource.get("physical_cpu_ms"),
+            recomputed_physical,
+        ):
+            problems.append("route physical CPU summary differs from resource.json")
+
+        claim = route.get("envelope_claim")
+        if not isinstance(claim, dict):
+            problems.append("route envelope_claim is not an object")
+            claim = {}
+        route_envelope = route.get("envelope")
+        if not isinstance(route_envelope, dict):
+            problems.append("route envelope is not an object")
+            route_envelope = {}
+        physical_cpu_within = recomputed_physical <= (
+            _finite_nonnegative(
+                route_envelope.get("cpu_ms"),
+                "route envelope.cpu_ms",
+            )
+            + 1e-9
+        )
+        if claim.get("physical_measurement_qualified") is not resource_qualified:
+            problems.append(
+                "route physical measurement qualification does not reconstruct"
+            )
+        if claim.get("physical_cpu_within_envelope") is not physical_cpu_within:
+            problems.append(
+                "route physical CPU envelope result does not reconstruct"
+            )
+        clock_outcome = route.get("clock_outcome")
+        clock_complete = bool(
+            not isinstance(clock_outcome, dict)
+            or clock_outcome.get("output_within_deadline") is True
+        )
+        expected_claim = bool(
+            clock_complete
+            and claim.get("anchor_request_bounded") is True
+            and claim.get("anchor_cost_reserved") is True
+            and claim.get("gpu_accounted") is True
+            and claim.get("reservations_within_envelope") is True
+            and claim.get("specialist_partitions_within_caps") is True
+            and claim.get("specialist_settlement_complete") is True
+            and claim.get("work_grant_settlement_complete") is True
+            and claim.get("wall_within_envelope") is True
+            and resource_qualified
+            and physical_cpu_within
+        )
+        if claim.get("claimed") is not expected_claim:
+            problems.append(
+                "route envelope claimed flag does not reconstruct from source facts"
+            )
     except Exception as exc:
         problems.append(f"resource evidence reconstruction failed: {exc}")
 

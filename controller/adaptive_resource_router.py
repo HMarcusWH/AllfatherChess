@@ -8,7 +8,7 @@ never a BudgetLedger reservation and never move authority.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 from controller.allocation_features import (
     AllocationFeatureError,
@@ -43,6 +43,7 @@ from controller.staged_decision_calibration import (
 from controller.verification import VerificationRun
 from controller.work_grant import WorkGrant
 from controller.work_scheduler import (
+    GrantAdmission,
     LegacyFixedWorkGrantScheduler,
     WorkSchedulerDenied,
 )
@@ -301,6 +302,46 @@ class AdaptiveResourceRouter(ConservativeRouter):
                     }
                 )
             return None
+
+    def authorize_work_grant_bundle(
+        self,
+        context: Any,
+        *,
+        items: Sequence[tuple[WorkGrant, str]],
+    ) -> tuple[GrantAdmission, ...] | None:
+        """Require the exact selected J10 bundle before transactional admission."""
+
+        decision = self._active_staged_decision(context)
+        rows = tuple(items)
+        if len(rows) != 3:
+            if self.audit is not None:
+                self.audit.note(
+                    "J10 staged bundle denied: expected exactly three grants"
+                )
+            return None
+        grants = tuple(grant for grant, _ in rows)
+        if (
+            any(
+                grant.phase != "STAGED_VERIFY"
+                or grant.allocation_round != 2
+                or grant.allocator_decision_digest != decision.digest
+                for grant in grants
+            )
+            or {grant.owner for grant in grants}
+            != {"stockfish", "reckless", "lc0"}
+            or {grant.work_chunk_id for grant in grants}
+            != set(self.allocator.policy.bundle.chunk_ids)
+            or len({search_id for _, search_id in rows}) != 3
+        ):
+            if self.audit is not None:
+                self.audit.note(
+                    "J10 staged bundle denied: grant set differs from selected bundle"
+                )
+            return None
+        return super().authorize_work_grant_bundle(
+            context,
+            items=rows,
+        )
 
     def expected_allocator_decision_digest(
         self,

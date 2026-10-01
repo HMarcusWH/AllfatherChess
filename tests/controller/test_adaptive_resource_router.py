@@ -250,6 +250,43 @@ class AdaptiveResourceRouterTests(unittest.TestCase):
             1,
         )
 
+    def test_partial_selected_bundle_is_rejected_before_reservation(self):
+        base, plan = parent()
+        context = FakeContext(base, plan)
+        router = make_router()
+        router.on_run_start(context)
+        self._buy_decision(router, context)
+
+        owner, instance = "stockfish", "stockfish-shadow"
+        profile = RESOURCE_CATALOG.profile_for_instance(instance)
+        options = RESOURCE_CATALOG.startup_options(profile.profile_id)
+        options.update(
+            RESOURCE_CATALOG.phase_options(profile.profile_id).get(
+                "STAGED_VERIFY",
+                {},
+            )
+        )
+        grant = router.propose_work_grant(
+            context,
+            owner=owner,
+            instance=instance,
+            phase="STAGED_VERIFY",
+            allocation_round=2,
+            effective_options_digest=canonical_digest(
+                dict(sorted(options.items()))
+            ),
+        )
+        self.assertIsNotNone(grant)
+        admissions = router.authorize_work_grant_bundle(
+            context,
+            items=((grant, "search-stockfish"),),
+        )
+        self.assertIsNone(admissions)
+        self.assertEqual(
+            router.ledger.snapshot()["open_reservations"],
+            1,
+        )
+
     def test_bundle_denial_rolls_back_prior_reservations(self):
         base, plan = parent()
         context = FakeContext(base, plan)

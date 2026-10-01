@@ -1017,6 +1017,33 @@ def verify_orchestration_integrity(
         problems.append(str(exc))
         route = {}
 
+    if route:
+        if route.get("schema_version") != 2:
+            problems.append("route schema_version differs from frozen J10 contract")
+        if root is not None:
+            try:
+                from controller.routing import RoutingPolicy
+
+                frozen_config = _load_json(
+                    Path(root) / "config/allfather.m14-j-j10.validation.json",
+                    "frozen J10 config",
+                )
+                expected_routing = RoutingPolicy.from_config(
+                    _mapping(frozen_config.get("routing"), "frozen routing")
+                )
+                if route.get("policy") != expected_routing.policy_name:
+                    problems.append(
+                        "route policy differs from frozen J10 routing policy"
+                    )
+                if route.get("thresholds") != expected_routing.as_dict():
+                    problems.append(
+                        "route thresholds differ from frozen J10 routing policy"
+                    )
+            except Exception as exc:
+                problems.append(
+                    f"frozen J10 routing policy could not be reconstructed: {exc}"
+                )
+
     if plan is not None:
         stored_plan = artifact.get("move_resource_plan") or {}
         expected_plan_summary = {

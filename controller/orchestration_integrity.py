@@ -879,18 +879,34 @@ def verify_orchestration_integrity(
             problems.append("orchestration generation differs from MoveResourcePlan")
         if artifact.get("position_id") != plan.position_id:
             problems.append("orchestration position differs from MoveResourcePlan")
-        if (artifact.get("game_environment") or {}).get("digest") != plan.game_environment.digest:
-            problems.append("game environment digest mismatch")
-        if (artifact.get("composition_profile") or {}).get("digest") != plan.composition.digest:
-            problems.append("composition profile digest mismatch")
-        if (artifact.get("profile_catalog") or {}).get("digest") != plan.catalog_digest:
-            problems.append("profile catalog digest mismatch")
+        expected_environment = {
+            "environment_id": plan.game_environment.environment_id,
+            "digest": plan.game_environment.digest,
+        }
+        if artifact.get("game_environment") != expected_environment:
+            problems.append("game environment identity does not reconstruct")
+        expected_composition = {
+            "composition_id": plan.composition.composition_id,
+            "digest": plan.composition.digest,
+        }
+        if artifact.get("composition_profile") != expected_composition:
+            problems.append("composition profile identity does not reconstruct")
+        expected_catalog = {
+            "catalog_id": plan.catalog_id,
+            "digest": plan.catalog_digest,
+        }
+        if artifact.get("profile_catalog") != expected_catalog:
+            problems.append("profile catalog identity does not reconstruct")
         host = plan.host_capabilities
         if host is None:
             problems.append("adaptive J11 evidence lacks HostCapabilities")
         else:
-            if (artifact.get("host_capabilities") or {}).get("digest") != host.digest:
-                problems.append("HostCapabilities digest mismatch")
+            expected_host = {
+                "host_id": host.host_id,
+                "digest": host.digest,
+            }
+            if artifact.get("host_capabilities") != expected_host:
+                problems.append("HostCapabilities identity does not reconstruct")
             allowed = host.allowed_cpus
             if allowed is None or len(allowed) < plan.composition.declared_cpu_slots:
                 problems.append("composition CPU slots exceed observed allowed CPUs")
@@ -914,6 +930,24 @@ def verify_orchestration_integrity(
     else:
         try:
             decision = AllocationDecision.from_dict(decisions[0])
+            expected_decision_summary = {
+                "allocation_id": decision.allocation_id,
+                "digest": decision.digest,
+                "action": decision.action,
+                "selected_bundle_id": decision.selected_bundle_id,
+            }
+            if artifact.get("allocation_decision") != expected_decision_summary:
+                problems.append(
+                    "orchestration AllocationDecision summary does not reconstruct"
+                )
+            expected_policy_summary = {
+                "policy_id": decision.policy_id,
+                "digest": decision.allocation_policy_digest,
+            }
+            if artifact.get("allocation_policy") != expected_policy_summary:
+                problems.append(
+                    "orchestration allocation policy summary does not reconstruct"
+                )
             if plan is not None:
                 if decision.move_resource_plan_id != plan.plan_id:
                     problems.append(
@@ -989,9 +1023,14 @@ def verify_orchestration_integrity(
             route_contexts if isinstance(route_contexts, list) else []
         ):
             problems.append("allocation trace contexts differ from route")
+        trace_summary = artifact.get("allocation_trace") or {}
         budget_digest = canonical_digest(budget_journal)
-        if (artifact.get("allocation_trace") or {}).get("budget_journal_digest") != budget_digest:
+        if trace_summary.get("budget_journal_digest") != budget_digest:
             problems.append("budget journal digest mismatch")
+        if trace_summary.get("budget_event_count") != len(budget_journal):
+            problems.append("budget journal event count mismatch")
+        if trace_summary.get("authority_trace_digest") != allocation_trace_digest(route):
+            problems.append("authority allocation-trace digest mismatch")
     except OrchestrationIntegrityError as exc:
         problems.append(str(exc))
         budget_journal = []

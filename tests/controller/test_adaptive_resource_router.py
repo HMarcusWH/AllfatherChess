@@ -343,6 +343,62 @@ class AdaptiveResourceRouterTests(unittest.TestCase):
             any(key[0] == 2 for key in router._work_grant_keys)
         )
 
+    def test_bundle_exception_rolls_back_prior_reservations(self):
+        base, plan = parent()
+        context = FakeContext(base, plan)
+        router = make_router()
+        router.on_run_start(context)
+        self._buy_decision(router, context)
+
+        items = []
+        for owner, instance in (
+            ("stockfish", "stockfish-shadow"),
+            ("reckless", "reckless-shadow"),
+            ("lc0", "lc0-shadow"),
+        ):
+            profile = RESOURCE_CATALOG.profile_for_instance(instance)
+            options = RESOURCE_CATALOG.startup_options(profile.profile_id)
+            options.update(
+                RESOURCE_CATALOG.phase_options(profile.profile_id).get(
+                    "STAGED_VERIFY",
+                    {},
+                )
+            )
+            grant = router.propose_work_grant(
+                context,
+                owner=owner,
+                instance=instance,
+                phase="STAGED_VERIFY",
+                allocation_round=2,
+                effective_options_digest=canonical_digest(
+                    dict(sorted(options.items()))
+                ),
+            )
+            self.assertIsNotNone(grant)
+            items.append((grant, f"search-{owner}"))
+
+        # Keep the selected owner/chunk set valid so J10 precheck passes, but
+        # use an instance absent from the bound composition. J9 validation then
+        # raises after earlier members were already reserved.
+        bad_grant, bad_search = items[-1]
+        items[-1] = (
+            replace(bad_grant, instance="missing-shadow"),
+            bad_search,
+        )
+        with self.assertRaises(Exception):
+            router.authorize_work_grant_bundle(
+                context,
+                items=tuple(items),
+            )
+        self.assertEqual(
+            router.ledger.snapshot()["open_reservations"],
+            1,
+        )
+        self.assertEqual(router._work_grant_reservations, {})
+        self.assertFalse(
+            any(key[0] == 2 for key in router._work_grant_keys)
+        )
+
     def test_stop_decision_cannot_produce_round2_grant(self):
         base, plan = parent()
         context = FakeContext(base, plan)
@@ -351,6 +407,7 @@ class AdaptiveResourceRouterTests(unittest.TestCase):
         buy = self._buy_decision(router, context)
         stop = AllocationDecision(
             policy_id=buy.policy_id,
+            allocation_policy_digest=buy.allocation_policy_digest,
             generation=buy.generation,
             position_id=buy.position_id,
             move_resource_plan_id=buy.move_resource_plan_id,

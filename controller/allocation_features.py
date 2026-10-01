@@ -30,6 +30,7 @@ from controller.regimes import (
     RegimeClassification,
     RegimeObservation,
     TimingRegimeFeatures,
+    VerifierRegimeFeatures,
     classify_regimes,
 )
 from controller.replay_analysis import SearchTrajectory, reconstruct_stream
@@ -39,6 +40,35 @@ from controller.verification_analysis import derive_relock
 
 class AllocationFeatureError(RuntimeError):
     """Live J10 features could not be reconstructed honestly."""
+
+
+def staged_serving_features(
+    *,
+    transition: str,
+    disposition: str,
+    verifiers: tuple[VerifierRegimeFeatures, ...],
+) -> dict[str, Any]:
+    """Shared semantic surface for the staged decision-change model.
+
+    This intentionally mirrors the already-qualified G2 serving feature
+    semantics without importing unified_value_router private helpers.
+    """
+
+    if not verifiers:
+        raise AllocationFeatureError("staged serving features require verifiers")
+    return {
+        "transition": transition,
+        "base_decision_disposition": disposition,
+        "min_observation_count": min(
+            item.observation_count for item in verifiers
+        ),
+        "max_leader_flips": max(
+            item.leader_flips for item in verifiers
+        ),
+        "min_stable_run_fraction": min(
+            item.stable_run_fraction for item in verifiers
+        ),
+    }
 
 
 @dataclass(frozen=True)
@@ -277,7 +307,7 @@ def build_allocation_features(
         policy=COUNTERFACTUAL_POLICY,
     )
 
-    verifier_rows = []
+    verifier_rows: list[VerifierRegimeFeatures] = []
     for owner, trajectory in zip(OWNER_ORDER, trajectories):
         history = past_only_features(
             trajectory.primary_moves_until(trajectory.span_ms)
@@ -288,32 +318,24 @@ def build_allocation_features(
             if item.multipv_index == 1 and item.pv
         ]
         verifier_rows.append(
-            {
-                "owner": owner,
-                "terminal_move": trajectory.final_leader,
-                "observation_count": history.observation_count,
-                "leader_flips": history.leader_flips,
-                "stable_run_fraction": history.stable_run_fraction,
-                "pv_persistence": pv_persistence(pvs),
-            }
+            VerifierRegimeFeatures(
+                owner=owner,
+                terminal_move=trajectory.final_leader,
+                observation_count=history.observation_count,
+                leader_flips=history.leader_flips,
+                stable_run_fraction=history.stable_run_fraction,
+                pv_persistence=pv_persistence(pvs),
+            )
         )
 
     base_nodes = int(plan.dispatch_limit["nodes"])
-    staged_features = {
-        "transition": (
+    staged_features = staged_serving_features(
+        transition=(
             f"same-process:n{base_nodes}->n{extension_nodes}"
         ),
-        "base_decision_disposition": evaluation.disposition.code,
-        "min_observation_count": min(
-            row["observation_count"] for row in verifier_rows
-        ),
-        "max_leader_flips": max(
-            row["leader_flips"] for row in verifier_rows
-        ),
-        "min_stable_run_fraction": min(
-            row["stable_run_fraction"] for row in verifier_rows
-        ),
-    }
+        disposition=evaluation.disposition.code,
+        verifiers=tuple(verifier_rows),
+    )
 
     try:
         view = build_crossfeed_view(
@@ -346,25 +368,7 @@ def build_allocation_features(
         else "all_different"
     )
 
-    from controller.regimes import VerifierRegimeFeatures
-
-    regime_verifiers = tuple(
-        VerifierRegimeFeatures(
-            owner=str(row["owner"]),
-            terminal_move=str(row["terminal_move"]),
-            observation_count=int(row["observation_count"]),
-            leader_flips=int(row["leader_flips"]),
-            stable_run_fraction=float(
-                row["stable_run_fraction"]
-            ),
-            pv_persistence=(
-                None
-                if row["pv_persistence"] is None
-                else float(row["pv_persistence"])
-            ),
-        )
-        for row in verifier_rows
-    )
+    regime_verifiers = tuple(verifier_rows)
     observation = RegimeObservation(
         run_id=context.run_id,
         generation=context.generation,

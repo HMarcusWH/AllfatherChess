@@ -1384,6 +1384,11 @@ def load_runtime_config(path: Path) -> RuntimeConfig:
                 raise RuntimeError(
                     "M14-J J10 requires the J9 WorkGrant scheduler"
                 )
+            if orchestration.allocator_policy_id != "legacy-fixed-stage-compat-v1":
+                raise RuntimeError(
+                    "M14-J J8-only profiles must keep allocator_policy_id="
+                    "'legacy-fixed-stage-compat-v1'"
+                )
             if any(
                 item is not None
                 for item in (verification, refinement, crossfeed, counterfactual)

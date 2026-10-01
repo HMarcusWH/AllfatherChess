@@ -65,11 +65,18 @@ def main(argv: list[str] | None = None) -> int:
             raise StagedValueOfComputeError(
                 "position-group mapping must be a JSON object"
             )
-        group_map = {
-            str(key): str(value)
-            for key, value in raw_groups.items()
-            if str(key) and str(value)
-        }
+        group_map: dict[str, str] = {}
+        for key, value in raw_groups.items():
+            if (
+                not isinstance(key, str)
+                or not key
+                or not isinstance(value, str)
+                or not value
+            ):
+                raise StagedValueOfComputeError(
+                    "position-group mapping keys and values must be non-empty strings"
+                )
+            group_map[key] = value
 
     counts: dict[str, int] = defaultdict(int)
     transitions = []

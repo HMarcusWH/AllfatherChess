@@ -970,28 +970,44 @@ class ConservativeRouter:
             return ()
         admissions: list[GrantAdmission] = []
         with self._work_grant_lock:
-            for grant, search_id in rows:
-                admission = self._authorize_work_grant_unlocked(
-                    context,
-                    grant=grant,
-                    search_id=search_id,
-                )
-                if admission is None:
-                    for prior in reversed(admissions):
-                        self._rollback_work_grant_admission(
-                            prior,
-                            reason=(
-                                "bundle admission rolled back because another "
-                                "member was denied"
-                            ),
-                        )
-                    if self.audit is not None:
-                        self.audit.note(
-                            "WorkGrant bundle denied transactionally; no partial "
-                            "bundle reservation remains"
-                        )
-                    return None
-                admissions.append(admission)
+            try:
+                for grant, search_id in rows:
+                    admission = self._authorize_work_grant_unlocked(
+                        context,
+                        grant=grant,
+                        search_id=search_id,
+                    )
+                    if admission is None:
+                        for prior in reversed(admissions):
+                            self._rollback_work_grant_admission(
+                                prior,
+                                reason=(
+                                    "bundle admission rolled back because another "
+                                    "member was denied"
+                                ),
+                            )
+                        if self.audit is not None:
+                            self.audit.note(
+                                "WorkGrant bundle denied transactionally; no partial "
+                                "bundle reservation remains"
+                            )
+                        return None
+                    admissions.append(admission)
+            except Exception:
+                for prior in reversed(admissions):
+                    self._rollback_work_grant_admission(
+                        prior,
+                        reason=(
+                            "bundle admission rolled back because a later "
+                            "member raised during validation/reservation"
+                        ),
+                    )
+                if self.audit is not None:
+                    self.audit.note(
+                        "WorkGrant bundle raised during admission; all earlier "
+                        "reservations were rolled back"
+                    )
+                raise
         return tuple(admissions)
 
     def _rollback_work_grant_admission(

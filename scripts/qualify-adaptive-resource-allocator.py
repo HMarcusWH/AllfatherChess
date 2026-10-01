@@ -127,6 +127,14 @@ def main() -> int:
     )
     rows, groups = parse_seed(seed_path)
     require(rows == 16 and len(groups) == 16, "J10 seed corpus must freeze 16 unique groups")
+    frozen_groups = corpus.get("source_groups")
+    require(
+        isinstance(frozen_groups, list)
+        and all(isinstance(group, str) and group for group in frozen_groups)
+        and len(frozen_groups) == len(set(frozen_groups))
+        and set(frozen_groups) == groups,
+        "J10 corpus source_groups must exactly match the pre-label seed",
+    )
     require(
         corpus.get("independent_groups") == 16
         and corpus.get("minimum_independent_groups_for_stop_promotion") == 32,

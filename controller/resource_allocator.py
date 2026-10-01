@@ -131,6 +131,7 @@ class AllocationGate:
 @dataclass(frozen=True)
 class AllocationDecision:
     policy_id: str
+    allocation_policy_digest: str
     generation: int
     position_id: str
     move_resource_plan_id: str
@@ -154,6 +155,10 @@ class AllocationDecision:
     def __post_init__(self) -> None:
         if self.policy_id != ADAPTIVE_RESOURCE_POLICY:
             raise ResourceAllocatorError("AllocationDecision policy drift")
+        _sha256(
+            self.allocation_policy_digest,
+            "allocation_policy_digest",
+        )
         _positive_int(self.generation, "allocation generation")
         if (
             not isinstance(self.position_id, str)
@@ -246,6 +251,7 @@ class AllocationDecision:
         return {
             "schema_version": ORCHESTRATION_SCHEMA_VERSION,
             "policy_id": self.policy_id,
+            "allocation_policy_digest": self.allocation_policy_digest,
             "generation": self.generation,
             "position_id": self.position_id,
             "move_resource_plan_id": self.move_resource_plan_id,
@@ -620,6 +626,7 @@ class DeterministicAdaptiveAllocator:
         if move_plan.disposition == FALLBACK_DISPOSITION:
             return AllocationDecision(
                 policy_id=ADAPTIVE_RESOURCE_POLICY,
+                allocation_policy_digest=self.policy.digest,
                 generation=move_plan.generation,
                 position_id=move_plan.position_id,
                 move_resource_plan_id=move_plan.plan_id,
@@ -771,6 +778,7 @@ class DeterministicAdaptiveAllocator:
         if all(gate.passed for gate in gates):
             return AllocationDecision(
                 policy_id=ADAPTIVE_RESOURCE_POLICY,
+                allocation_policy_digest=self.policy.digest,
                 generation=move_plan.generation,
                 position_id=move_plan.position_id,
                 move_resource_plan_id=move_plan.plan_id,
@@ -831,6 +839,7 @@ class DeterministicAdaptiveAllocator:
     ) -> AllocationDecision:
         return AllocationDecision(
             policy_id=ADAPTIVE_RESOURCE_POLICY,
+            allocation_policy_digest=self.policy.digest,
             generation=move_plan.generation,
             position_id=move_plan.position_id,
             move_resource_plan_id=move_plan.plan_id,

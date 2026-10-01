@@ -79,6 +79,19 @@ def main() -> int:
         raise CollectionError("J10 corpus row-count drift")
     if len(groups) != int(meta.get("independent_groups", -1)):
         raise CollectionError("J10 corpus independent-group count drift")
+    frozen_groups = meta.get("source_groups")
+    if (
+        not isinstance(frozen_groups, list)
+        or any(
+            not isinstance(group, str) or not group
+            for group in frozen_groups
+        )
+        or len(frozen_groups) != len(set(frozen_groups))
+        or set(frozen_groups) != groups
+    ):
+        raise CollectionError(
+            "J10 corpus source_groups do not match the frozen EPD worklist"
+        )
 
     output = {
         "schema_version": 1,

@@ -7,6 +7,7 @@ never a BudgetLedger reservation and never move authority.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -209,6 +210,13 @@ class AdaptiveResourceRouter(ConservativeRouter):
                 "J10 AllocationDecision did not select staged bundle"
             )
         if (
+            decision.allocation_policy_digest
+            != self.allocator.policy.digest
+        ):
+            raise WorkSchedulerDenied(
+                "J10 AllocationDecision does not bind the active allocation policy"
+            )
+        if (
             decision.generation != context.generation
             or decision.position_id != context.position.position_id
         ):
@@ -375,6 +383,84 @@ class AdaptiveResourceRouter(ConservativeRouter):
             self._allocation_decisions.pop(str(context.run_id), None)
 
 
+def _validate_promoted_model_bindings(
+    *,
+    root: Path,
+    allocation_policy: Any,
+    staged_model: StagedDecisionChangeModel | None,
+    regime_model: RegimeSupportModel | None,
+) -> None:
+    """Require promoted models to bind the actual frozen independent corpus."""
+
+    if not allocation_policy.stop_promotion:
+        return
+    if staged_model is None or regime_model is None:
+        raise AdaptiveResourceRoutingError(
+            "promoted J10 STOP policy requires both serving models"
+        )
+    corpus_path = (
+        Path(root) / "qualification/j10-calibration-corpus-v1.json"
+    ).resolve()
+    try:
+        corpus = json.loads(corpus_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise AdaptiveResourceRoutingError(
+            f"J10 calibration corpus could not be loaded: {exc}"
+        ) from exc
+    if not isinstance(corpus, dict):
+        raise AdaptiveResourceRoutingError(
+            "J10 calibration corpus root must be an object"
+        )
+    if corpus.get("corpus_id") != allocation_policy.calibration_corpus_id:
+        raise AdaptiveResourceRoutingError(
+            "promoted J10 models bind a different calibration corpus id"
+        )
+    groups_raw = corpus.get("source_groups")
+    if (
+        not isinstance(groups_raw, list)
+        or not groups_raw
+        or any(not isinstance(group, str) or not group for group in groups_raw)
+        or len(groups_raw) != len(set(groups_raw))
+    ):
+        raise AdaptiveResourceRoutingError(
+            "promoted J10 corpus must freeze unique non-empty source_groups"
+        )
+    groups = set(groups_raw)
+    expected_count = allocation_policy.calibration_independent_groups
+    if (
+        corpus.get("independent_groups") != expected_count
+        or len(groups) != expected_count
+        or expected_count < allocation_policy.minimum_independent_groups
+    ):
+        raise AdaptiveResourceRoutingError(
+            "promoted J10 corpus does not meet declared independent-group floor"
+        )
+    if (
+        corpus.get("promotion_eligible") is not True
+        or corpus.get("labels_frozen") is not True
+    ):
+        raise AdaptiveResourceRoutingError(
+            "promoted J10 corpus is not frozen/eligible for STOP promotion"
+        )
+    staged_groups = set(staged_model.split_by_position)
+    regime_groups = set(regime_model.split_by_position)
+    if staged_groups != groups:
+        raise AdaptiveResourceRoutingError(
+            "staged decision model group set differs from promoted calibration corpus"
+        )
+    if regime_groups != groups:
+        raise AdaptiveResourceRoutingError(
+            "regime support model group set differs from promoted calibration corpus"
+        )
+    if (
+        len(staged_groups) < allocation_policy.minimum_independent_groups
+        or len(regime_groups) < allocation_policy.minimum_independent_groups
+    ):
+        raise AdaptiveResourceRoutingError(
+            "loaded J10 models do not meet independent-group floor"
+        )
+
+
 def _resolve_model(
     root: Path,
     value: str | None,
@@ -451,6 +537,13 @@ def build_adaptive_resource_router(
             raise AdaptiveResourceRoutingError(
                 f"J10 regime model could not be loaded: {exc}"
             ) from exc
+
+    _validate_promoted_model_bindings(
+        root=config.root,
+        allocation_policy=allocation_policy,
+        staged_model=staged_model,
+        regime_model=regime_model,
+    )
 
     allocator = DeterministicAdaptiveAllocator(
         policy=allocation_policy,

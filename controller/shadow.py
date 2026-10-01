@@ -3053,20 +3053,22 @@ class ShadowRunCoordinator:
             for admission in admissions:
                 instance = admission.grant.instance
                 started = time.monotonic()
-                actual_options = self.runtime.configure_shadow_phase(
-                    instance,
-                    "STAGED_VERIFY",
-                )
-                self._charge_controller_elapsed(
-                    active,
-                    label=(
-                        "j10_bundle_phase_config_"
-                        f"{admission.grant.owner}"
-                    ),
-                    elapsed_ms=(
-                        time.monotonic() - started
-                    ) * 1000.0,
-                )
+                try:
+                    actual_options = self.runtime.configure_shadow_phase(
+                        instance,
+                        "STAGED_VERIFY",
+                    )
+                finally:
+                    self._charge_controller_elapsed(
+                        active,
+                        label=(
+                            "j10_bundle_phase_config_"
+                            f"{admission.grant.owner}"
+                        ),
+                        elapsed_ms=(
+                            time.monotonic() - started
+                        ) * 1000.0,
+                    )
                 digest_started = time.monotonic()
                 actual_digest = canonical_digest(
                     dict(sorted(actual_options.items()))

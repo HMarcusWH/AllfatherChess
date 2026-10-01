@@ -24,6 +24,7 @@ sys.path.insert(0, str(ROOT))
 
 from common.search_request import parse_go_request
 from controller.replay import discover_replay_bundles, load_manifest, verify_bundle_integrity
+from controller.resource_allocator import load_allocation_policy
 from controller.routing import build_router
 from controller.runtime import BackendManager
 from controller.shadow import ShadowRunCoordinator
@@ -31,6 +32,7 @@ from controller.uci_frontend import UciFrontend
 
 
 CONFIG = ROOT / "config/allfather.m14-j-j10.validation.json"
+ALLOCATION_POLICY = ROOT / "qualification/adaptive-resource-allocation-v1.json"
 RESULT = ROOT / "build/test-results/engine-opt-v2-profile-domain/j10"
 MOVE_RE = re.compile(r"^[a-h][1-8][a-h][1-8][qrbn]?$")
 
@@ -212,6 +214,12 @@ def main() -> int:
     require(
         allocation.get("policy_id") == "adaptive_resource_v1",
         "J10 allocation policy identity drift",
+    )
+    frozen_allocation_policy = load_allocation_policy(ALLOCATION_POLICY)
+    require(
+        allocation.get("allocation_policy_digest")
+        == frozen_allocation_policy.digest,
+        "J10 AllocationDecision is not bound to the frozen allocation policy digest",
     )
     require(
         allocation.get("action") == "BUY_BUNDLE"

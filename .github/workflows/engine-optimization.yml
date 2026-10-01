@@ -344,9 +344,17 @@ jobs:
         run: python3 scripts/adaptive-resource-contract.py
       - name: Exercise J11 independent orchestration evidence
         run: |
+          latest="$(
+            find build/replays-m14-j-j10 -mindepth 1 -maxdepth 1 -type d \
+              | sort \
+              | tail -n 1
+          )"
+          test -n "$latest"
+          mkdir -p build/test-results/engine-opt-v2-profile-domain/j11
+          rm -rf build/test-results/engine-opt-v2-profile-domain/j11/replay
+          cp -a "$latest" build/test-results/engine-opt-v2-profile-domain/j11/replay
           python3 scripts/validate-resource-orchestration.py \
-            --replay-root build/replays-m14-j-j10 \
-            --latest \
+            --run-dir build/test-results/engine-opt-v2-profile-domain/j11/replay \
             --expected-source-commit "$ALLFATHER_SOURCE_SHA" \
             --output build/test-results/engine-opt-v2-profile-domain/j11/report.json
       - name: Build pinned Fastchess against source-test attestation

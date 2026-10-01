@@ -93,13 +93,19 @@ def allocation_trace_digest(route: Mapping[str, Any]) -> str:
         else []
     )
     decisions = route.get("allocation_decisions", [])
-    if not isinstance(decisions, list) or not isinstance(scheduler_events, list):
+    contexts = route.get("allocation_contexts", [])
+    if (
+        not isinstance(decisions, list)
+        or not isinstance(contexts, list)
+        or not isinstance(scheduler_events, list)
+    ):
         raise OrchestrationIntegrityError(
-            "route allocation/work-grant evidence must be arrays"
+            "route allocation/context/work-grant evidence must be arrays"
         )
     return canonical_digest(
         {
             "allocation_decisions": decisions,
+            "allocation_contexts": contexts,
             "work_grants": scheduler_events,
         }
     )

@@ -1423,6 +1423,29 @@ def verify_orchestration_integrity(
         and row.get("event") == "authorize"
         and row.get("granted") is True
     ]
+    route_terminal_by_grant: dict[str, dict[str, Any]] = {}
+    for row in scheduler_events:
+        if (
+            not isinstance(row, dict)
+            or row.get("event")
+            not in (
+                "settle",
+                "release",
+                "bundle_rollback",
+                "finalize_unresolved",
+            )
+        ):
+            continue
+        grant_id = row.get("grant_id")
+        if not isinstance(grant_id, str):
+            problems.append("terminal WorkGrant event is missing grant_id")
+            continue
+        if grant_id in route_terminal_by_grant:
+            problems.append(
+                f"WorkGrant {grant_id} has multiple route terminal events"
+            )
+        else:
+            route_terminal_by_grant[grant_id] = row
     try:
         stage_by_id = _stage_map(run_dir)
     except OrchestrationIntegrityError as exc:
@@ -1484,6 +1507,24 @@ def verify_orchestration_integrity(
         for row in budget_journal
         if isinstance(row, dict) and row.get("event") == "reserve"
     }
+    journal_terminal_by_reservation: dict[int, dict[str, Any]] = {}
+    for row in budget_journal:
+        if (
+            not isinstance(row, dict)
+            or row.get("event") not in ("settle", "release")
+        ):
+            continue
+        reservation_id = row.get("reservation_id")
+        if not isinstance(reservation_id, int) or isinstance(
+            reservation_id, bool
+        ):
+            continue
+        if reservation_id in journal_terminal_by_reservation:
+            problems.append(
+                f"reservation {reservation_id} has multiple journal terminal events"
+            )
+        else:
+            journal_terminal_by_reservation[reservation_id] = row
     reconstructed_grants: list[
         tuple[dict[str, Any], WorkGrant, dict[str, Any]]
     ] = []
@@ -1590,6 +1631,62 @@ def verify_orchestration_integrity(
                 problems.append(
                     f"WorkGrant {grant.grant_id} reservation allocation provenance mismatch"
                 )
+
+            terminal = route_terminal_by_grant.get(grant.grant_id)
+            journal_terminal = journal_terminal_by_reservation.get(
+                event.get("reservation_id")
+            )
+            if terminal is None:
+                problems.append(
+                    f"WorkGrant {grant.grant_id} lacks a route terminal event"
+                )
+            elif journal_terminal is None:
+                problems.append(
+                    f"WorkGrant {grant.grant_id} lacks a journal terminal event"
+                )
+            else:
+                if terminal.get("reservation_id") != event.get(
+                    "reservation_id"
+                ):
+                    problems.append(
+                        f"WorkGrant {grant.grant_id} terminal reservation identity mismatch"
+                    )
+                if terminal.get("search_id") != event.get("search_id"):
+                    problems.append(
+                        f"WorkGrant {grant.grant_id} terminal search identity mismatch"
+                    )
+                terminal_event = terminal.get("event")
+                expected_journal_event = {
+                    "settle": "settle",
+                    "release": "release",
+                    "bundle_rollback": "release",
+                    "finalize_unresolved": "settle",
+                }.get(terminal_event)
+                if journal_terminal.get("event") != expected_journal_event:
+                    problems.append(
+                        f"WorkGrant {grant.grant_id} route/journal terminal semantics differ"
+                    )
+                if terminal_event == "settle":
+                    if terminal.get("cpu_source") != journal_terminal.get(
+                        "cpu_source"
+                    ):
+                        problems.append(
+                            f"WorkGrant {grant.grant_id} settlement CPU source differs from journal"
+                        )
+                    if not _approx_equal(
+                        terminal.get("actual_cpu_ms"),
+                        journal_terminal.get("actual_cpu_ms"),
+                    ):
+                        problems.append(
+                            f"WorkGrant {grant.grant_id} settlement CPU differs from journal"
+                        )
+                if terminal_event == "finalize_unresolved" and (
+                    journal_terminal.get("cpu_source")
+                    != "declared_fallback"
+                ):
+                    problems.append(
+                        f"WorkGrant {grant.grant_id} unresolved terminal is not declared-fallback spend"
+                    )
         checkpoint_ms = event.get("checkpoint_ms")
         try:
             checkpoint_value = _finite_nonnegative(
@@ -1835,6 +1932,24 @@ def verify_orchestration_integrity(
                     "J11 BUY_BUNDLE WorkGrants do not match the exact frozen 3x3 scheduler grid"
                 )
 
+        authorized_grant_ids = {
+            grant.grant_id
+            for _event, grant, _stage in reconstructed_grants
+        }
+        journal_grant_ids = {
+            row.get("grant_id")
+            for row in budget_journal
+            if (
+                isinstance(row, dict)
+                and row.get("event") == "reserve"
+                and isinstance(row.get("grant_id"), str)
+            )
+        }
+        if journal_grant_ids != authorized_grant_ids:
+            problems.append(
+                "J11 WorkGrant authorizations do not bijectively match grant-bearing BudgetLedger reservations"
+            )
+
     expected_route_summary = {
         "path": "route.json",
         "sha256": sha256_file(run_dir / "route.json"),
@@ -1874,8 +1989,17 @@ def verify_orchestration_integrity(
 
         stage_cpu = 0.0
         stage_complete = bool(stages)
+        resource_stage_by_key: dict[str, dict[str, Any]] = {}
         for index, raw_stage in enumerate(stages):
             stage = _mapping(raw_stage, f"resource.stages[{index}]")
+            key = stage.get("key")
+            if isinstance(key, str):
+                if key in resource_stage_by_key:
+                    problems.append(
+                        f"duplicate resource stage key: {key}"
+                    )
+                else:
+                    resource_stage_by_key[key] = stage
             complete = stage.get("complete") is True
             cpu = stage.get("cpu_ms")
             if not complete or cpu is None:
@@ -1885,6 +2009,39 @@ def verify_orchestration_integrity(
                 cpu,
                 f"resource.stages[{index}].cpu_ms",
             )
+
+        for event, grant, _stage in reconstructed_grants:
+            terminal = route_terminal_by_grant.get(grant.grant_id)
+            if not isinstance(terminal, dict):
+                continue
+            if terminal.get("event") != "settle":
+                continue
+            resource_stage = resource_stage_by_key.get(
+                str(event.get("search_id"))
+            )
+            if terminal.get("cpu_source") == "measured":
+                if (
+                    not isinstance(resource_stage, dict)
+                    or resource_stage.get("complete") is not True
+                    or resource_stage.get("cpu_ms") is None
+                ):
+                    problems.append(
+                        f"WorkGrant {grant.grant_id} measured settlement lacks complete resource stage"
+                    )
+                elif not _approx_equal(
+                    terminal.get("actual_cpu_ms"),
+                    resource_stage.get("cpu_ms"),
+                ):
+                    problems.append(
+                        f"WorkGrant {grant.grant_id} measured settlement CPU differs from resource stage"
+                    )
+            elif (
+                decision is not None
+                and decision.action == BUY_BUNDLE
+            ):
+                problems.append(
+                    f"J11 BUY_BUNDLE WorkGrant {grant.grant_id} did not settle from physical measurement"
+                )
 
         controller_cpu = _finite_nonnegative(
             controller.get("cpu_ms"),

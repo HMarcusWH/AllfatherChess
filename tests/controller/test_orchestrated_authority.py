@@ -42,6 +42,25 @@ from controller.runtime import load_runtime_config
 CONFIG = ROOT / "config/allfather.orchestrated-v1.validation.json"
 
 
+def load_static_config(document: dict | None = None):
+    raw = (
+        json.loads(CONFIG.read_text(encoding="utf-8"))
+        if document is None
+        else document
+    )
+    for spec in raw.get("instances", {}).values():
+        spec["binary"] = sys.executable
+        spec.pop("fallback_glob", None)
+    raw["root"] = "."
+    directory = tempfile.TemporaryDirectory()
+    path = Path(directory.name) / "j12.json"
+    path.write_text(json.dumps(raw), encoding="utf-8")
+    try:
+        return load_runtime_config(path)
+    finally:
+        directory.cleanup()
+
+
 def evidence() -> DecisionEvidence:
     roots = ("e2e4", "d2d4", "g1f3")
     terminal = VerificationTerminalEvidence(
@@ -282,7 +301,7 @@ class AllocationProjectionTests(unittest.TestCase):
 
 class RuntimeCompositionTests(unittest.TestCase):
     def test_shipped_j12_profile_composes_only_the_explicit_path(self):
-        config = load_runtime_config(CONFIG)
+        config = load_static_config()
         self.assertIsNotNone(config.orchestration)
         self.assertIsNotNone(config.work_scheduler)
         self.assertIsNotNone(config.resource_allocator)
@@ -310,7 +329,10 @@ class RuntimeCompositionTests(unittest.TestCase):
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
         path = Path(directory.name) / "j12.json"
-        raw["root"] = str(ROOT)
+        for spec in raw.get("instances", {}).values():
+            spec["binary"] = sys.executable
+            spec.pop("fallback_glob", None)
+        raw["root"] = "."
         path.write_text(json.dumps(raw), encoding="utf-8")
         return path
 

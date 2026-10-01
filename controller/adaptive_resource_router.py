@@ -114,6 +114,7 @@ class AdaptiveResourceRouter(ConservativeRouter):
         trace_digest = canonical_digest(
             {
                 "allocation_decisions": audit.allocation_decisions,
+                "allocation_contexts": audit.allocation_contexts,
                 "work_grants": audit.work_grants,
             }
         )
@@ -242,6 +243,17 @@ class AdaptiveResourceRouter(ConservativeRouter):
             context.run_id,
             decision,
         )
+        if self.audit is not None:
+            journal = self.ledger.journal()
+            self.audit.record_allocation_context(
+                {
+                    "allocation_id": decision.allocation_id,
+                    "budget_snapshot": snapshot,
+                    "budget_snapshot_digest": canonical_digest(snapshot),
+                    "budget_journal_event_count": len(journal),
+                    "budget_journal_digest": canonical_digest(journal),
+                }
+            )
         if decision.action == BUY_BUNDLE:
             return True
         if decision.action in (STOP_BUYING, FALLBACK):

@@ -845,6 +845,10 @@ def verify_orchestration_integrity(
 
     run_dir = Path(run_dir)
     problems: list[str] = []
+    if root is None:
+        problems.append(
+            "J11 independent qualification requires the repository root for frozen policy reconstruction"
+        )
     try:
         artifact = _load_json(run_dir / ORCHESTRATION_PATH, "orchestration evidence")
     except OrchestrationIntegrityError as exc:

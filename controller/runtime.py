@@ -23,11 +23,6 @@ from adapters.telemetry import SUPPORTED_SCORE_TYPES
 from common.search_request import SearchRequestError, parse_position_command
 from controller.resource_measurement import ResourceMeasurementError, ResourceMeasurementSettings
 from controller.online_time import ClockSearch, OnlineTimeSettings, OnlineTimeError
-from controller.decision import (
-    CLOCKED_AUTHORIZATION_POLICIES,
-    CLOCKED_AUTHORIZATION_POLICY,
-    ORCHESTRATED_CLOCKED_AUTHORIZATION_POLICY,
-)
 from adapters.process.deferred_observer import DeferredObserver
 
 if TYPE_CHECKING:
@@ -55,6 +50,15 @@ AUTHORITY_ROLES = ("anchor", "managed")
 
 EXECUTION_MODES = ("anchor", "shadow", "active")
 PHASE_OPTION_NAMES = ("EXPLORE", "VERIFY", "STAGED_VERIFY")
+
+_CLOCKED_HYBRID_AUTHORITY_POLICY = "clocked_staged_preanchor_v1"
+_ORCHESTRATED_HYBRID_AUTHORITY_POLICY = (
+    "orchestrated_clocked_staged_preanchor_v1"
+)
+_CLOCKED_HYBRID_AUTHORITY_POLICIES = (
+    _CLOCKED_HYBRID_AUTHORITY_POLICY,
+    _ORCHESTRATED_HYBRID_AUTHORITY_POLICY,
+)
 
 #: telemetry v1 ``controller.execution_mode`` value for each runtime mode.
 TELEMETRY_EXECUTION_MODE = {
@@ -1066,10 +1070,10 @@ def _load_hybrid_authority_settings(
         )
 
     policy = raw.get("policy", "bounded_preanchor_v0")
-    if policy not in ("bounded_preanchor_v0", *CLOCKED_AUTHORIZATION_POLICIES):
+    if policy not in ("bounded_preanchor_v0", *_CLOCKED_HYBRID_AUTHORITY_POLICIES):
         raise RuntimeError(
             "hybrid_authority.policy must be bounded_preanchor_v0 or one of "
-            f"{list(CLOCKED_AUTHORIZATION_POLICIES)!r}"
+            f"{list(_CLOCKED_HYBRID_AUTHORITY_POLICIES)!r}"
         )
 
     if policy == "bounded_preanchor_v0":
@@ -1211,7 +1215,7 @@ def load_runtime_config(path: Path) -> RuntimeConfig:
             "M14-G1 staged VERIFY remains incompatible with frozen "
             "bounded_preanchor_v0 authority"
         )
-    if hybrid_authority is not None and hybrid_authority.policy in CLOCKED_AUTHORIZATION_POLICIES:
+    if hybrid_authority is not None and hybrid_authority.policy in _CLOCKED_HYBRID_AUTHORITY_POLICIES:
         if verification is None or verification.staged_extension is None:
             raise RuntimeError(
                 "clocked_staged_preanchor_v1 requires verification.staged_extension"
@@ -1270,7 +1274,7 @@ def load_runtime_config(path: Path) -> RuntimeConfig:
         raise RuntimeError(str(exc)) from exc
     if (
         hybrid_authority is not None
-        and hybrid_authority.policy in CLOCKED_AUTHORIZATION_POLICIES
+        and hybrid_authority.policy in _CLOCKED_HYBRID_AUTHORITY_POLICIES
         and online_time is None
     ):
         raise RuntimeError(
@@ -1281,7 +1285,7 @@ def load_runtime_config(path: Path) -> RuntimeConfig:
             raise RuntimeError("ONLINE-1 requires active resource routing")
         if (
             hybrid_authority is not None
-            and hybrid_authority.policy not in CLOCKED_AUTHORIZATION_POLICIES
+            and hybrid_authority.policy not in _CLOCKED_HYBRID_AUTHORITY_POLICIES
         ):
             raise RuntimeError(
                 "ONLINE timing may grant hybrid authority only through "
@@ -1295,7 +1299,7 @@ def load_runtime_config(path: Path) -> RuntimeConfig:
             expected_routing_policy = (
                 "conservative_v1"
                 if hybrid_authority.policy
-                == ORCHESTRATED_CLOCKED_AUTHORIZATION_POLICY
+                == _ORCHESTRATED_HYBRID_AUTHORITY_POLICY
                 else "unified_value_v1"
             )
             if (
@@ -1383,7 +1387,7 @@ def load_runtime_config(path: Path) -> RuntimeConfig:
         orchestrated_authority = bool(
             hybrid_authority is not None
             and hybrid_authority.policy
-            == ORCHESTRATED_CLOCKED_AUTHORIZATION_POLICY
+            == _ORCHESTRATED_HYBRID_AUTHORITY_POLICY
         )
         if online_time is None:
             raise RuntimeError("M14-J J8/J9 requires the frozen ONLINE TimePlan safety layer")

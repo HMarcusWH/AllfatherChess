@@ -45,15 +45,21 @@ def main() -> int:
     source.add_argument("--run-dir", type=Path)
     source.add_argument("--replay-root", type=Path)
     parser.add_argument("--latest", action="store_true")
+    parser.add_argument("--expected-source-commit")
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
 
     run_dir = _select_run(args)
-    problems = verify_orchestration_integrity(run_dir, root=ROOT)
+    problems = verify_orchestration_integrity(
+        run_dir,
+        root=ROOT,
+        expected_source_commit=args.expected_source_commit,
+    )
     report = {
         "schema_version": 1,
         "run_id": run_dir.name,
         "run_dir": str(run_dir),
+        "expected_source_commit": args.expected_source_commit,
         "qualified": not problems,
         "problems": problems,
         "claim_boundary": {

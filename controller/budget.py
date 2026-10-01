@@ -309,6 +309,11 @@ class BudgetLedger:
         with self._lock:
             return copy.deepcopy(self._journal)
 
+    def journal_event_count(self) -> int:
+        """Return the current causal cut without copying or hashing the trace."""
+        with self._lock:
+            return len(self._journal)
+
     def journal_digest(self) -> str:
         """Content identity of the exact accounting trace, not the snapshot."""
         with self._lock:

@@ -1,12 +1,12 @@
 # AllfatherChess current build and release status
 
-**Status date:** 30 September 2026  
-**Authoritative main commit:** `01b4c5b5f8a0ffeced8db1c1f4951c89bdf6bb58`  
-**Latest merged milestone:** PR #53 — post-J6 LOCAL-1 prerequisite repair  
+**Status date:** 1 October 2026  
+**Authoritative main commit:** `730d8884c5878b28b5d67492583efb678750bc04`  
+**Latest merged milestone:** PR #54 / M14-J J7 — evidence-backed isolated resource-profile selection freeze  
 **Qualified J6 PR head:** `6aecd0bae7848ca8a9893377fadffb049d336c3a`  
 **Frozen fallback:** ENGINE-OPT-V2 / PR #44 remains unchanged  
-**Current execution milestone:** PR #54 / M14-J J7 — evidence-backed isolated resource-profile selection freeze  
-**Next milestone after J7:** M14-J J8 — Adaptive Outer Time  
+**Current execution milestone:** PR #55 / M14-J J8 — clamp-only adaptive outer resource plan  
+**Next milestone after J8:** M14-J J9 — WorkGrant scheduler  
 **Forward roadmap:** [ROADMAP.md](ROADMAP.md)  
 **M14-J rebuild plan:** [M14_J_ADAPTIVE_RESOURCE_ORCHESTRATION.md](M14_J_ADAPTIVE_RESOURCE_ORCHESTRATION.md)  
 **Detailed deployment plan:** [ONLINE_RELEASE_PLAN.md](ONLINE_RELEASE_PLAN.md)
@@ -58,7 +58,7 @@ reported `promotion_ready: true`, three repeat confirmations of the selected LC0
 a real non-anchor G3-v2 authority witness, and successful LOCAL-1-v2 lifecycle evidence.
 J6 did not rewrite that fallback.
 
-## M14-J J7 selection freeze — PR #54 candidate
+## M14-J J7 selection freeze — MERGED / PR #54
 
 J7 is implemented as an evidence-backed selection layer **beside** the existing J3/J4 runtime
 catalog. The runtime-consumed `qualification/resource-profile-catalog-v1.json` remains unchanged,
@@ -75,6 +75,21 @@ Every J7 row is marked `isolated_resource_profile` with
 resource authorization, outward move authority, deployment authority, or strength/Elo claim.
 Stage B remains evidence about the exact compositions it measured; it does not promote the new
 Stockfish n64 or LC0 n32 selections into composition-qualified settings.
+
+## M14-J J8 adaptive outer resource plan — PR #55 candidate
+
+J8 preserves the existing `clock_envelope_v1` `TimePlan` as the clock/deadline and
+G3-compatible timing authority. It adds a separate content-addressed `MoveResourcePlan`
+below that ceiling. The J8 plan may preserve or reduce the per-move CPU/resource allowance
+from live HostCapabilities and the frozen four-slot J3 composition, but it may not extend the
+TimePlan wall/CPU/GPU envelope or its soft/hard deadlines.
+
+The J8 validation profile derives from the anchor-authoritative ENGINE-OPT-V2 runtime and
+keeps the fixed `conservative_v1` stage behavior. It does not consume J7's isolated
+Stockfish `Hash=32` or LC0 `MaxPrefetch=0` selections, create WorkGrants, enable hybrid
+DecisionAuthorization, or establish composition qualification/generic-host portability.
+Incomplete host capacity falls back to the unchanged ENGINE-OPT-V2 / `clock_envelope_v1`
+execution while denying the adaptive resource claim.
 
 ## LOCAL-1 qualification result
 

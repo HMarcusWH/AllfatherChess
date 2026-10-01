@@ -1,9 +1,9 @@
 # AllfatherChess roadmap
 
-**Status date:** 30 September 2026  
-**Current main:** `01b4c5b5f8a0ffeced8db1c1f4951c89bdf6bb58`  
-**Latest merged milestone:** PR #53 — post-J6 LOCAL-1 prerequisite repair  
-**Current execution milestone:** PR #54 / M14-J J7 — evidence-backed isolated profile selection freeze  
+**Status date:** 1 October 2026  
+**Current main:** `730d8884c5878b28b5d67492583efb678750bc04`  
+**Latest merged milestone:** PR #54 / M14-J J7 — evidence-backed isolated profile selection freeze  
+**Current execution milestone:** PR #55 / M14-J J8 — clamp-only adaptive outer resource plan  
 **Current-state authority:** [CURRENT_STATUS.md](CURRENT_STATUS.md)  
 **M14-J implementation plan:** [M14_J_ADAPTIVE_RESOURCE_ORCHESTRATION.md](M14_J_ADAPTIVE_RESOURCE_ORCHESTRATION.md)  
 **Detailed deployment audit:** [ONLINE_RELEASE_PLAN.md](ONLINE_RELEASE_PLAN.md)
@@ -46,9 +46,11 @@ PR #52 then completed M14-J J6 on exact head
 exact-host artifact with 57 candidate operating points, 1368/1368 Stage-A measurements and
 72/72 Stage-B composition batches, with no execution errors. It explicitly grants no profile
 selection or deployment authority. PR #53 then repaired the LOCAL-1 prerequisite boundary
-without changing the retained J6 evidence. PR #54 implements J7 as a deterministic, source-controlled
-selection/evidence layer while leaving the J3 runtime catalog disabled and unchanged. The project is
-**not** yet deployable as a qualified service and has not established superiority over a constituent engine.
+without changing the retained J6 evidence. PR #54 then merged J7 as a deterministic,
+source-controlled selection/evidence layer while leaving the J3 runtime catalog disabled and
+unchanged. PR #55 is the J8 candidate: an additive, clamp-only `MoveResourcePlan` below the
+unchanged `clock_envelope_v1` TimePlan. The project is **not** yet deployable as a qualified
+service and has not established superiority over a constituent engine.
 
 ## 2. Critical path to the first public canary
 
@@ -73,16 +75,17 @@ M14-J J0-J6
 orchestration substrate + resource laboratory
         |
         v
-IN PROGRESS
+DONE
 M14-J J7 / PR #54
 evidence-backed isolated profile selection freeze
         |
         v
-NEXT
-M14-J J8
-adaptive outer time / MoveResourcePlan
+IN PROGRESS
+M14-J J8 / PR #55
+clamp-only adaptive outer resource plan / MoveResourcePlan
         |
         v
+NEXT
 M14-J J9
 WorkGrant progressive scheduler
         |

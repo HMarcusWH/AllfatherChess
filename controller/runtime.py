@@ -16,20 +16,17 @@ import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Iterable
+from typing import TYPE_CHECKING, Callable, Iterable
 
 from adapters.process import UciDispatchRejected, UciProcess, UciProcessError
 from adapters.telemetry import SUPPORTED_SCORE_TYPES
 from common.search_request import SearchRequestError, parse_position_command
 from controller.resource_measurement import ResourceMeasurementError, ResourceMeasurementSettings
 from controller.online_time import ClockSearch, OnlineTimeSettings, OnlineTimeError
-from controller.adaptive_time import (
-    AdaptiveTimeError,
-    AdaptiveTimeSettings,
-    build_move_resource_plan,
-)
-from controller.host_capabilities import discover_host_capabilities
 from adapters.process.deferred_observer import DeferredObserver
+
+if TYPE_CHECKING:
+    from controller.adaptive_time import AdaptiveTimeSettings
 
 
 class RuntimeError(RuntimeError):
@@ -237,7 +234,7 @@ class RuntimeConfig:
     budget: dict[str, object] | None = None
     routing: dict[str, object] | None = None
     online_time: OnlineTimeSettings | None = None
-    orchestration: AdaptiveTimeSettings | None = None
+    orchestration: "AdaptiveTimeSettings | None" = None
 
     @property
     def instances(self) -> dict[str, BackendSpec]:
@@ -1332,6 +1329,7 @@ def load_runtime_config(path: Path) -> RuntimeConfig:
                 )
 
 
+    from controller.adaptive_time import AdaptiveTimeError, AdaptiveTimeSettings
     try:
         orchestration = AdaptiveTimeSettings.from_config(data.get("orchestration"))
     except AdaptiveTimeError as exc:
@@ -1615,6 +1613,7 @@ class BackendManager:
 
         self._adaptive_catalog = catalog
         self._adaptive_composition = composition
+        from controller.host_capabilities import discover_host_capabilities
         try:
             self._adaptive_host = discover_host_capabilities()
         except Exception as exc:  # host uncertainty is a recorded J8 fallback
@@ -1635,6 +1634,7 @@ class BackendManager:
         composition = self._adaptive_composition
         if catalog is None or composition is None:
             raise RuntimeError("J8 planning context is not initialized")
+        from controller.adaptive_time import AdaptiveTimeError, build_move_resource_plan
         try:
             return build_move_resource_plan(
                 baseline=baseline,

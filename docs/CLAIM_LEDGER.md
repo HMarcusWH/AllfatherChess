@@ -1,6 +1,6 @@
 # Claim ledger
 
-## Current repository synchronization after PR #52
+## Current repository synchronization after PR #54
 
 - **PROVED / CI-GATED FALLBACK:** ENGINE-OPT-V2 / PR #44 remains the frozen qualified
   fallback composition. J6 does not rewrite its clocks, authority policy or historical
@@ -23,13 +23,50 @@
   contains 800 Allfather-G3 plies: 796 `ANCHOR_FALLBACK`, 4 `HYBRID`, with 2 HYBRID
   decisions changing the Stockfish anchor move. This is coverage evidence, not an Elo or
   quality claim.
-- **OPEN ORCHESTRATION GATE:** J7 profile freeze is next. No J6 measurement alone is
-  resource-selection authority.
+- **PROVED / J7 SELECTION FREEZE:** PR #54 froze nine deterministic isolated
+  family/work-budget selections from retained J6 evidence while keeping the J3 catalog
+  `selection_enabled=false`. The two non-v2 points remain
+  `composition_qualification=not_established` and carry no runtime/resource/move authority.
+- **OPEN ORCHESTRATION GATE:** PR #55 / J8 is the current clamp-only MoveResourcePlan gate.
+  J9 remains the first executable WorkGrant scheduler boundary.
 - **OPEN RELEASE GATES:** ONLINE-3 packaging/bridge, ONLINE-4
   network/restart/rollback, aggregate release qualification, ONLINE-RC, main governance,
   and combined-distribution licensing.
 - **OPEN STRENGTH GATE:** no Elo or equal-envelope superiority claim follows from
   LOCAL-1 or J6. M15-B/C remains the separate comparative campaign.
+
+## M14-J J8 adaptive outer resource plan — PR #55 candidate
+
+### IMPLEMENTED / QUALIFICATION-GATED BY THIS PR
+
+- the existing `clock_envelope_v1` TimePlan remains unchanged and continues to own
+  soft/hard clock deadlines and the actual bounded anchor request;
+- a separate content-addressed `MoveResourcePlan` binds the parent TimePlan identity,
+  GameEnvironment, live HostCapabilities, J3 catalog/composition identity and a CPU-only
+  per-move resource envelope;
+- the v1 adaptive policy is clamp-only: wall/deadline behavior is inherited from TimePlan
+  while CPU capacity is bounded by TimePlan, the frozen four-slot composition, effective
+  host CPU visibility and cgroup quota;
+- unknown/incomplete host capacity or insufficient memory falls back to the existing
+  ENGINE-OPT-V2 / `clock_envelope_v1` resource envelope and denies the adaptive capacity
+  claim rather than fabricating a host qualification;
+- the J8 validation runtime remains anchor-authoritative, `conservative_v1`, CPU-only and
+  byte/config equivalent to the existing ENGINE-OPT-V2 runtime except for its replay root
+  and opt-in orchestration block;
+- replay and route evidence carry the additive MoveResourcePlan and independently
+  reconstruct it without changing the historical TimePlan verifier.
+
+### NOT PROMOTED BY J8
+
+- J8 does not consume the J7 Stockfish Hash=32 or LC0 MaxPrefetch=0 isolated selections;
+- J8 does not establish composition qualification or generic-host portability from the J3
+  exact-host artifact;
+- J8 creates no WorkGrant and grants no resource authorization;
+- J8 does not enable VERIFY/REFINE/crossfeed/counterfactual or hybrid DecisionAuthorization
+  in its validation profile;
+- no position-complexity or clock-differential chess time heuristic is promoted;
+- no Elo, strength, equal-compute, deployment or move-quality claim follows from J8;
+- J9 WorkGrant scheduling and J12 full orchestrated hybrid composition remain later gates.
 
 ## LOCAL-1 full-game lifecycle — PROVED / CI-GATED
 

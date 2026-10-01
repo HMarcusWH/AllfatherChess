@@ -1138,13 +1138,9 @@ def authorize_decision(
                 "orchestrated authority requires a real complete adaptive host-capacity claim"
             )
         provider = snapshot.orchestration_host_provider_id
-        if (
-            not isinstance(provider, str)
-            or not provider
-            or "synthetic" in provider.lower()
-        ):
+        if provider != "linux-host-v2":
             reasons.append(
-                "orchestrated authority rejects missing or synthetic host-capacity evidence"
+                "orchestrated authority requires the real linux-host-v2 capacity provider"
             )
 
     if reasons:

@@ -70,9 +70,11 @@ class AdaptiveResourceRouter(ConservativeRouter):
         self.staged_model = staged_model
         self.regime_model = regime_model
         self._allocation_decisions: dict[str, AllocationDecision] = {}
+        self._active_context: Any | None = None
 
     def on_run_start(self, context: Any) -> None:
         self._allocation_decisions.clear()
+        self._active_context = context
         super().on_run_start(context)
 
     def allocation_decision_snapshot(
@@ -80,6 +82,62 @@ class AdaptiveResourceRouter(ConservativeRouter):
         run_id: str,
     ) -> AllocationDecision | None:
         return self._allocation_decisions.get(str(run_id))
+
+    def decision_authority_snapshot(self) -> dict[str, object]:
+        """Expose a frozen J11 provenance binding without granting move authority.
+
+        J10 still cannot compose with HYBRID authority.  This surface exists so
+        J11 can prove the future J12 authority input before that composition is
+        enabled.  Historical G3 snapshots are unchanged because they use the
+        non-adaptive router and therefore carry no orchestration_provenance key.
+        """
+
+        payload = super().decision_authority_snapshot()
+        context = self._active_context
+        audit = self.audit
+        scheduler = self.work_scheduler
+        if (
+            context is None
+            or audit is None
+            or scheduler is None
+        ):
+            return payload
+        plan = getattr(context, "move_resource_plan", None)
+        decision = self._allocation_decisions.get(str(context.run_id))
+        if (
+            not isinstance(plan, MoveResourcePlan)
+            or decision is None
+            or plan.host_capabilities is None
+        ):
+            return payload
+
+        trace_digest = canonical_digest(
+            {
+                "allocation_decisions": audit.allocation_decisions,
+                "work_grants": audit.work_grants,
+            }
+        )
+        payload["orchestration_provenance"] = {
+            "version": "j11-orchestration-authority-binding-v1",
+            "move_resource_plan_id": plan.plan_id,
+            "move_resource_plan_digest": plan.digest,
+            "allocation_policy_digest": self.allocator.policy.digest,
+            "allocation_decision_digest": decision.digest,
+            "allocation_trace_digest": trace_digest,
+            "work_scheduler_catalog_digest": scheduler.catalog.digest,
+            "profile_catalog_digest": plan.catalog_digest,
+            "composition_profile_digest": plan.composition.digest,
+            "game_environment_digest": plan.game_environment.digest,
+            "host_capabilities_digest": plan.host_capabilities.digest,
+            "work_grant_settlement_complete": not self._work_grant_unresolved,
+            "open_work_grant_reservations": len(self._work_grant_reservations),
+            "authority": {
+                "resource_evidence": True,
+                "resource_authorization": False,
+                "outward_move": False,
+            },
+        }
+        return payload
 
     def _record_allocation_decision(
         self,
@@ -381,6 +439,7 @@ class AdaptiveResourceRouter(ConservativeRouter):
             super().on_run_end(context)
         finally:
             self._allocation_decisions.pop(str(context.run_id), None)
+            self._active_context = None
 
 
 def _validate_promoted_model_bindings(

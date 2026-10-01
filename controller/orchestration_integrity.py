@@ -1804,7 +1804,13 @@ def verify_orchestration_integrity(
                     if item.instance == grant.instance
                 ]
                 expected_role = (
-                    bindings[0].role.value if len(bindings) == 1 else None
+                    (
+                        "anchor"
+                        if bindings[0].role.value == "anchor"
+                        else "shadow"
+                    )
+                    if len(bindings) == 1
+                    else None
                 )
                 if engine_identity.get("engine") != profile.family:
                     problems.append(

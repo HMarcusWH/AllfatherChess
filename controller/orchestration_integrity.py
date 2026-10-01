@@ -2447,21 +2447,145 @@ def verify_orchestration_integrity(
             problems.append(
                 "route physical CPU envelope result does not reconstruct"
             )
+
         clock_outcome = route.get("clock_outcome")
+        if (
+            manifest is not None
+            and manifest.get("clock_outcome") != clock_outcome
+        ):
+            problems.append(
+                "route clock outcome differs from the finalized parent replay"
+            )
         clock_complete = bool(
             not isinstance(clock_outcome, dict)
             or clock_outcome.get("output_within_deadline") is True
         )
+
+        anchor_command = None
+        if manifest is not None and isinstance(
+            manifest.get("time_plan"),
+            dict,
+        ):
+            anchor_command = manifest["time_plan"].get("anchor_go_command")
+        anchor_request_bounded = False
+        if isinstance(anchor_command, str):
+            try:
+                request = parse_go_request(anchor_command)
+                limit_rows = request.get("limits") or []
+                limit_map = {
+                    row.get("name"): row.get("value")
+                    for row in limit_rows
+                    if isinstance(row, dict)
+                }
+                anchor_request_bounded = bool(
+                    "movetime" in limit_map
+                    and isinstance(limit_map.get("movetime"), (int, float))
+                    and not isinstance(limit_map.get("movetime"), bool)
+                    and float(limit_map["movetime"])
+                    <= float(route_envelope.get("wall_ms")) + 1e-9
+                    and not request.get("unknown_tokens")
+                    and "infinite" not in limit_map
+                    and "ponder" not in limit_map
+                )
+            except Exception as exc:
+                problems.append(
+                    f"anchor request bound cannot be reconstructed: {exc}"
+                )
+        if claim.get("anchor_request_bounded") is not anchor_request_bounded:
+            problems.append(
+                "route anchor-request bound differs from sealed TimePlan"
+            )
+
+        anchor_reservations = [
+            row
+            for row in budget_journal
+            if (
+                isinstance(row, dict)
+                and row.get("event") == "reserve"
+                and row.get("lane") == "anchor"
+                and row.get("purpose") == "anchor"
+                and row.get("grant_id") is None
+            )
+        ]
+        anchor_cost_reserved = False
+        if len(anchor_reservations) == 1:
+            anchor_id = anchor_reservations[0].get("reservation_id")
+            anchor_terminals = [
+                row
+                for row in budget_journal
+                if (
+                    isinstance(row, dict)
+                    and row.get("reservation_id") == anchor_id
+                    and row.get("event") in ("settle", "release")
+                )
+            ]
+            anchor_cost_reserved = bool(
+                len(anchor_terminals) == 1
+                and anchor_terminals[0].get("event") == "settle"
+            )
+        if claim.get("anchor_cost_reserved") is not anchor_cost_reserved:
+            problems.append(
+                "route anchor reservation claim does not reconstruct"
+            )
+
+        gpu_accounted = bool(
+            plan is not None
+            and float(plan.resource_envelope.gpu_ms) == 0.0
+        )
+        if claim.get("gpu_accounted") is not gpu_accounted:
+            problems.append("route GPU-accounted claim does not reconstruct")
+
+        reservations_within = bool(
+            replayed_budget is not None
+            and replayed_budget.get("within_envelope") is True
+        )
+        partitions_within = bool(
+            replayed_budget is not None
+            and replayed_budget.get("within_partition_caps") is True
+        )
+        settlement_complete = bool(
+            replayed_budget is not None
+            and replayed_budget.get("open_reservations") == 0
+        )
+        work_grant_complete = bool(
+            isinstance(binding, dict)
+            and binding.get("work_grant_settlement_complete") is True
+            and binding.get("open_work_grant_reservations") == 0
+        )
+        wall_within = bool(
+            isinstance(route_budget, dict)
+            and isinstance(route_budget.get("elapsed_ms"), (int, float))
+            and not isinstance(route_budget.get("elapsed_ms"), bool)
+            and float(route_budget["elapsed_ms"])
+            <= float(route_envelope.get("wall_ms")) + 1e-9
+        )
+
+        expected_claim_fields = {
+            "reservations_within_envelope": reservations_within,
+            "specialist_partitions_within_caps": partitions_within,
+            "specialist_settlement_complete": settlement_complete,
+            "work_grant_settlement_complete": work_grant_complete,
+            "wall_within_envelope": wall_within,
+            "physical_measurement_required": True,
+            "physical_measurement_qualified": resource_qualified,
+            "physical_cpu_within_envelope": physical_cpu_within,
+        }
+        for key, expected_value in expected_claim_fields.items():
+            if claim.get(key) is not expected_value:
+                problems.append(
+                    f"route envelope claim field {key} does not reconstruct"
+                )
+
         expected_claim = bool(
             clock_complete
-            and claim.get("anchor_request_bounded") is True
-            and claim.get("anchor_cost_reserved") is True
-            and claim.get("gpu_accounted") is True
-            and claim.get("reservations_within_envelope") is True
-            and claim.get("specialist_partitions_within_caps") is True
-            and claim.get("specialist_settlement_complete") is True
-            and claim.get("work_grant_settlement_complete") is True
-            and claim.get("wall_within_envelope") is True
+            and anchor_request_bounded
+            and anchor_cost_reserved
+            and gpu_accounted
+            and reservations_within
+            and partitions_within
+            and settlement_complete
+            and work_grant_complete
+            and wall_within
             and resource_qualified
             and physical_cpu_within
         )

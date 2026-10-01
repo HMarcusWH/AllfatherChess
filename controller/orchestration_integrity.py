@@ -1097,6 +1097,34 @@ def verify_orchestration_integrity(
                     problems.append(
                         f"sealed engine bundle contract {key} differs from repository source"
                     )
+            online_policy = _load_json(
+                root_path / "qualification/online-engine-opt-v2.json",
+                "online ENGINE-OPT-V2 policy",
+            )
+            if engine_bundle.get("builds") != online_policy.get("builds"):
+                problems.append(
+                    "sealed engine bundle build declarations differ from frozen ONLINE-2 policy"
+                )
+            vendor_lock = _load_json(
+                root_path / "vendor.lock.json",
+                "vendor lock",
+            )
+            expected_vendor = {
+                family: {
+                    "commit": (vendor_lock.get("engines") or {})
+                    .get(family, {})
+                    .get("commit"),
+                    "tree": (vendor_lock.get("engines") or {})
+                    .get(family, {})
+                    .get("tree"),
+                }
+                for family in ("stockfish", "reckless", "lc0")
+            }
+            if engine_bundle.get("vendor") != expected_vendor:
+                problems.append(
+                    "sealed engine bundle vendor ancestry differs from frozen lock"
+                )
+
             derived = _load_json(
                 root_path / "qualification/engine-derived-lock.json",
                 "derived engine lock",

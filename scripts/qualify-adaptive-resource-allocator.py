@@ -91,9 +91,7 @@ def main() -> int:
         allocation,
         scheduler_catalog_id=scheduler.catalog_id,
         scheduler_catalog_digest=scheduler.digest,
-        known_chunk_ids=(
-            row.chunk.chunk_id for row in scheduler.chunks
-        ),
+        scheduler_chunks=scheduler.chunks,
     )
 
     require(

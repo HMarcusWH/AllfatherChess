@@ -1,0 +1,18 @@
+# J10 calibration seed corpus
+# case_id | source_group | FEN | tags
+engine-opt-startpos | engine-opt:startpos | rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1 | opening,seed
+engine-opt-king-pawn | engine-opt:king-pawn | rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2 | opening,seed
+engine-opt-queen-gambit | engine-opt:queen-gambit | rnbqkbnr/ppp1pppp/8/3p4/2PP4/8/PP2PPPP/RNBQKBNR b KQkq c3 0 2 | opening,seed
+engine-opt-sicilian | engine-opt:sicilian | rnbqkbnr/pp1ppppp/8/2p5/4P3/8/PPPP1PPP/RNBQKBNR w KQkq c6 0 2 | opening,seed
+engine-opt-italian | engine-opt:italian | r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 3 3 | middlegame,seed
+engine-opt-iqp | engine-opt:isolated-queen-pawn | r1bq1rk1/pp2bppp/2n1pn2/2pp4/3P4/2PBPN2/PP3PPP/R1BQ1RK1 w - - 2 9 | positional,seed
+engine-opt-rook-endgame | engine-opt:rook-endgame | 8/5pk1/6p1/7p/5P2/6P1/5K1P/4R3 w - - 0 1 | endgame,seed
+engine-opt-queen-endgame | engine-opt:queen-endgame | 8/5pk1/6p1/3q4/8/5Q2/5PK1/8 w - - 0 1 | endgame,tactical,seed
+baseline-kiwipete | baseline:kiwipete_castling | r3k2r/p1ppqpb1/bn2pnp1/2pP4/1p2P3/2N2N2/PPQBBPPP/R3K2R w KQkq - 0 1 | tactical,seed
+baseline-perft3 | baseline:perft_position_3 | 8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1 | endgame,seed
+baseline-perft4 | baseline:perft_position_4 | r3k2r/Pppp1ppp/1b3nbN/nP6/BBP1P3/q4N2/Pp1P2PP/R2Q1RK1 w kq - 0 1 | tactical,seed
+baseline-perft5 | baseline:perft_position_5 | rnbq1k1r/pp1Pbppp/2p2n2/8/2B5/8/PPP1NPPP/RNBQK2R w KQ - 1 8 | tactical,seed
+baseline-perft6 | baseline:perft_position_6 | r4rk1/1pp1qppp/p1np1n2/8/2B1P1b1/2N2N2/PPPQ1PPP/2KR3R w - - 0 10 | middlegame,seed
+baseline-en-passant | baseline:en_passant_available | 8/8/8/3pP3/8/8/4K3/7k w - d6 0 1 | rules,endgame,seed
+baseline-promotion | baseline:promotion_available | 7k/P7/8/8/8/8/8/7K w - - 0 1 | rules,endgame,seed
+baseline-in-check | baseline:side_in_check | 4k3/8/8/8/8/8/4r3/4K3 w - - 0 1 | check,tactical,seed

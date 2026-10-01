@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "corpus_id": "j10-calibration-corpus-v1",
+  "path": "tests/fixtures/j10/positions.epd",
+  "content_sha256": "40b5f5970a088e64464295bdaad4c388bf486c6d5b59b1d515d094c9620ee26d",
+  "rows": 16,
+  "independent_groups": 16,
+  "minimum_independent_groups_for_stop_promotion": 32,
+  "promotion_eligible": false,
+  "grouping_rule": "source_group",
+  "labels_frozen": false,
+  "source_notes": [
+    "Seed positions are copied from repository-controlled engine-opt and baseline regression fixtures.",
+    "No staged n16->n32 outcomes were consulted when freezing this seed corpus.",
+    "Sixteen source groups are intentionally below the J10 STOP-promotion minimum; this corpus qualifies mechanism only."
+  ],
+  "authority": {
+    "calibration_source": true,
+    "stop_promotion": false,
+    "resource_authorization": false,
+    "outward_move": false
+  },
+  "claim_boundary": {
+    "independent_calibration_complete": false,
+    "decision_change_model_promoted": false,
+    "move_quality": false,
+    "elo": false,
+    "strength": false,
+    "deployment": false
+  }
+}

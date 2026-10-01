@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import json
 import math
+import threading
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -216,6 +217,7 @@ class RouteAudit:
     denials: list[dict[str, Any]] = field(default_factory=list)
     specialist_actions: list[dict[str, Any]] = field(default_factory=list)
     work_grants: list[dict[str, Any]] = field(default_factory=list)
+    allocation_decisions: list[dict[str, Any]] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
     value_decisions: list[dict[str, Any]] = field(default_factory=list)
 
@@ -256,6 +258,9 @@ class RouteAudit:
                     "reason": row.get("reason"),
                 }
             )
+
+    def record_allocation_decision(self, payload: dict[str, Any]) -> None:
+        self.allocation_decisions.append(dict(payload))
 
     def record_value_decision(self, payload: dict[str, Any]) -> None:
         self.value_decisions.append(dict(payload))
@@ -622,6 +627,7 @@ class ConservativeRouter:
             str, tuple[WorkGrant, Reservation, str]
         ] = {}
         self._work_grant_counter = 0
+        self._work_grant_lock = threading.RLock()
         self._work_grant_keys: set[tuple[int, str]] = set()
         self._work_grant_search_ids: set[str] = set()
         self._work_grant_unresolved = False
@@ -915,6 +921,20 @@ class ConservativeRouter:
                 )
             return None
 
+    def expected_allocator_decision_digest(
+        self,
+        context: Any,
+        grant: WorkGrant,
+    ) -> str | None:
+        """Return an external allocator decision digest when one is authoritative.
+
+        J9 fixed rounds return None and reconstruct compat-decision-v1. J10
+        overrides this only for the adaptive staged bundle.
+        """
+
+        del context, grant
+        return None
+
     def authorize_work_grant(
         self,
         context: Any,
@@ -922,7 +942,98 @@ class ConservativeRouter:
         grant: WorkGrant,
         search_id: str,
     ) -> GrantAdmission | None:
-        """Create the one and only BudgetLedger reservation for a J9 grant."""
+        """Create the one and only BudgetLedger reservation for one grant."""
+
+        with self._work_grant_lock:
+            return self._authorize_work_grant_unlocked(
+                context,
+                grant=grant,
+                search_id=search_id,
+            )
+
+    def authorize_work_grant_bundle(
+        self,
+        context: Any,
+        *,
+        items: Sequence[tuple[WorkGrant, str]],
+    ) -> tuple[GrantAdmission, ...] | None:
+        """Transactionally admit a bundle before any engine dispatch.
+
+        Reservations are still individual BudgetLedger entries. The router
+        holds its WorkGrant lock until every reservation exists; a failed
+        member releases all prior admissions and removes their one-shot keys so
+        zero partial bundle authority survives.
+        """
+
+        rows = tuple(items)
+        if not rows:
+            return ()
+        admissions: list[GrantAdmission] = []
+        with self._work_grant_lock:
+            for grant, search_id in rows:
+                admission = self._authorize_work_grant_unlocked(
+                    context,
+                    grant=grant,
+                    search_id=search_id,
+                )
+                if admission is None:
+                    for prior in reversed(admissions):
+                        self._rollback_work_grant_admission(
+                            prior,
+                            reason=(
+                                "bundle admission rolled back because another "
+                                "member was denied"
+                            ),
+                        )
+                    if self.audit is not None:
+                        self.audit.note(
+                            "WorkGrant bundle denied transactionally; no partial "
+                            "bundle reservation remains"
+                        )
+                    return None
+                admissions.append(admission)
+        return tuple(admissions)
+
+    def _rollback_work_grant_admission(
+        self,
+        admission: GrantAdmission,
+        *,
+        reason: str,
+    ) -> None:
+        row = self._pop_work_grant(admission)
+        if row is None:
+            return
+        grant, reservation, search_id = row
+        self.ledger.release(reservation)
+        self._work_grant_keys.discard(
+            (grant.allocation_round, grant.owner)
+        )
+        self._work_grant_search_ids.discard(search_id)
+        if self.audit is not None:
+            self.audit.record_work_grant(
+                {
+                    "event": "bundle_rollback",
+                    "checkpoint_ms": round(self.ledger.elapsed_ms(), 3),
+                    "owner": grant.owner,
+                    "instance": grant.instance,
+                    "phase": grant.phase,
+                    "allocation_round": grant.allocation_round,
+                    "search_id": search_id,
+                    "grant_id": grant.grant_id,
+                    "reservation_id": reservation.reservation_id,
+                    "granted": True,
+                    "reason": reason,
+                }
+            )
+
+    def _authorize_work_grant_unlocked(
+        self,
+        context: Any,
+        *,
+        grant: WorkGrant,
+        search_id: str,
+    ) -> GrantAdmission | None:
+        """Internal reservation primitive; caller must own _work_grant_lock."""
 
         audit = self.audit
         scheduler = self.work_scheduler
@@ -938,7 +1049,16 @@ class ConservativeRouter:
             grant_valid = True
             grant_error: str | None = None
             try:
-                scheduler.validate_grant(move_plan=plan, grant=grant)
+                scheduler.validate_grant(
+                    move_plan=plan,
+                    grant=grant,
+                    expected_allocator_decision_digest=(
+                        self.expected_allocator_decision_digest(
+                            context,
+                            grant,
+                        )
+                    ),
+                )
             except WorkSchedulerDenied as exc:
                 grant_valid = False
                 grant_error = str(exc)
@@ -1332,6 +1452,7 @@ class ConservativeRouter:
                     "events": audit.work_grants,
                 }
             ),
+            "allocation_decisions": audit.allocation_decisions,
             "value_decisions": audit.value_decisions,
             "denials": audit.denials,
             "notes": audit.notes,
@@ -2059,6 +2180,24 @@ def build_router(config: Any) -> ConservativeRouter:
             raise RoutingError(f"declared calibration could not be loaded: {exc}") from exc
 
     calibration_source = None if not source else str(source)
+    if getattr(config, "resource_allocator", None) is not None:
+        if work_scheduler is None:
+            raise RoutingError(
+                "J10 adaptive allocator requires J9 WorkGrant scheduler"
+            )
+        from controller.adaptive_resource_router import (
+            build_adaptive_resource_router,
+        )
+
+        return build_adaptive_resource_router(
+            config=config,
+            envelope=envelope,
+            policy=policy,
+            calibration=calibration,
+            calibration_source=calibration_source,
+            work_scheduler=work_scheduler,
+        )
+
     if policy.policy_name == UNIFIED_VALUE_POLICY:
         # Imported lazily so the extension can subclass ConservativeRouter
         # without creating a module-import cycle during controller startup.

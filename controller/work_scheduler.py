@@ -674,6 +674,7 @@ class LegacyFixedWorkGrantScheduler:
         effective_options_digest: str,
         elapsed_ms: float,
         target_id: str | None = None,
+        allocator_decision_digest: str | None = None,
     ) -> WorkGrant:
         self._validate_parent_plan(move_plan)
         family = _family(owner)
@@ -722,25 +723,37 @@ class LegacyFixedWorkGrantScheduler:
             )
         if not isinstance(effective_options_digest, str) or len(effective_options_digest) != 64:
             raise WorkSchedulerDenied("effective_options_digest must be SHA-256")
-        # J9 is a compatibility scheduler, not an allocator. Candidate-set/
-        # target identity does not choose the chunk, so it is deliberately not
-        # part of this mechanical decision digest. J10 will introduce a
-        # claim-bearing allocation-decision object when evidence can choose
-        # among grants.
-        decision_digest = canonical_digest(
-            {
-                "decision_kind": "compat-decision-v1",
-                "scheduler_policy_id": self.policy_id,
-                "move_resource_plan_id": move_plan.plan_id,
-                "generation": move_plan.generation,
-                "position_id": move_plan.position_id,
-                "allocation_round": allocation_round,
-                "phase": phase,
-                "owner": family,
-                "instance": instance,
-                "work_chunk_id": scheduled.chunk.chunk_id,
-            }
-        )
+        # J9's fixed rounds keep their historical compat-decision identity.
+        # J10 may replace only round-2 provenance with a claim-bearing
+        # AllocationDecision digest.  WorkGrant remains resource authority only.
+        if allocator_decision_digest is None:
+            decision_digest = canonical_digest(
+                {
+                    "decision_kind": "compat-decision-v1",
+                    "scheduler_policy_id": self.policy_id,
+                    "move_resource_plan_id": move_plan.plan_id,
+                    "generation": move_plan.generation,
+                    "position_id": move_plan.position_id,
+                    "allocation_round": allocation_round,
+                    "phase": phase,
+                    "owner": family,
+                    "instance": instance,
+                    "work_chunk_id": scheduled.chunk.chunk_id,
+                }
+            )
+        else:
+            if (
+                not isinstance(allocator_decision_digest, str)
+                or len(allocator_decision_digest) != 64
+                or any(
+                    ch not in "0123456789abcdef"
+                    for ch in allocator_decision_digest
+                )
+            ):
+                raise WorkSchedulerDenied(
+                    "allocator_decision_digest must be lowercase SHA-256"
+                )
+            decision_digest = allocator_decision_digest
         license_item = self.catalog.license_for(
             profile.profile_id,
             scheduled.chunk.chunk_id,
@@ -767,6 +780,7 @@ class LegacyFixedWorkGrantScheduler:
         *,
         move_plan: MoveResourcePlan,
         grant: WorkGrant,
+        expected_allocator_decision_digest: str | None = None,
     ) -> None:
         """Independently validate a proposed J9 grant against the frozen grid.
 
@@ -838,20 +852,34 @@ class LegacyFixedWorkGrantScheduler:
                 "from frozen J9 compatibility policy"
             )
 
-        expected_decision = canonical_digest(
-            {
-                "decision_kind": "compat-decision-v1",
-                "scheduler_policy_id": self.policy_id,
-                "move_resource_plan_id": move_plan.plan_id,
-                "generation": move_plan.generation,
-                "position_id": move_plan.position_id,
-                "allocation_round": grant.allocation_round,
-                "phase": grant.phase,
-                "owner": grant.owner,
-                "instance": grant.instance,
-                "work_chunk_id": scheduled.chunk.chunk_id,
-            }
-        )
+        if expected_allocator_decision_digest is None:
+            expected_decision = canonical_digest(
+                {
+                    "decision_kind": "compat-decision-v1",
+                    "scheduler_policy_id": self.policy_id,
+                    "move_resource_plan_id": move_plan.plan_id,
+                    "generation": move_plan.generation,
+                    "position_id": move_plan.position_id,
+                    "allocation_round": grant.allocation_round,
+                    "phase": grant.phase,
+                    "owner": grant.owner,
+                    "instance": grant.instance,
+                    "work_chunk_id": scheduled.chunk.chunk_id,
+                }
+            )
+        else:
+            if (
+                not isinstance(expected_allocator_decision_digest, str)
+                or len(expected_allocator_decision_digest) != 64
+                or any(
+                    ch not in "0123456789abcdef"
+                    for ch in expected_allocator_decision_digest
+                )
+            ):
+                raise WorkSchedulerDenied(
+                    "expected allocator decision digest must be lowercase SHA-256"
+                )
+            expected_decision = expected_allocator_decision_digest
         if grant.allocator_decision_digest != expected_decision:
             raise WorkSchedulerDenied(
                 "grant allocator_decision_digest does not reconstruct"

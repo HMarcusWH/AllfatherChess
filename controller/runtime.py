@@ -27,6 +27,7 @@ from adapters.process.deferred_observer import DeferredObserver
 
 if TYPE_CHECKING:
     from controller.adaptive_time import AdaptiveTimeSettings
+    from controller.resource_allocator import ResourceAllocatorSettings
     from controller.work_scheduler import WorkSchedulerSettings
 
 
@@ -237,6 +238,7 @@ class RuntimeConfig:
     online_time: OnlineTimeSettings | None = None
     orchestration: "AdaptiveTimeSettings | None" = None
     work_scheduler: "WorkSchedulerSettings | None" = None
+    resource_allocator: "ResourceAllocatorSettings | None" = None
 
     @property
     def instances(self) -> dict[str, BackendSpec]:
@@ -1143,6 +1145,8 @@ def load_runtime_config(path: Path) -> RuntimeConfig:
             raise RuntimeError("orchestration requires schema_version 2; legacy profiles are unchanged")
         if "work_scheduler" in data:
             raise RuntimeError("work_scheduler requires schema_version 2; legacy profiles are unchanged")
+        if "resource_allocator" in data:
+            raise RuntimeError("resource_allocator requires schema_version 2; legacy profiles are unchanged")
         anchor, specs = _load_legacy_backends(data, root)
         return RuntimeConfig(path=path, root=root, mode="anchor", anchor=anchor, backends=specs)
 
@@ -1334,6 +1338,10 @@ def load_runtime_config(path: Path) -> RuntimeConfig:
 
 
     from controller.adaptive_time import AdaptiveTimeError, AdaptiveTimeSettings
+    from controller.resource_allocator import (
+        ResourceAllocatorError,
+        ResourceAllocatorSettings,
+    )
     from controller.work_scheduler import WorkSchedulerError, WorkSchedulerSettings
     try:
         orchestration = AdaptiveTimeSettings.from_config(data.get("orchestration"))
@@ -1343,9 +1351,17 @@ def load_runtime_config(path: Path) -> RuntimeConfig:
         work_scheduler = WorkSchedulerSettings.from_config(data.get("work_scheduler"))
     except WorkSchedulerError as exc:
         raise RuntimeError(str(exc)) from exc
+    try:
+        resource_allocator = ResourceAllocatorSettings.from_config(
+            data.get("resource_allocator")
+        )
+    except ResourceAllocatorError as exc:
+        raise RuntimeError(str(exc)) from exc
 
     if work_scheduler is not None and orchestration is None:
-        raise RuntimeError("M14-J J9 WorkGrant scheduling requires J8 orchestration")
+        raise RuntimeError("M14-J J9/J10 WorkGrant scheduling requires J8 orchestration")
+    if resource_allocator is not None and work_scheduler is None:
+        raise RuntimeError("M14-J J10 adaptive allocation requires J9 WorkGrant scheduling")
 
     if orchestration is not None:
         if online_time is None:
@@ -1364,6 +1380,10 @@ def load_runtime_config(path: Path) -> RuntimeConfig:
             raise RuntimeError("M14-J J8/J9 validation is CPU-only")
 
         if work_scheduler is None:
+            if resource_allocator is not None:
+                raise RuntimeError(
+                    "M14-J J10 requires the J9 WorkGrant scheduler"
+                )
             if any(
                 item is not None
                 for item in (verification, refinement, crossfeed, counterfactual)
@@ -1375,28 +1395,64 @@ def load_runtime_config(path: Path) -> RuntimeConfig:
         else:
             if verification is None or verification.staged_extension is None:
                 raise RuntimeError(
-                    "M14-J J9 requires base VERIFY plus staged VERIFY"
+                    "M14-J J9/J10 requires base VERIFY plus staged VERIFY"
                 )
             if refinement is not None or crossfeed is not None or counterfactual is not None:
                 raise RuntimeError(
-                    "M14-J J9 does not compose REFINE/crossfeed/counterfactual"
+                    "M14-J J9/J10 does not compose REFINE/crossfeed/counterfactual"
                 )
             if dict(verification.dispatch_limit) != {"nodes": 16}:
                 raise RuntimeError(
-                    "M14-J J9 compatibility VERIFY must remain n16"
+                    "M14-J J9/J10 compatibility VERIFY must remain n16"
                 )
             if dict(verification.staged_extension.dispatch_limit) != {"nodes": 32}:
                 raise RuntimeError(
-                    "M14-J J9 compatibility staged VERIFY must remain n32"
+                    "M14-J J9/J10 staged VERIFY bundle must remain n32"
                 )
             if shadow is None or dict(shadow.dispatch_limit) != {"nodes": 16}:
                 raise RuntimeError(
-                    "M14-J J9 compatibility EXPLORE must remain n16"
+                    "M14-J J9/J10 compatibility EXPLORE must remain n16"
                 )
             if routing.get("max_stages_per_owner") != 1:
                 raise RuntimeError(
-                    "M14-J J9 compatibility scheduler forbids legacy EXPLORE extensions"
+                    "M14-J J9/J10 forbids legacy EXPLORE extensions"
                 )
+            if resource_allocator is None:
+                if orchestration.allocator_policy_id != "legacy-fixed-stage-compat-v1":
+                    raise RuntimeError(
+                        "M14-J J9 requires allocator_policy_id="
+                        "'legacy-fixed-stage-compat-v1'"
+                    )
+            else:
+                if orchestration.allocator_policy_id != "adaptive-resource-v1":
+                    raise RuntimeError(
+                        "M14-J J10 requires allocator_policy_id='adaptive-resource-v1'"
+                    )
+                if hybrid_authority is not None:
+                    raise RuntimeError(
+                        "M14-J J10 grants no move authority; hybrid authority is deferred to J12"
+                    )
+                if routing.get("policy") != "conservative_v1":
+                    raise RuntimeError(
+                        "M14-J J10 keeps routing.policy='conservative_v1'"
+                    )
+                for spec in specs.values():
+                    if spec.role != "shadow":
+                        continue
+                    verify_options = dict(spec.options)
+                    verify_options.update(
+                        spec.phase_options.get("VERIFY", {})
+                    )
+                    staged_options = dict(spec.options)
+                    staged_options.update(
+                        spec.phase_options.get("STAGED_VERIFY", {})
+                    )
+                    if verify_options != staged_options:
+                        raise RuntimeError(
+                            "M14-J J10 transactional bundle rollback requires "
+                            "VERIFY and STAGED_VERIFY effective option states "
+                            f"to be identical for {spec.name}"
+                        )
 
     return RuntimeConfig(
         path=path,
@@ -1416,6 +1472,7 @@ def load_runtime_config(path: Path) -> RuntimeConfig:
         online_time=online_time,
         orchestration=orchestration,
         work_scheduler=work_scheduler,
+        resource_allocator=resource_allocator,
     )
 
 

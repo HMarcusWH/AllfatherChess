@@ -39,6 +39,14 @@ def parser() -> argparse.ArgumentParser:
         type=Path,
         default=ROOT / "build" / "staged-value-of-compute" / "collection.json",
     )
+    p.add_argument(
+        "--position-groups",
+        type=Path,
+        help=(
+            "optional JSON mapping run_id -> independent source group; "
+            "required for promotion-oriented J10 datasets"
+        ),
+    )
     return p
 
 
@@ -47,6 +55,21 @@ def main(argv: list[str] | None = None) -> int:
     run_dirs = sorted(Path(path) for path in args.runs)
     if not run_dirs:
         raise SystemExit("at least one sealed staged VERIFY run is required")
+
+    group_map: dict[str, str] = {}
+    if args.position_groups is not None:
+        raw_groups = json.loads(
+            args.position_groups.read_text(encoding="utf-8")
+        )
+        if not isinstance(raw_groups, dict):
+            raise StagedValueOfComputeError(
+                "position-group mapping must be a JSON object"
+            )
+        group_map = {
+            str(key): str(value)
+            for key, value in raw_groups.items()
+            if str(key) and str(value)
+        }
 
     counts: dict[str, int] = defaultdict(int)
     transitions = []
@@ -69,12 +92,17 @@ def main(argv: list[str] | None = None) -> int:
             raise StagedValueOfComputeError(
                 f"{run_dir}: parent position_id is missing"
             )
-        replicate = counts[position_id]
-        counts[position_id] += 1
+        position_group = group_map.get(run_id, position_id)
+        if args.position_groups is not None and run_id not in group_map:
+            raise StagedValueOfComputeError(
+                f"{run_dir}: promotion mapping omitted run_id {run_id!r}"
+            )
+        replicate = counts[position_group]
+        counts[position_group] += 1
 
         transition = load_staged_transition(
             run_dir,
-            position_group=position_id,
+            position_group=position_group,
             replicate=replicate,
         )
         transitions.append(transition)
@@ -97,6 +125,11 @@ def main(argv: list[str] | None = None) -> int:
         "schema_version": 1,
         "input_runs": len(run_dirs),
         "position_groups": len(counts),
+        "grouping_source": (
+            "run_id_mapping"
+            if args.position_groups is not None
+            else "position_id_legacy"
+        ),
         "dataset_id": dataset["dataset_id"],
         "dataset_path": str(dataset_path),
         "rows": len(dataset["rows"]),

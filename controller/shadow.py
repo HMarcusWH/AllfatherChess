@@ -3141,7 +3141,10 @@ class ShadowRunCoordinator:
         search_id: str,
         fallback_ms: float,
     ) -> float:
-        admission = active.grant_admissions.get(search_id)
+        admissions = getattr(active, "grant_admissions", None)
+        if not isinstance(admissions, dict):
+            return fallback_ms
+        admission = admissions.get(search_id)
         if admission is None:
             return fallback_ms
         return min(fallback_ms, float(admission.grant.wall_deadline_ms))

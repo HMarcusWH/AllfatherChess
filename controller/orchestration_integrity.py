@@ -1229,9 +1229,10 @@ def verify_orchestration_integrity(
                 or not isinstance(limit_rows[0], dict)
                 or limit_rows[0].get("name") != grant.native_limit.kind.value
                 or limit_rows[0].get("value") != grant.native_limit.value
+                or request.get("unknown_tokens")
             ):
                 problems.append(
-                    f"WorkGrant {grant.grant_id} UCI limits are not exactly the granted native limit"
+                    f"WorkGrant {grant.grant_id} UCI request is not exactly the granted native limit plus legal searchmoves"
                 )
         except Exception as exc:
             problems.append(

@@ -48,6 +48,7 @@ RESOURCE_PLAN_PATH = "resource-plan.json"
 ALLOCATION_TRACE_PATH = "resource/allocation.jsonl"
 ORCHESTRATION_PATH = "orchestration.json"
 ENGINE_BUNDLE_PATH = "engine-bundle.json"
+RUNTIME_CONFIG_PATH = "runtime-config.json"
 
 
 class OrchestrationIntegrityError(RuntimeError):
@@ -310,6 +311,33 @@ def seal_orchestration_evidence(
         raise OrchestrationIntegrityError(
             "J11 exact-head ENGINE-OPT-V2 build manifest is missing"
         )
+    parent_manifest = load_manifest(run_dir)
+    controller_identity = _mapping(
+        parent_manifest.get("controller"),
+        "parent replay controller",
+    )
+    config_source_raw = controller_identity.get("config_path")
+    if not isinstance(config_source_raw, str) or not config_source_raw:
+        raise OrchestrationIntegrityError(
+            "parent replay does not identify the active runtime config"
+        )
+    config_source_path = Path(config_source_raw)
+    if not config_source_path.is_file():
+        raise OrchestrationIntegrityError(
+            "active runtime config is unavailable while sealing J11 evidence"
+        )
+    config_source_sha = sha256_file(config_source_path)
+    if controller_identity.get("config_sha256") != config_source_sha:
+        raise OrchestrationIntegrityError(
+            "parent replay runtime-config SHA differs from the active config bytes"
+        )
+    runtime_config_path = run_dir / RUNTIME_CONFIG_PATH
+    atomic_write_text(
+        runtime_config_path,
+        config_source_path.read_text(encoding="utf-8"),
+    )
+    _load_json(runtime_config_path, "sealed runtime config")
+
     route = _load_json(route_path, "route")
     if route.get("run_id") is None:
         raise OrchestrationIntegrityError("route lacks run_id")
@@ -381,6 +409,10 @@ def seal_orchestration_evidence(
             "sha256": sha256_file(bundle_path),
             "source_commit": bundle_manifest.get("source_commit"),
             "source_tree": bundle_manifest.get("source_tree"),
+        },
+        "runtime_config": {
+            "path": RUNTIME_CONFIG_PATH,
+            "sha256": sha256_file(runtime_config_path),
         },
         "move_resource_plan": {
             "plan_id": move_plan.plan_id,
@@ -875,6 +907,7 @@ def verify_orchestration_integrity(
     expected_source_commit: str | None = None,
     expected_config_relative: str = "config/allfather.m14-j-j10.validation.json",
     allow_outward_decision: bool = False,
+    allow_config_relocation: bool = False,
 ) -> list[str]:
     """Independently reconstruct J11 provenance. Empty list means valid."""
 
@@ -899,6 +932,7 @@ def verify_orchestration_integrity(
         "verification",
         "staged_verification",
         "engine_bundle",
+        "runtime_config",
         "move_resource_plan",
         "game_environment",
         "host_capabilities",
@@ -963,6 +997,7 @@ def verify_orchestration_integrity(
         "verification": "verification/manifest.json",
         "staged_verification": "staged_verification/manifest.json",
         "engine_bundle": ENGINE_BUNDLE_PATH,
+        "runtime_config": RUNTIME_CONFIG_PATH,
         "move_resource_plan": RESOURCE_PLAN_PATH,
         "allocation_trace": ALLOCATION_TRACE_PATH,
         "route": "route.json",
@@ -1008,21 +1043,66 @@ def verify_orchestration_integrity(
             problems.append(
                 "J11 qualification is evidence-only and may not contain outward DecisionAuthorization"
             )
-        if root is not None:
-            frozen_config_path = Path(root) / expected_config_relative
-            try:
-                frozen_config_sha = sha256_file(frozen_config_path)
-                controller = manifest.get("controller")
-                if not isinstance(controller, dict):
-                    problems.append("parent replay controller identity is missing")
-                elif controller.get("config_sha256") != frozen_config_sha:
+        controller = manifest.get("controller")
+        if not isinstance(controller, dict):
+            problems.append("parent replay controller identity is missing")
+        else:
+            sealed_config = run_dir / RUNTIME_CONFIG_PATH
+            if not sealed_config.is_file():
+                problems.append("sealed runtime config is missing")
+            else:
+                sealed_config_sha = sha256_file(sealed_config)
+                if controller.get("config_sha256") != sealed_config_sha:
                     problems.append(
-                        "parent replay is not bound to the frozen J10 qualification config"
+                        "parent replay runtime-config SHA differs from sealed runtime config"
                     )
-            except Exception as exc:
-                problems.append(
-                    f"frozen J10 config identity could not be reconstructed: {exc}"
-                )
+                if root is not None:
+                    frozen_config_path = Path(root) / expected_config_relative
+                    try:
+                        frozen_config = _load_json(
+                            frozen_config_path,
+                            "frozen orchestration config",
+                        )
+                        actual_config = _load_json(
+                            sealed_config,
+                            "sealed runtime config",
+                        )
+                        if actual_config != frozen_config:
+                            if not allow_config_relocation:
+                                problems.append(
+                                    "sealed runtime config differs from the frozen qualification config"
+                                )
+                            else:
+                                normalized = json.loads(
+                                    json.dumps(
+                                        frozen_config,
+                                        sort_keys=True,
+                                        allow_nan=False,
+                                    )
+                                )
+                                normalized["root"] = actual_config.get("root")
+                                frozen_shadow = normalized.get("shadow")
+                                actual_shadow = actual_config.get("shadow")
+                                if (
+                                    not isinstance(frozen_shadow, dict)
+                                    or not isinstance(actual_shadow, dict)
+                                ):
+                                    problems.append(
+                                        "runtime-config relocation requires shadow configuration"
+                                    )
+                                else:
+                                    frozen_shadow["replay_root"] = (
+                                        actual_shadow.get("replay_root")
+                                    )
+                                    if actual_config != normalized:
+                                        problems.append(
+                                            "derived runtime config changed fields beyond root/replay relocation"
+                                        )
+                    except Exception as exc:
+                        problems.append(
+                            "frozen orchestration config identity could not be reconstructed: "
+                            f"{exc}"
+                        )
         if artifact.get("run_id") != manifest.get("run_id"):
             problems.append("orchestration run_id differs from parent replay")
         if artifact.get("generation") != manifest.get("generation"):
@@ -2651,6 +2731,7 @@ def verify_orchestrated_composition_integrity(
             "config/allfather.orchestrated-v1.validation.json"
         ),
         allow_outward_decision=True,
+        allow_config_relocation=True,
     )
     run_dir = Path(run_dir)
     try:

@@ -333,6 +333,10 @@ class DecisionAuthorizationSnapshot:
     route_decision_digest: str | None = None
     authority_evidence_frozen_before_soft_deadline: bool | None = None
     authority_blocked: bool = False
+    # J11 provenance is optional so historical M14-C/G3 snapshots keep their
+    # exact canonical digest.  J12 may populate it; when present the authority
+    # gate enforces its settled WorkGrant boundary.
+    orchestration_provenance: dict[str, Any] | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.run_id, str) or not self.run_id:
@@ -372,8 +376,89 @@ class DecisionAuthorizationSnapshot:
                     f"authorization snapshot {label} must be >= 0"
                 )
 
+        provenance = self.orchestration_provenance
+        if provenance is not None:
+            if not isinstance(provenance, dict):
+                raise DecisionError(
+                    "authorization snapshot orchestration_provenance must be an object"
+                )
+            required = {
+                "version",
+                "move_resource_plan_id",
+                "move_resource_plan_digest",
+                "allocation_policy_digest",
+                "allocation_decision_digest",
+                "allocation_trace_digest",
+                "work_scheduler_catalog_digest",
+                "profile_catalog_digest",
+                "composition_profile_digest",
+                "game_environment_digest",
+                "host_capabilities_digest",
+                "work_grant_settlement_complete",
+                "open_work_grant_reservations",
+                "authority",
+            }
+            if set(provenance) != required:
+                raise DecisionError(
+                    "authorization snapshot orchestration_provenance keys are invalid"
+                )
+            if provenance.get("version") != "j11-orchestration-authority-binding-v1":
+                raise DecisionError(
+                    "authorization snapshot orchestration provenance version drift"
+                )
+            plan_id = provenance.get("move_resource_plan_id")
+            if (
+                not isinstance(plan_id, str)
+                or not plan_id.startswith("move-plan/")
+                or len(plan_id) != len("move-plan/") + 64
+            ):
+                raise DecisionError(
+                    "authorization snapshot orchestration MoveResourcePlan identity is invalid"
+                )
+            for key in (
+                "move_resource_plan_digest",
+                "allocation_policy_digest",
+                "allocation_decision_digest",
+                "allocation_trace_digest",
+                "work_scheduler_catalog_digest",
+                "profile_catalog_digest",
+                "composition_profile_digest",
+                "game_environment_digest",
+                "host_capabilities_digest",
+            ):
+                value = provenance.get(key)
+                if (
+                    not isinstance(value, str)
+                    or len(value) != 64
+                    or any(ch not in "0123456789abcdef" for ch in value)
+                ):
+                    raise DecisionError(
+                        f"authorization snapshot orchestration {key} must be lowercase SHA-256"
+                    )
+            if provenance.get("work_grant_settlement_complete") not in (True, False):
+                raise DecisionError(
+                    "authorization snapshot orchestration settlement flag must be boolean"
+                )
+            open_grants = provenance.get("open_work_grant_reservations")
+            if (
+                isinstance(open_grants, bool)
+                or not isinstance(open_grants, int)
+                or open_grants < 0
+            ):
+                raise DecisionError(
+                    "authorization snapshot orchestration open grant count must be >= 0"
+                )
+            if provenance.get("authority") != {
+                "resource_evidence": True,
+                "resource_authorization": False,
+                "outward_move": False,
+            }:
+                raise DecisionError(
+                    "authorization snapshot orchestration authority marker is invalid"
+                )
+
     def as_dict(self) -> dict[str, Any]:
-        return {
+        payload = {
             "run_id": self.run_id,
             "generation": self.generation,
             "position_id": self.position_id,
@@ -417,6 +502,15 @@ class DecisionAuthorizationSnapshot:
             ),
             "authority_blocked": self.authority_blocked,
         }
+        if self.orchestration_provenance is not None:
+            payload["orchestration_provenance"] = json.loads(
+                json.dumps(
+                    self.orchestration_provenance,
+                    sort_keys=True,
+                    allow_nan=False,
+                )
+            )
+        return payload
 
     @property
     def digest(self) -> str:
@@ -875,6 +969,13 @@ def authorize_decision(
         reasons.append("backend generation is stale or unhealthy")
     if snapshot.controller_fallback_latched:
         reasons.append("controller has already latched anchor-only fallback")
+
+    provenance = snapshot.orchestration_provenance
+    if provenance is not None:
+        if provenance.get("work_grant_settlement_complete") is not True:
+            reasons.append("orchestration WorkGrant settlement is incomplete")
+        if int(provenance.get("open_work_grant_reservations", 0)) != 0:
+            reasons.append("orchestration WorkGrant reservation remains open")
 
     if reasons:
         return DecisionAuthorization(

@@ -47,6 +47,7 @@ AUTHORITY_BINDING_VERSION = "j11-orchestration-authority-binding-v1"
 RESOURCE_PLAN_PATH = "resource-plan.json"
 ALLOCATION_TRACE_PATH = "resource/allocation.jsonl"
 ORCHESTRATION_PATH = "orchestration.json"
+ENGINE_BUNDLE_PATH = "engine-bundle.json"
 
 
 class OrchestrationIntegrityError(RuntimeError):
@@ -290,12 +291,17 @@ def seal_orchestration_evidence(
     replay_path = run_dir / "manifest.json"
     verification_path = run_dir / "verification" / "manifest.json"
     staged_path = run_dir / "staged_verification" / "manifest.json"
+    repository_root = Path(__file__).resolve().parents[1]
+    bundle_source_path = (
+        repository_root / "build/online-engine-opt-v2/build-manifest.json"
+    )
     for required in (
         replay_path,
         verification_path,
         staged_path,
         route_path,
         resource_path,
+        bundle_source_path,
     ):
         if not required.is_file():
             raise OrchestrationIntegrityError(
@@ -308,6 +314,23 @@ def seal_orchestration_evidence(
         raise OrchestrationIntegrityError(
             "route MoveResourcePlan differs from the live J11 parent"
         )
+    bundle_path = run_dir / ENGINE_BUNDLE_PATH
+    atomic_write_text(
+        bundle_path,
+        bundle_source_path.read_text(encoding="utf-8"),
+    )
+    bundle_manifest = _load_json(
+        bundle_path,
+        "ENGINE-OPT-V2 build manifest",
+    )
+    if (
+        bundle_manifest.get("schema_version") != 1
+        or bundle_manifest.get("profile_id") != "engine-opt-v2"
+    ):
+        raise OrchestrationIntegrityError(
+            "J11 requires the exact ENGINE-OPT-V2 candidate build manifest"
+        )
+
     plan_path = run_dir / RESOURCE_PLAN_PATH
     atomic_write_text(
         plan_path,
@@ -349,6 +372,12 @@ def seal_orchestration_evidence(
         "staged_verification": {
             "path": "staged_verification/manifest.json",
             "sha256": sha256_file(staged_path),
+        },
+        "engine_bundle": {
+            "path": ENGINE_BUNDLE_PATH,
+            "sha256": sha256_file(bundle_path),
+            "source_commit": bundle_manifest.get("source_commit"),
+            "source_tree": bundle_manifest.get("source_tree"),
         },
         "move_resource_plan": {
             "plan_id": move_plan.plan_id,
@@ -863,6 +892,7 @@ def verify_orchestration_integrity(
         "replay",
         "verification",
         "staged_verification",
+        "engine_bundle",
         "move_resource_plan",
         "game_environment",
         "host_capabilities",
@@ -926,6 +956,7 @@ def verify_orchestration_integrity(
         "replay": "manifest.json",
         "verification": "verification/manifest.json",
         "staged_verification": "staged_verification/manifest.json",
+        "engine_bundle": ENGINE_BUNDLE_PATH,
         "move_resource_plan": RESOURCE_PLAN_PATH,
         "allocation_trace": ALLOCATION_TRACE_PATH,
         "route": "route.json",
@@ -1003,6 +1034,65 @@ def verify_orchestration_integrity(
             problems.append(f"VERIFY integrity: {problem}")
         for problem in verify_staged_verification_integrity(run_dir):
             problems.append(f"staged VERIFY integrity: {problem}")
+
+    engine_bundle: dict[str, Any] = {}
+    try:
+        engine_bundle = _load_json(
+            run_dir / ENGINE_BUNDLE_PATH,
+            "ENGINE-OPT-V2 build manifest",
+        )
+        if (
+            engine_bundle.get("schema_version") != 1
+            or engine_bundle.get("profile_id") != "engine-opt-v2"
+        ):
+            problems.append("sealed engine bundle has the wrong profile/schema")
+        stored_bundle_summary = artifact.get("engine_bundle")
+        expected_bundle_summary = {
+            "path": ENGINE_BUNDLE_PATH,
+            "sha256": sha256_file(run_dir / ENGINE_BUNDLE_PATH),
+            "source_commit": engine_bundle.get("source_commit"),
+            "source_tree": engine_bundle.get("source_tree"),
+        }
+        if stored_bundle_summary != expected_bundle_summary:
+            problems.append("orchestration engine-bundle summary does not reconstruct")
+        if root is not None:
+            root_path = Path(root)
+            contracts = _mapping(
+                engine_bundle.get("contracts"),
+                "ENGINE-OPT-V2 build contracts",
+            )
+            expected_contract_files = {
+                "vendor_lock_sha256": "vendor.lock.json",
+                "policy_sha256": "qualification/engine-opt-v2.json",
+                "runtime_config_sha256": "config/allfather.online-engine-opt-v2.json",
+                "selection_sha256": "qualification/engine-opt-v2-selection.json",
+                "evidence_sha256": "qualification/engine-opt-v2-evidence.json",
+                "derived_lock_sha256": "qualification/engine-derived-lock.json",
+                "lc0_strength_lock_sha256": "qualification/lc0-strength.lock.json",
+                "lc0_strength_profile_sha256": "qualification/lc0-strength-profile.json",
+            }
+            for key, relative in expected_contract_files.items():
+                source = root_path / relative
+                if contracts.get(key) != sha256_file(source):
+                    problems.append(
+                        f"sealed engine bundle contract {key} differs from repository source"
+                    )
+            derived = _load_json(
+                root_path / "qualification/engine-derived-lock.json",
+                "derived engine lock",
+            )
+            expected_trees = {
+                family: (derived.get("engines") or {}).get(family, {}).get(
+                    "derived_tree"
+                )
+                for family in ("stockfish", "reckless", "lc0")
+            }
+            if engine_bundle.get("derived_engine_trees") != expected_trees:
+                problems.append(
+                    "sealed engine bundle derived-engine trees differ from frozen lock"
+                )
+    except Exception as exc:
+        problems.append(f"engine bundle reconstruction failed: {exc}")
 
     try:
         plan_raw = _load_json(run_dir / RESOURCE_PLAN_PATH, "resource plan")
@@ -1872,12 +1962,23 @@ def verify_orchestration_integrity(
                     problems.append(
                         f"WorkGrant {grant.grant_id} replay engine role differs from composition"
                     )
+                bundle_engines = (
+                    ((engine_bundle.get("artifacts") or {}).get("engines") or {})
+                    if isinstance(engine_bundle, dict)
+                    else {}
+                )
+                bundle_engine = (
+                    bundle_engines.get(profile.family)
+                    if isinstance(bundle_engines, dict)
+                    else None
+                )
                 if (
-                    engine_identity.get("binary_sha256")
-                    != process_identity.binary_sha256
+                    not isinstance(bundle_engine, dict)
+                    or engine_identity.get("binary_sha256")
+                    != bundle_engine.get("sha256")
                 ):
                     problems.append(
-                        f"WorkGrant {grant.grant_id} binary SHA differs from qualified profile"
+                        f"WorkGrant {grant.grant_id} binary SHA differs from sealed exact-head ENGINE-OPT-V2 candidate"
                     )
                 if engine_identity.get("args", []) != list(
                     process_identity.args
@@ -1961,13 +2062,24 @@ def verify_orchestration_integrity(
                         if isinstance(actual_artifacts, dict)
                         else None
                     )
+                    bundle_networks = (
+                        ((engine_bundle.get("artifacts") or {}).get("networks") or {})
+                        if isinstance(engine_bundle, dict)
+                        else {}
+                    )
+                    bundle_network = (
+                        bundle_networks.get(profile.family)
+                        if isinstance(bundle_networks, dict)
+                        else None
+                    )
                     if (
                         not isinstance(weights, dict)
+                        or not isinstance(bundle_network, dict)
                         or weights.get("sha256")
-                        != artifact_identity.sha256
+                        != bundle_network.get("sha256")
                     ):
                         problems.append(
-                            f"WorkGrant {grant.grant_id} network SHA differs from qualified profile"
+                            f"WorkGrant {grant.grant_id} network SHA differs from sealed exact-head ENGINE-OPT-V2 candidate"
                         )
 
         try:
@@ -1998,8 +2110,12 @@ def verify_orchestration_integrity(
         optional_stage_ids = {
             search_id
             for search_id, stage in stage_by_id.items()
-            if stage.get("phase")
-            in ("EXPLORE", "VERIFY", "STAGED_VERIFY")
+            if (
+                stage.get("phase")
+                in ("EXPLORE", "VERIFY", "STAGED_VERIFY")
+                and stage.get("owner")
+                in ("stockfish", "reckless", "lc0")
+            )
         }
         if set(authorized_search_ids) != optional_stage_ids:
             problems.append(

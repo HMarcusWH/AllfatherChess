@@ -29,11 +29,13 @@ from controller.resource_allocator import (
     ResourceAllocatorError,
     STAGED_BUNDLE_ID,
     load_allocation_policy,
+    validate_bundle_against_scheduler,
 )
 from controller.resource_profile_catalog import load_resource_profile_catalog
 from controller.runtime import RuntimeError as ControllerRuntimeError, load_runtime_config
 from controller.regimes import RegimeStatus, SearchRegime
 from controller.staged_decision_calibration import StagedValueEstimate
+from controller.work_scheduler import WorkSchedulerSettings, build_work_scheduler
 
 
 CATALOG = load_resource_profile_catalog(
@@ -216,6 +218,86 @@ class ResourceAllocatorTests(unittest.TestCase):
             decision.as_dict()["authority"]["resource_authorization"]
         )
         self.assertFalse(decision.as_dict()["authority"]["outward_move"])
+
+    def test_bundle_requires_exact_round2_staged_trio(self):
+        with self.assertRaisesRegex(
+            ResourceAllocatorError,
+            "exact frozen J9 n32 staged trio",
+        ):
+            AllocationBundle(
+                bundle_id=STAGED_BUNDLE_ID,
+                allocation_round=2,
+                chunk_ids=(
+                    "compat/stockfish/explore/n16",
+                    "compat/reckless/explore/n16",
+                    "compat/lc0/explore/n16",
+                ),
+            )
+
+    def test_bundle_validation_checks_frozen_scheduler_semantics(self):
+        policy = load_allocation_policy(
+            ROOT / "qualification/adaptive-resource-allocation-v1.json"
+        )
+        scheduler = build_work_scheduler(
+            settings=WorkSchedulerSettings(),
+            root=ROOT,
+        )
+        validate_bundle_against_scheduler(
+            policy,
+            scheduler_catalog_id=scheduler.catalog.catalog_id,
+            scheduler_catalog_digest=scheduler.catalog.digest,
+            scheduler_chunks=scheduler.catalog.chunks,
+        )
+
+        rows = list(scheduler.catalog.chunks)
+        target_index = next(
+            index
+            for index, row in enumerate(rows)
+            if row.chunk.chunk_id == "compat/stockfish/staged-verify/n32"
+        )
+        target = rows[target_index]
+        family_drift = replace(
+            target,
+            chunk=replace(
+                target.chunk,
+                family="reckless",
+                native_limit=replace(
+                    target.chunk.native_limit,
+                    semantics="reckless.uci_nodes",
+                ),
+            ),
+        )
+        phase_drift = replace(
+            target,
+            chunk=replace(target.chunk, phase="VERIFY"),
+        )
+        limit_drift = replace(
+            target,
+            chunk=replace(
+                target.chunk,
+                native_limit=replace(target.chunk.native_limit, value=16),
+            ),
+        )
+        mutations = {
+            "round": replace(target, allocation_round=0),
+            "owner": family_drift,
+            "phase": phase_drift,
+            "native_limit": limit_drift,
+        }
+        for label, mutated in mutations.items():
+            with self.subTest(label=label):
+                changed = list(rows)
+                changed[target_index] = mutated
+                with self.assertRaisesRegex(
+                    ResourceAllocatorError,
+                    "frozen round/owner/phase/native-limit contract",
+                ):
+                    validate_bundle_against_scheduler(
+                        policy,
+                        scheduler_catalog_id=scheduler.catalog.catalog_id,
+                        scheduler_catalog_digest=scheduler.catalog.digest,
+                        scheduler_chunks=tuple(changed),
+                    )
 
     def test_fallback_parent_never_creates_buy_authority(self):
         policy = load_allocation_policy(

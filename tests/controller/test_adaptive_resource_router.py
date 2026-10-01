@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import time
 import sys
 import unittest
@@ -482,6 +483,55 @@ class AdaptiveResourceRouterTests(unittest.TestCase):
         with self.assertRaisesRegex(
             AdaptiveResourceRoutingError,
             "independent-group floor",
+        ):
+            _validate_promoted_model_bindings(
+                root=ROOT,
+                allocation_policy=promoted,
+                staged_model=FakeModel(),
+                regime_model=FakeModel(),
+            )
+
+    def test_promoted_stop_cannot_lower_frozen_corpus_floor(self):
+        from controller.resource_allocator import AllocationBundle, AllocationPolicy
+
+        corpus = json.loads(
+            (ROOT / "qualification/j10-calibration-corpus-v1.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        groups = tuple(corpus["source_groups"])
+        promoted = AllocationPolicy(
+            catalog_id="adaptive-resource-allocation-v1",
+            policy_id="adaptive_resource_v1",
+            work_scheduler_catalog_id="work-grant-scheduler-v1",
+            work_scheduler_catalog_digest="a" * 64,
+            bundle=AllocationBundle(
+                bundle_id=STAGED_BUNDLE_ID,
+                allocation_round=2,
+                chunk_ids=(
+                    "compat/stockfish/staged-verify/n32",
+                    "compat/reckless/staged-verify/n32",
+                    "compat/lc0/staged-verify/n32",
+                ),
+            ),
+            skip_max_change_probability=0.10,
+            max_allocation_rounds=3,
+            stop_promotion=True,
+            promotion_reason="attempted lowered-floor promotion",
+            minimum_independent_groups=16,
+            calibration_independent_groups=16,
+            calibration_corpus_id="j10-calibration-corpus-v1",
+            staged_model_path="qualification/staged.json",
+            regime_model_path="qualification/regime.json",
+        )
+
+        class FakeModel:
+            model_id = "fake"
+            split_by_position = {group: "train" for group in groups}
+
+        with self.assertRaisesRegex(
+            AdaptiveResourceRoutingError,
+            "frozen independent-group floor",
         ):
             _validate_promoted_model_bindings(
                 root=ROOT,

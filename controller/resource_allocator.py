@@ -49,6 +49,49 @@ from controller.staged_decision_calibration import (
 ADAPTIVE_RESOURCE_POLICY = "adaptive_resource_v1"
 ALLOCATION_CATALOG_ID = "adaptive-resource-allocation-v1"
 STAGED_BUNDLE_ID = "bundle/staged-verify-v1"
+STAGED_BUNDLE_CHUNK_IDS = (
+    "compat/stockfish/staged-verify/n32",
+    "compat/reckless/staged-verify/n32",
+    "compat/lc0/staged-verify/n32",
+)
+_STAGED_BUNDLE_CHUNK_CONTRACTS: Mapping[str, Mapping[str, Any]] = {
+    "compat/stockfish/staged-verify/n32": {
+        "allocation_round": 2,
+        "profile_id": "stockfish/specialist-engine-opt-v2",
+        "family": "stockfish",
+        "phase": "STAGED_VERIFY",
+        "purpose": "verify",
+        "native_limit": {
+            "kind": "nodes",
+            "value": 32,
+            "semantics": "stockfish.uci_nodes",
+        },
+    },
+    "compat/reckless/staged-verify/n32": {
+        "allocation_round": 2,
+        "profile_id": "reckless/specialist-engine-opt-v2",
+        "family": "reckless",
+        "phase": "STAGED_VERIFY",
+        "purpose": "verify",
+        "native_limit": {
+            "kind": "nodes",
+            "value": 32,
+            "semantics": "reckless.uci_nodes",
+        },
+    },
+    "compat/lc0/staged-verify/n32": {
+        "allocation_round": 2,
+        "profile_id": "lc0/specialist-engine-opt-v2",
+        "family": "lc0",
+        "phase": "STAGED_VERIFY",
+        "purpose": "verify",
+        "native_limit": {
+            "kind": "nodes",
+            "value": 32,
+            "semantics": "lc0.uci_nodes",
+        },
+    },
+}
 
 BUY_BUNDLE = "BUY_BUNDLE"
 STOP_BUYING = "STOP_BUYING"
@@ -325,6 +368,10 @@ class AllocationBundle:
             )
         for chunk_id in self.chunk_ids:
             _safe_id(chunk_id, "allocation bundle chunk_id")
+        if self.chunk_ids != STAGED_BUNDLE_CHUNK_IDS:
+            raise ResourceAllocatorError(
+                "J10 staged bundle must contain the exact frozen J9 n32 staged trio"
+            )
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -886,7 +933,7 @@ def validate_bundle_against_scheduler(
     *,
     scheduler_catalog_id: str,
     scheduler_catalog_digest: str,
-    known_chunk_ids: Sequence[str],
+    scheduler_chunks: Sequence[Any],
 ) -> None:
     if policy.work_scheduler_catalog_id != scheduler_catalog_id:
         raise ResourceAllocatorError(
@@ -896,16 +943,56 @@ def validate_bundle_against_scheduler(
         raise ResourceAllocatorError(
             "J10 bundle policy binds a different J9 scheduler catalog digest"
         )
-    known = set(str(item) for item in known_chunk_ids)
+
+    rows_by_id: dict[str, Any] = {}
+    for row in scheduler_chunks:
+        chunk = getattr(row, "chunk", None)
+        chunk_id = getattr(chunk, "chunk_id", None)
+        if not isinstance(chunk_id, str) or not chunk_id:
+            raise ResourceAllocatorError(
+                "J9 scheduler supplied a malformed chunk while validating J10 bundle"
+            )
+        if chunk_id in rows_by_id:
+            raise ResourceAllocatorError(
+                f"J9 scheduler contains duplicate chunk id {chunk_id!r}"
+            )
+        rows_by_id[chunk_id] = row
+
     missing = [
         chunk_id
         for chunk_id in policy.bundle.chunk_ids
-        if chunk_id not in known
+        if chunk_id not in rows_by_id
     ]
     if missing:
         raise ResourceAllocatorError(
             f"J10 bundle contains unknown J9 chunks: {missing}"
         )
+
+    for chunk_id in policy.bundle.chunk_ids:
+        row = rows_by_id[chunk_id]
+        chunk = row.chunk
+        native_limit = getattr(chunk, "native_limit", None)
+        kind = getattr(native_limit, "kind", None)
+        if hasattr(kind, "value"):
+            kind = kind.value
+        actual = {
+            "allocation_round": getattr(row, "allocation_round", None),
+            "profile_id": getattr(row, "profile_id", None),
+            "family": getattr(chunk, "family", None),
+            "phase": getattr(chunk, "phase", None),
+            "purpose": getattr(chunk, "purpose", None),
+            "native_limit": {
+                "kind": kind,
+                "value": getattr(native_limit, "value", None),
+                "semantics": getattr(native_limit, "semantics", None),
+            },
+        }
+        expected = dict(_STAGED_BUNDLE_CHUNK_CONTRACTS[chunk_id])
+        if actual != expected:
+            raise ResourceAllocatorError(
+                f"J10 bundle chunk {chunk_id!r} does not match the frozen "
+                "round/owner/phase/native-limit contract"
+            )
 
 
 def build_allocator(

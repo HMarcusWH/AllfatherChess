@@ -426,14 +426,27 @@ def _validate_promoted_model_bindings(
             "promoted J10 corpus must freeze unique non-empty source_groups"
         )
     groups = set(groups_raw)
+    frozen_floor = corpus.get("minimum_independent_groups_for_stop_promotion")
+    if (
+        isinstance(frozen_floor, bool)
+        or not isinstance(frozen_floor, int)
+        or frozen_floor <= 0
+    ):
+        raise AdaptiveResourceRoutingError(
+            "promoted J10 corpus has an invalid frozen independent-group floor"
+        )
+    if frozen_floor != allocation_policy.minimum_independent_groups:
+        raise AdaptiveResourceRoutingError(
+            "promoted J10 policy minimum differs from the frozen independent-group floor"
+        )
     expected_count = allocation_policy.calibration_independent_groups
     if (
         corpus.get("independent_groups") != expected_count
         or len(groups) != expected_count
-        or expected_count < allocation_policy.minimum_independent_groups
+        or expected_count < frozen_floor
     ):
         raise AdaptiveResourceRoutingError(
-            "promoted J10 corpus does not meet declared independent-group floor"
+            "promoted J10 corpus does not meet the frozen independent-group floor"
         )
     if (
         corpus.get("promotion_eligible") is not True
@@ -453,8 +466,8 @@ def _validate_promoted_model_bindings(
             "regime support model group set differs from promoted calibration corpus"
         )
     if (
-        len(staged_groups) < allocation_policy.minimum_independent_groups
-        or len(regime_groups) < allocation_policy.minimum_independent_groups
+        len(staged_groups) < frozen_floor
+        or len(regime_groups) < frozen_floor
     ):
         raise AdaptiveResourceRoutingError(
             "loaded J10 models do not meet independent-group floor"
@@ -505,10 +518,7 @@ def build_adaptive_resource_router(
         allocation_policy,
         scheduler_catalog_id=work_scheduler.catalog.catalog_id,
         scheduler_catalog_digest=work_scheduler.catalog.digest,
-        known_chunk_ids=(
-            row.chunk.chunk_id
-            for row in work_scheduler.catalog.chunks
-        ),
+        scheduler_chunks=work_scheduler.catalog.chunks,
     )
 
     staged_model: StagedDecisionChangeModel | None = None

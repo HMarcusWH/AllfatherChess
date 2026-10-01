@@ -3014,7 +3014,16 @@ class ShadowRunCoordinator:
         admission: GrantAdmission,
         effective_options: dict[str, object],
     ) -> bool:
+        started = time.monotonic()
         actual = canonical_digest(dict(sorted(effective_options.items())))
+        self._charge_controller_elapsed(
+            active,
+            label=(
+                "work_grant_actual_options_"
+                f"{admission.grant.phase.lower()}_{admission.grant.owner}"
+            ),
+            elapsed_ms=(time.monotonic() - started) * 1000.0,
+        )
         if actual == admission.grant.effective_options_digest:
             return True
         self._release_work_grant(

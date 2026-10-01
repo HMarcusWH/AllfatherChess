@@ -1304,6 +1304,22 @@ class ShadowRunCoordinator:
             "route_decision_digest": (
                 None if route_snapshot is None else route_snapshot.get("digest")
             ),
+            "route_allocation_decision_digest": (
+                None
+                if route_snapshot is None
+                or not isinstance(route_snapshot.get("decision"), dict)
+                else route_snapshot["decision"].get(
+                    "allocation_decision_digest"
+                )
+            ),
+            "route_move_resource_plan_id": (
+                None
+                if route_snapshot is None
+                or not isinstance(route_snapshot.get("decision"), dict)
+                else route_snapshot["decision"].get(
+                    "move_resource_plan_id"
+                )
+            ),
             "authority_evidence_frozen_before_soft_deadline": bool(
                 clock is not None
                 and proposal is not None

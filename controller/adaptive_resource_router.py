@@ -55,6 +55,11 @@ class AdaptiveResourceRoutingError(RoutingError):
     """J10/J12 router cannot preserve its declared allocation contract."""
 
 
+ORCHESTRATED_ROUTE_PROJECTION_VERSION = (
+    "j12-allocation-route-projection-v1"
+)
+
+
 @dataclass(frozen=True)
 class OrchestratedStagedRouteDecision:
     """Deterministic G3-facing projection of the single J10 allocation decision.
@@ -64,6 +69,7 @@ class OrchestratedStagedRouteDecision:
     protocol, while binding the exact AllocationDecision and MoveResourcePlan.
     """
 
+    version: str
     action: str
     buy_extension: bool
     allocation_action: str
@@ -74,6 +80,7 @@ class OrchestratedStagedRouteDecision:
 
     def as_dict(self) -> dict[str, Any]:
         return {
+            "version": self.version,
             "action": self.action,
             "buy_extension": self.buy_extension,
             "allocation_action": self.allocation_action,
@@ -106,6 +113,7 @@ def project_allocation_decision(
             f"cannot project unknown AllocationDecision action: {decision.action!r}"
         )
     return OrchestratedStagedRouteDecision(
+        version=ORCHESTRATED_ROUTE_PROJECTION_VERSION,
         action=action,
         buy_extension=buy,
         allocation_action=decision.action,

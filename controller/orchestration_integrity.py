@@ -1943,6 +1943,16 @@ def verify_orchestration_integrity(
             problems.append(
                 "J11 BUY_BUNDLE qualification requires unique search_id per WorkGrant"
             )
+        optional_stage_ids = {
+            search_id
+            for search_id, stage in stage_by_id.items()
+            if stage.get("phase")
+            in ("EXPLORE", "VERIFY", "STAGED_VERIFY")
+        }
+        if set(authorized_search_ids) != optional_stage_ids:
+            problems.append(
+                "J11 BUY_BUNDLE requires every optional engine stage to be authorized by exactly one WorkGrant"
+            )
         if scheduler_obj is not None:
             expected_grid = {
                 (

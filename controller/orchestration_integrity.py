@@ -941,6 +941,92 @@ def verify_orchestration_integrity(
                     f"budget journal {purpose} CPU spend differs from route"
                 )
 
+    route_contexts = route.get("allocation_contexts")
+    if not isinstance(route_contexts, list) or len(route_contexts) != 1:
+        problems.append("J11 route must contain exactly one allocation context")
+    elif decision is not None and budget_journal:
+        context = route_contexts[0]
+        if not isinstance(context, dict):
+            problems.append("allocation context is not an object")
+        else:
+            snapshot = context.get("budget_snapshot")
+            count = context.get("budget_journal_event_count")
+            if context.get("allocation_id") != decision.allocation_id:
+                problems.append(
+                    "allocation context binds the wrong AllocationDecision"
+                )
+            if not isinstance(snapshot, dict):
+                problems.append("allocation context budget snapshot is missing")
+            else:
+                snapshot_digest = canonical_digest(snapshot)
+                if context.get("budget_snapshot_digest") != snapshot_digest:
+                    problems.append(
+                        "allocation context budget snapshot digest mismatch"
+                    )
+                if decision.budget_snapshot_digest != snapshot_digest:
+                    problems.append(
+                        "AllocationDecision does not bind its sealed budget snapshot"
+                    )
+            if (
+                isinstance(count, bool)
+                or not isinstance(count, int)
+                or count < 0
+                or count > len(budget_journal)
+            ):
+                problems.append(
+                    "allocation context budget journal cut is invalid"
+                )
+            elif isinstance(snapshot, dict):
+                prefix = budget_journal[:count]
+                if context.get("budget_journal_digest") != canonical_digest(prefix):
+                    problems.append(
+                        "allocation context budget journal digest mismatch"
+                    )
+                try:
+                    reconstructed_at_decision = replay_budget_journal(
+                        prefix,
+                        envelope=_mapping(
+                            snapshot.get("envelope"),
+                            "allocation budget envelope",
+                        ),
+                    )
+                    if reconstructed_at_decision[
+                        "open_reservations"
+                    ] != snapshot.get("open_reservations"):
+                        problems.append(
+                            "allocation-time open reservation count does not reconstruct"
+                        )
+                    if not _approx_equal(
+                        reconstructed_at_decision["committed_cpu_ms"],
+                        snapshot.get("committed_cpu_ms"),
+                    ):
+                        problems.append(
+                            "allocation-time committed CPU does not reconstruct"
+                        )
+                    if not _approx_equal(
+                        reconstructed_at_decision["committed_gpu_ms"],
+                        snapshot.get("committed_gpu_ms"),
+                    ):
+                        problems.append(
+                            "allocation-time committed GPU does not reconstruct"
+                        )
+                    if reconstructed_at_decision[
+                        "within_envelope"
+                    ] != snapshot.get("within_envelope"):
+                        problems.append(
+                            "allocation-time envelope result does not reconstruct"
+                        )
+                    if reconstructed_at_decision[
+                        "within_partition_caps"
+                    ] != snapshot.get("within_partition_caps"):
+                        problems.append(
+                            "allocation-time partition result does not reconstruct"
+                        )
+                except Exception as exc:
+                    problems.append(
+                        f"allocation-time budget reconstruction failed: {exc}"
+                    )
+
     scheduler_events = (
         (route.get("work_scheduler") or {}).get("events", [])
         if isinstance(route.get("work_scheduler"), dict)

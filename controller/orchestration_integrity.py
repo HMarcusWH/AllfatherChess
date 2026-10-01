@@ -328,7 +328,7 @@ def seal_orchestration_evidence(
     )
     if (
         bundle_manifest.get("schema_version") != 1
-        or bundle_manifest.get("profile_id") != "engine-opt-v2"
+        or bundle_manifest.get("profile_id") != "online-engine-opt-v2"
     ):
         raise OrchestrationIntegrityError(
             "J11 requires the exact ENGINE-OPT-V2 candidate build manifest"
@@ -1047,7 +1047,7 @@ def verify_orchestration_integrity(
         )
         if (
             engine_bundle.get("schema_version") != 1
-            or engine_bundle.get("profile_id") != "engine-opt-v2"
+            or engine_bundle.get("profile_id") != "online-engine-opt-v2"
         ):
             problems.append("sealed engine bundle has the wrong profile/schema")
         if expected_source_commit is not None:

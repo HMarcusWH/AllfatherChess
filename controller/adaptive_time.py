@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 from typing import Any, Mapping
 
 from common.search_request import SearchRequestError, parse_go_request
@@ -416,6 +416,38 @@ def verify_move_resource_plan_manifest(
             )
         baseline = _time_plan_from_dict(baseline_raw)
         item = MoveResourcePlan.from_dict(raw)
+
+        # A content digest is not an authentication mechanism. Reconstruct the
+        # plan against the repository's frozen J3 catalog rather than accepting
+        # an arbitrarily self-consistent embedded composition/catalog identity.
+        from controller.resource_profile_catalog import load_resource_profile_catalog
+        catalog_path = (
+            Path(__file__).resolve().parents[1]
+            / "qualification"
+            / "resource-profile-catalog-v1.json"
+        )
+        catalog = load_resource_profile_catalog(catalog_path)
+        if catalog.selection_enabled:
+            raise AdaptiveTimeError(
+                "J8 replay verifier refuses runtime-enabled profile selection"
+            )
+        if (
+            item.catalog_id != catalog.catalog_id
+            or item.catalog_digest != catalog.digest
+        ):
+            raise AdaptiveTimeError(
+                "MoveResourcePlan catalog identity differs from frozen J3 catalog"
+            )
+        frozen_composition = catalog.composition(item.composition.composition_id)
+        if item.composition.as_dict() != frozen_composition.as_dict():
+            raise AdaptiveTimeError(
+                "MoveResourcePlan composition differs from frozen J3 catalog"
+            )
+        if item.fallback_profile != catalog.fallback_profile:
+            raise AdaptiveTimeError(
+                "MoveResourcePlan fallback differs from frozen J3 catalog"
+            )
+
         settings = AdaptiveTimeSettings(
             policy=item.policy_id,
             composition_id=item.composition.composition_id,

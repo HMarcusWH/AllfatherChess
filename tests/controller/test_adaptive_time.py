@@ -272,6 +272,10 @@ class AdaptiveTimeTests(unittest.TestCase):
                     lambda: bool(list(tmp.glob("replays/*/route.json"))),
                     timeout=5,
                 )
+                wait_for(
+                    lambda: bool(list(tmp.glob("replays/*/manifest.json"))),
+                    timeout=5,
+                )
 
             run = next(tmp.glob("replays/*"))
             replay = json.loads((run / "manifest.json").read_text())
@@ -315,6 +319,10 @@ class AdaptiveTimeTests(unittest.TestCase):
                 shell.handle_command("go movetime 500")
                 wait_for(
                     lambda: bool(list(tmp.glob("replays/*/route.json"))),
+                    timeout=5,
+                )
+                wait_for(
+                    lambda: bool(list(tmp.glob("replays/*/manifest.json"))),
                     timeout=5,
                 )
 

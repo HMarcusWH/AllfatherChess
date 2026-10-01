@@ -12,7 +12,7 @@ import sys
 import time
 import uuid
 
-from .common import (ARMS, ROOT, contained, file_record, load, policy, require,
+from .common import (ROOT, contained, controller_arm, file_record, load, policy, require,
                      safe_copy_regular_tree, save, sha, source_identity,
                      terminate_token_processes, verify_record)
 from .integrity import input_paths, verify_builds
@@ -22,15 +22,17 @@ from tools.engine_opt.domain import candidate_bundle_identity, load_execution_do
 def schedule(p: dict, mode: str) -> list[dict]:
     require(mode in ("required", "soak"), "unsupported campaign mode")
     jobs = []
+    authority_arm = controller_arm(p)
+    arms = tuple(p["arms"])
     for case in p["lifecycle_cases"]:
         jobs.append({"id": "life-" + case["id"], "kind": "lifecycle",
-                     "arms": ["allfather-g3", "stockfish"], "clock": p[case["clock"]],
+                     "arms": [authority_arm, "stockfish"], "clock": p[case["clock"]],
                      "opening": case["opening"], "restart": case["restart"],
                      "driver_nodes": p["reference_driver_nodes"],
                      "allow_resource_denial": case["id"] == "low-clock"})
     repeats = 1 if mode == "required" else p["soak_repetitions"]
     for repeat in range(repeats):
-        for index, pair in enumerate(itertools.combinations(ARMS, 2)):
+        for index, pair in enumerate(itertools.combinations(arms, 2)):
             jobs.append({"id": f"base-{repeat:02d}-{index:02d}", "kind": "baseline",
                          "arms": list(pair), "clock": p["baseline_clock"],
                          "opening": "history.pgn", "restart": False,
@@ -194,7 +196,7 @@ def prerequisites(output: Path, p: dict, execution_domain_path: Path | None = No
             report=ROOT / report_name
             report.unlink(missing_ok=True)
             argv=[sys.executable, script]
-            if label == "g3-v2":
+            if label in ("g3-v2", "j12"):
                 argv.append("--record-disposition")
             domain_env = (
                 {"ALLFATHER_EXECUTION_DOMAIN_PATH": str(execution_domain_path)}
@@ -280,7 +282,10 @@ def run(mode: str, output: Path, *, shard_index: int = 0, shard_count: int = 1,
     source_id = source_identity()
     execution_domain = None
     candidate_bundle = None
-    if p.get("profile_id") == "local-full-game-v2":
+    if p.get("profile_id") in (
+        "local-full-game-v2",
+        "local-full-game-orchestrated-v1",
+    ):
         require(execution_domain_path is not None,
                 "LOCAL-1-v2 requires canonical execution-domain evidence")
         execution_domain_path = execution_domain_path.resolve()
@@ -326,7 +331,11 @@ def run(mode: str, output: Path, *, shard_index: int = 0, shard_count: int = 1,
         pre.mkdir()
         manifest["prerequisites"] = prerequisites(pre, p, execution_domain_path)
         from .probes import run_probes
-        manifest["rule_probes"] = run_probes(output / "rule-probes", source)
+        manifest["rule_probes"] = run_probes(
+            output / "rule-probes",
+            source,
+            arm=controller_arm(p),
+        )
         from .faults import run_faults
         manifest["fault_cases"] = run_faults(output, p)
         save(output / "manifest.json", manifest)

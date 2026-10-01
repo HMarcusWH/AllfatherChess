@@ -10,8 +10,9 @@ import re
 import statistics
 import sys
 
-from .common import (ARMS, ROOT, QualificationError, contained, file_record, load, policy,
-                     require, sha, source_identity, verify_g3_derivation, verify_record, save)
+from .common import (ROOT, QualificationError, contained, file_record, is_authority_arm,
+                     load, policy, require, sha, source_identity,
+                     verify_controller_derivation, verify_record, save)
 from .runner import schedule, command
 from .integrity import (_clock_ms, finite_metrics, input_paths, parse_go_limits,
                         verify_builds, verify_prerequisites, verify_probes,
@@ -207,10 +208,19 @@ def session_games(directory: Path, arm: str, source: dict, source_runtime: str, 
         metrics = {m["search"]: m for m in summary["search_metrics"]}
         require(len(metrics) == len(summary["search_metrics"]), "duplicate search metrics")
         replays = {}
-        if arm == "allfather-g3":
+        if is_authority_arm(arm):
             config = load(verify_record(session, summary["runtime"]))
-            verify_g3_derivation(source, config, ROOT, session / "replays")
-            require((session / "replays").is_dir(), "G3 emitted moves without replay storage")
+            verify_controller_derivation(
+                source,
+                config,
+                arm,
+                ROOT,
+                session / "replays",
+            )
+            require(
+                (session / "replays").is_dir(),
+                f"{arm} emitted moves without replay storage",
+            )
             for run in (session / "replays").iterdir():
                 if not run.is_dir():
                     continue
@@ -237,7 +247,7 @@ def session_games(directory: Path, arm: str, source: dict, source_runtime: str, 
                 item["metrics"] = metrics[ordinal]
                 item["session_id"] = session.name
                 item["run"] = None
-                if arm == "allfather-g3":
+                if is_authority_arm(arm):
                     require(ordinal in replays, f"missing G3 replay for generation {ordinal}")
                     item["run"] = replays[ordinal]
                     used.add(ordinal)
@@ -304,7 +314,7 @@ def _fastchess_elapsed_ms(node) -> int:
 def _scoreless_timeleft_sentinel(arm: str, node, recorded_ms: int) -> bool:
     """Pinned Fastchess leaves MoveData.timeleft at zero on its scoreless early return."""
     return bool(
-        arm in ("allfather-anchor", "allfather-g3")
+        arm in ("allfather-anchor", "allfather-g3", "allfather-orchestrated")
         and recorded_ms == 0
         and SCORELESS_FASTCHESS.match(node.comment or "")
     )
@@ -379,7 +389,7 @@ def match_game(game, streams: dict[str, list[dict]], allow_denial: bool,
                       "game_ordinal": item["game"], "search": item["search"], "move": move.uci(),
                       "response_ms": (item["received_ns"] - item["sent_ns"]) / 1e6,
                       "observed_cpu_ms": item["metrics"]["cpu_ms_observed"]}
-            if arm == "allfather-g3":
+            if is_authority_arm(arm):
                 detail.update(validate_g3(item, allow_denial))
             plies.append(detail)
             counters[arm] += 1
@@ -398,7 +408,7 @@ def match_game(game, streams: dict[str, list[dict]], allow_denial: bool,
 def qualify(output: Path) -> dict:
     report = {"schema_version": 1, "campaign_id": output.name, "passed": False,
               "errors": [], "games": [], "plies": [], "sessions": [],
-              "baseline": {a: {"W": 0, "D": 0, "L": 0, "games": 0} for a in ARMS},
+              "baseline": {},
               "claim_boundary": {"full_game_lifecycle": False, "same_clock_descriptive_baseline": True,
                                  "equal_compute": False, "elo": False, "superiority": False, "deployment": False}}
     errors = report["errors"]
@@ -413,7 +423,14 @@ def qualify(output: Path) -> dict:
         require(isinstance(policy_record, dict), "campaign policy identity missing")
         policy_file = verify_record(ROOT, policy_record)
         p = policy(path=policy_file)
-        if p.get("profile_id") == "local-full-game-v2":
+        report["baseline"] = {
+            arm: {"W": 0, "D": 0, "L": 0, "games": 0}
+            for arm in p["arms"]
+        }
+        if p.get("profile_id") in (
+            "local-full-game-v2",
+            "local-full-game-orchestrated-v1",
+        ):
             execution_domain = validate_execution_domain(
                 m.get("execution_domain"),
                 expected_source_commit=m["source"]["commit"],

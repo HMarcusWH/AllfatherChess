@@ -32,12 +32,17 @@ def check_transition(case: dict, observed: str):
     return board
 
 
-def run_probes(output: Path, source: dict) -> dict:
+def run_probes(
+    output: Path,
+    source: dict,
+    *,
+    arm: str = "allfather-g3",
+) -> dict:
     from tests.harness.uci_session import UciSession
     from controller.replay import verify_bundle_integrity
     from controller.final_decision import verify_final_decision_integrity
     output.mkdir()
-    config = runtime_config(source, "allfather-g3", ROOT, output / "replays")
+    config = runtime_config(source, arm, ROOT, output / "replays")
     config_path = output / "runtime.json"
     save(config_path, config)
     cases = load(ROOT / "tests/fixtures/local_full_game/rule-probes.json")

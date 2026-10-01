@@ -224,6 +224,10 @@ class AdaptiveResourceRouter(ConservativeRouter):
 
         snapshot = self.ledger.snapshot()
         budget_snapshot_digest = canonical_digest(snapshot)
+        # Freeze the journal cut at exactly the same causal boundary as the
+        # budget snapshot. The allocator's own decision overhead is charged
+        # afterward and therefore must not appear in the reconstructed input.
+        snapshot_journal = self.ledger.journal()
         with self.ledger.controller_overhead(
             "adaptive_resource_decision"
         ):
@@ -244,14 +248,13 @@ class AdaptiveResourceRouter(ConservativeRouter):
             decision,
         )
         if self.audit is not None:
-            journal = self.ledger.journal()
             self.audit.record_allocation_context(
                 {
                     "allocation_id": decision.allocation_id,
                     "budget_snapshot": snapshot,
                     "budget_snapshot_digest": canonical_digest(snapshot),
-                    "budget_journal_event_count": len(journal),
-                    "budget_journal_digest": canonical_digest(journal),
+                    "budget_journal_event_count": len(snapshot_journal),
+                    "budget_journal_digest": canonical_digest(snapshot_journal),
                 }
             )
         if decision.action == BUY_BUNDLE:

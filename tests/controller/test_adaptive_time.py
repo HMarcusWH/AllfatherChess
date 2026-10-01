@@ -8,6 +8,7 @@ import json
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
@@ -23,6 +24,7 @@ from controller.budget import ResourceEnvelope
 from controller.host_capabilities import HOST_CAPABILITIES_VERSION, HostCapabilities
 from controller.online_time import OnlineTimeSettings, make_time_plan
 from controller.resource_profile_catalog import load_resource_profile_catalog
+from tests.controller.online_helpers import shell_fixture, wait_for
 
 
 CATALOG = load_resource_profile_catalog(
@@ -240,6 +242,100 @@ class AdaptiveTimeTests(unittest.TestCase):
             bad = copy.deepcopy(doc)
             mutate(bad)
             self.assertTrue(verify_move_resource_plan_manifest(bad))
+
+    def test_frontend_replay_and_router_carry_additive_plan(self):
+        with shell_fixture() as (shell, manager, shadow, output, tmp):
+            def planner(base):
+                return build_move_resource_plan(
+                    baseline=base,
+                    settings=SETTINGS,
+                    host=host(2),
+                    composition=CATALOG.default_composition,
+                    catalog_id=CATALOG.catalog_id,
+                    catalog_digest=CATALOG.digest,
+                )
+
+            with patch.object(
+                manager,
+                "make_move_resource_plan",
+                side_effect=planner,
+            ):
+                shell.handle_command("go movetime 500")
+                wait_for(
+                    lambda: any(
+                        line.startswith("bestmove ")
+                        for line in output.getvalue().splitlines()
+                    ),
+                    timeout=3,
+                )
+                wait_for(
+                    lambda: bool(list(tmp.glob("replays/*/route.json"))),
+                    timeout=5,
+                )
+
+            run = next(tmp.glob("replays/*"))
+            replay = json.loads((run / "manifest.json").read_text())
+            route = json.loads((run / "route.json").read_text())
+            self.assertIn("time_plan", replay)
+            self.assertIn("move_resource_plan", replay)
+            self.assertEqual(
+                replay["move_resource_plan"],
+                route["move_resource_plan"],
+            )
+            self.assertEqual(
+                replay["move_resource_plan"]["baseline_time_plan_id"],
+                replay["time_plan"]["plan_id"],
+            )
+            self.assertLessEqual(
+                replay["move_resource_plan"]["resource_envelope"]["cpu_ms"],
+                replay["time_plan"]["envelope"]["cpu_ms"],
+            )
+            self.assertEqual(
+                verify_move_resource_plan_manifest(replay),
+                [],
+            )
+
+    def test_frontend_fallback_plan_preserves_baseline_envelope(self):
+        with shell_fixture() as (shell, manager, shadow, output, tmp):
+            def planner(base):
+                return build_move_resource_plan(
+                    baseline=base,
+                    settings=SETTINGS,
+                    host=None,
+                    composition=CATALOG.default_composition,
+                    catalog_id=CATALOG.catalog_id,
+                    catalog_digest=CATALOG.digest,
+                )
+
+            with patch.object(
+                manager,
+                "make_move_resource_plan",
+                side_effect=planner,
+            ):
+                shell.handle_command("go movetime 500")
+                wait_for(
+                    lambda: bool(list(tmp.glob("replays/*/route.json"))),
+                    timeout=5,
+                )
+
+            run = next(tmp.glob("replays/*"))
+            replay = json.loads((run / "manifest.json").read_text())
+            item = replay["move_resource_plan"]
+            self.assertEqual(item["disposition"], "FALLBACK")
+            self.assertEqual(
+                item["resource_envelope"],
+                {
+                    key: replay["time_plan"]["envelope"][key]
+                    for key in (
+                        "wall_ms",
+                        "cpu_ms",
+                        "gpu_ms",
+                        "verification_reserve_fraction",
+                        "refinement_reserve_fraction",
+                        "controller_overhead_reserve_ms",
+                    )
+                },
+            )
 
     def test_j7_operating_points_are_not_runtime_consumed(self):
         runtime = json.loads(

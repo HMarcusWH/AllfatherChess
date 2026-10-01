@@ -105,6 +105,7 @@ orchestration-contract-tests:
 	python3 tests/controller/test_game_environment.py
 	python3 tests/controller/test_work_grant.py
 	python3 tests/controller/test_orchestration_evidence.py
+	python3 tests/controller/test_orchestration_integrity.py
 	python3 tests/controller/test_resource_profile_catalog.py
 	python3 tests/controller/test_runtime_profiles.py
 	python3 tests/adapters/test_linux_affinity.py
@@ -129,6 +130,7 @@ controller-tests:
 	python3 tests/controller/test_game_environment.py
 	python3 tests/controller/test_work_grant.py
 	python3 tests/controller/test_orchestration_evidence.py
+	python3 tests/controller/test_orchestration_integrity.py
 	python3 tests/controller/test_resource_profile_catalog.py
 	python3 tests/controller/test_runtime_profiles.py
 	python3 tests/adapters/test_linux_affinity.py

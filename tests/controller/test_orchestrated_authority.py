@@ -168,6 +168,7 @@ def snapshot(**changes) -> DecisionAuthorizationSnapshot:
         route_decision_digest="c" * 64,
         route_allocation_decision_digest="4" * 64,
         route_move_resource_plan_id="move-plan/" + "2" * 64,
+        orchestration_work_grant_grid_complete=True,
         authority_evidence_frozen_before_soft_deadline=True,
         authority_blocked=False,
     )
@@ -280,6 +281,23 @@ class OrchestratedAuthorityTests(unittest.TestCase):
         )
         self.assertFalse(authorization.authorized)
         self.assertIn("AllocationDecision", authorization.reason)
+
+    def test_j12_rejects_incomplete_work_grant_grid(self):
+        ev = evidence()
+        authorization = authorize_decision(
+            proposal(ev),
+            ev,
+            snapshot(
+                orchestration_provenance=provenance(),
+                orchestration_work_grant_grid_complete=False,
+                orchestration_host_provider_id="linux-host-v2",
+                orchestration_host_capacity_claim=True,
+                orchestration_host_qualification_domain_complete=False,
+            ),
+            policy=ORCHESTRATED_CLOCKED_AUTHORIZATION_POLICY,
+        )
+        self.assertFalse(authorization.authorized)
+        self.assertIn("3x3 WorkGrant grid", authorization.reason)
 
     def test_j12_rejects_open_work_grant(self):
         ev = evidence()

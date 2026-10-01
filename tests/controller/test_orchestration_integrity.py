@@ -231,6 +231,42 @@ class AllocationReconstructionTests(unittest.TestCase):
         with self.assertRaises(Exception):
             AllocationDecision.from_dict(tampered)
 
+    def test_bundle_rollback_is_terminal_but_unresolved_is_not(self):
+        p = replace(base_plan(), allocator_policy_id="adaptive-resource-v1")
+        item = decision(p.plan_id)
+        grant_id = "9" * 64
+        base_route = {
+            "run_id": "run-3",
+            "allocation_decisions": [item.as_dict()],
+            "allocation_contexts": [],
+            "work_scheduler": {
+                "policy_id": "legacy_fixed_workgrant_v1",
+                "catalog_id": "work-grant-scheduler-v1",
+                "catalog_digest": "c" * 64,
+                "settlement_complete": True,
+                "events": [
+                    {
+                        "event": "authorize",
+                        "grant_id": grant_id,
+                        "granted": True,
+                    },
+                    {
+                        "event": "bundle_rollback",
+                        "grant_id": grant_id,
+                        "granted": True,
+                    },
+                ],
+            },
+        }
+        binding = build_authority_binding(move_plan=p, route=base_route)
+        self.assertTrue(binding["work_grant_settlement_complete"])
+        self.assertEqual(binding["open_work_grant_reservations"], 0)
+
+        unresolved = copy.deepcopy(base_route)
+        unresolved["work_scheduler"]["events"][-1]["event"] = "finalize_unresolved"
+        binding = build_authority_binding(move_plan=p, route=unresolved)
+        self.assertFalse(binding["work_grant_settlement_complete"])
+
     def test_authority_binding_is_resource_evidence_only(self):
         p = replace(base_plan(), allocator_policy_id="adaptive-resource-v1")
         item = decision(p.plan_id)

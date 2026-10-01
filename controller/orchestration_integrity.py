@@ -957,6 +957,16 @@ def verify_orchestration_integrity(
     except Exception as exc:
         problems.append(f"parent replay manifest cannot be loaded: {exc}")
     if manifest is not None:
+        if artifact.get("run_id") != manifest.get("run_id"):
+            problems.append("orchestration run_id differs from parent replay")
+        if artifact.get("generation") != manifest.get("generation"):
+            problems.append("orchestration generation differs from parent replay")
+        manifest_position = manifest.get("position")
+        if (
+            not isinstance(manifest_position, dict)
+            or artifact.get("position_id") != manifest_position.get("position_id")
+        ):
+            problems.append("orchestration position differs from parent replay")
         for problem in verify_move_resource_plan_manifest(manifest):
             problems.append(problem)
         for problem in verify_bundle_integrity(run_dir):
@@ -1161,6 +1171,24 @@ def verify_orchestration_integrity(
             route_contexts if isinstance(route_contexts, list) else []
         ):
             problems.append("allocation trace contexts differ from route")
+        expected_trace_rows = _trace_rows(
+            route=route,
+            budget_journal=budget_journal,
+            generation=(
+                plan.generation
+                if plan is not None
+                else artifact.get("generation")
+            ),
+            position_id=(
+                plan.position_id
+                if plan is not None
+                else artifact.get("position_id")
+            ),
+        )
+        if trace_rows != expected_trace_rows:
+            problems.append(
+                "allocation trace row schema/order/identity does not reconstruct"
+            )
         trace_summary = artifact.get("allocation_trace") or {}
         budget_digest = canonical_digest(budget_journal)
         expected_trace_summary = {
@@ -1186,6 +1214,17 @@ def verify_orchestration_integrity(
         budget_journal = []
 
     route_budget = route.get("budget")
+    if plan is not None:
+        expected_envelope = plan.resource_envelope.as_dict()
+        if route.get("envelope") != expected_envelope:
+            problems.append("route envelope differs from sealed MoveResourcePlan")
+        if (
+            not isinstance(route_budget, dict)
+            or route_budget.get("envelope") != expected_envelope
+        ):
+            problems.append(
+                "route budget envelope differs from sealed MoveResourcePlan"
+            )
     replayed_budget: dict[str, Any] | None = None
     if isinstance(route_budget, dict) and budget_journal:
         try:
@@ -1215,6 +1254,10 @@ def verify_orchestration_integrity(
             problems.append("budget journal envelope result differs from route")
         if replayed_budget["within_partition_caps"] != route_budget.get("within_partition_caps"):
             problems.append("budget journal partition result differs from route")
+        if replayed_budget["open_reservations"] != 0:
+            problems.append(
+                "J11 qualification requires zero open BudgetLedger reservations"
+            )
         purpose_totals = route_budget.get("purpose_totals") or {}
         for purpose, spent in replayed_budget["purpose_spent_cpu_ms"].items():
             stored = (purpose_totals.get(purpose) or {}).get("spent_cpu_ms")
@@ -1248,6 +1291,14 @@ def verify_orchestration_integrity(
             if not isinstance(snapshot, dict):
                 problems.append("allocation context budget snapshot is missing")
             else:
+                if (
+                    plan is not None
+                    and snapshot.get("envelope")
+                    != plan.resource_envelope.as_dict()
+                ):
+                    problems.append(
+                        "allocation context envelope differs from sealed MoveResourcePlan"
+                    )
                 snapshot_digest = canonical_digest(snapshot)
                 if context.get("budget_snapshot_digest") != snapshot_digest:
                     problems.append(
@@ -1402,8 +1453,31 @@ def verify_orchestration_integrity(
             problems.append("AllocationDecision does not bind frozen policy")
         if scheduler_obj is not None:
             stored_scheduler = route.get("work_scheduler") or {}
-            if stored_scheduler.get("catalog_digest") != scheduler_obj.catalog.digest:
-                problems.append("route scheduler catalog digest differs from frozen catalog")
+            expected_scheduler_identity = {
+                "policy_id": scheduler_obj.policy_id,
+                "catalog_id": scheduler_obj.catalog.catalog_id,
+                "catalog_digest": scheduler_obj.catalog.digest,
+                "round_count": scheduler_obj.catalog.round_count,
+                "max_grants_per_round": (
+                    scheduler_obj.catalog.max_grants_per_round
+                ),
+            }
+            actual_scheduler_identity = {
+                key: stored_scheduler.get(key)
+                for key in expected_scheduler_identity
+            }
+            if actual_scheduler_identity != expected_scheduler_identity:
+                problems.append(
+                    "route scheduler identity differs from frozen scheduler"
+                )
+            if (
+                plan is not None
+                and stored_scheduler.get("move_resource_plan_id")
+                != plan.plan_id
+            ):
+                problems.append(
+                    "route scheduler parent MoveResourcePlan identity mismatch"
+                )
 
     reserve_by_id = {
         row.get("reservation_id"): row
@@ -1571,6 +1645,31 @@ def verify_orchestration_integrity(
 
         settings = _mapping(resource.get("settings"), "resource.settings")
         coverage = _mapping(resource.get("coverage"), "resource.coverage")
+        expected_resource_settings = {
+            "enabled": True,
+            "provider": "linux-procfs-v1",
+            "require_cpu_for_claim": True,
+            "require_gpu_for_claim": False,
+            "record_memory": True,
+        }
+        if settings != expected_resource_settings:
+            problems.append(
+                "resource settings differ from frozen J10 qualification policy"
+            )
+        if root is not None:
+            try:
+                frozen_config = _load_json(
+                    Path(root) / "config/allfather.m14-j-j10.validation.json",
+                    "frozen J10 config",
+                )
+                if frozen_config.get("resource_measurement") != settings:
+                    problems.append(
+                        "resource settings differ from source-controlled J10 config"
+                    )
+            except Exception as exc:
+                problems.append(
+                    f"frozen J10 resource policy could not be loaded: {exc}"
+                )
         provider_available = (
             isinstance(resource.get("provider"), str)
             and bool(resource.get("provider"))
@@ -1590,6 +1689,10 @@ def verify_orchestration_integrity(
         if stored_cpu_coverage.get("complete") is not cpu_complete:
             problems.append(
                 "resource CPU coverage does not reconstruct from raw evidence"
+            )
+        if not cpu_complete:
+            problems.append(
+                "J11 qualification requires complete CPU measurement coverage"
             )
 
         cpu_required = settings.get("require_cpu_for_claim") is True

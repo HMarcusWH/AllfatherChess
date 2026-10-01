@@ -305,6 +305,10 @@ class OrchestratedAuthorityTests(unittest.TestCase):
 class AllocationProjectionTests(unittest.TestCase):
     def test_projection_is_one_way_from_j10_allocation(self):
         buy = project_allocation_decision(allocation(BUY_BUNDLE))
+        self.assertEqual(
+            buy.version,
+            "j12-allocation-route-projection-v1",
+        )
         self.assertEqual(buy.action, "BUY_STAGED_VERIFY")
         self.assertTrue(buy.buy_extension)
         self.assertEqual(buy.allocation_action, BUY_BUNDLE)

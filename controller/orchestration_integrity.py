@@ -1083,7 +1083,7 @@ def verify_orchestration_integrity(
             )
             expected_contract_files = {
                 "vendor_lock_sha256": "vendor.lock.json",
-                "policy_sha256": "qualification/engine-opt-v2.json",
+                "policy_sha256": "qualification/online-engine-opt-v2.json",
                 "runtime_config_sha256": "config/allfather.online-engine-opt-v2.json",
                 "selection_sha256": "qualification/engine-opt-v2-selection.json",
                 "evidence_sha256": "qualification/engine-opt-v2-evidence.json",

@@ -192,6 +192,9 @@ class Reservation:
     purpose: str
     cpu_ms: float
     gpu_ms: float
+    grant_id: str | None = None
+    profile_id: str | None = None
+    allocator_decision_digest: str | None = None
 
 
 @dataclass
@@ -377,10 +380,52 @@ class BudgetLedger:
         cpu_ms: float,
         gpu_ms: float = 0.0,
         purpose: str = "solver",
+        grant_id: str | None = None,
+        profile_id: str | None = None,
+        allocator_decision_digest: str | None = None,
     ) -> Reservation:
-        """Claim envelope capacity before the work starts."""
+        """Claim envelope capacity before the work starts.
+
+        J9 provenance is optional so every pre-J9 caller preserves exact
+        behavior. When supplied, all three identities are validated before the
+        reservation can enter the ledger.
+        """
         cpu_ms = self._finite_nonnegative(cpu_ms, "cpu reservation")
         gpu_ms = self._finite_nonnegative(gpu_ms, "gpu reservation")
+        if grant_id is not None:
+            if (
+                not isinstance(grant_id, str)
+                or len(grant_id) != 64
+                or any(ch not in "0123456789abcdef" for ch in grant_id)
+            ):
+                raise BudgetError("grant_id must be a lowercase SHA-256 digest")
+        if profile_id is not None and (
+            not isinstance(profile_id, str) or not profile_id
+        ):
+            raise BudgetError("profile_id must be a non-empty string")
+        if allocator_decision_digest is not None:
+            if (
+                not isinstance(allocator_decision_digest, str)
+                or len(allocator_decision_digest) != 64
+                or any(
+                    ch not in "0123456789abcdef"
+                    for ch in allocator_decision_digest
+                )
+            ):
+                raise BudgetError(
+                    "allocator_decision_digest must be a lowercase SHA-256 digest"
+                )
+        provenance = (
+            grant_id,
+            profile_id,
+            allocator_decision_digest,
+        )
+        if any(value is not None for value in provenance) and any(
+            value is None for value in provenance
+        ):
+            raise BudgetError(
+                "grant_id/profile_id/allocator_decision_digest must be supplied together"
+            )
         with self._lock:
             group = self._purpose_class(purpose)
             committed_cpu, committed_gpu = self._committed()
@@ -424,6 +469,9 @@ class BudgetLedger:
                 purpose=purpose,
                 cpu_ms=cpu_ms,
                 gpu_ms=gpu_ms,
+                grant_id=grant_id,
+                profile_id=profile_id,
+                allocator_decision_digest=allocator_decision_digest,
             )
             self._open[reservation.reservation_id] = reservation
             self._purpose_reserved_cpu[group] = self._purpose_reserved_cpu.get(group, 0.0) + cpu_ms

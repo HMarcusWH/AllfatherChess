@@ -54,7 +54,14 @@ from controller.calibration import (
 from common.residuals import past_only_features
 from common.search_request import SearchRequestError, parse_go_request
 from controller.replay import atomic_write_text
-from controller.move_resource_plan import MoveResourcePlan
+from controller.move_resource_plan import ADAPTIVE_DISPOSITION, MoveResourcePlan
+from controller.work_grant import WorkGrant
+from controller.work_scheduler import (
+    GrantAdmission,
+    LegacyFixedWorkGrantScheduler,
+    WorkSchedulerDenied,
+    build_work_scheduler,
+)
 from controller.replay_analysis import SearchTrajectory, reconstruct_stream
 from controller.shadow import RouterCommand
 
@@ -208,6 +215,7 @@ class RouteAudit:
     decisions: list[dict[str, Any]] = field(default_factory=list)
     denials: list[dict[str, Any]] = field(default_factory=list)
     specialist_actions: list[dict[str, Any]] = field(default_factory=list)
+    work_grants: list[dict[str, Any]] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
     value_decisions: list[dict[str, Any]] = field(default_factory=list)
 
@@ -233,6 +241,19 @@ class RouteAudit:
                     "owner": payload.get("owner"),
                     "proposed": payload.get("phase"),
                     "reason": payload.get("reason"),
+                }
+            )
+
+    def record_work_grant(self, payload: dict[str, Any]) -> None:
+        row = dict(payload)
+        self.work_grants.append(row)
+        if not row.get("granted", False):
+            self.denials.append(
+                {
+                    "checkpoint_ms": row.get("checkpoint_ms"),
+                    "owner": row.get("owner"),
+                    "proposed": "work_grant",
+                    "reason": row.get("reason"),
                 }
             )
 
@@ -579,6 +600,7 @@ class ConservativeRouter:
         clock: Callable[[], float] | None = None,
         verify_enabled: bool = False,
         refine_enabled: bool = False,
+        work_scheduler: LegacyFixedWorkGrantScheduler | None = None,
     ) -> None:
         self.envelope = envelope
         self._configured_envelope = envelope
@@ -588,6 +610,7 @@ class ConservativeRouter:
         self._clock = clock
         self.verify_enabled = bool(verify_enabled)
         self.refine_enabled = bool(refine_enabled)
+        self.work_scheduler = work_scheduler
         self.ledger = BudgetLedger(envelope, clock=clock)
         self.audit: RouteAudit | None = None
         self._reservations: dict[str, list[Reservation]] = {}
@@ -595,6 +618,13 @@ class ConservativeRouter:
         self._specialist_reservations: dict[str, Reservation] = {}
         self._specialist_counter = 0
         self._specialist_unresolved = False
+        self._work_grant_reservations: dict[
+            str, tuple[WorkGrant, Reservation, str]
+        ] = {}
+        self._work_grant_counter = 0
+        self._work_grant_keys: set[tuple[int, str]] = set()
+        self._work_grant_search_ids: set[str] = set()
+        self._work_grant_unresolved = False
         self._fallback = False
         self._anchor_bound: tuple[bool, str] = (False, "not evaluated")
         self._anchor_reserved = False
@@ -625,6 +655,8 @@ class ConservativeRouter:
             "open_solver_reservations": sum(
                 len(reservations) for reservations in self._reservations.values()
             ),
+            "open_work_grant_reservations": len(self._work_grant_reservations),
+            "work_grant_settlement_complete": not self._work_grant_unresolved,
             "gpu_accounted": self._gpu_accounted(),
             "controller_fallback_latched": bool(self._fallback),
         }
@@ -711,8 +743,24 @@ class ConservativeRouter:
         self._specialist_reservations = {}
         self._specialist_counter = 0
         self._specialist_unresolved = False
+        self._work_grant_reservations = {}
+        self._work_grant_counter = 0
+        self._work_grant_keys = set()
+        self._work_grant_search_ids = set()
+        self._work_grant_unresolved = False
         self._fallback = False
         self._anchor_reserved = False
+
+        if self.work_scheduler is not None:
+            if not isinstance(resource_plan, MoveResourcePlan):
+                raise RoutingError(
+                    "J9 WorkGrant scheduler requires MoveResourcePlan"
+                )
+            if resource_plan.disposition != ADAPTIVE_DISPOSITION:
+                self.audit.note(
+                    "J9 scheduler bypassed: parent MoveResourcePlan is FALLBACK; "
+                    "exact J8 legacy execution remains in force"
+                )
 
         # Controller work already done for this run -- run preparation and the
         # legal-root oracle -- happened before any reservation existed. Charging
@@ -810,6 +858,300 @@ class ConservativeRouter:
             self._reservations.setdefault(owner, []).append(reservation)
             return True
 
+    @property
+    def work_scheduler_enabled(self) -> bool:
+        return self.work_scheduler is not None
+
+    def propose_work_grant(
+        self,
+        context: Any,
+        *,
+        owner: str,
+        instance: str,
+        phase: str,
+        allocation_round: int,
+        effective_options_digest: str,
+        target_id: str | None = None,
+    ) -> WorkGrant | None:
+        """Translate one fixed J9 stage into a deterministic WorkGrant.
+
+        Proposal performs no reservation. The only resource authority remains
+        authorize_work_grant(), which enters the single BudgetLedger.
+        """
+
+        scheduler = self.work_scheduler
+        plan = getattr(context, "move_resource_plan", None)
+        if scheduler is None or not isinstance(plan, MoveResourcePlan):
+            return None
+        if plan.disposition != ADAPTIVE_DISPOSITION:
+            return None
+        try:
+            with self.ledger.controller_overhead("propose_work_grant"):
+                return scheduler.create_grant(
+                    move_plan=plan,
+                    owner=owner,
+                    instance=instance,
+                    phase=phase,
+                    allocation_round=allocation_round,
+                    effective_options_digest=effective_options_digest,
+                    elapsed_ms=float(context.elapsed_ms()),
+                    target_id=target_id,
+                )
+        except WorkSchedulerDenied as exc:
+            if self.audit is not None:
+                self.audit.record_work_grant(
+                    {
+                        "event": "propose",
+                        "checkpoint_ms": round(float(context.elapsed_ms()), 3),
+                        "owner": owner,
+                        "instance": instance,
+                        "phase": phase,
+                        "allocation_round": allocation_round,
+                        "search_id": None,
+                        "grant_id": None,
+                        "granted": False,
+                        "reason": str(exc),
+                    }
+                )
+            return None
+
+    def authorize_work_grant(
+        self,
+        context: Any,
+        *,
+        grant: WorkGrant,
+        search_id: str,
+    ) -> GrantAdmission | None:
+        """Create the one and only BudgetLedger reservation for a J9 grant."""
+
+        audit = self.audit
+        scheduler = self.work_scheduler
+        plan = getattr(context, "move_resource_plan", None)
+        if audit is None or scheduler is None or not isinstance(plan, MoveResourcePlan):
+            return None
+        reason = "authorized"
+        reservation: Reservation | None = None
+        elapsed = float(context.elapsed_ms())
+        key = (grant.allocation_round, grant.owner)
+
+        with self.ledger.controller_overhead("authorize_work_grant"):
+            grant_valid = True
+            grant_error: str | None = None
+            try:
+                scheduler.validate_grant(move_plan=plan, grant=grant)
+            except WorkSchedulerDenied as exc:
+                grant_valid = False
+                grant_error = str(exc)
+
+            if not grant_valid:
+                reason = f"frozen WorkGrant validation failed: {grant_error}"
+            elif plan.disposition != ADAPTIVE_DISPOSITION:
+                reason = "parent MoveResourcePlan is FALLBACK"
+            elif grant.move_resource_plan_id != plan.plan_id:
+                reason = "grant does not bind the current MoveResourcePlan"
+            elif grant.generation != context.generation:
+                reason = "grant generation differs from current run"
+            elif grant.position_id != context.position.position_id:
+                reason = "grant position differs from current run"
+            elif grant.scheduler_policy_id != scheduler.policy_id:
+                reason = "grant scheduler policy differs from active scheduler"
+            elif grant.allocation_round >= scheduler.catalog.round_count:
+                reason = "grant allocation round exceeds scheduler contract"
+            elif sum(
+                1 for existing in self._work_grant_keys
+                if existing[0] == grant.allocation_round
+            ) >= scheduler.catalog.max_grants_per_round:
+                reason = "grant round already reached max_grants_per_round"
+            elif key in self._work_grant_keys:
+                reason = "owner already admitted in this allocation round"
+            elif grant.grant_id in {
+                row[0].grant_id for row in self._work_grant_reservations.values()
+            }:
+                reason = "grant_id is already in flight"
+            elif search_id in self._work_grant_search_ids:
+                reason = "search_id already owns a WorkGrant"
+            elif grant.wall_deadline_ms > float(plan.soft_budget_ms) + 1e-9:
+                reason = "grant wall deadline exceeds MoveResourcePlan soft deadline"
+            elif elapsed >= grant.wall_deadline_ms:
+                reason = "grant expired before reservation"
+            elif self.ledger.wall_exhausted():
+                reason = "move resource wall envelope is exhausted"
+            elif (
+                getattr(context, "clock", None) is not None
+                and not context.clock.work_open()
+            ):
+                reason = "clock optional-work window is closed"
+            elif self._fallback:
+                reason = "router fallback is active"
+            else:
+                lane = (
+                    f"grant/{grant.allocation_round}/"
+                    f"{grant.owner}/{grant.instance}"
+                )
+                try:
+                    reservation = self.ledger.reserve(
+                        lane,
+                        cpu_ms=grant.reserved_cpu_ms,
+                        gpu_ms=grant.reserved_gpu_ms,
+                        purpose=grant.purpose,
+                        grant_id=grant.grant_id,
+                        profile_id=grant.profile_id,
+                        allocator_decision_digest=grant.allocator_decision_digest,
+                    )
+                except BudgetExceeded as exc:
+                    reason = str(exc)
+
+            if reservation is None:
+                audit.record_work_grant(
+                    {
+                        "event": "authorize",
+                        "checkpoint_ms": round(elapsed, 3),
+                        "owner": grant.owner,
+                        "instance": grant.instance,
+                        "phase": grant.phase,
+                        "allocation_round": grant.allocation_round,
+                        "search_id": search_id,
+                        "grant_id": grant.grant_id,
+                        "grant": grant.as_dict(),
+                        "granted": False,
+                        "reason": reason,
+                    }
+                )
+                return None
+
+            self._work_grant_counter += 1
+            token = (
+                f"wg/{self._work_grant_counter}/"
+                f"{reservation.reservation_id}"
+            )
+            admission = GrantAdmission(
+                token=token,
+                grant=grant,
+                reservation_id=reservation.reservation_id,
+                search_id=search_id,
+            )
+            self._work_grant_reservations[token] = (
+                grant,
+                reservation,
+                search_id,
+            )
+            self._work_grant_keys.add(key)
+            self._work_grant_search_ids.add(search_id)
+            audit.record_work_grant(
+                {
+                    "event": "authorize",
+                    "checkpoint_ms": round(elapsed, 3),
+                    "owner": grant.owner,
+                    "instance": grant.instance,
+                    "phase": grant.phase,
+                    "allocation_round": grant.allocation_round,
+                    "search_id": search_id,
+                    "grant_id": grant.grant_id,
+                    "reservation_id": reservation.reservation_id,
+                    "grant": grant.as_dict(),
+                    "granted": True,
+                    "reason": reason,
+                }
+            )
+            return admission
+
+    def _pop_work_grant(
+        self,
+        admission: GrantAdmission,
+    ) -> tuple[WorkGrant, Reservation, str] | None:
+        row = self._work_grant_reservations.get(admission.token)
+        if row is None:
+            return None
+        grant, reservation, search_id = row
+        if (
+            grant.grant_id != admission.grant.grant_id
+            or reservation.reservation_id != admission.reservation_id
+            or search_id != admission.search_id
+            or reservation.grant_id != grant.grant_id
+            or reservation.profile_id != grant.profile_id
+            or reservation.allocator_decision_digest
+            != grant.allocator_decision_digest
+        ):
+            raise RoutingError("GrantAdmission does not match its BudgetLedger reservation")
+        self._work_grant_reservations.pop(admission.token, None)
+        return row
+
+    def settle_work_grant(
+        self,
+        admission: GrantAdmission,
+        *,
+        actual_wall_ms: float | None = None,
+        threads: int = 1,
+        actual_cpu_ms: float | None = None,
+        measurement_source: str = "estimated_fallback",
+    ) -> None:
+        row = self._pop_work_grant(admission)
+        if row is None:
+            return
+        grant, reservation, search_id = row
+        actual_cpu = actual_cpu_ms
+        source = measurement_source
+        if actual_cpu is None and actual_wall_ms is not None:
+            actual_cpu = max(0.0, float(actual_wall_ms)) * max(1, int(threads))
+            source = "estimated_fallback"
+        if actual_cpu is None:
+            source = "declared_fallback"
+        self.ledger.settle(
+            reservation,
+            actual_cpu_ms=actual_cpu,
+            cpu_source=source,
+        )
+        if self.audit is not None:
+            self.audit.record_work_grant(
+                {
+                    "event": "settle",
+                    "checkpoint_ms": round(self.ledger.elapsed_ms(), 3),
+                    "owner": grant.owner,
+                    "instance": grant.instance,
+                    "phase": grant.phase,
+                    "allocation_round": grant.allocation_round,
+                    "search_id": search_id,
+                    "grant_id": grant.grant_id,
+                    "reservation_id": reservation.reservation_id,
+                    "actual_cpu_ms": (
+                        reservation.cpu_ms
+                        if actual_cpu is None
+                        else float(actual_cpu)
+                    ),
+                    "cpu_source": source,
+                    "granted": True,
+                    "reason": "settled dispatched WorkGrant",
+                }
+            )
+
+    def release_work_grant(
+        self,
+        admission: GrantAdmission,
+        *,
+        reason: str,
+    ) -> None:
+        row = self._pop_work_grant(admission)
+        if row is None:
+            return
+        grant, reservation, search_id = row
+        self.ledger.release(reservation)
+        if self.audit is not None:
+            self.audit.record_work_grant(
+                {
+                    "event": "release",
+                    "checkpoint_ms": round(self.ledger.elapsed_ms(), 3),
+                    "owner": grant.owner,
+                    "instance": grant.instance,
+                    "phase": grant.phase,
+                    "allocation_round": grant.allocation_round,
+                    "search_id": search_id,
+                    "grant_id": grant.grant_id,
+                    "reservation_id": reservation.reservation_id,
+                    "granted": True,
+                    "reason": reason,
+                }
+            )
+
     def on_run_end(self, context: Any) -> None:
         audit = self.audit
         if audit is None:
@@ -841,6 +1183,35 @@ class ConservativeRouter:
             audit.note(
                 f"specialist reservation {token} lacked explicit settlement; "
                 "closed at its estimate and envelope claim invalidated"
+            )
+
+        for token, (grant, reservation, search_id) in list(
+            self._work_grant_reservations.items()
+        ):
+            self.ledger.settle(reservation)
+            self._work_grant_reservations.pop(token, None)
+            self._work_grant_unresolved = True
+            audit.record_work_grant(
+                {
+                    "event": "finalize_unresolved",
+                    "checkpoint_ms": round(self.ledger.elapsed_ms(), 3),
+                    "owner": grant.owner,
+                    "instance": grant.instance,
+                    "phase": grant.phase,
+                    "allocation_round": grant.allocation_round,
+                    "search_id": search_id,
+                    "grant_id": grant.grant_id,
+                    "reservation_id": reservation.reservation_id,
+                    "granted": True,
+                    "reason": (
+                        "WorkGrant lacked explicit settlement; closed at "
+                        "declaration and invalidated scheduler settlement claim"
+                    ),
+                }
+            )
+            audit.note(
+                f"WorkGrant {grant.grant_id} lacked explicit settlement; "
+                "closed at its declaration and J9 settlement claim invalidated"
             )
 
         if self._anchor_reservation is not None:
@@ -908,6 +1279,7 @@ class ConservativeRouter:
                 "reservations_within_envelope": self.ledger.within_envelope(),
                 "specialist_partitions_within_caps": self.ledger.within_partition_caps(),
                 "specialist_settlement_complete": not self._specialist_unresolved,
+                "work_grant_settlement_complete": not self._work_grant_unresolved,
                 # Reservation accounting is about CPU and GPU ceilings. A run can
                 # sit inside both and still have taken longer than the declared
                 # wall envelope -- a slow legal-root oracle alone can do it --
@@ -929,6 +1301,7 @@ class ConservativeRouter:
                     and self.ledger.within_envelope()
                     and self.ledger.within_partition_caps()
                     and not self._specialist_unresolved
+                    and not self._work_grant_unresolved
                     and self.ledger.elapsed_ms() <= self.envelope.wall_ms
                     and resource_qualified
                     and physical_cpu_within
@@ -936,6 +1309,29 @@ class ConservativeRouter:
             },
             "decisions": audit.decisions,
             "specialist_actions": audit.specialist_actions,
+            "work_scheduler": (
+                None
+                if self.work_scheduler is None
+                else {
+                    "policy_id": self.work_scheduler.policy_id,
+                    "catalog_id": self.work_scheduler.catalog.catalog_id,
+                    "catalog_digest": self.work_scheduler.catalog.digest,
+                    "round_count": self.work_scheduler.catalog.round_count,
+                    "max_grants_per_round": (
+                        self.work_scheduler.catalog.max_grants_per_round
+                    ),
+                    "move_resource_plan_id": (
+                        None
+                        if not isinstance(
+                            getattr(context, "move_resource_plan", None),
+                            MoveResourcePlan,
+                        )
+                        else context.move_resource_plan.plan_id
+                    ),
+                    "settlement_complete": not self._work_grant_unresolved,
+                    "events": audit.work_grants,
+                }
+            ),
             "value_decisions": audit.value_decisions,
             "denials": audit.denials,
             "notes": audit.notes,
@@ -1610,6 +2006,15 @@ class ConservativeRouter:
             decision.action in (RouteAction.EXTEND, RouteAction.ABSTAIN_BUY_COMPUTE)
             and decision.granted
         ):
+            if self.work_scheduler is not None:
+                # J9 is a fixed compatibility scheduler, not the J10
+                # allocator. No legacy extension may reserve or dispatch behind
+                # the WorkGrant authority surface.
+                if self.audit is not None:
+                    self.audit.note(
+                        f"legacy extension for {owner} suppressed by J9 fixed WorkGrant scheduler"
+                    )
+                return None
             try:
                 self._reservations.setdefault(owner, []).append(
                     self.ledger.reserve(
@@ -1633,6 +2038,12 @@ def build_router(config: Any) -> ConservativeRouter:
     """Construct the active router from a validated runtime configuration."""
     envelope = ResourceEnvelope.from_config(config.budget)
     policy = RoutingPolicy.from_config(config.routing)
+    work_scheduler = None
+    if getattr(config, "work_scheduler", None) is not None:
+        work_scheduler = build_work_scheduler(
+            settings=config.work_scheduler,
+            root=config.root,
+        )
 
     calibration: ReversalRiskModel | None = None
     source = (config.routing or {}).get("calibration")
@@ -1668,4 +2079,5 @@ def build_router(config: Any) -> ConservativeRouter:
         calibration_source=calibration_source,
         verify_enabled=config.verification is not None,
         refine_enabled=config.refinement is not None,
+        work_scheduler=work_scheduler,
     )

@@ -22,7 +22,12 @@ from controller.resource_profiles import (
     ProfileOption,
     QualificationIdentity,
 )
-from controller.work_grant import NativeLimit, WorkChunk, WorkGrant
+from controller.work_grant import (
+    NativeLimit,
+    WorkChunk,
+    WorkChunkLicense,
+    WorkGrant,
+)
 
 
 SHA_A = "a" * 64
@@ -99,6 +104,9 @@ def grant() -> WorkGrant:
         position_id="position-7",
         owner="lc0",
         instance="lc0-shadow",
+        move_resource_plan_id="move-plan/" + "f" * 64,
+        scheduler_policy_id="legacy-fixed-test-v1",
+        allocation_round=0,
         wall_deadline_ms=950.0,
         effective_options_digest=SHA_A,
         allocator_decision_digest=SHA_B,
@@ -194,12 +202,16 @@ class WorkGrantContractTests(unittest.TestCase):
             position_id=first.position_id,
             owner=first.owner,
             instance=first.instance,
+            move_resource_plan_id=first.move_resource_plan_id,
             profile_id=first.profile_id,
             profile_digest=first.profile_digest,
             phase=first.phase,
             purpose=first.purpose,
             work_chunk_id=first.work_chunk_id,
             work_chunk_digest=first.work_chunk_digest,
+            work_chunk_license_digest=first.work_chunk_license_digest,
+            scheduler_policy_id=first.scheduler_policy_id,
+            allocation_round=first.allocation_round,
             native_limit=first.native_limit,
             reserved_cpu_ms=first.reserved_cpu_ms + 1.0,
             reserved_gpu_ms=first.reserved_gpu_ms,
@@ -241,12 +253,16 @@ class WorkGrantContractTests(unittest.TestCase):
                         position_id=item.position_id,
                         owner=item.owner,
                         instance=item.instance,
+                        move_resource_plan_id=item.move_resource_plan_id,
                         profile_id=item.profile_id,
                         profile_digest=item.profile_digest,
                         phase=item.phase,
                         purpose=item.purpose,
                         work_chunk_id=item.work_chunk_id,
                         work_chunk_digest=item.work_chunk_digest,
+                        work_chunk_license_digest=item.work_chunk_license_digest,
+                        scheduler_policy_id=item.scheduler_policy_id,
+                        allocation_round=item.allocation_round,
                         native_limit=item.native_limit,
                         reserved_cpu_ms=item.reserved_cpu_ms,
                         reserved_gpu_ms=item.reserved_gpu_ms,
@@ -254,6 +270,86 @@ class WorkGrantContractTests(unittest.TestCase):
                         effective_options_digest=item.effective_options_digest,
                         allocator_decision_digest=item.allocator_decision_digest,
                     )
+
+    def test_compatibility_license_can_bind_frozen_empty_profile(self):
+        frozen = profile(chunk_ids=())
+        item = chunk()
+        license_item = WorkChunkLicense(
+            license_id="compat-license/lc0/test",
+            catalog_id="catalog-v1",
+            catalog_digest=SHA_C,
+            profile_id=frozen.profile_id,
+            profile_digest=frozen.digest,
+            work_chunk_ids=(item.chunk_id,),
+            source_policy_digest=SHA_D,
+        )
+        granted = WorkGrant.from_chunk(
+            profile=frozen,
+            chunk=item,
+            compatibility_license=license_item,
+            generation=1,
+            position_id="p1",
+            owner="lc0",
+            instance="lc0-shadow",
+            move_resource_plan_id="move-plan/" + "e" * 64,
+            scheduler_policy_id="legacy-fixed-test-v1",
+            allocation_round=0,
+            wall_deadline_ms=500,
+            effective_options_digest=SHA_A,
+            allocator_decision_digest=SHA_B,
+        )
+        self.assertEqual(
+            granted.work_chunk_license_digest,
+            license_item.digest,
+        )
+        self.assertEqual(granted.move_resource_plan_id, "move-plan/" + "e" * 64)
+        self.assertEqual(granted.allocation_round, 0)
+
+    def test_bad_compatibility_license_fails_closed(self):
+        frozen = profile(chunk_ids=())
+        item = chunk()
+        wrong = WorkChunkLicense(
+            license_id="compat-license/lc0/wrong",
+            catalog_id="catalog-v1",
+            catalog_digest=SHA_C,
+            profile_id=frozen.profile_id,
+            profile_digest=SHA_A,
+            work_chunk_ids=(item.chunk_id,),
+            source_policy_digest=SHA_D,
+        )
+        with self.assertRaises(OrchestrationContractError):
+            WorkGrant.from_chunk(
+                profile=frozen,
+                chunk=item,
+                compatibility_license=wrong,
+                generation=1,
+                position_id="p1",
+                owner="lc0",
+                instance="lc0-shadow",
+                move_resource_plan_id="move-plan/" + "e" * 64,
+                scheduler_policy_id="legacy-fixed-test-v1",
+                allocation_round=0,
+                wall_deadline_ms=500,
+                effective_options_digest=SHA_A,
+                allocator_decision_digest=SHA_B,
+            )
+
+    def test_parent_plan_scheduler_and_round_are_claim_bearing(self):
+        first = grant()
+        raw = first.as_dict()
+        for key, value in (
+            ("move_resource_plan_id", "move-plan/" + "1" * 64),
+            ("scheduler_policy_id", "different-scheduler-v1"),
+            ("allocation_round", 1),
+        ):
+            changed = copy.deepcopy(raw)
+            changed[key] = value
+            changed["grant_id"] = first.grant_id
+            # The old grant id may not authenticate any changed claim.
+            with self.subTest(key=key), self.assertRaises(
+                OrchestrationContractError
+            ):
+                WorkGrant.from_dict(changed)
 
     def test_profile_family_or_chunk_membership_mismatch_is_rejected(self):
         sf_profile = profile(
@@ -269,6 +365,9 @@ class WorkGrantContractTests(unittest.TestCase):
                 position_id="p1",
                 owner="stockfish",
                 instance="stockfish-shadow",
+                move_resource_plan_id="move-plan/" + "f" * 64,
+                scheduler_policy_id="legacy-fixed-test-v1",
+                allocation_round=0,
                 wall_deadline_ms=500,
                 effective_options_digest=SHA_A,
                 allocator_decision_digest=SHA_B,
@@ -283,6 +382,9 @@ class WorkGrantContractTests(unittest.TestCase):
                 position_id="p1",
                 owner="lc0",
                 instance="lc0-shadow",
+                move_resource_plan_id="move-plan/" + "f" * 64,
+                scheduler_policy_id="legacy-fixed-test-v1",
+                allocation_round=0,
                 wall_deadline_ms=500,
                 effective_options_digest=SHA_A,
                 allocator_decision_digest=SHA_B,

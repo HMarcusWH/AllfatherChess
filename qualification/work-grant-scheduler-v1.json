@@ -1,0 +1,201 @@
+{
+  "schema_version": 1,
+  "catalog_id": "work-grant-scheduler-v1",
+  "policy_id": "legacy_fixed_workgrant_v1",
+  "resource_catalog": {
+    "path": "qualification/resource-profile-catalog-v1.json",
+    "catalog_id": "resource-profile-catalog-v1",
+    "catalog_digest": "0adc5e6e71aab984a7df6802a20283a74627090418f11b53ce458fe3bd831621"
+  },
+  "round_count": 3,
+  "max_grants_per_round": 3,
+  "reservation_basis": "legacy_reservation_compatibility_v1",
+  "cost_bound_claim": false,
+  "source_policy": {
+    "dispatch_limits": {
+      "EXPLORE": {
+        "nodes": 16
+      },
+      "VERIFY": {
+        "nodes": 16
+      },
+      "STAGED_VERIFY": {
+        "nodes": 32
+      }
+    },
+    "resource_estimates_ms": {
+      "explore": {
+        "stockfish": 100,
+        "reckless": 100,
+        "lc0": 600
+      },
+      "verify": {
+        "stockfish": 100,
+        "reckless": 100,
+        "lc0": 800
+      }
+    }
+  },
+  "chunks": [
+    {
+      "allocation_round": 0,
+      "profile_id": "stockfish/specialist-engine-opt-v2",
+      "chunk_id": "compat/stockfish/explore/n16",
+      "family": "stockfish",
+      "phase": "EXPLORE",
+      "purpose": "solver",
+      "native_limit": {
+        "kind": "nodes",
+        "value": 16,
+        "semantics": "stockfish.uci_nodes"
+      },
+      "reserved_cpu_ms": 100,
+      "reserved_gpu_ms": 0,
+      "wall_bound_ms": 4000
+    },
+    {
+      "allocation_round": 0,
+      "profile_id": "reckless/specialist-engine-opt-v2",
+      "chunk_id": "compat/reckless/explore/n16",
+      "family": "reckless",
+      "phase": "EXPLORE",
+      "purpose": "solver",
+      "native_limit": {
+        "kind": "nodes",
+        "value": 16,
+        "semantics": "reckless.uci_nodes"
+      },
+      "reserved_cpu_ms": 100,
+      "reserved_gpu_ms": 0,
+      "wall_bound_ms": 4000
+    },
+    {
+      "allocation_round": 0,
+      "profile_id": "lc0/specialist-engine-opt-v2",
+      "chunk_id": "compat/lc0/explore/n16",
+      "family": "lc0",
+      "phase": "EXPLORE",
+      "purpose": "solver",
+      "native_limit": {
+        "kind": "nodes",
+        "value": 16,
+        "semantics": "lc0.uci_nodes"
+      },
+      "reserved_cpu_ms": 600,
+      "reserved_gpu_ms": 0,
+      "wall_bound_ms": 4000
+    },
+    {
+      "allocation_round": 1,
+      "profile_id": "stockfish/specialist-engine-opt-v2",
+      "chunk_id": "compat/stockfish/verify/n16",
+      "family": "stockfish",
+      "phase": "VERIFY",
+      "purpose": "verify",
+      "native_limit": {
+        "kind": "nodes",
+        "value": 16,
+        "semantics": "stockfish.uci_nodes"
+      },
+      "reserved_cpu_ms": 100,
+      "reserved_gpu_ms": 0,
+      "wall_bound_ms": 4000
+    },
+    {
+      "allocation_round": 1,
+      "profile_id": "reckless/specialist-engine-opt-v2",
+      "chunk_id": "compat/reckless/verify/n16",
+      "family": "reckless",
+      "phase": "VERIFY",
+      "purpose": "verify",
+      "native_limit": {
+        "kind": "nodes",
+        "value": 16,
+        "semantics": "reckless.uci_nodes"
+      },
+      "reserved_cpu_ms": 100,
+      "reserved_gpu_ms": 0,
+      "wall_bound_ms": 4000
+    },
+    {
+      "allocation_round": 1,
+      "profile_id": "lc0/specialist-engine-opt-v2",
+      "chunk_id": "compat/lc0/verify/n16",
+      "family": "lc0",
+      "phase": "VERIFY",
+      "purpose": "verify",
+      "native_limit": {
+        "kind": "nodes",
+        "value": 16,
+        "semantics": "lc0.uci_nodes"
+      },
+      "reserved_cpu_ms": 800,
+      "reserved_gpu_ms": 0,
+      "wall_bound_ms": 4000
+    },
+    {
+      "allocation_round": 2,
+      "profile_id": "stockfish/specialist-engine-opt-v2",
+      "chunk_id": "compat/stockfish/staged-verify/n32",
+      "family": "stockfish",
+      "phase": "STAGED_VERIFY",
+      "purpose": "verify",
+      "native_limit": {
+        "kind": "nodes",
+        "value": 32,
+        "semantics": "stockfish.uci_nodes"
+      },
+      "reserved_cpu_ms": 100,
+      "reserved_gpu_ms": 0,
+      "wall_bound_ms": 4000
+    },
+    {
+      "allocation_round": 2,
+      "profile_id": "reckless/specialist-engine-opt-v2",
+      "chunk_id": "compat/reckless/staged-verify/n32",
+      "family": "reckless",
+      "phase": "STAGED_VERIFY",
+      "purpose": "verify",
+      "native_limit": {
+        "kind": "nodes",
+        "value": 32,
+        "semantics": "reckless.uci_nodes"
+      },
+      "reserved_cpu_ms": 100,
+      "reserved_gpu_ms": 0,
+      "wall_bound_ms": 4000
+    },
+    {
+      "allocation_round": 2,
+      "profile_id": "lc0/specialist-engine-opt-v2",
+      "chunk_id": "compat/lc0/staged-verify/n32",
+      "family": "lc0",
+      "phase": "STAGED_VERIFY",
+      "purpose": "verify",
+      "native_limit": {
+        "kind": "nodes",
+        "value": 32,
+        "semantics": "lc0.uci_nodes"
+      },
+      "reserved_cpu_ms": 800,
+      "reserved_gpu_ms": 0,
+      "wall_bound_ms": 4000
+    }
+  ],
+  "authority": {
+    "resource_template": true,
+    "resource_authorization": false,
+    "outward_move": false
+  },
+  "claim_boundary": {
+    "legacy_reservation_compatibility": true,
+    "measured_cost_bound": false,
+    "adaptive_allocation": false,
+    "work_grant_authority": true,
+    "outward_move": false,
+    "strength": false,
+    "elo": false,
+    "equal_compute": false,
+    "deployment": false
+  }
+}

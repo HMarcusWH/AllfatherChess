@@ -1,8 +1,10 @@
 """Typed compute contracts for M14-J.
 
-WorkChunk describes a prequalified unit of engine-native work.  WorkGrant is the
-immutable resource authorization for one concrete generation/position.  Neither
-object grants outward chess-move authority.
+WorkChunk describes a prequalified unit of engine-native work. WorkChunkLicense
+binds a compatibility overlay to one frozen profile without mutating the J3
+catalog. WorkGrant is the immutable resource authorization for one concrete
+generation/position under one MoveResourcePlan. None grants outward chess-move
+authority.
 """
 
 from __future__ import annotations
@@ -21,6 +23,7 @@ from controller.resource_profiles import (
     _finite_positive,
     _instance_id,
     _mapping,
+    _nonnegative_int,
     _phase,
     _positive_int,
     _reject_unknown,
@@ -206,17 +209,138 @@ class WorkChunk:
 
 
 @dataclass(frozen=True)
+class WorkChunkLicense:
+    """Compatibility license for chunks omitted from a frozen J3 profile.
+
+    The J3 catalog remains byte-for-byte frozen with work_chunk_ids=[].
+    J9 may license only an exact catalog/profile digest through this overlay.
+    """
+
+    license_id: str
+    catalog_id: str
+    catalog_digest: str
+    profile_id: str
+    profile_digest: str
+    work_chunk_ids: tuple[str, ...]
+    source_policy_digest: str
+
+    def __post_init__(self) -> None:
+        _safe_id(self.license_id, "work chunk license_id")
+        _safe_id(self.catalog_id, "work chunk catalog_id")
+        _sha256(self.catalog_digest, "work chunk catalog_digest")
+        _safe_id(self.profile_id, "work chunk profile_id")
+        _sha256(self.profile_digest, "work chunk profile_digest")
+        ids = tuple(self.work_chunk_ids)
+        if not ids:
+            raise OrchestrationContractError(
+                "work chunk license must contain at least one chunk id"
+            )
+        for chunk_id in ids:
+            _safe_id(chunk_id, "licensed work chunk id")
+        if len(ids) != len(set(ids)):
+            raise OrchestrationContractError(
+                "work chunk license contains duplicate chunk ids"
+            )
+        object.__setattr__(self, "work_chunk_ids", tuple(sorted(ids)))
+        _sha256(self.source_policy_digest, "source_policy_digest")
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "schema_version": ORCHESTRATION_SCHEMA_VERSION,
+            "license_id": self.license_id,
+            "catalog_id": self.catalog_id,
+            "catalog_digest": self.catalog_digest,
+            "profile_id": self.profile_id,
+            "profile_digest": self.profile_digest,
+            "work_chunk_ids": list(self.work_chunk_ids),
+            "source_policy_digest": self.source_policy_digest,
+            "authority": {
+                "resource_template": True,
+                "resource_authorization": False,
+                "outward_move": False,
+            },
+        }
+
+    @classmethod
+    def from_dict(cls, raw: Mapping[str, Any]) -> "WorkChunkLicense":
+        raw = _mapping(raw, "work chunk license")
+        if raw.get("schema_version") != ORCHESTRATION_SCHEMA_VERSION:
+            raise OrchestrationContractError(
+                "unsupported work chunk license schema_version"
+            )
+        _reject_unknown(
+            raw,
+            {
+                "schema_version",
+                "license_id",
+                "catalog_id",
+                "catalog_digest",
+                "profile_id",
+                "profile_digest",
+                "work_chunk_ids",
+                "source_policy_digest",
+                "authority",
+            },
+            "work chunk license",
+        )
+        if raw.get("authority") != {
+            "resource_template": True,
+            "resource_authorization": False,
+            "outward_move": False,
+        }:
+            raise OrchestrationContractError(
+                "work chunk license authority marker is invalid"
+            )
+        ids = raw.get("work_chunk_ids")
+        if not isinstance(ids, list):
+            raise OrchestrationContractError(
+                "work_chunk_ids must be an array"
+            )
+        return cls(
+            license_id=raw.get("license_id"),
+            catalog_id=raw.get("catalog_id"),
+            catalog_digest=raw.get("catalog_digest"),
+            profile_id=raw.get("profile_id"),
+            profile_digest=raw.get("profile_digest"),
+            work_chunk_ids=tuple(ids),
+            source_policy_digest=raw.get("source_policy_digest"),
+        )
+
+    @property
+    def digest(self) -> str:
+        return canonical_digest(self.as_dict())
+
+
+def _direct_profile_license_digest(
+    profile: EngineResourceProfile,
+    chunk: WorkChunk,
+) -> str:
+    return canonical_digest(
+        {
+            "license_kind": "profile-work-chunk-id-v1",
+            "profile_id": profile.profile_id,
+            "profile_digest": profile.digest,
+            "work_chunk_id": chunk.chunk_id,
+        }
+    )
+
+
+@dataclass(frozen=True)
 class WorkGrant:
     generation: int
     position_id: str
     owner: str
     instance: str
+    move_resource_plan_id: str
     profile_id: str
     profile_digest: str
     phase: str
     purpose: str
     work_chunk_id: str
     work_chunk_digest: str
+    work_chunk_license_digest: str
+    scheduler_policy_id: str
+    allocation_round: int
     native_limit: NativeLimit
     reserved_cpu_ms: float
     reserved_gpu_ms: float
@@ -229,6 +353,7 @@ class WorkGrant:
         _instance_id(self.position_id, "position_id")
         owner = _family(self.owner, "owner")
         _instance_id(self.instance, "instance")
+        _safe_id(self.move_resource_plan_id, "move_resource_plan_id")
         _safe_id(self.profile_id, "profile_id")
         _sha256(self.profile_digest, "profile_digest")
         phase = _phase(self.phase)
@@ -239,6 +364,12 @@ class WorkGrant:
             )
         _safe_id(self.work_chunk_id, "work_chunk_id")
         _sha256(self.work_chunk_digest, "work_chunk_digest")
+        _sha256(
+            self.work_chunk_license_digest,
+            "work_chunk_license_digest",
+        )
+        _safe_id(self.scheduler_policy_id, "scheduler_policy_id")
+        _nonnegative_int(self.allocation_round, "allocation_round")
         if not isinstance(self.native_limit, NativeLimit):
             raise OrchestrationContractError("native_limit must be NativeLimit")
         self.native_limit.validate_for_family(owner)
@@ -265,12 +396,16 @@ class WorkGrant:
             "position_id": self.position_id,
             "owner": self.owner,
             "instance": self.instance,
+            "move_resource_plan_id": self.move_resource_plan_id,
             "profile_id": self.profile_id,
             "profile_digest": self.profile_digest,
             "phase": self.phase,
             "purpose": self.purpose,
             "work_chunk_id": self.work_chunk_id,
             "work_chunk_digest": self.work_chunk_digest,
+            "work_chunk_license_digest": self.work_chunk_license_digest,
+            "scheduler_policy_id": self.scheduler_policy_id,
+            "allocation_round": self.allocation_round,
             "native_limit": self.native_limit.as_dict(),
             "reserved_cpu_ms": float(self.reserved_cpu_ms),
             "reserved_gpu_ms": float(self.reserved_gpu_ms),
@@ -301,31 +436,32 @@ class WorkGrant:
             raise OrchestrationContractError(
                 f"unsupported work grant schema_version: {raw.get('schema_version')!r}"
             )
-        _reject_unknown(
-            raw,
-            {
-                "grant_id",
-                "schema_version",
-                "generation",
-                "position_id",
-                "owner",
-                "instance",
-                "profile_id",
-                "profile_digest",
-                "phase",
-                "purpose",
-                "work_chunk_id",
-                "work_chunk_digest",
-                "native_limit",
-                "reserved_cpu_ms",
-                "reserved_gpu_ms",
-                "wall_deadline_ms",
-                "effective_options_digest",
-                "allocator_decision_digest",
-                "authority",
-            },
-            "work grant",
-        )
+        allowed = {
+            "grant_id",
+            "schema_version",
+            "generation",
+            "position_id",
+            "owner",
+            "instance",
+            "move_resource_plan_id",
+            "profile_id",
+            "profile_digest",
+            "phase",
+            "purpose",
+            "work_chunk_id",
+            "work_chunk_digest",
+            "work_chunk_license_digest",
+            "scheduler_policy_id",
+            "allocation_round",
+            "native_limit",
+            "reserved_cpu_ms",
+            "reserved_gpu_ms",
+            "wall_deadline_ms",
+            "effective_options_digest",
+            "allocator_decision_digest",
+            "authority",
+        }
+        _reject_unknown(raw, allowed, "work grant")
         authority = raw.get("authority")
         if authority != {
             "resource_authorization": True,
@@ -337,12 +473,18 @@ class WorkGrant:
             position_id=raw.get("position_id"),
             owner=raw.get("owner"),
             instance=raw.get("instance"),
+            move_resource_plan_id=raw.get("move_resource_plan_id"),
             profile_id=raw.get("profile_id"),
             profile_digest=raw.get("profile_digest"),
             phase=raw.get("phase"),
             purpose=raw.get("purpose"),
             work_chunk_id=raw.get("work_chunk_id"),
             work_chunk_digest=raw.get("work_chunk_digest"),
+            work_chunk_license_digest=raw.get(
+                "work_chunk_license_digest"
+            ),
+            scheduler_policy_id=raw.get("scheduler_policy_id"),
+            allocation_round=raw.get("allocation_round"),
             native_limit=NativeLimit.from_dict(raw.get("native_limit", {})),
             reserved_cpu_ms=raw.get("reserved_cpu_ms"),
             reserved_gpu_ms=raw.get("reserved_gpu_ms"),
@@ -367,9 +509,13 @@ class WorkGrant:
         position_id: str,
         owner: str,
         instance: str,
+        move_resource_plan_id: str,
+        scheduler_policy_id: str,
+        allocation_round: int,
         wall_deadline_ms: float,
         effective_options_digest: str,
         allocator_decision_digest: str,
+        compatibility_license: WorkChunkLicense | None = None,
     ) -> "WorkGrant":
         if not isinstance(profile, EngineResourceProfile):
             raise OrchestrationContractError("profile must be EngineResourceProfile")
@@ -379,22 +525,41 @@ class WorkGrant:
             raise OrchestrationContractError(
                 "work grant owner, profile family and chunk family must match"
             )
-        if chunk.chunk_id not in profile.work_chunk_ids:
-            raise OrchestrationContractError(
-                f"profile {profile.profile_id!r} does not license chunk "
-                f"{chunk.chunk_id!r}"
-            )
+
+        if chunk.chunk_id in profile.work_chunk_ids:
+            license_digest = _direct_profile_license_digest(profile, chunk)
+        else:
+            if not isinstance(compatibility_license, WorkChunkLicense):
+                raise OrchestrationContractError(
+                    f"profile {profile.profile_id!r} does not directly license "
+                    f"chunk {chunk.chunk_id!r}; exact compatibility license required"
+                )
+            if (
+                compatibility_license.profile_id != profile.profile_id
+                or compatibility_license.profile_digest != profile.digest
+                or chunk.chunk_id not in compatibility_license.work_chunk_ids
+            ):
+                raise OrchestrationContractError(
+                    "compatibility WorkChunkLicense does not bind this exact "
+                    "profile/chunk identity"
+                )
+            license_digest = compatibility_license.digest
+
         return cls(
             generation=generation,
             position_id=position_id,
             owner=owner,
             instance=instance,
+            move_resource_plan_id=move_resource_plan_id,
             profile_id=profile.profile_id,
             profile_digest=profile.digest,
             phase=chunk.phase,
             purpose=chunk.purpose,
             work_chunk_id=chunk.chunk_id,
             work_chunk_digest=chunk.digest,
+            work_chunk_license_digest=license_digest,
+            scheduler_policy_id=scheduler_policy_id,
+            allocation_round=allocation_round,
             native_limit=chunk.native_limit,
             reserved_cpu_ms=chunk.reserved_cpu_ms,
             reserved_gpu_ms=chunk.reserved_gpu_ms,

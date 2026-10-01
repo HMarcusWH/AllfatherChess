@@ -40,6 +40,10 @@ from controller.routing import build_router
 from controller.runtime import BackendManager, load_runtime_config
 from controller.shadow import ShadowRunCoordinator
 from controller.uci_frontend import UciFrontend
+from tools.engine_opt.domain import (
+    candidate_bundle_identity,
+    load_execution_domain,
+)
 
 
 CONFIG = ROOT / "config/allfather.orchestrated-v1.validation.json"
@@ -205,6 +209,19 @@ def mechanism_run() -> dict[str, object]:
     parent_problems = verify_bundle_integrity(run)
     require(not parent_problems, f"J12 parent replay invalid: {parent_problems}")
     expected_source = os.environ.get("ALLFATHER_SOURCE_SHA")
+    domain_path = os.environ.get("ALLFATHER_EXECUTION_DOMAIN_PATH")
+    require(
+        isinstance(domain_path, str) and domain_path,
+        "J12 real qualification requires a bound execution domain",
+    )
+    execution_domain = load_execution_domain(
+        Path(domain_path),
+        expected_source_commit=expected_source,
+    )
+    candidate_bundle = candidate_bundle_identity(
+        ROOT / "build/online-engine-opt-v2",
+        expected_source_commit=expected_source,
+    )
     orchestration_problems = verify_orchestrated_composition_integrity(
         run,
         root=ROOT,
@@ -297,11 +314,25 @@ def mechanism_run() -> dict[str, object]:
             "synthetic host fallback did not identify the host-evidence gate",
         )
 
+    case = {
+        "run_id": run.name,
+        "authority": decision.get("authority"),
+        "authorization_granted": authorization.get("authorized"),
+        "anchor_move": decision.get("anchor_move"),
+        "proposal_move": decision.get("proposal_move"),
+        "emitted_move": decision.get("emitted_move"),
+        "synthetic_capacity_observation": synthetic,
+    }
     return {
         "schema_version": 1,
         "profile_id": "allfather.orchestrated-v1",
+        "passed": True,
         "source_commit": expected_source,
         "run_id": run.name,
+        "execution_domain": execution_domain,
+        "candidate_bundle": candidate_bundle,
+        "cases": [case],
+        "positive_case": case if authority_qualified else None,
         "mechanism_valid": True,
         "authority_qualified": authority_qualified,
         "qualification_disposition": (

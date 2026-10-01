@@ -120,9 +120,44 @@ def mechanism_run() -> dict[str, object]:
     replay_root.mkdir(parents=True, exist_ok=True)
     known = {p.name for p in discover_replay_bundles(replay_root).bundles}
 
+    expected_source = os.environ.get("ALLFATHER_SOURCE_SHA")
+    domain_path = os.environ.get("ALLFATHER_EXECUTION_DOMAIN_PATH")
+    require(
+        isinstance(domain_path, str) and domain_path,
+        "J12 real qualification requires a bound execution domain",
+    )
+    execution_domain = load_execution_domain(
+        Path(domain_path),
+        expected_source_commit=expected_source,
+    )
+    candidate_bundle = candidate_bundle_identity(
+        ROOT / "build/online-engine-opt-v2",
+        expected_source_commit=expected_source,
+    )
+
     manager = BackendManager.from_path(CONFIG)
     observed = manager._adaptive_host
     require(observed is not None, "J12 mechanism contract lacks HostCapabilities")
+    observed_real = observed
+    domain_host = execution_domain.get("host_capabilities")
+    require(
+        isinstance(domain_host, dict),
+        "J12 execution domain lacks retained HostCapabilities",
+    )
+    from controller.host_capabilities import HostCapabilities
+    retained_host = HostCapabilities.from_dict(domain_host)
+    if execution_domain.get("binding_scope") == "exact_host_observation":
+        require(
+            observed_real.digest == retained_host.digest,
+            "J12 live host differs from the exact bound execution-domain observation",
+        )
+    else:
+        require(
+            observed_real.qualification_domain_complete
+            and observed_real.qualification_domain_digest
+            == retained_host.qualification_domain_digest,
+            "J12 live host differs from the reusable bound execution domain",
+        )
     require(
         observed.allowed_cpus is not None and len(observed.allowed_cpus) >= 2,
         "J12 real-engine mechanism requires at least two visible CPUs",
@@ -215,20 +250,6 @@ def mechanism_run() -> dict[str, object]:
 
     parent_problems = verify_bundle_integrity(run)
     require(not parent_problems, f"J12 parent replay invalid: {parent_problems}")
-    expected_source = os.environ.get("ALLFATHER_SOURCE_SHA")
-    domain_path = os.environ.get("ALLFATHER_EXECUTION_DOMAIN_PATH")
-    require(
-        isinstance(domain_path, str) and domain_path,
-        "J12 real qualification requires a bound execution domain",
-    )
-    execution_domain = load_execution_domain(
-        Path(domain_path),
-        expected_source_commit=expected_source,
-    )
-    candidate_bundle = candidate_bundle_identity(
-        ROOT / "build/online-engine-opt-v2",
-        expected_source_commit=expected_source,
-    )
     orchestration_problems = verify_orchestrated_composition_integrity(
         run,
         root=ROOT,

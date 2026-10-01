@@ -363,6 +363,8 @@ jobs:
             --expected-source-commit "$ALLFATHER_SOURCE_SHA" \
             --output build/test-results/engine-opt-v2-profile-domain/j11/report.json
       - name: Exercise J12 orchestrated composition fail-closed authority
+        env:
+          ALLFATHER_EXECUTION_DOMAIN_PATH: build/test-results/engine-opt-v2-profile-domain/execution-domain.json
         run: python3 scripts/qualify-resource-orchestration.py --record-disposition
       - name: Build pinned Fastchess against source-test attestation
         run: make -f Makefile.local-game build-fastchess
@@ -375,6 +377,13 @@ jobs:
             --policy qualification/local-full-game-v2.json \
             --execution-domain build/test-results/engine-opt-v2-profile-domain/execution-domain.json \
             --output build/test-results/engine-opt-v2-profile-domain/local1/campaign
+      - name: Qualify J12 orchestrated lifecycle on the same bound worker
+        run: |
+          python3 -m tools.local_game.runner \
+            --mode required \
+            --policy qualification/local-full-game-orchestrated-v1.json \
+            --execution-domain build/test-results/engine-opt-v2-profile-domain/execution-domain.json \
+            --output build/test-results/engine-opt-v2-profile-domain/j12-local1/campaign
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:

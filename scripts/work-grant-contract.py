@@ -71,24 +71,43 @@ def main() -> int:
         "J9 real-engine mechanism contract lacks sufficient observed memory",
     )
 
-    synthetic_quota = False
-    if observed.cpu_quota_status == "unknown":
-        # J8 correctly falls back for this real hosted-runner ambiguity. J9's
-        # positive mechanism witness needs the ADAPTIVE branch, so replace only
-        # that missing observation for this test process. Do not promote it as
-        # a host qualification.
-        observed = replace(
-            observed,
-            provider_id="j9-real-engines-synthetic-quota",
-            cpu_quota_status="unlimited",
-            cpu_quota_equivalents=None,
-            capacity_complete=True,
-            qualification_domain_complete=False,
-        )
-        synthetic_quota = True
     require(
-        observed.cpu_quota_status in ("unlimited", "limited"),
-        "J9 mechanism host still lacks a usable quota state",
+        observed.platform != "unknown" and observed.architecture != "unknown",
+        "J9 mechanism contract requires observed platform/architecture",
+    )
+    synthetic_capacity_fields: list[str] = []
+    replacement: dict[str, object] = {}
+    if observed.cpu_quota_status == "unknown":
+        # J8 correctly falls back for this hosted-runner ambiguity. J9's
+        # positive witness is explicitly mechanism-only, so this process may
+        # synthesize a conservative usable quota state without promoting it as
+        # host/composition qualification.
+        replacement["cpu_quota_status"] = "unlimited"
+        replacement["cpu_quota_equivalents"] = None
+        synthetic_capacity_fields.append("cpu_quota_status")
+    if observed.cgroup_memory_status == "unknown":
+        # We already require a positive observed effective memory ceiling above.
+        # Give the synthetic HostCapabilities object an internally consistent
+        # cgroup status/limit for this mechanism witness only; the report keeps
+        # the synthetic fact explicit and never claims portability.
+        replacement["cgroup_memory_status"] = "limited"
+        replacement["cgroup_memory_limit_bytes"] = (
+            observed.effective_memory_limit_bytes
+        )
+        synthetic_capacity_fields.append("cgroup_memory_status")
+    if replacement:
+        replacement["provider_id"] = "j9-real-engines-synthetic-capacity"
+        replacement["capacity_complete"] = True
+        replacement["qualification_domain_complete"] = bool(
+            observed.cpu_identity_complete
+        )
+        observed = replace(observed, **replacement)
+
+    require(
+        observed.cpu_quota_status in ("unlimited", "limited")
+        and observed.cgroup_memory_status in ("unlimited", "limited")
+        and observed.capacity_complete,
+        "J9 mechanism host still lacks a complete synthetic capacity state",
     )
     manager._adaptive_host = observed
     manager._adaptive_host_error = None
@@ -308,7 +327,8 @@ def main() -> int:
         "passed": True,
         "config": str(CONFIG.relative_to(ROOT)),
         "run_id": run.name,
-        "synthetic_quota_observation": synthetic_quota,
+        "synthetic_capacity_fields": synthetic_capacity_fields,
+        "synthetic_capacity_observation": bool(synthetic_capacity_fields),
         "real_engine_processes": True,
         "move_resource_plan_id": move_plan.get("plan_id"),
         "move_resource_disposition": move_plan.get("disposition"),

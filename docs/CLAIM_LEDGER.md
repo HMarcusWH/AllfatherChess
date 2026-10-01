@@ -169,6 +169,8 @@
   exact-head engine bundle,
   plan and allocation trace used by reconstruction; no child artifact has to hash a later
   parent, avoiding circular evidence;
+- ENGINE-OPT-V2 retains the complete validated J11 replay beside the qualification
+  report and re-validates the copied evidence bundle before artifact upload;
 - the independent validator reconstructs J10 AllocationDecision identity, J9 WorkGrant
   legality, effective engine options/native limits, reservation provenance, admission-time
   affordability, settlement arithmetic, host/composition capacity and physical CPU totals;

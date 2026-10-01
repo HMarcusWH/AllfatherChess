@@ -198,7 +198,21 @@ def build_authority_binding(
     if not isinstance(events, list):
         raise OrchestrationIntegrityError("work_scheduler.events must be an array")
     authorized, settled, released, unresolved = _terminal_grant_state(events)
-    terminal = set(settled) | set(released) | set(unresolved)
+    if len(authorized) != len(set(authorized)):
+        raise OrchestrationIntegrityError(
+            "route contains duplicate authorized WorkGrant identities"
+        )
+    terminal_rows = [*settled, *released, *unresolved]
+    if len(terminal_rows) != len(set(terminal_rows)):
+        raise OrchestrationIntegrityError(
+            "route contains multiple terminal events for one WorkGrant"
+        )
+    unknown_terminal = set(terminal_rows) - set(authorized)
+    if unknown_terminal:
+        raise OrchestrationIntegrityError(
+            "route contains terminal WorkGrant events without authorization"
+        )
+    terminal = set(terminal_rows)
     open_ids = set(authorized) - terminal
     settlement_complete = bool(
         scheduler.get("settlement_complete") is True

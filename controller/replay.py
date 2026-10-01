@@ -573,6 +573,10 @@ class ReplayRun:
     move_resource_plan: dict[str, Any] | None = None
     clock_outcome: dict[str, Any] | None = None
     outward_decision: dict[str, Any] | None = None
+    #: J11 post-run orchestration evidence summary. The sealed artifact hashes
+    #: route/resource/allocation sources but never the parent manifest, so the
+    #: manifest can bind it without creating a hash cycle.
+    orchestration_evidence: dict[str, Any] | None = None
 
     # -- streams -------------------------------------------------------------
 
@@ -740,6 +744,14 @@ class ReplayRun:
                 manifest["move_resource_plan"] = self.move_resource_plan
             if self.outward_decision is not None:
                 manifest["outward_decision"] = self.outward_decision
+            if self.orchestration_evidence is not None:
+                manifest["orchestration_evidence"] = json.loads(
+                    json.dumps(
+                        self.orchestration_evidence,
+                        sort_keys=True,
+                        allow_nan=False,
+                    )
+                )
             payload = json.dumps(manifest, indent=2, sort_keys=True) + "\n"
 
             atomic_write_text(self.run_dir / "manifest.json", payload)
@@ -835,6 +847,29 @@ def verify_bundle_integrity(run_dir: Path) -> list[str]:
     from controller.adaptive_time import verify_move_resource_plan_manifest
     problems: list[str] = verify_time_manifest(manifest)
     problems.extend(verify_move_resource_plan_manifest(manifest))
+
+    orchestration = manifest.get("orchestration_evidence")
+    if orchestration is not None:
+        if not isinstance(orchestration, dict):
+            problems.append("manifest orchestration_evidence is not an object")
+        else:
+            relative = orchestration.get("path")
+            stored_sha = orchestration.get("sha256")
+            evidence_id = orchestration.get("evidence_id")
+            if relative != "orchestration.json":
+                problems.append("manifest orchestration_evidence path is invalid")
+            elif not isinstance(stored_sha, str) or len(stored_sha) != 64:
+                problems.append("manifest orchestration_evidence SHA is invalid")
+            elif not isinstance(evidence_id, str) or not evidence_id.startswith(
+                "orchestration/"
+            ):
+                problems.append("manifest orchestration evidence_id is invalid")
+            else:
+                source = Path(run_dir) / relative
+                if not source.is_file():
+                    problems.append("manifest orchestration evidence file is missing")
+                elif sha256_file(source) != stored_sha:
+                    problems.append("manifest orchestration evidence SHA mismatch")
 
     stages = manifest.get("stages", [])
     stage_by_search: dict[str, dict[str, Any]] = {}

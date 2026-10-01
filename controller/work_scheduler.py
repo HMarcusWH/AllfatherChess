@@ -699,7 +699,11 @@ class LegacyFixedWorkGrantScheduler:
             )
         if not isinstance(effective_options_digest, str) or len(effective_options_digest) != 64:
             raise WorkSchedulerDenied("effective_options_digest must be SHA-256")
-        target = None if target_id is None else str(target_id)
+        # J9 is a compatibility scheduler, not an allocator. Candidate-set/
+        # target identity does not choose the chunk, so it is deliberately not
+        # part of this mechanical decision digest. J10 will introduce a
+        # claim-bearing allocation-decision object when evidence can choose
+        # among grants.
         decision_digest = canonical_digest(
             {
                 "decision_kind": "compat-decision-v1",
@@ -712,7 +716,6 @@ class LegacyFixedWorkGrantScheduler:
                 "owner": family,
                 "instance": instance,
                 "work_chunk_id": scheduled.chunk.chunk_id,
-                "target_id": target,
             }
         )
         license_item = self.catalog.license_for(
@@ -734,6 +737,111 @@ class LegacyFixedWorkGrantScheduler:
             effective_options_digest=effective_options_digest,
             allocator_decision_digest=decision_digest,
         )
+
+
+    def validate_grant(
+        self,
+        *,
+        move_plan: MoveResourcePlan,
+        grant: WorkGrant,
+    ) -> None:
+        """Independently validate a proposed J9 grant against the frozen grid.
+
+        The BudgetLedger authority must not trust a producer-written WorkGrant.
+        Recompute every static compatibility identity before reservation.
+        """
+
+        if not isinstance(move_plan, MoveResourcePlan):
+            raise WorkSchedulerDenied("J9 grant validation requires MoveResourcePlan")
+        if not isinstance(grant, WorkGrant):
+            raise WorkSchedulerDenied("J9 grant validation requires WorkGrant")
+        if move_plan.disposition != ADAPTIVE_DISPOSITION:
+            raise WorkSchedulerDenied(
+                "J9 WorkGrants require an ADAPTIVE parent MoveResourcePlan"
+            )
+        if grant.move_resource_plan_id != move_plan.plan_id:
+            raise WorkSchedulerDenied("grant parent MoveResourcePlan mismatch")
+        if (
+            grant.generation != move_plan.generation
+            or grant.position_id != move_plan.position_id
+        ):
+            raise WorkSchedulerDenied("grant generation/position mismatch")
+        if grant.scheduler_policy_id != self.policy_id:
+            raise WorkSchedulerDenied("grant scheduler policy mismatch")
+        if grant.allocation_round >= self.catalog.round_count:
+            raise WorkSchedulerDenied("grant allocation round exceeds J9 contract")
+
+        scheduled = self.catalog.chunk_for(
+            allocation_round=grant.allocation_round,
+            family=grant.owner,
+            phase=grant.phase,
+        )
+        profile = self.resource_catalog.profile(scheduled.profile_id)
+        bound = self.resource_catalog.profile_for_instance(
+            grant.instance,
+            composition_id=move_plan.composition.composition_id,
+        )
+        if (
+            bound.profile_id != profile.profile_id
+            or bound.digest != profile.digest
+        ):
+            raise WorkSchedulerDenied(
+                "grant instance/profile differs from parent composition"
+            )
+        license_item = self.catalog.license_for(
+            profile.profile_id,
+            scheduled.chunk.chunk_id,
+        )
+        expected = {
+            "profile_id": profile.profile_id,
+            "profile_digest": profile.digest,
+            "purpose": scheduled.chunk.purpose,
+            "work_chunk_id": scheduled.chunk.chunk_id,
+            "work_chunk_digest": scheduled.chunk.digest,
+            "work_chunk_license_digest": license_item.digest,
+            "native_limit": scheduled.chunk.native_limit.as_dict(),
+            "reserved_cpu_ms": float(scheduled.chunk.reserved_cpu_ms),
+            "reserved_gpu_ms": float(scheduled.chunk.reserved_gpu_ms),
+        }
+        actual = {
+            "profile_id": grant.profile_id,
+            "profile_digest": grant.profile_digest,
+            "purpose": grant.purpose,
+            "work_chunk_id": grant.work_chunk_id,
+            "work_chunk_digest": grant.work_chunk_digest,
+            "work_chunk_license_digest": grant.work_chunk_license_digest,
+            "native_limit": grant.native_limit.as_dict(),
+            "reserved_cpu_ms": float(grant.reserved_cpu_ms),
+            "reserved_gpu_ms": float(grant.reserved_gpu_ms),
+        }
+        if actual != expected:
+            raise WorkSchedulerDenied(
+                "grant static profile/chunk/license/resource identity differs "
+                "from frozen J9 compatibility policy"
+            )
+
+        expected_decision = canonical_digest(
+            {
+                "decision_kind": "compat-decision-v1",
+                "scheduler_policy_id": self.policy_id,
+                "move_resource_plan_id": move_plan.plan_id,
+                "generation": move_plan.generation,
+                "position_id": move_plan.position_id,
+                "allocation_round": grant.allocation_round,
+                "phase": grant.phase,
+                "owner": grant.owner,
+                "instance": grant.instance,
+                "work_chunk_id": scheduled.chunk.chunk_id,
+            }
+        )
+        if grant.allocator_decision_digest != expected_decision:
+            raise WorkSchedulerDenied(
+                "grant allocator_decision_digest does not reconstruct"
+            )
+        if grant.wall_deadline_ms > float(move_plan.soft_budget_ms) + 1e-9:
+            raise WorkSchedulerDenied(
+                "grant deadline exceeds MoveResourcePlan soft deadline"
+            )
 
 
 def build_work_scheduler(

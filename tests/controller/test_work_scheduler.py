@@ -7,6 +7,7 @@ import json
 import sys
 import threading
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -252,6 +253,32 @@ class WorkSchedulerGrantTests(unittest.TestCase):
                     effective_options_digest="a" * 64,
                     elapsed_ms=100.0,
                     **kwargs,
+                )
+
+    def test_admission_validator_recomputes_frozen_grant_identity(self):
+        plan = parent_plan()
+        grant = SCHEDULER.create_grant(
+            move_plan=plan,
+            owner="stockfish",
+            instance="stockfish-shadow",
+            phase="EXPLORE",
+            allocation_round=0,
+            effective_options_digest="a" * 64,
+            elapsed_ms=100.0,
+        )
+        SCHEDULER.validate_grant(move_plan=plan, grant=grant)
+
+        for forged in (
+            replace(grant, reserved_cpu_ms=1.0),
+            replace(grant, work_chunk_license_digest="f" * 64),
+            replace(grant, allocator_decision_digest="e" * 64),
+        ):
+            with self.subTest(grant=forged), self.assertRaises(
+                WorkSchedulerDenied
+            ):
+                SCHEDULER.validate_grant(
+                    move_plan=plan,
+                    grant=forged,
                 )
 
     def test_grant_deadline_never_exceeds_parent_soft_deadline(self):

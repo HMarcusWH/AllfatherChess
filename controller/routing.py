@@ -932,9 +932,18 @@ class ConservativeRouter:
         reservation: Reservation | None = None
         elapsed = float(context.elapsed_ms())
         key = (grant.allocation_round, grant.owner)
+        grant_valid = True
+        grant_error: str | None = None
+        try:
+            scheduler.validate_grant(move_plan=plan, grant=grant)
+        except WorkSchedulerDenied as exc:
+            grant_valid = False
+            grant_error = str(exc)
 
         with self.ledger.controller_overhead("authorize_work_grant"):
-            if plan.disposition != ADAPTIVE_DISPOSITION:
+            if not grant_valid:
+                reason = f"frozen WorkGrant validation failed: {grant_error}"
+            elif plan.disposition != ADAPTIVE_DISPOSITION:
                 reason = "parent MoveResourcePlan is FALLBACK"
             elif grant.move_resource_plan_id != plan.plan_id:
                 reason = "grant does not bind the current MoveResourcePlan"

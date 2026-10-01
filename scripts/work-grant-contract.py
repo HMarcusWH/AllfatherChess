@@ -98,9 +98,12 @@ def main() -> int:
     if replacement:
         replacement["provider_id"] = "j9-real-engines-synthetic-capacity"
         replacement["capacity_complete"] = True
-        replacement["qualification_domain_complete"] = bool(
-            observed.cpu_identity_complete
-        )
+        # A test-only synthetic capacity fact must never accidentally turn a
+        # real CPU identity into a complete qualification-domain claim. Degrade
+        # that flag explicitly; J8's clamp needs capacity facts, not portable
+        # host qualification.
+        replacement["cpu_identity_complete"] = False
+        replacement["qualification_domain_complete"] = False
         observed = replace(observed, **replacement)
 
     require(

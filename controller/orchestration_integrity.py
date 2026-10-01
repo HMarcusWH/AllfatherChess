@@ -82,6 +82,38 @@ def _load_json(path: Path, label: str) -> dict[str, Any]:
     return _mapping(value, label)
 
 
+def runtime_config_matches_frozen(
+    actual: Mapping[str, Any],
+    frozen: Mapping[str, Any],
+    *,
+    allow_relocation: bool,
+) -> bool:
+    """Accept only the LOCAL-1 root/replay relocation of a frozen J12 config."""
+
+    actual_dict = dict(actual)
+    frozen_dict = dict(frozen)
+    if actual_dict == frozen_dict:
+        return True
+    if not allow_relocation:
+        return False
+    normalized = json.loads(
+        json.dumps(
+            frozen_dict,
+            sort_keys=True,
+            allow_nan=False,
+        )
+    )
+    actual_shadow = actual_dict.get("shadow")
+    normalized_shadow = normalized.get("shadow")
+    if not isinstance(actual_shadow, dict) or not isinstance(
+        normalized_shadow, dict
+    ):
+        return False
+    normalized["root"] = actual_dict.get("root")
+    normalized_shadow["replay_root"] = actual_shadow.get("replay_root")
+    return actual_dict == normalized
+
+
 def _canonical_lines(rows: Sequence[Mapping[str, Any]]) -> str:
     return "".join(
         json.dumps(
@@ -1067,37 +1099,14 @@ def verify_orchestration_integrity(
                             sealed_config,
                             "sealed runtime config",
                         )
-                        if actual_config != frozen_config:
-                            if not allow_config_relocation:
-                                problems.append(
-                                    "sealed runtime config differs from the frozen qualification config"
-                                )
-                            else:
-                                normalized = json.loads(
-                                    json.dumps(
-                                        frozen_config,
-                                        sort_keys=True,
-                                        allow_nan=False,
-                                    )
-                                )
-                                normalized["root"] = actual_config.get("root")
-                                frozen_shadow = normalized.get("shadow")
-                                actual_shadow = actual_config.get("shadow")
-                                if (
-                                    not isinstance(frozen_shadow, dict)
-                                    or not isinstance(actual_shadow, dict)
-                                ):
-                                    problems.append(
-                                        "runtime-config relocation requires shadow configuration"
-                                    )
-                                else:
-                                    frozen_shadow["replay_root"] = (
-                                        actual_shadow.get("replay_root")
-                                    )
-                                    if actual_config != normalized:
-                                        problems.append(
-                                            "derived runtime config changed fields beyond root/replay relocation"
-                                        )
+                        if not runtime_config_matches_frozen(
+                            actual_config,
+                            frozen_config,
+                            allow_relocation=allow_config_relocation,
+                        ):
+                            problems.append(
+                                "sealed runtime config differs from the frozen profile beyond allowed root/replay relocation"
+                            )
                     except Exception as exc:
                         problems.append(
                             "frozen orchestration config identity could not be reconstructed: "

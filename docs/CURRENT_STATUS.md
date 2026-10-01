@@ -154,7 +154,9 @@ replay, VERIFY/staged-VERIFY manifests, route/resource reports, resource plan, a
 trace and the exact-head ENGINE-OPT-V2 build manifest. The qualifier independently binds
 that engine bundle back to the current source commit and source-controlled build contracts.
 This ordering avoids a circular dependency while ensuring the exact stage manifests
-used for WorkGrant reconstruction cannot drift. DecisionAuthorization gains an optional
+used for WorkGrant reconstruction cannot drift. ENGINE-OPT-V2 copies the complete validated
+J11 replay into the retained profile-domain artifact and validates that copied bundle in place,
+so the qualification report is accompanied by the evidence it attests. DecisionAuthorization gains an optional
 orchestration provenance field that is absent from
 all historical G3 snapshots, preserving their canonical identity; when populated by the
 future J12 composition it requires complete WorkGrant settlement and zero open WorkGrant

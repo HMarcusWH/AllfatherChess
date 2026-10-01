@@ -17,6 +17,7 @@ from typing import Any, Mapping, Sequence
 from common.search_request import parse_go_request
 from controller.decision import canonical_digest
 from controller.move_resource_plan import MoveResourcePlan
+from controller.adaptive_time import verify_move_resource_plan_manifest
 from controller.replay import atomic_write_text, load_manifest, sha256_file
 from controller.resource_allocator import (
     AllocationDecision,
@@ -194,7 +195,7 @@ def _terminal_grant_state(
             authorized.append(grant_id)
         elif event == "settle":
             settled.append(grant_id)
-        elif event == "release":
+        elif event in ("release", "bundle_rollback"):
             released.append(grant_id)
         elif event == "finalize_unresolved":
             unresolved.append(grant_id)
@@ -732,6 +733,31 @@ def verify_orchestration_integrity(
     except OrchestrationIntegrityError as exc:
         return [str(exc)]
 
+    expected_authority = {
+        "resource_evidence": True,
+        "resource_authorization": False,
+        "outward_move": False,
+    }
+    expected_claim_boundary = {
+        "allocation_provenance": True,
+        "independent_reconstruction_required": True,
+        "adaptive_stop_promoted": False,
+        "hybrid_authority": False,
+        "runtime_profile_selection": False,
+        "generic_host_portability": False,
+        "strength": False,
+        "elo": False,
+        "deployment": False,
+    }
+    if artifact.get("schema_version") != ORCHESTRATION_INTEGRITY_SCHEMA_VERSION:
+        problems.append("unsupported orchestration schema_version")
+    if artifact.get("evidence_version") != ORCHESTRATION_EVIDENCE_VERSION:
+        problems.append("unsupported orchestration evidence_version")
+    if artifact.get("authority") != expected_authority:
+        problems.append("orchestration authority boundary is invalid")
+    if artifact.get("claim_boundary") != expected_claim_boundary:
+        problems.append("orchestration claim boundary is invalid")
+
     content_sha = artifact.get("content_sha256")
     evidence_id = artifact.get("evidence_id")
     core = {
@@ -767,6 +793,8 @@ def verify_orchestration_integrity(
     except Exception as exc:
         problems.append(f"parent replay manifest cannot be loaded: {exc}")
     if manifest is not None:
+        for problem in verify_move_resource_plan_manifest(manifest):
+            problems.append(problem)
         summary = manifest.get("orchestration_evidence")
         if not isinstance(summary, dict):
             problems.append("parent replay does not bind orchestration evidence")
@@ -852,6 +880,19 @@ def verify_orchestration_integrity(
     else:
         try:
             decision = AllocationDecision.from_dict(decisions[0])
+            if plan is not None:
+                if decision.move_resource_plan_id != plan.plan_id:
+                    problems.append(
+                        "AllocationDecision parent MoveResourcePlan mismatch"
+                    )
+                if decision.generation != plan.generation:
+                    problems.append(
+                        "AllocationDecision generation differs from sealed plan"
+                    )
+                if decision.position_id != plan.position_id:
+                    problems.append(
+                        "AllocationDecision position differs from sealed plan"
+                    )
         except Exception as exc:
             problems.append(f"AllocationDecision reconstruction failed: {exc}")
 
@@ -863,6 +904,10 @@ def verify_orchestration_integrity(
             reconstructed = build_authority_binding(move_plan=plan, route=route)
             if binding != reconstructed:
                 problems.append("orchestration authority binding does not reconstruct")
+            if reconstructed.get("work_grant_settlement_complete") is not True:
+                problems.append("J11 requires complete WorkGrant settlement")
+            if reconstructed.get("open_work_grant_reservations") != 0:
+                problems.append("J11 requires zero open WorkGrant reservations")
         except Exception as exc:
             problems.append(f"orchestration authority binding failed: {exc}")
 
@@ -1143,14 +1188,16 @@ def verify_orchestration_integrity(
             )
         try:
             request = parse_go_request(str(stage.get("command")))
-            limits = {
-                item.get("name"): item.get("value")
-                for item in request.get("limits", [])
-                if isinstance(item, dict)
-            }
-            if limits.get(grant.native_limit.kind.value) != grant.native_limit.value:
+            limit_rows = request.get("limits", [])
+            if (
+                not isinstance(limit_rows, list)
+                or len(limit_rows) != 1
+                or not isinstance(limit_rows[0], dict)
+                or limit_rows[0].get("name") != grant.native_limit.kind.value
+                or limit_rows[0].get("value") != grant.native_limit.value
+            ):
                 problems.append(
-                    f"WorkGrant {grant.grant_id} UCI native limit differs from grant"
+                    f"WorkGrant {grant.grant_id} UCI limits are not exactly the granted native limit"
                 )
         except Exception as exc:
             problems.append(
@@ -1160,6 +1207,10 @@ def verify_orchestration_integrity(
     try:
         resource_path = run_dir / "resource.json"
         resource = _load_json(resource_path, "resource")
+        if resource.get("run_id") != artifact.get("run_id"):
+            problems.append("resource report run_id differs from orchestration run")
+        if resource.get("run_id") != route.get("run_id"):
+            problems.append("resource report run_id differs from route")
         controller = _mapping(resource.get("controller"), "resource.controller")
         processes = _mapping(resource.get("processes"), "resource.processes")
         stages = resource.get("stages")
@@ -1255,6 +1306,10 @@ def verify_orchestration_integrity(
         )
         if resource.get("qualified") is not resource_qualified:
             problems.append("resource qualified flag does not reconstruct")
+        if not resource_qualified:
+            problems.append(
+                "J11 qualification requires complete physical resource evidence"
+            )
 
         resource_core = {
             key: value

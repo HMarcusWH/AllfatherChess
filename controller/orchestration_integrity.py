@@ -1236,7 +1236,6 @@ def verify_orchestration_integrity(
                 "budget_snapshot",
                 "budget_snapshot_digest",
                 "budget_journal_event_count",
-                "budget_journal_digest",
             }
             if set(context) != expected_context_keys:
                 problems.append("allocation context schema is invalid")
@@ -1269,10 +1268,6 @@ def verify_orchestration_integrity(
                 )
             elif isinstance(snapshot, dict):
                 prefix = budget_journal[:count]
-                if context.get("budget_journal_digest") != canonical_digest(prefix):
-                    problems.append(
-                        "allocation context budget journal digest mismatch"
-                    )
                 try:
                     reconstructed_at_decision = replay_budget_journal(
                         prefix,

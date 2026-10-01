@@ -482,11 +482,20 @@ def _verify_clocked_authority(
 
 def _verify_orchestration_provenance(
     run_dir: Path,
+    authorization: dict[str, Any],
     snapshot: dict[str, Any],
     problems: list[str],
 ) -> None:
     provenance = snapshot.get("orchestration_provenance")
     if provenance is None:
+        return
+    if (
+        authorization.get("policy")
+        != ORCHESTRATED_CLOCKED_AUTHORIZATION_POLICY
+    ):
+        problems.append(
+            "non-J12 authority policy carried orchestration provenance"
+        )
         return
     if not isinstance(provenance, dict):
         problems.append("final decision orchestration provenance is not an object")
@@ -604,9 +613,10 @@ def verify_final_decision_integrity(run_dir: Path | str) -> list[str]:
             snapshot,
             problems,
         )
-    if snapshot is not None:
+    if authorization is not None and snapshot is not None:
         _verify_orchestration_provenance(
             run_dir,
+            authorization,
             snapshot,
             problems,
         )

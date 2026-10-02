@@ -37,9 +37,15 @@
   round-2 allocator. Real ENGINE-OPT-V2 evidence exercised one fail-closed `BUY_BUNDLE`,
   nine admitted WorkGrants, nine settlements and zero open reservations. STOP promotion
   remains false because 16 frozen independent seed groups are below the 32-group minimum.
-- **OPEN / J11 EVIDENCE HARDENING:** independently seal and reconstruct the plan →
-  allocation → WorkGrant → budget/resource chain before J12 may consume orchestration
-  provenance in move authority.
+- **PROVED / J11 EVIDENCE HARDENING:** PR #58 independently seals and reconstructs the
+  plan → allocation → WorkGrant → budget/resource chain and exposes the typed provenance
+  consumed by J12.
+- **PROVED / J12 ORCHESTRATED COMPOSITION MECHANISM:** PR #59 composes the single J10
+  allocator with staged G3 authority, complete WorkGrant settlement and independent
+  post-output reconstruction. GitHub-hosted synthetic capacity remains mechanism evidence
+  only and correctly reports `NOT_QUALIFIED_HOST_CAPACITY`.
+- **OPEN / J13 META-1:** add the matched-orchestration `ANCHOR_CONTROL` experiment in
+  which proposal and authorization still execute but the control always emits Stockfish.
 - **OPEN RELEASE GATES:** ONLINE-3 packaging/bridge, ONLINE-4
   network/restart/rollback, aggregate release qualification, ONLINE-RC, main governance,
   and combined-distribution licensing.
@@ -187,7 +193,7 @@
   Hash32/MaxPrefetch0 selections, establish generic-host portability or change engine search;
 - no move-quality, Elo, strength, equal-resource or deployment claim follows from J11.
 
-## M14-J J12 full orchestrated composition — IN PROGRESS / PR #59
+## M14-J J12 full orchestrated composition — MERGED / PR #59
 
 ### IMPLEMENTED / QUALIFICATION-GATED BY THIS PR
 
@@ -211,6 +217,26 @@
 - an incomplete or synthetic host observation establishes no deployment-host qualification;
 - no J12 result by itself establishes Elo, move-quality superiority, equal-resource strength,
   generic-host portability or deployment readiness.
+
+## M14-J J13 META-1 matched authority control — IN PROGRESS
+
+### IMPLEMENTED / TEST-GATED BY THIS PR
+
+- adds `ANCHOR_CONTROL` as a third FinalDecision disposition without altering
+  DecisionAuthorization semantics;
+- control and live arms share the J12 allocator, WorkGrant grid, staged VERIFY, proposal,
+  authorization policy and clock-authority publication gate;
+- the only test bit is `hybrid_authority.outward_mode=anchor_control_v1`, accepted only
+  for `orchestrated_clocked_staged_preanchor_v1` and independently verified against the
+  frozen J12 config;
+- the campaign freezes 50 openings, color reversal and 100 total games, but begins only
+  when the host itself qualifies real J12 HYBRID authority.
+
+### NOT PROMOTED BY J13
+
+- GitHub-hosted `NOT_QUALIFIED_HOST_CAPACITY` does not become comparative evidence;
+- META-1 W/D/L is descriptive paired-opening evidence, not an Elo or equal-compute claim;
+- no result threshold, SPRT or superiority requirement is a merge gate.
 
 ## LOCAL-1 full-game lifecycle — PROVED / CI-GATED
 

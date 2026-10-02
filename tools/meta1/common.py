@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import sys
@@ -55,16 +56,21 @@ def opening_blocks(path: Path, expected: int = 50) -> tuple[str, ...]:
     return blocks
 
 
+def _block_sha256(block: str) -> str:
+    return hashlib.sha256(block.encode("utf-8")).hexdigest()
+
+
 def schedule(p: dict) -> list[dict]:
     blocks = opening_blocks(ROOT / p["opening_file"], p["opening_count"])
     jobs = []
-    for index, _ in enumerate(blocks):
+    for index, block in enumerate(blocks):
         arms = list(ARMS if index % 2 == 0 else tuple(reversed(ARMS)))
         jobs.append({
             "id": f"meta1-{index:02d}",
             "kind": "meta1",
             "opening_index": index,
             "opening": f"opening-{index:02d}.pgn",
+            "opening_sha256": _block_sha256(block),
             "arms": arms,
             "clock": p["clock"],
             "restart": False,

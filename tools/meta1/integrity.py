@@ -5,9 +5,25 @@ from __future__ import annotations
 from collections import Counter
 from pathlib import Path
 
-from tools.local_game.common import ROOT, load, require, sha, source_identity
+from tools.local_game.common import (
+    ROOT,
+    load,
+    require,
+    sha,
+    source_identity,
+    verify_record,
+)
+from tools.local_game.integrity import verify_builds
 from tools.local_game.validate import match_game, read_games, session_games, verify_runner_log
-from .common import ARMS, RUN_DISPOSITION, command, policy, schedule
+from .common import (
+    ARMS,
+    RUN_DISPOSITION,
+    campaign_disposition,
+    command,
+    opening_blocks,
+    policy,
+    schedule,
+)
 from .report import empty_scores, record_result
 
 
@@ -40,13 +56,45 @@ def qualify(output: Path) -> dict:
         require(m.get("source") == source_identity(), "META-1 source checkout drift")
         require(m.get("status") == "completed" and not m.get("failures"),
                 "META-1 campaign did not complete")
+
+        policy_path = verify_record(ROOT, m.get("policy") or {})
+        require(
+            policy_path.resolve()
+            == (ROOT / "qualification/meta-1-v1.json").resolve(),
+            "META-1 manifest is not bound to the frozen policy",
+        )
+        opening_fixture = verify_record(ROOT, m.get("opening_fixture") or {})
+        require(
+            opening_fixture.resolve() == (ROOT / p["opening_file"]).resolve(),
+            "META-1 manifest is not bound to the frozen opening fixture",
+        )
+        runtime_path = verify_record(ROOT, m.get("source_runtime") or {})
+        require(
+            runtime_path.resolve() == (ROOT / p["source_runtime"]).resolve(),
+            "META-1 manifest is not bound to the frozen J12 runtime",
+        )
+        j12_path = verify_record(ROOT, m.get("j12_report") or {})
+        j12 = load(j12_path)
+        require(
+            j12.get("source_commit") == m["source"]["commit"],
+            "META-1 J12 prerequisite source differs from campaign source",
+        )
+        require(
+            campaign_disposition(j12) == RUN_DISPOSITION,
+            "META-1 campaign executed without real J12 authority qualification",
+        )
+
         expected = schedule(p)
         require(m.get("planned_blocks") == expected, "META-1 schedule drift")
         require(len(m.get("jobs") or []) == 50, "META-1 did not execute 50 blocks")
         require(sha(ROOT / p["opening_file"]) == p["opening_sha256"],
                 "META-1 opening fixture changed")
         source = load(ROOT / p["source_runtime"])
-        fastchess = ROOT / "build/tools/fastchess/bin/fastchess"
+        fastchess = verify_builds(m["source"], p)
+        frozen_blocks = opening_blocks(
+            ROOT / p["opening_file"],
+            p["opening_count"],
+        )
         campaign_run_ids: set[str] = set()
         campaign_manifest_hashes: set[str] = set()
 
@@ -56,6 +104,13 @@ def qualify(output: Path) -> dict:
             require(plan == expected[index], f"{plan.get('id')}: executed plan drift")
             directory = output / plan["id"]
             opening_path = directory / plan["opening"]
+            require(
+                opening_path.is_file()
+                and sha(opening_path) == plan["opening_sha256"]
+                and opening_path.read_text(encoding="utf-8")
+                == frozen_blocks[plan["opening_index"]],
+                f"{plan['id']}: per-block opening evidence differs from frozen fixture",
+            )
             require(
                 execution["argv"] == command(
                     plan, directory, p, source, fastchess, opening_path,

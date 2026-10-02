@@ -7,7 +7,7 @@ import json
 import shutil
 from pathlib import Path
 
-from tools.local_game.common import ROOT, file_record, load, require, save, source_identity
+from tools.local_game.common import ROOT, file_record, load, require, save, sha, source_identity
 from tools.local_game.runner import bounded
 from .common import RUN_DISPOSITION, campaign_disposition, command, opening_blocks, policy, schedule
 from .integrity import qualify
@@ -21,6 +21,10 @@ def main() -> int:
     parser.add_argument("--fastchess", type=Path, default=ROOT / "build/tools/fastchess/bin/fastchess")
     args = parser.parse_args()
 
+    require(
+        args.policy.resolve() == (ROOT / "qualification/meta-1-v1.json").resolve(),
+        "META-1 runner accepts only the frozen source-controlled policy",
+    )
     p = policy(args.policy)
     output = args.output.resolve()
     require(output.is_relative_to((ROOT / "build").resolve()), "META-1 output must live under build/")
@@ -76,6 +80,10 @@ def main() -> int:
         directory.mkdir()
         opening_path = directory / plan["opening"]
         opening_path.write_text(blocks[plan["opening_index"]], encoding="utf-8")
+        require(
+            sha(opening_path) == plan["opening_sha256"],
+            f"{plan['id']}: generated opening block differs from frozen fixture",
+        )
         argv = command(plan, directory, p, source_runtime, args.fastchess, opening_path)
         execution = bounded(
             argv,

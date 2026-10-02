@@ -2,6 +2,7 @@
   "schema_version": 1,
   "profile_id": "meta-1-v1",
   "source_runtime": "config/allfather.orchestrated-v1.validation.json",
+  "bundle_root": "build/online-engine-opt-v2",
   "opening_file": "tests/fixtures/meta1/openings-v1.pgn",
   "opening_sha256": "5e9823eac71313f475de22d19314838c4b81e9a4241ccb3e025c6b888802c8d7",
   "opening_count": 50,

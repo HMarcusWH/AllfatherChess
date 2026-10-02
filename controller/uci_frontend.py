@@ -240,6 +240,10 @@ class UciFrontend:
                 final_decision is not None
                 and final_decision.authority == "HYBRID"
             )
+            require_authority = bool(
+                final_decision is not None
+                and final_decision.authorization.authorized
+            )
             outward_line = anchor_line
             if (
                 hybrid
@@ -268,7 +272,7 @@ class UciFrontend:
 
             status = clock.try_publish(
                 line=outward_line,
-                require_authority=hybrid,
+                require_authority=require_authority,
                 write_once=write_and_retain,
             )
             if status == "published":

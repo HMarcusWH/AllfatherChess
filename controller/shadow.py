@@ -1526,6 +1526,7 @@ class ShadowRunCoordinator:
             proposal=proposal,
             authorization=authorization,
             authorization_snapshot=snapshot,
+            outward_mode=settings.outward_mode,
         )
         return final
 

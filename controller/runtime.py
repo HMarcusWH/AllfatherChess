@@ -226,6 +226,7 @@ class HybridAuthoritySettings:
     request_class: str
     terminal_source_policy: str = "base_verify_v0"
     allow_skipped_extension_authority: bool = False
+    outward_mode: str = "authorized_hybrid_v1"
 
 
 @dataclass(frozen=True)
@@ -1109,6 +1110,21 @@ def _load_hybrid_authority_settings(
                 "allow_skipped_extension_authority must be false"
             )
 
+    outward_mode = raw.get("outward_mode", "authorized_hybrid_v1")
+    if outward_mode not in ("authorized_hybrid_v1", "anchor_control_v1"):
+        raise RuntimeError(
+            "hybrid_authority.outward_mode must be 'authorized_hybrid_v1' "
+            "or 'anchor_control_v1'"
+        )
+    if (
+        outward_mode == "anchor_control_v1"
+        and policy != _ORCHESTRATED_HYBRID_AUTHORITY_POLICY
+    ):
+        raise RuntimeError(
+            "anchor_control_v1 is test-only and requires "
+            "orchestrated_clocked_staged_preanchor_v1"
+        )
+
     unknown = sorted(
         set(raw)
         - {
@@ -1117,6 +1133,7 @@ def _load_hybrid_authority_settings(
             "request_class",
             "terminal_source_policy",
             "allow_skipped_extension_authority",
+            "outward_mode",
         }
     )
     if unknown:
@@ -1127,6 +1144,7 @@ def _load_hybrid_authority_settings(
         request_class=str(request_class),
         terminal_source_policy=str(terminal_source_policy),
         allow_skipped_extension_authority=bool(allow_skipped),
+        outward_mode=str(outward_mode),
     )
 
 

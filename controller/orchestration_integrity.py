@@ -114,6 +114,32 @@ def runtime_config_matches_frozen(
     return actual_dict == normalized
 
 
+def runtime_config_matches_meta1_control(
+    actual: Mapping[str, Any],
+    frozen: Mapping[str, Any],
+    *,
+    allow_relocation: bool,
+) -> bool:
+    """Accept only J12 plus the explicit J13 anchor-control experiment bit."""
+
+    actual_dict = json.loads(json.dumps(dict(actual), sort_keys=True, allow_nan=False))
+    normalized = json.loads(json.dumps(dict(frozen), sort_keys=True, allow_nan=False))
+    if allow_relocation:
+        actual_shadow = actual_dict.get("shadow")
+        normalized_shadow = normalized.get("shadow")
+        if not isinstance(actual_shadow, dict) or not isinstance(
+            normalized_shadow, dict
+        ):
+            return False
+        normalized["root"] = actual_dict.get("root")
+        normalized_shadow["replay_root"] = actual_shadow.get("replay_root")
+    authority = normalized.get("hybrid_authority")
+    if not isinstance(authority, dict):
+        return False
+    authority["outward_mode"] = "anchor_control_v1"
+    return actual_dict == normalized
+
+
 def _canonical_lines(rows: Sequence[Mapping[str, Any]]) -> str:
     return "".join(
         json.dumps(
@@ -940,6 +966,7 @@ def verify_orchestration_integrity(
     expected_config_relative: str = "config/allfather.m14-j-j10.validation.json",
     allow_outward_decision: bool = False,
     allow_config_relocation: bool = False,
+    expected_outward_mode: str | None = None,
 ) -> list[str]:
     """Independently reconstruct J11 provenance. Empty list means valid."""
 
@@ -1099,13 +1126,25 @@ def verify_orchestration_integrity(
                             sealed_config,
                             "sealed runtime config",
                         )
-                        if not runtime_config_matches_frozen(
-                            actual_config,
-                            frozen_config,
-                            allow_relocation=allow_config_relocation,
-                        ):
+                        matches_config = (
+                            runtime_config_matches_frozen(
+                                actual_config,
+                                frozen_config,
+                                allow_relocation=allow_config_relocation,
+                            )
+                            if expected_outward_mode is None
+                            else (
+                                expected_outward_mode == "anchor_control_v1"
+                                and runtime_config_matches_meta1_control(
+                                    actual_config,
+                                    frozen_config,
+                                    allow_relocation=allow_config_relocation,
+                                )
+                            )
+                        )
+                        if not matches_config:
                             problems.append(
-                                "sealed runtime config differs from the frozen profile beyond allowed root/replay relocation"
+                                "sealed runtime config differs from the frozen profile beyond the allowed experiment relocation/mode"
                             )
                     except Exception as exc:
                         problems.append(
@@ -2729,6 +2768,7 @@ def verify_orchestrated_composition_integrity(
     *,
     root: Path | str | None = None,
     expected_source_commit: str | None = None,
+    expected_outward_mode: str | None = None,
 ) -> list[str]:
     """Reconstruct the J12 composition without weakening the J11 evidence core."""
 
@@ -2741,6 +2781,7 @@ def verify_orchestrated_composition_integrity(
         ),
         allow_outward_decision=True,
         allow_config_relocation=True,
+        expected_outward_mode=expected_outward_mode,
     )
     run_dir = Path(run_dir)
     try:
@@ -2956,3 +2997,34 @@ def verify_orchestrated_composition_integrity(
         )
     return problems
 
+
+
+def verify_meta1_control_composition_integrity(
+    run_dir: Path | str,
+    *,
+    root: Path | str | None = None,
+    expected_source_commit: str | None = None,
+) -> list[str]:
+    """J13 control profile: J12 evidence plus exactly one outward control bit."""
+
+    problems = verify_orchestrated_composition_integrity(
+        run_dir,
+        root=root,
+        expected_source_commit=expected_source_commit,
+        expected_outward_mode="anchor_control_v1",
+    )
+    try:
+        manifest = load_manifest(run_dir)
+        outward = manifest.get("outward_decision")
+        if not isinstance(outward, dict):
+            problems.append("META-1 control replay is missing outward_decision")
+        elif outward.get("authority") != "ANCHOR_CONTROL":
+            problems.append("META-1 control replay is not marked ANCHOR_CONTROL")
+        elif outward.get("emitted_move") != outward.get("anchor_move"):
+            problems.append("META-1 control replay changed the Stockfish anchor")
+    except Exception as exc:
+        problems.append(
+            "META-1 control outward disposition could not be reconstructed: "
+            f"{type(exc).__name__}: {exc}"
+        )
+    return problems

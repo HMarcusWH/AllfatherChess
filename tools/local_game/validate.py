@@ -77,7 +77,7 @@ def verify_runner_log(path: Path, plan: dict) -> None:
     """
     allowed = re.compile(
         r"^Warning; No info line available to extract score from engine "
-        r"allfather-(?:g3|anchor)$"
+        r"allfather-(?:g3|anchor|orchestrated|anchor-control)$"
     )
     for raw in path.read_text(encoding="utf-8", errors="replace").splitlines():
         line = raw.strip()
@@ -281,16 +281,67 @@ def validate_g3(item: dict, allow_denial: bool) -> dict:
         require(derived["qualified"] is True and claimed,
                 "unexpected physical/envelope failure")
     authority = final["authority"]
-    require(authority in ("HYBRID", "ANCHOR_FALLBACK"), "unsupported outward authority")
-    if authority == "HYBRID":
-        require(not verify_counterfactual_integrity(run), "HYBRID counterfactual integrity failed")
-    return {"authority": authority, "anchor_move": final["anchor_move"],
-            "override": authority == "HYBRID" and final["emitted_move"] != final["anchor_move"],
-            "reason": final.get("reason"), "resource_qualified": derived["qualified"],
-            "envelope_claimed": claimed, "physical_cpu_ms": derived["physical_cpu_ms"],
-            "route_action": (final.get("authorization_snapshot") or {}).get("route_action"),
-            "replay_id": run.name,
-            "replay_manifest_sha256": sha(run / "manifest.json")}
+    require(
+        authority in ("HYBRID", "ANCHOR_FALLBACK", "ANCHOR_CONTROL"),
+        "unsupported outward authority",
+    )
+    authorization = final.get("authorization") or {}
+    if (
+        authority == "HYBRID"
+        or (
+            authority == "ANCHOR_CONTROL"
+            and authorization.get("authorized") is True
+        )
+    ):
+        require(
+            not verify_counterfactual_integrity(run),
+            "proposal-consuming counterfactual integrity failed",
+        )
+    if authority == "ANCHOR_CONTROL":
+        require(
+            final["emitted_move"] == final["anchor_move"],
+            "ANCHOR_CONTROL changed the Stockfish anchor",
+        )
+    route = load(run / "route.json")
+    scheduler = route.get("work_scheduler") or {}
+    work_events = scheduler.get("events") or []
+    authorized_grants = [
+        row for row in work_events
+        if isinstance(row, dict)
+        and row.get("event") == "authorize"
+        and row.get("granted") is True
+    ]
+    settled_grants = [
+        row for row in work_events
+        if isinstance(row, dict) and row.get("event") == "settle"
+    ]
+    proposal_move = final.get("proposal_move")
+    authorized_non_anchor = bool(
+        authorization.get("authorized") is True
+        and isinstance(proposal_move, str)
+        and proposal_move != final["anchor_move"]
+    )
+    return {
+        "authority": authority,
+        "anchor_move": final["anchor_move"],
+        "proposal_move": proposal_move,
+        "authorization_granted": authorization.get("authorized") is True,
+        "authorized_non_anchor": authorized_non_anchor,
+        "suppressed_authorized_non_anchor": bool(
+            authority == "ANCHOR_CONTROL" and authorized_non_anchor
+        ),
+        "override": authority == "HYBRID"
+        and final["emitted_move"] != final["anchor_move"],
+        "reason": final.get("reason"),
+        "resource_qualified": derived["qualified"],
+        "envelope_claimed": claimed,
+        "physical_cpu_ms": derived["physical_cpu_ms"],
+        "route_action": (final.get("authorization_snapshot") or {}).get("route_action"),
+        "work_grants_authorized": len(authorized_grants),
+        "work_grants_settled": len(settled_grants),
+        "replay_id": run.name,
+        "replay_manifest_sha256": sha(run / "manifest.json"),
+    }
 
 
 def _fastchess_timeleft_ms(node) -> int:
@@ -314,7 +365,12 @@ def _fastchess_elapsed_ms(node) -> int:
 def _scoreless_timeleft_sentinel(arm: str, node, recorded_ms: int) -> bool:
     """Pinned Fastchess leaves MoveData.timeleft at zero on its scoreless early return."""
     return bool(
-        arm in ("allfather-anchor", "allfather-g3", "allfather-orchestrated")
+        arm in (
+            "allfather-anchor",
+            "allfather-g3",
+            "allfather-orchestrated",
+            "allfather-anchor-control",
+        )
         and recorded_ms == 0
         and SCORELESS_FASTCHESS.match(node.comment or "")
     )

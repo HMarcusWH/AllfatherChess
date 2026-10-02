@@ -55,3 +55,14 @@ soak-shard-v2: test build-fastchess
 soak-aggregate-v2:
 	@test -n "$(SHARD_ROOT)" || (echo 'Set SHARD_ROOT=<directory-containing-downloaded-shard-artifacts>' >&2; exit 2)
 	python3 -m tools.local_game.aggregate_soak "$(SHARD_ROOT)" --policy $(V2_POLICY) --output build/test-results/local-full-game-v2-soak-aggregate/report.json
+
+.PHONY: meta1-tests meta1-run meta1-validate
+
+meta1-tests:
+	python3 -m unittest tests.controller.test_meta1_anchor_control tests.meta1.test_contracts tests.meta1.test_integrity
+
+meta1-run:
+	python3 -m tools.meta1.runner --j12-report build/test-results/engine-opt-v2-profile-domain/j12/report.json --output build/test-results/meta1/campaign
+
+meta1-validate:
+	python3 scripts/qualify-meta-1.py --campaign build/test-results/meta1/campaign

@@ -22,7 +22,11 @@ ORCHESTRATED_ARMS = (
     "allfather-anchor",
     "allfather-orchestrated",
 )
-AUTHORITY_ARMS = ("allfather-g3", "allfather-orchestrated")
+AUTHORITY_ARMS = (
+    "allfather-g3",
+    "allfather-orchestrated",
+    "allfather-anchor-control",
+)
 
 
 class QualificationError(RuntimeError):
@@ -178,6 +182,15 @@ def runtime_config(source: dict, arm: str, root: Path, replay: Path) -> dict:
         config = copy.deepcopy(source)
         config["root"] = str(root.resolve())
         config["shadow"]["replay_root"] = str(replay.resolve())
+        if arm == "allfather-anchor-control":
+            authority = config.get("hybrid_authority")
+            require(
+                isinstance(authority, dict)
+                and authority.get("policy")
+                == "orchestrated_clocked_staged_preanchor_v1",
+                "META-1 anchor control requires the orchestrated J12 authority policy",
+            )
+            authority["outward_mode"] = "anchor_control_v1"
         return config
     return {"schema_version": 2, "mode": "anchor", "anchor": "stockfish-anchor",
             "root": str(root.resolve()),

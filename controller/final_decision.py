@@ -14,6 +14,7 @@ from typing import Any
 from controller.decision import (
     CLOCKED_AUTHORIZATION_POLICIES,
     ORCHESTRATED_CLOCKED_AUTHORIZATION_POLICY,
+    ANCHOR_CONTROL,
     FinalDecision,
     canonical_digest,
 )
@@ -323,9 +324,20 @@ def _verify_clocked_authority(
                 "authorized J12 decision lacks a real adaptive host-capacity claim"
             )
 
+    control = decision.get("authority") == ANCHOR_CONTROL
+    if control and (
+        authorization.get("policy")
+        != ORCHESTRATED_CLOCKED_AUTHORIZATION_POLICY
+    ):
+        problems.append(
+            "ANCHOR_CONTROL is valid only for orchestrated J12 authorization"
+        )
+
     if authorized:
-        if decision.get("authority") != "HYBRID":
-            problems.append("authorized G3 decision is not marked HYBRID")
+        if decision.get("authority") not in ("HYBRID", ANCHOR_CONTROL):
+            problems.append(
+                "authorized G3 decision has unsupported outward disposition"
+            )
         if snapshot.get("authority_blocked") is not False:
             problems.append(
                 "authorized G3 decision is bound to blocked clock authority"
@@ -348,7 +360,12 @@ def _verify_clocked_authority(
                 problems.append(
                     "authorized G3 proposal move differs from the granted move"
                 )
-            if emitted_move != granted_move:
+            if control:
+                if emitted_move != decision.get("anchor_move"):
+                    problems.append(
+                        "authorized ANCHOR_CONTROL did not emit the anchor move"
+                    )
+            elif emitted_move != granted_move:
                 problems.append(
                     "authorized G3 emitted move differs from the granted move"
                 )
@@ -416,7 +433,7 @@ def _verify_clocked_authority(
                     problems.append(
                         "authorized G3 final proposal move differs from sealed proposal"
                     )
-                if sealed_move != emitted_move:
+                if not control and sealed_move != emitted_move:
                     problems.append(
                         "authorized G3 emitted move differs from sealed proposal"
                     )
@@ -476,16 +493,16 @@ def _verify_clocked_authority(
                             "G3 soft-deadline snapshot disagrees with sealed evidence"
                         )
     else:
-        # Denied G3 authority is itself a valid outcome. It must preserve the
-        # exact anchor and may occur before specialist-derived artifacts exist.
-        if decision.get("authority") != "ANCHOR_FALLBACK":
-            problems.append("denied G3 authorization is not ANCHOR_FALLBACK")
+        allowed = ("ANCHOR_FALLBACK", ANCHOR_CONTROL)
+        if decision.get("authority") not in allowed:
+            problems.append("denied G3 authorization has unsupported outward disposition")
         if decision.get("emitted_move") != decision.get("anchor_move"):
             problems.append("denied G3 authorization changed the anchor move")
 
 
 def _verify_orchestration_provenance(
     run_dir: Path,
+    decision: dict[str, Any],
     authorization: dict[str, Any],
     snapshot: dict[str, Any],
     problems: list[str],
@@ -514,11 +531,17 @@ def _verify_orchestration_provenance(
         )
     try:
         from controller.orchestration_integrity import (
+            verify_meta1_control_composition_integrity,
             verify_orchestrated_composition_integrity,
         )
 
         repository_root = Path(__file__).resolve().parents[1]
-        for problem in verify_orchestrated_composition_integrity(
+        verifier = (
+            verify_meta1_control_composition_integrity
+            if decision.get("authority") == ANCHOR_CONTROL
+            else verify_orchestrated_composition_integrity
+        )
+        for problem in verifier(
             run_dir,
             root=repository_root,
         ):
@@ -620,6 +643,7 @@ def verify_final_decision_integrity(run_dir: Path | str) -> list[str]:
     if authorization is not None and snapshot is not None:
         _verify_orchestration_provenance(
             run_dir,
+            decision,
             authorization,
             snapshot,
             problems,

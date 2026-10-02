@@ -1,12 +1,12 @@
 # AllfatherChess current build and release status
 
-**Status date:** 1 October 2026  
-**Authoritative main commit:** `10664a27c5f4d88b087b1d008ef4e0eb4a317ef0`  
-**Latest merged milestone:** PR #58 / M14-J J11 — sealed allocation provenance and authority binding  
+**Status date:** 2 October 2026  
+**Authoritative main commit:** `bc6140fa7d23d385d82be5958730a68232a37a42`  
+**Latest merged milestone:** PR #59 / M14-J J12 — full orchestrated composition  
 **Qualified J6 PR head:** `6aecd0bae7848ca8a9893377fadffb049d336c3a`  
 **Frozen fallback:** ENGINE-OPT-V2 / PR #44 remains unchanged  
-**Current execution milestone:** M14-J J12 — full orchestrated composition  
-**Next milestone after J12:** M14-J J13 / META-1 — same-resource authority-value control  
+**Current execution milestone:** M14-J J13 / META-1 — matched-orchestration anchor control  
+**Next milestone after J13:** M14-J J14 / ONLINE-PLAY-1 — production-profile 10+5 experiment  
 **Forward roadmap:** [ROADMAP.md](ROADMAP.md)  
 **M14-J rebuild plan:** [M14_J_ADAPTIVE_RESOURCE_ORCHESTRATION.md](M14_J_ADAPTIVE_RESOURCE_ORCHESTRATION.md)  
 **Detailed deployment plan:** [ONLINE_RELEASE_PLAN.md](ONLINE_RELEASE_PLAN.md)
@@ -163,7 +163,7 @@ future J12 composition it requires complete WorkGrant settlement and zero open W
 reservations. J11 itself keeps the existing runtime prohibition on orchestration plus
 HYBRID authority.
 
-## M14-J J12 full orchestrated composition — IN PROGRESS / PR #59
+## M14-J J12 full orchestrated composition — MERGED / PR #59
 
 J12 is the first milestone allowed to compose the adaptive resource plane with live move
 authority. It does **not** run G2 `unified_value_v1` beside J10 as a second allocator.
@@ -186,6 +186,24 @@ authority.
 The initial J12 profile preserves the frozen n16 EXPLORE / n16 VERIFY / n32 staged VERIFY
 grid, `conservative_v1`, the existing ENGINE-OPT-V2 fallback, and unpromoted
 `STOP_BUYING`. J7 Hash32/MaxPrefetch0 selections remain outside the runtime.
+
+The exact PR #59 head passed merge gate, baseline validation, LOCAL-1, ONLINE-2,
+M14-G3, LC0 real-inference, ENGINE-OPT-V2 and the resource laboratory. On the
+GitHub-hosted worker, J12 correctly reported `NOT_QUALIFIED_HOST_CAPACITY`: synthetic
+capacity facts exercised the mechanism but did not promote HYBRID authority.
+
+## M14-J J13 / META-1 — IN PROGRESS
+
+J13 adds a test-only `ANCHOR_CONTROL` outward disposition after the unchanged
+`DecisionAuthorization` boundary. The control runs the same J12 orchestration,
+proposal and authorization machinery but always emits the Stockfish anchor. A granted
+control authorization remains granted in evidence; it is not relabelled as fallback.
+
+The frozen campaign is 50 committed openings with colors reversed, 100 games total,
+serial execution, and no result/Elo/SPRT merge gate. The full campaign may start only on
+a host that independently qualifies real J12 HYBRID authority. GitHub-hosted
+`NOT_QUALIFIED_HOST_CAPACITY` is retained as a valid non-campaign disposition rather
+than converted into 100 fallback-vs-control games.
 
 ## LOCAL-1 qualification result
 

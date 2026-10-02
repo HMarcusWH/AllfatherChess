@@ -1,9 +1,9 @@
 # AllfatherChess roadmap
 
-**Status date:** 1 October 2026  
-**Current main:** `10664a27c5f4d88b087b1d008ef4e0eb4a317ef0`  
-**Latest merged milestone:** PR #58 / M14-J J11 — allocation evidence + authority binding  
-**Current execution milestone:** M14-J J12 — full orchestrated composition  
+**Status date:** 2 October 2026  
+**Current main:** `bc6140fa7d23d385d82be5958730a68232a37a42`  
+**Latest merged milestone:** PR #59 / M14-J J12 — full orchestrated composition  
+**Current execution milestone:** M14-J J13 / META-1 — matched-orchestration anchor control  
 **Current-state authority:** [CURRENT_STATUS.md](CURRENT_STATUS.md)  
 **M14-J implementation plan:** [M14_J_ADAPTIVE_RESOURCE_ORCHESTRATION.md](M14_J_ADAPTIVE_RESOURCE_ORCHESTRATION.md)  
 **Detailed deployment audit:** [ONLINE_RELEASE_PLAN.md](ONLINE_RELEASE_PLAN.md)
@@ -107,13 +107,14 @@ M14-J J11 / PR #58
 independently sealed allocation evidence + authority binding
         |
         v
-IN PROGRESS
+DONE
 M14-J J12 / PR #59
 single-allocation orchestrated composition + bounded HYBRID authority
         |
         v
-META-1
-same-resource authority-value control
+IN PROGRESS
+META-1 / J13
+matched-orchestration authority-value control
         |
         v
 ONLINE-PLAY-1
@@ -229,7 +230,7 @@ ENGINE-OPT-V2 preserved the qualified n16 EXPLORE / n16 VERIFY / n32 staged-VERI
 
 Promotion also required a real-process non-anchor G3-v2 authority witness, owner-specific physical-resource bounds, the ordinary v1 LOCAL-1 control and complete LOCAL-1-v2 lifecycle qualification. The final aggregate reported `promotion_ready: true` with no errors. These results qualify a profile/build/resource composition; they do not establish Elo or constituent superiority.
 
-## 5. M14-J — Adaptive Resource Orchestration — **J7 NEXT**
+## 5. M14-J — Adaptive Resource Orchestration — **J13 / META-1 NEXT**
 
 M14-J moves resource/profile authority above the constituent engines. The meta-controller will select only prequalified operating points, derive move-level resource envelopes from host/game context, issue typed WorkGrants, progressively buy the most valuable next computation, and preserve exact resource provenance for DecisionAuthorization. ENGINE-OPT-V2 remains the fail-closed fallback.
 

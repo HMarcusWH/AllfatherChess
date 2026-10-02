@@ -41,6 +41,13 @@ AUTHORIZATION_POLICIES = (
 )
 HYBRID_AUTHORITY = "HYBRID"
 ANCHOR_FALLBACK = "ANCHOR_FALLBACK"
+ANCHOR_CONTROL = "ANCHOR_CONTROL"
+AUTHORIZED_HYBRID_OUTWARD_MODE = "authorized_hybrid_v1"
+ANCHOR_CONTROL_OUTWARD_MODE = "anchor_control_v1"
+OUTWARD_MODES = (
+    AUTHORIZED_HYBRID_OUTWARD_MODE,
+    ANCHOR_CONTROL_OUTWARD_MODE,
+)
 OWNER_ORDER = ("stockfish", "reckless", "lc0")
 _MOVE_RE = re.compile(r"^[a-h][1-8][a-h][1-8][qrbn]?$")
 
@@ -733,7 +740,11 @@ class FinalDecision:
                 raise DecisionError(
                     "final proposal evidence identity must be a SHA-256 digest"
                 )
-        if self.authority not in (HYBRID_AUTHORITY, ANCHOR_FALLBACK):
+        if self.authority not in (
+            HYBRID_AUTHORITY,
+            ANCHOR_FALLBACK,
+            ANCHOR_CONTROL,
+        ):
             raise DecisionError(f"unknown final-decision authority: {self.authority!r}")
         if self.authorization.snapshot_digest != self.authorization_snapshot.digest:
             raise DecisionError(
@@ -748,11 +759,23 @@ class FinalDecision:
                 raise DecisionError("authorization move and proposal move disagree")
             if self.emitted_move != self.proposal_move:
                 raise DecisionError("HYBRID emitted move must equal the proposal move")
-        else:
+        elif self.authority == ANCHOR_FALLBACK:
             if self.authorization.authorized:
                 raise DecisionError("ANCHOR_FALLBACK cannot carry granted authorization")
             if self.emitted_move != self.anchor_move:
                 raise DecisionError("ANCHOR_FALLBACK must emit the anchor move")
+        else:
+            if self.emitted_move != self.anchor_move:
+                raise DecisionError("ANCHOR_CONTROL must emit the anchor move")
+            if self.authorization.authorized:
+                if self.proposal_move is None:
+                    raise DecisionError(
+                        "authorized ANCHOR_CONTROL requires a proposal move"
+                    )
+                if self.authorization.move != self.proposal_move:
+                    raise DecisionError(
+                        "ANCHOR_CONTROL authorization move and proposal move disagree"
+                    )
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -1203,6 +1226,11 @@ def revoke_final_decision_to_anchor(
         raise DecisionError("revocation reason must be non-empty")
     if decision.authority == ANCHOR_FALLBACK:
         return decision
+    if (
+        decision.authority == ANCHOR_CONTROL
+        and not decision.authorization.authorized
+    ):
+        return decision
 
     snapshot = replace(
         decision.authorization_snapshot,
@@ -1216,7 +1244,11 @@ def revoke_final_decision_to_anchor(
         snapshot_digest=snapshot.digest,
     )
     return FinalDecision(
-        authority=ANCHOR_FALLBACK,
+        authority=(
+            ANCHOR_CONTROL
+            if decision.authority == ANCHOR_CONTROL
+            else ANCHOR_FALLBACK
+        ),
         emitted_move=decision.anchor_move,
         anchor_move=decision.anchor_move,
         proposal_move=decision.proposal_move,
@@ -1232,9 +1264,24 @@ def select_final_decision(
     proposal: DecisionProposal | None,
     authorization: DecisionAuthorization,
     authorization_snapshot: DecisionAuthorizationSnapshot,
+    outward_mode: str = AUTHORIZED_HYBRID_OUTWARD_MODE,
 ) -> FinalDecision:
     anchor = _canonical_move(anchor_move, "anchor move")
     proposal_move = None if proposal is None else proposal.move
+    if outward_mode not in OUTWARD_MODES:
+        raise DecisionError(f"unsupported outward decision mode: {outward_mode!r}")
+    if outward_mode == ANCHOR_CONTROL_OUTWARD_MODE:
+        return FinalDecision(
+            authority=ANCHOR_CONTROL,
+            emitted_move=anchor,
+            anchor_move=anchor,
+            proposal_move=proposal_move,
+            authorization=authorization,
+            authorization_snapshot=authorization_snapshot,
+            proposal_evidence_digest=(
+                None if proposal is None else proposal.evidence_digest
+            ),
+        )
     if authorization.authorized:
         return FinalDecision(
             authority=HYBRID_AUTHORITY,

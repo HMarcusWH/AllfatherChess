@@ -1,9 +1,9 @@
 # AllfatherChess — M14-J Adaptive Resource Orchestration Rebuild Plan
 
-> **Status:** active implementation; J0-J11 merged, J12 in progress  
-> **Current main:** `10664a27c5f4d88b087b1d008ef4e0eb4a317ef0` (PR #58 merge)  
+> **Status:** active implementation; J0-J12 merged, J13 / META-1 in progress  
+> **Current main:** `bc6140fa7d23d385d82be5958730a68232a37a42` (PR #59 merge)  
 > **Frozen fallback composition:** ENGINE-OPT-V2 / PR #44  
-> **Latest completed stage:** J11 allocation evidence + authority binding / PR #58  
+> **Latest completed stage:** J12 full orchestrated composition / PR #59  
 > **Authority:** documentation only; this plan does not itself promote M14-J behavior  
 
 **Program:** M14-J — Adaptive Resource Orchestration
@@ -1521,7 +1521,7 @@ Never trust producer-written `qualified: true`. J11 must reconstruct the underly
 
 ---
 
-## 41. J12 — Full Orchestrated Composition — **IN PROGRESS / PR #59**
+## 41. J12 — Full Orchestrated Composition — **MERGED / PR #59**
 
 Add:
 
@@ -1574,7 +1574,7 @@ The old path must remain green.
 
 ---
 
-## 42. J13 — META-1
+## 42. J13 — META-1 — **IN PROGRESS**
 
 Primary comparative experiment:
 

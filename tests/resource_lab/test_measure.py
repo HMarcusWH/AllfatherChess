@@ -82,6 +82,21 @@ class MeasureTests(unittest.TestCase):
         self.assertEqual(result.native_work_semantics,"stockfish.uci_nodes")
         self.assertEqual(result.physical.cpu_ms,10.25)
 
+    def test_lc0_native_work_preserves_last_reported_counter(self):
+        _,cost=physical()
+        result=parse_search_observation(
+            [
+                "info depth 1 nodes 3 score cp -11 pv f8c5 d2d3",
+                "info depth 2 nodes 8 score cp -15 pv f8c5 a2a4 g8f6",
+                "info depth 3 nodes 14 score cp -13 pv f8c5 a2a4 g8f6 d2d3",
+                "bestmove f8c5 ponder a2a4",
+            ],
+            family="lc0",physical=cost,
+        )
+        self.assertEqual(result.bestmove,"f8c5")
+        self.assertEqual(result.native_work_value,14)
+        self.assertEqual(result.native_work_semantics,"lc0.uci_nodes")
+
     def test_wdl_is_preserved_as_family_native_evidence(self):
         _,cost=physical()
         result=parse_search_observation(

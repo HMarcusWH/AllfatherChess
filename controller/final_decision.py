@@ -11,12 +11,17 @@ import json
 from pathlib import Path
 from typing import Any
 
-from controller.decision import FinalDecision, canonical_digest
+from controller.decision import (
+    CLOCKED_AUTHORIZATION_POLICIES,
+    ORCHESTRATED_CLOCKED_AUTHORIZATION_POLICY,
+    FinalDecision,
+    canonical_digest,
+)
 from controller.replay import atomic_write_text, sha256_file
 
 
 FINAL_DECISION_SCHEMA_VERSION = 1
-_CLOCKED_POLICY = "clocked_staged_preanchor_v1"
+_CLOCKED_POLICIES = CLOCKED_AUTHORIZATION_POLICIES
 
 _BASE_SOURCE_PATHS = (
     "manifest.json",
@@ -50,7 +55,7 @@ def _required_source_paths_from_payload(decision: dict[str, Any]) -> tuple[str, 
     if not isinstance(authorization, dict) or not isinstance(snapshot, dict):
         return (*_BASE_SOURCE_PATHS, *_M14C_EVIDENCE_PATHS)
 
-    if authorization.get("policy") != _CLOCKED_POLICY:
+    if authorization.get("policy") not in _CLOCKED_POLICIES:
         # Frozen M14-C v0 compatibility: these sources were historically
         # mandatory for every live hybrid-authority artifact.
         return (*_BASE_SOURCE_PATHS, *_M14C_EVIDENCE_PATHS)
@@ -243,6 +248,80 @@ def _verify_clocked_authority(
                 problems.append(
                     "G3 route buy flag differs from authorization snapshot"
                 )
+            if (
+                authorization.get("policy")
+                == ORCHESTRATED_CLOCKED_AUTHORIZATION_POLICY
+            ):
+                provenance = snapshot.get("orchestration_provenance")
+                if not isinstance(provenance, dict):
+                    problems.append(
+                        "J12 route is missing orchestration provenance"
+                    )
+                else:
+                    if (
+                        chosen.get("allocation_decision_digest")
+                        != provenance.get("allocation_decision_digest")
+                    ):
+                        problems.append(
+                            "J12 route projection does not bind the authorized AllocationDecision"
+                        )
+                    if (
+                        chosen.get("move_resource_plan_id")
+                        != provenance.get("move_resource_plan_id")
+                    ):
+                        problems.append(
+                            "J12 route projection does not bind the authorized MoveResourcePlan"
+                        )
+                    if (
+                        chosen.get("version")
+                        != "j12-allocation-route-projection-v1"
+                    ):
+                        problems.append(
+                            "J12 route projection version is invalid"
+                        )
+                    if chosen.get("allocation_action") != "BUY_BUNDLE":
+                        problems.append(
+                            "J12 HYBRID route was not projected from BUY_BUNDLE"
+                        )
+                    expected_allocation_id = (
+                        "allocation/"
+                        + str(provenance.get("allocation_decision_digest"))
+                    )
+                    if chosen.get("allocation_id") != expected_allocation_id:
+                        problems.append(
+                            "J12 route projection allocation_id differs from its digest"
+                        )
+
+    if (
+        authorization.get("policy")
+        == ORCHESTRATED_CLOCKED_AUTHORIZATION_POLICY
+        and authorized
+    ):
+        provenance = snapshot.get("orchestration_provenance")
+        if not isinstance(provenance, dict):
+            problems.append(
+                "authorized J12 decision is missing orchestration provenance"
+            )
+        elif (
+            provenance.get("work_grant_settlement_complete") is not True
+            or provenance.get("open_work_grant_reservations") != 0
+        ):
+            problems.append(
+                "authorized J12 decision did not bind fully settled WorkGrants"
+            )
+        provider = snapshot.get("orchestration_host_provider_id")
+        if provider != "linux-host-v2":
+            problems.append(
+                "authorized J12 decision did not use the real linux-host-v2 capacity provider"
+            )
+        if snapshot.get("orchestration_work_grant_grid_complete") is not True:
+            problems.append(
+                "authorized J12 decision lacks the exact settled 3x3 WorkGrant grid"
+            )
+        if snapshot.get("orchestration_host_capacity_claim") is not True:
+            problems.append(
+                "authorized J12 decision lacks a real adaptive host-capacity claim"
+            )
 
     if authorized:
         if decision.get("authority") != "HYBRID":
@@ -407,11 +486,20 @@ def _verify_clocked_authority(
 
 def _verify_orchestration_provenance(
     run_dir: Path,
+    authorization: dict[str, Any],
     snapshot: dict[str, Any],
     problems: list[str],
 ) -> None:
     provenance = snapshot.get("orchestration_provenance")
     if provenance is None:
+        return
+    if (
+        authorization.get("policy")
+        != ORCHESTRATED_CLOCKED_AUTHORIZATION_POLICY
+    ):
+        problems.append(
+            "non-J12 authority policy carried orchestration provenance"
+        )
         return
     if not isinstance(provenance, dict):
         problems.append("final decision orchestration provenance is not an object")
@@ -426,11 +514,11 @@ def _verify_orchestration_provenance(
         )
     try:
         from controller.orchestration_integrity import (
-            verify_orchestration_integrity,
+            verify_orchestrated_composition_integrity,
         )
 
         repository_root = Path(__file__).resolve().parents[1]
-        for problem in verify_orchestration_integrity(
+        for problem in verify_orchestrated_composition_integrity(
             run_dir,
             root=repository_root,
         ):
@@ -520,7 +608,7 @@ def verify_final_decision_integrity(run_dir: Path | str) -> list[str]:
         isinstance(decision, dict)
         and authorization is not None
         and snapshot is not None
-        and authorization.get("policy") == _CLOCKED_POLICY
+        and authorization.get("policy") in _CLOCKED_POLICIES
     ):
         _verify_clocked_authority(
             run_dir,
@@ -529,9 +617,10 @@ def verify_final_decision_integrity(run_dir: Path | str) -> list[str]:
             snapshot,
             problems,
         )
-    if snapshot is not None:
+    if authorization is not None and snapshot is not None:
         _verify_orchestration_provenance(
             run_dir,
+            authorization,
             snapshot,
             problems,
         )

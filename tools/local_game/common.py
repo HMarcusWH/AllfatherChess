@@ -15,6 +15,14 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
 ARMS = ("stockfish", "reckless", "lc0", "allfather-anchor", "allfather-g3")
+ORCHESTRATED_ARMS = (
+    "stockfish",
+    "reckless",
+    "lc0",
+    "allfather-anchor",
+    "allfather-orchestrated",
+)
+AUTHORITY_ARMS = ("allfather-g3", "allfather-orchestrated")
 
 
 class QualificationError(RuntimeError):
@@ -113,18 +121,60 @@ def policy(root: Path = ROOT, path: Path | str | None = None) -> dict:
     p = load(selected)
     require(type(p.get("schema_version")) is int and p["schema_version"] == 1,
             "unsupported LOCAL-1 policy")
-    require(p.get("arms") == list(ARMS), "the five baseline arms must not change implicitly")
+    expected_arms = (
+        ORCHESTRATED_ARMS
+        if p.get("profile_id") == "local-full-game-orchestrated-v1"
+        else ARMS
+    )
+    require(
+        p.get("arms") == list(expected_arms),
+        "the five baseline arms must match the declared lifecycle profile",
+    )
+    expected_controller = (
+        "allfather-orchestrated"
+        if expected_arms == ORCHESTRATED_ARMS
+        else "allfather-g3"
+    )
+    require(
+        p.get("controller_arm", expected_controller) == expected_controller,
+        "LOCAL-1 controller arm differs from the declared lifecycle profile",
+    )
     require(type(p.get("concurrency")) is int and p["concurrency"] == 1 and
             type(p.get("games_per_pair")) is int and p["games_per_pair"] == 2,
             "LOCAL-1 requires serial, color-reversed pairs")
     require(p.get("same_compute_claim") is False, "LOCAL-1 is not equal-compute qualification")
+    if p.get("profile_id") == "local-full-game-orchestrated-v1":
+        qualification = p.get("qualification")
+        require(
+            isinstance(qualification, dict)
+            and qualification.get("require_j12_mechanism_prerequisite") is True,
+            "orchestrated LOCAL-1 must require the J12 mechanism prerequisite",
+        )
+        prerequisites = p.get("prerequisites")
+        require(
+            isinstance(prerequisites, list)
+            and [row.get("id") for row in prerequisites]
+            == ["engine-opt-v2", "j12"],
+            "orchestrated LOCAL-1 prerequisite order/identity drift",
+        )
     return p
 
 
+def controller_arm(p: dict) -> str:
+    return str(p.get("controller_arm", "allfather-g3"))
+
+
+def is_authority_arm(arm: str) -> bool:
+    return arm in AUTHORITY_ARMS
+
+
 def runtime_config(source: dict, arm: str, root: Path, replay: Path) -> dict:
-    """No duplicated G3 policy: derive only output paths, or the explicit native-clock control."""
-    require(arm in ("allfather-g3", "allfather-anchor"), "not a controller arm")
-    if arm == "allfather-g3":
+    """Derive controller arms only by relocating root/replay output paths."""
+    require(
+        arm in (*AUTHORITY_ARMS, "allfather-anchor"),
+        "not a controller arm",
+    )
+    if arm in AUTHORITY_ARMS:
         config = copy.deepcopy(source)
         config["root"] = str(root.resolve())
         config["shadow"]["replay_root"] = str(replay.resolve())
@@ -134,9 +184,25 @@ def runtime_config(source: dict, arm: str, root: Path, replay: Path) -> dict:
             "instances": {"stockfish-anchor": copy.deepcopy(source["instances"]["stockfish-anchor"])}}
 
 
+def verify_controller_derivation(
+    source: dict,
+    candidate: dict,
+    arm: str,
+    root: Path,
+    replay: Path,
+) -> None:
+    require(
+        arm in AUTHORITY_ARMS,
+        "controller derivation verifier requires an authority arm",
+    )
+    require(
+        candidate == runtime_config(source, arm, root, replay),
+        f"{arm} runtime differs beyond declared root/replay output relocation",
+    )
+
+
 def verify_g3_derivation(source: dict, candidate: dict, root: Path, replay: Path) -> None:
-    require(candidate == runtime_config(source, "allfather-g3", root, replay),
-            "G3 runtime differs beyond declared root/replay output relocation")
+    verify_controller_derivation(source, candidate, "allfather-g3", root, replay)
 
 
 def source_identity(root: Path = ROOT) -> dict:

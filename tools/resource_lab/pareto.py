@@ -8,6 +8,9 @@ from .candidate_matrix import Candidate, LabSpec
 from .measure import candidate_summary
 
 
+REFERENCE_NATIVE_WORK_BLOCKER = "reference-native-work-not-repeatable"
+
+
 class ParetoError(ValueError):
     pass
 
@@ -93,6 +96,20 @@ def build_pareto_report(
             reference = lookup.get((family, nodes, True))
             require(reference is not None, f"{family}/n{nodes}: reference candidate missing")
             ref_summary = summaries[reference.candidate_id]
+            # Native-work repeatability is a profile-promotion gate, not an
+            # evidence-integrity invariant. LC0 may terminate a bounded search
+            # between asynchronous info updates, so the last reported UCI node
+            # counter can differ across otherwise clean repeats. If the frozen
+            # reference itself is unstable, retain the measurements but block
+            # the entire family/budget group from Pareto promotion.
+            reference_promotion_blockers: list[str] = []
+            if (
+                spec.raw["pareto"]["require_repeatable_native_work"]
+                and ref_summary.get("native_work_repeatable") is not True
+            ):
+                reference_promotion_blockers.append(
+                    REFERENCE_NATIVE_WORK_BLOCKER
+                )
             reference_vector = (
                 tuple(ref_summary["bestmove_vectors"][0])
                 if ref_summary.get("bestmove_vectors")
@@ -110,7 +127,7 @@ def build_pareto_report(
             rejected: list[dict[str, Any]] = []
             for candidate in group_candidates:
                 summary = summaries[candidate.candidate_id]
-                reasons: list[str] = []
+                reasons: list[str] = list(reference_promotion_blockers)
                 if not summary.get("complete"):
                     reasons.append("incomplete")
                 if spec.raw["pareto"]["require_repeatable_bestmove"] and not summary.get("bestmove_repeatable"):
@@ -180,6 +197,8 @@ def build_pareto_report(
                     "family": family,
                     "nodes": nodes,
                     "reference_candidate_id": reference.candidate_id,
+                    "promotion_eligible": not reference_promotion_blockers,
+                    "promotion_blockers": list(reference_promotion_blockers),
                     "eligible": sorted(candidate.candidate_id for candidate in eligible),
                     "pareto": sorted(pareto),
                     "dominated": sorted(dominated, key=lambda row: row["candidate_id"]),

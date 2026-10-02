@@ -12,8 +12,10 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
-from tools.local_game.common import (ARMS, QualificationError, contained, cpu_delta, load,
-                                    policy, regular_tree_digest, runtime_config, verify_g3_derivation)
+from tools.local_game.common import (ARMS, ORCHESTRATED_ARMS, QualificationError,
+                                    contained, cpu_delta, load, policy, regular_tree_digest,
+                                    runtime_config, verify_controller_derivation,
+                                    verify_g3_derivation)
 from tools.local_game.runner import command, engine_options, retain_report_runs, schedule
 from tools.local_game.validate import position, trace_searches, match_game, rules_result
 from tools.local_game.probes import check_transition
@@ -50,6 +52,50 @@ class ContractTests(unittest.TestCase):
         self.assertEqual(len({j["clock"] for j in baseline}), 1)
         self.assertEqual(len([j for j in schedule(policy(ROOT), "soak") if j["kind"] == "baseline"]), 100)
 
+
+    def test_orchestrated_profile_has_balanced_five_arm_schedule(self):
+        p = policy(
+            ROOT,
+            ROOT / "qualification/local-full-game-orchestrated-v1.json",
+        )
+        jobs = schedule(p, "required")
+        baseline = [job for job in jobs if job["kind"] == "baseline"]
+        self.assertEqual(len(baseline), 10)
+        for arm in ORCHESTRATED_ARMS:
+            self.assertEqual(sum(arm in job["arms"] for job in baseline), 4)
+        lifecycle = [job for job in jobs if job["kind"] == "lifecycle"]
+        self.assertTrue(
+            all(job["arms"][0] == "allfather-orchestrated" for job in lifecycle)
+        )
+
+    def test_orchestrated_runtime_is_only_output_relocation(self):
+        source = load(ROOT / "config/allfather.orchestrated-v1.validation.json")
+        original = copy.deepcopy(source)
+        root = ROOT
+        replay = ROOT / "build/test-orchestrated-replays"
+        derived = runtime_config(
+            source,
+            "allfather-orchestrated",
+            root,
+            replay,
+        )
+        verify_controller_derivation(
+            source,
+            derived,
+            "allfather-orchestrated",
+            root,
+            replay,
+        )
+        self.assertEqual(source, original)
+        derived["routing"]["checkpoint_interval_ms"] += 1
+        with self.assertRaises(QualificationError):
+            verify_controller_derivation(
+                source,
+                derived,
+                "allfather-orchestrated",
+                root,
+                replay,
+            )
 
     def test_lc0_empty_default_option_is_not_serialized_into_fastchess_cli(self):
         source = load(ROOT / "config/allfather.online-hybrid.validation.json")

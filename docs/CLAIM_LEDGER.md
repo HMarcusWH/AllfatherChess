@@ -1,6 +1,6 @@
 # Claim ledger
 
-## Current repository synchronization after PR #57
+## Current repository synchronization after PR #58
 
 - **PROVED / CI-GATED FALLBACK:** ENGINE-OPT-V2 / PR #44 remains the frozen qualified
   fallback composition. J6 does not rewrite its clocks, authority policy or historical
@@ -155,7 +155,7 @@
 - no move-quality, correctness, win-probability, Elo, strength, equal-resource or deployment claim;
 - J11 independently sealed allocation evidence and J12 full orchestrated move authority remain later gates.
 
-## M14-J J11 allocation evidence + authority binding — IN PROGRESS
+## M14-J J11 allocation evidence + authority binding — MERGED / PR #58
 
 ### IMPLEMENTED / QUALIFICATION-GATED BY THIS PR
 
@@ -186,6 +186,31 @@
 - J11 does not enable orchestration + HYBRID authority, promote STOP_BUYING, consume J7
   Hash32/MaxPrefetch0 selections, establish generic-host portability or change engine search;
 - no move-quality, Elo, strength, equal-resource or deployment claim follows from J11.
+
+## M14-J J12 full orchestrated composition — IN PROGRESS / PR #59
+
+### IMPLEMENTED / QUALIFICATION-GATED BY THIS PR
+
+- introduces `orchestrated_clocked_staged_preanchor_v1` without changing the historical
+  G3 authority policy;
+- keeps J10 as the single staged-compute allocator and translates its immutable
+  `AllocationDecision` into a content-addressed G3 route projection rather than running
+  `unified_value_v1` as a second live allocator;
+- J12 HYBRID authority requires the J11 provenance binding, complete WorkGrant settlement,
+  zero open WorkGrant reservations and a non-synthetic host-capacity observation;
+- the J12 post-output verifier reconstructs the J11 resource evidence and binds the final
+  DecisionAuthorization to the exact AllocationDecision / MoveResourcePlan route projection;
+- hosted-runner synthetic capacity is mechanism evidence only and must deterministically
+  fall back to the Stockfish anchor.
+
+### NOT PROMOTED BY J12
+
+- `STOP_BUYING` remains unpromoted at 16 frozen independent groups versus the 32-group
+  minimum;
+- J7 Hash32 / MaxPrefetch0 isolated selections remain outside runtime composition;
+- an incomplete or synthetic host observation establishes no deployment-host qualification;
+- no J12 result by itself establishes Elo, move-quality superiority, equal-resource strength,
+  generic-host portability or deployment readiness.
 
 ## LOCAL-1 full-game lifecycle — PROVED / CI-GATED
 

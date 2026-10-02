@@ -1,9 +1,9 @@
 # AllfatherChess roadmap
 
 **Status date:** 1 October 2026  
-**Current main:** `7a8ac8f803d7c58d3c16daf81a52c7fa86f2f9ca`  
-**Latest merged milestone:** PR #57 / M14-J J10 — deterministic adaptive allocation  
-**Current execution milestone:** M14-J J11 — allocation evidence + authority binding  
+**Current main:** `10664a27c5f4d88b087b1d008ef4e0eb4a317ef0`  
+**Latest merged milestone:** PR #58 / M14-J J11 — allocation evidence + authority binding  
+**Current execution milestone:** M14-J J12 — full orchestrated composition  
 **Current-state authority:** [CURRENT_STATUS.md](CURRENT_STATUS.md)  
 **M14-J implementation plan:** [M14_J_ADAPTIVE_RESOURCE_ORCHESTRATION.md](M14_J_ADAPTIVE_RESOURCE_ORCHESTRATION.md)  
 **Detailed deployment audit:** [ONLINE_RELEASE_PLAN.md](ONLINE_RELEASE_PLAN.md)
@@ -102,13 +102,14 @@ M14-J J10 / PR #57
 round-2 adaptive bundle nomination; STOP calibration gated
         |
         v
-IN PROGRESS
-M14-J J11
+DONE
+M14-J J11 / PR #58
 independently sealed allocation evidence + authority binding
         |
         v
-M14-J J12
-full orchestrated composition
+IN PROGRESS
+M14-J J12 / PR #59
+single-allocation orchestrated composition + bounded HYBRID authority
         |
         v
 META-1

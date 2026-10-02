@@ -16,9 +16,11 @@ from tools.resource_lab.measure import (
     reconstruct_physical_measurement,
 )
 from tools.resource_lab.process_cpu import ProcessCpuClockEvidence
+from tools.resource_lab.pareto import REFERENCE_NATIVE_WORK_BLOCKER
 from tools.resource_lab.qualify import (
     ResourceLabQualificationError,
     _reconstruct_measurement,
+    _validate_reference_native_work_state,
     validate_attempt_order,
 )
 
@@ -111,6 +113,48 @@ class QualifyAttemptTests(unittest.TestCase):
             )
 
 
+
+    def test_reference_native_work_instability_is_retained_as_promotion_blocker(self):
+        group={
+            "family":"lc0",
+            "nodes":16,
+            "reference_candidate_id":"ref-lc0-n16",
+            "promotion_eligible":False,
+            "promotion_blockers":[REFERENCE_NATIVE_WORK_BLOCKER],
+            "eligible":[],
+            "pareto":[],
+        }
+        summary={
+            "native_work_repeatable":False,
+            "native_work_vectors":[
+                [20,15,16,16,19,22,22,16],
+                [20,15,16,16,19,22,22,16],
+                [20,15,16,16,14,22,22,16],
+            ],
+        }
+        blocker=_validate_reference_native_work_state(group,summary)
+        self.assertEqual(blocker["family"],"lc0")
+        self.assertEqual(blocker["nodes"],16)
+        self.assertEqual(blocker["reason"],REFERENCE_NATIVE_WORK_BLOCKER)
+        self.assertEqual(blocker["native_work_vectors"],summary["native_work_vectors"])
+
+        tampered=dict(group)
+        tampered["promotion_eligible"]=True
+        with self.assertRaises(ResourceLabQualificationError):
+            _validate_reference_native_work_state(tampered,summary)
+
+    def test_stable_reference_native_work_requires_clear_promotion_state(self):
+        group={
+            "family":"lc0",
+            "nodes":64,
+            "reference_candidate_id":"ref-lc0-n64",
+            "promotion_eligible":True,
+            "promotion_blockers":[],
+            "eligible":["ref-lc0-n64"],
+            "pareto":["ref-lc0-n64"],
+        }
+        summary={"native_work_repeatable":True,"native_work_vectors":[[64],[64],[64]]}
+        self.assertIsNone(_validate_reference_native_work_state(group,summary))
 
     def test_producer_physical_metric_tampering_is_rejected(self):
         candidate=Candidate(

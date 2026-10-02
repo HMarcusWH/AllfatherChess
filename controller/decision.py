@@ -28,7 +28,17 @@ DECISION_EVIDENCE_VERSION = "decision-evidence-v1"
 COUNTERFACTUAL_POLICY = "unanimous_verify_v1"
 AUTHORIZATION_POLICY = "bounded_preanchor_v0"
 CLOCKED_AUTHORIZATION_POLICY = "clocked_staged_preanchor_v1"
-AUTHORIZATION_POLICIES = (AUTHORIZATION_POLICY, CLOCKED_AUTHORIZATION_POLICY)
+ORCHESTRATED_CLOCKED_AUTHORIZATION_POLICY = (
+    "orchestrated_clocked_staged_preanchor_v1"
+)
+CLOCKED_AUTHORIZATION_POLICIES = (
+    CLOCKED_AUTHORIZATION_POLICY,
+    ORCHESTRATED_CLOCKED_AUTHORIZATION_POLICY,
+)
+AUTHORIZATION_POLICIES = (
+    AUTHORIZATION_POLICY,
+    *CLOCKED_AUTHORIZATION_POLICIES,
+)
 HYBRID_AUTHORITY = "HYBRID"
 ANCHOR_FALLBACK = "ANCHOR_FALLBACK"
 OWNER_ORDER = ("stockfish", "reckless", "lc0")
@@ -475,6 +485,12 @@ class DecisionAuthorizationSnapshot:
     # exact canonical digest.  J12 may populate it; when present the authority
     # gate enforces its settled WorkGrant boundary.
     orchestration_provenance: OrchestrationAuthorityProvenance | None = None
+    orchestration_work_grant_grid_complete: bool | None = None
+    orchestration_host_provider_id: str | None = None
+    orchestration_host_capacity_claim: bool | None = None
+    orchestration_host_qualification_domain_complete: bool | None = None
+    route_allocation_decision_digest: str | None = None
+    route_move_resource_plan_id: str | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.run_id, str) or not self.run_id:
@@ -522,6 +538,61 @@ class DecisionAuthorizationSnapshot:
             raise DecisionError(
                 "authorization snapshot orchestration_provenance must be typed"
             )
+        if (
+            self.orchestration_work_grant_grid_complete is not None
+            and not isinstance(
+                self.orchestration_work_grant_grid_complete,
+                bool,
+            )
+        ):
+            raise DecisionError(
+                "authorization snapshot orchestration WorkGrant grid flag must be boolean"
+            )
+        provider = self.orchestration_host_provider_id
+        if provider is not None and (
+            not isinstance(provider, str) or not provider
+        ):
+            raise DecisionError(
+                "authorization snapshot orchestration host provider must be non-empty"
+            )
+        for label, value in (
+            (
+                "orchestration_host_capacity_claim",
+                self.orchestration_host_capacity_claim,
+            ),
+            (
+                "orchestration_host_qualification_domain_complete",
+                self.orchestration_host_qualification_domain_complete,
+            ),
+        ):
+            if value is not None and not isinstance(value, bool):
+                raise DecisionError(
+                    f"authorization snapshot {label} must be boolean when present"
+                )
+        if self.route_allocation_decision_digest is not None:
+            value = self.route_allocation_decision_digest
+            if (
+                not isinstance(value, str)
+                or len(value) != 64
+                or any(ch not in "0123456789abcdef" for ch in value)
+            ):
+                raise DecisionError(
+                    "authorization snapshot route allocation digest must be lowercase SHA-256"
+                )
+        if self.route_move_resource_plan_id is not None:
+            value = self.route_move_resource_plan_id
+            if (
+                not isinstance(value, str)
+                or not value.startswith("move-plan/")
+                or len(value) != len("move-plan/") + 64
+                or any(
+                    ch not in "0123456789abcdef"
+                    for ch in value.split("/", 1)[1]
+                )
+            ):
+                raise DecisionError(
+                    "authorization snapshot route MoveResourcePlan identity is invalid"
+                )
 
     def as_dict(self) -> dict[str, Any]:
         payload = {
@@ -571,6 +642,30 @@ class DecisionAuthorizationSnapshot:
         if self.orchestration_provenance is not None:
             payload["orchestration_provenance"] = (
                 self.orchestration_provenance.as_dict()
+            )
+        if self.orchestration_work_grant_grid_complete is not None:
+            payload["orchestration_work_grant_grid_complete"] = (
+                self.orchestration_work_grant_grid_complete
+            )
+        if self.orchestration_host_provider_id is not None:
+            payload["orchestration_host_provider_id"] = (
+                self.orchestration_host_provider_id
+            )
+        if self.orchestration_host_capacity_claim is not None:
+            payload["orchestration_host_capacity_claim"] = (
+                self.orchestration_host_capacity_claim
+            )
+        if self.orchestration_host_qualification_domain_complete is not None:
+            payload["orchestration_host_qualification_domain_complete"] = (
+                self.orchestration_host_qualification_domain_complete
+            )
+        if self.route_allocation_decision_digest is not None:
+            payload["route_allocation_decision_digest"] = (
+                self.route_allocation_decision_digest
+            )
+        if self.route_move_resource_plan_id is not None:
+            payload["route_move_resource_plan_id"] = (
+                self.route_move_resource_plan_id
             )
         return payload
 
@@ -1038,6 +1133,40 @@ def authorize_decision(
             reasons.append("orchestration WorkGrant settlement is incomplete")
         if provenance.open_work_grant_reservations != 0:
             reasons.append("orchestration WorkGrant reservation remains open")
+
+    if policy == ORCHESTRATED_CLOCKED_AUTHORIZATION_POLICY:
+        if provenance is None:
+            reasons.append(
+                "orchestrated authority requires frozen J11 orchestration provenance"
+            )
+        else:
+            if (
+                snapshot.route_allocation_decision_digest
+                != provenance.allocation_decision_digest
+            ):
+                reasons.append(
+                    "orchestrated route does not bind the J11 AllocationDecision"
+                )
+            if (
+                snapshot.route_move_resource_plan_id
+                != provenance.move_resource_plan_id
+            ):
+                reasons.append(
+                    "orchestrated route does not bind the J11 MoveResourcePlan"
+                )
+        if snapshot.orchestration_work_grant_grid_complete is not True:
+            reasons.append(
+                "orchestrated authority requires the exact settled 3x3 WorkGrant grid"
+            )
+        if snapshot.orchestration_host_capacity_claim is not True:
+            reasons.append(
+                "orchestrated authority requires a real complete adaptive host-capacity claim"
+            )
+        provider = snapshot.orchestration_host_provider_id
+        if provider != "linux-host-v2":
+            reasons.append(
+                "orchestrated authority requires the real linux-host-v2 capacity provider"
+            )
 
     if reasons:
         return DecisionAuthorization(

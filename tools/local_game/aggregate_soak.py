@@ -5,7 +5,17 @@ import argparse
 from pathlib import Path
 import json
 
-from .common import ROOT, file_record, load, policy, require, save, sha, source_identity
+from .common import (
+    ROOT,
+    controller_arm,
+    file_record,
+    load,
+    policy,
+    require,
+    save,
+    sha,
+    source_identity,
+)
 from .runner import schedule
 from .validate import qualify
 
@@ -82,8 +92,9 @@ def aggregate(root: Path, policy_path: Path | None = None) -> dict:
             plies=report.get("plies")
             require(isinstance(plies,list), f"shard {index}: validated ply evidence missing")
             replay_count=0
+            authority_arm = controller_arm(p)
             for ply in plies:
-                if ply.get("arm")!="allfather-g3":
+                if ply.get("arm") != authority_arm:
                     continue
                 replay_id=ply.get("replay_id")
                 replay_sha=ply.get("replay_manifest_sha256")

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import sys
 import tempfile
@@ -12,6 +13,15 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
+
+_ACTIVE_SPECIALIST_PATH = ROOT / "scripts" / "active-specialist-contract.py"
+_ACTIVE_SPECIALIST_SPEC = importlib.util.spec_from_file_location(
+    "active_specialist_contract",
+    _ACTIVE_SPECIALIST_PATH,
+)
+assert _ACTIVE_SPECIALIST_SPEC is not None and _ACTIVE_SPECIALIST_SPEC.loader is not None
+_ACTIVE_SPECIALIST = importlib.util.module_from_spec(_ACTIVE_SPECIALIST_SPEC)
+_ACTIVE_SPECIALIST_SPEC.loader.exec_module(_ACTIVE_SPECIALIST)
 
 from controller.budget import BudgetExceeded, BudgetLedger, ResourceEnvelope
 from controller.routing import ConservativeRouter, RoutingPolicy
@@ -59,6 +69,85 @@ def _policy(**overrides) -> RoutingPolicy:
     )
     values.update(overrides)
     return RoutingPolicy(**values)
+
+
+class HostTimingQualificationTests(unittest.TestCase):
+    def _claim(self, **changes):
+        claim = {
+            "anchor_cost_reserved": True,
+            "anchor_request_bounded": True,
+            "gpu_accounted": True,
+            "reservations_within_envelope": True,
+            "specialist_partitions_within_caps": True,
+            "specialist_settlement_complete": True,
+            "work_grant_settlement_complete": True,
+            "physical_measurement_required": True,
+            "physical_measurement_qualified": True,
+            "physical_cpu_within_envelope": True,
+            "wall_within_envelope": True,
+            "wall_ms_elapsed": 6500.0,
+            "claimed": True,
+        }
+        claim.update(changes)
+        return claim
+
+    def test_hosted_wall_only_overshoot_is_valid_negative_host_evidence(self):
+        result = _ACTIVE_SPECIALIST.classify_host_timing_qualification(
+            self._claim(
+                wall_within_envelope=False,
+                wall_ms_elapsed=12084.067,
+                claimed=False,
+            ),
+            runner_environment="github-hosted",
+            declared_wall_ms=7000.0,
+        )
+        self.assertEqual(
+            result["status"],
+            _ACTIVE_SPECIALIST.HOST_TIMING_NOT_QUALIFIED,
+        )
+        self.assertEqual(result["wall_overshoot_ms"], 5084.067)
+
+    def test_non_hosted_wall_overshoot_remains_hard_failure(self):
+        with self.assertRaises(_ACTIVE_SPECIALIST.ContractError):
+            _ACTIVE_SPECIALIST.classify_host_timing_qualification(
+                self._claim(
+                    wall_within_envelope=False,
+                    wall_ms_elapsed=7100.0,
+                    claimed=False,
+                ),
+                runner_environment="self-hosted",
+                declared_wall_ms=7000.0,
+            )
+
+    def test_hosted_non_wall_failure_remains_hard_failure(self):
+        with self.assertRaises(_ACTIVE_SPECIALIST.ContractError):
+            _ACTIVE_SPECIALIST.classify_host_timing_qualification(
+                self._claim(
+                    specialist_settlement_complete=False,
+                    wall_within_envelope=False,
+                    wall_ms_elapsed=7100.0,
+                    claimed=False,
+                ),
+                runner_environment="github-hosted",
+                declared_wall_ms=7000.0,
+            )
+
+    def test_positive_wall_claim_is_qualified_everywhere(self):
+        result = _ACTIVE_SPECIALIST.classify_host_timing_qualification(
+            self._claim(),
+            runner_environment="github-hosted",
+            declared_wall_ms=7000.0,
+        )
+        self.assertEqual(result["status"], _ACTIVE_SPECIALIST.HOST_TIMING_QUALIFIED)
+        self.assertEqual(result["wall_overshoot_ms"], 0.0)
+
+    def test_inconsistent_claim_is_rejected(self):
+        with self.assertRaises(_ACTIVE_SPECIALIST.ContractError):
+            _ACTIVE_SPECIALIST.classify_host_timing_qualification(
+                self._claim(claimed=False),
+                runner_environment="github-hosted",
+                declared_wall_ms=7000.0,
+            )
 
 
 class SpecialistEnvelopeTests(unittest.TestCase):

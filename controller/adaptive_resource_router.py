@@ -8,6 +8,7 @@ never a BudgetLedger reservation and never move authority.
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -51,11 +52,85 @@ from controller.work_scheduler import (
 
 
 class AdaptiveResourceRoutingError(RoutingError):
-    """J10 router cannot preserve its declared allocation contract."""
+    """J10/J12 router cannot preserve its declared allocation contract."""
+
+
+ORCHESTRATED_ROUTE_PROJECTION_VERSION = (
+    "j12-allocation-route-projection-v1"
+)
+
+
+@dataclass(frozen=True)
+class OrchestratedStagedRouteDecision:
+    """Deterministic G3-facing projection of the single J10 allocation decision.
+
+    This is not a second allocator.  It only translates J10's resource decision
+    into the route vocabulary already consumed by the frozen G3 authority
+    protocol, while binding the exact AllocationDecision and MoveResourcePlan.
+    """
+
+    version: str
+    action: str
+    buy_extension: bool
+    allocation_action: str
+    allocation_decision_digest: str
+    move_resource_plan_id: str
+    allocation_id: str
+    reason: str
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "version": self.version,
+            "action": self.action,
+            "buy_extension": self.buy_extension,
+            "allocation_action": self.allocation_action,
+            "allocation_decision_digest": self.allocation_decision_digest,
+            "move_resource_plan_id": self.move_resource_plan_id,
+            "allocation_id": self.allocation_id,
+            "reason": self.reason,
+            "authority": {
+                "routing": True,
+                "resource": False,
+                "outward_move": False,
+            },
+        }
+
+
+def project_allocation_decision(
+    decision: AllocationDecision,
+) -> OrchestratedStagedRouteDecision:
+    if decision.action == BUY_BUNDLE:
+        action = "BUY_STAGED_VERIFY"
+        buy = True
+    elif decision.action == STOP_BUYING:
+        action = "SKIP_STAGED_VERIFY"
+        buy = False
+    elif decision.action == FALLBACK:
+        action = "FALLBACK_ANCHOR"
+        buy = False
+    else:
+        raise AdaptiveResourceRoutingError(
+            f"cannot project unknown AllocationDecision action: {decision.action!r}"
+        )
+    return OrchestratedStagedRouteDecision(
+        version=ORCHESTRATED_ROUTE_PROJECTION_VERSION,
+        action=action,
+        buy_extension=buy,
+        allocation_action=decision.action,
+        allocation_decision_digest=decision.digest,
+        move_resource_plan_id=decision.move_resource_plan_id,
+        allocation_id=decision.allocation_id,
+        reason=(
+            "deterministic G3 route projection of J10 AllocationDecision "
+            f"{decision.action}"
+        ),
+    )
 
 
 class AdaptiveResourceRouter(ConservativeRouter):
-    """ConservativeRouter plus J10 round-2 bundle nomination."""
+    """ConservativeRouter plus J10 allocation and J12 route projection."""
+
+    use_staged_terminal_for_decision = True
 
     def __init__(
         self,
@@ -63,17 +138,25 @@ class AdaptiveResourceRouter(ConservativeRouter):
         allocator: DeterministicAdaptiveAllocator,
         staged_model: StagedDecisionChangeModel | None,
         regime_model: RegimeSupportModel | None,
+        authority_route_projection_enabled: bool = False,
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
         self.allocator = allocator
         self.staged_model = staged_model
         self.regime_model = regime_model
+        self.authority_route_projection_enabled = bool(
+            authority_route_projection_enabled
+        )
         self._allocation_decisions: dict[str, AllocationDecision] = {}
+        self._authority_route_decisions: dict[
+            str, OrchestratedStagedRouteDecision
+        ] = {}
         self._active_context: Any | None = None
 
     def on_run_start(self, context: Any) -> None:
         self._allocation_decisions.clear()
+        self._authority_route_decisions.clear()
         self._active_context = context
         super().on_run_start(context)
 
@@ -82,6 +165,23 @@ class AdaptiveResourceRouter(ConservativeRouter):
         run_id: str,
     ) -> AllocationDecision | None:
         return self._allocation_decisions.get(str(run_id))
+
+    def staged_route_authority_snapshot(
+        self,
+        run_id: str,
+    ) -> dict[str, Any] | None:
+        """Return the G3 route identity projected from the one J10 decision."""
+
+        decision = self._authority_route_decisions.get(str(run_id))
+        if decision is None:
+            return None
+        payload = decision.as_dict()
+        return {
+            "action": decision.action,
+            "buy_extension": decision.buy_extension,
+            "decision": payload,
+            "digest": canonical_digest(payload),
+        }
 
     def decision_authority_snapshot(self) -> dict[str, object]:
         """Expose a frozen J11 provenance binding without granting move authority.
@@ -118,6 +218,72 @@ class AdaptiveResourceRouter(ConservativeRouter):
                 "work_grants": audit.work_grants,
             }
         )
+        authorized_grants = [
+            row
+            for row in audit.work_grants
+            if (
+                isinstance(row, dict)
+                and row.get("event") == "authorize"
+                and row.get("granted") is True
+                and isinstance(row.get("grant"), dict)
+            )
+        ]
+        terminal_grants = [
+            row
+            for row in audit.work_grants
+            if (
+                isinstance(row, dict)
+                and row.get("event")
+                in (
+                    "settle",
+                    "release",
+                    "bundle_rollback",
+                    "finalize_unresolved",
+                )
+            )
+        ]
+        expected_grid = {
+            (allocation_round, owner, phase)
+            for allocation_round, phase in (
+                (0, "EXPLORE"),
+                (1, "VERIFY"),
+                (2, "STAGED_VERIFY"),
+            )
+            for owner in ("stockfish", "reckless", "lc0")
+        }
+        actual_grid = {
+            (
+                row["grant"].get("allocation_round"),
+                row["grant"].get("owner"),
+                row["grant"].get("phase"),
+            )
+            for row in authorized_grants
+        }
+        authorized_ids = {
+            row["grant"].get("grant_id")
+            for row in authorized_grants
+        }
+        terminal_ids = {
+            row.get("grant_id")
+            for row in terminal_grants
+        }
+        payload["orchestration_work_grant_grid_complete"] = bool(
+            len(authorized_grants) == 9
+            and len(authorized_ids) == 9
+            and actual_grid == expected_grid
+            and len(terminal_grants) == 9
+            and terminal_ids == authorized_ids
+            and all(row.get("event") == "settle" for row in terminal_grants)
+        )
+        payload["orchestration_host_provider_id"] = (
+            plan.host_capabilities.provider_id
+        )
+        payload["orchestration_host_capacity_claim"] = bool(
+            plan.host_capacity_claim
+        )
+        payload["orchestration_host_qualification_domain_complete"] = bool(
+            plan.host_capabilities.qualification_domain_complete
+        )
         payload["orchestration_provenance"] = {
             "version": "j11-orchestration-authority-binding-v1",
             "move_resource_plan_id": plan.plan_id,
@@ -139,6 +305,17 @@ class AdaptiveResourceRouter(ConservativeRouter):
             },
         }
         return payload
+
+    def _record_route_projection(
+        self,
+        run_id: str,
+        decision: AllocationDecision,
+    ) -> OrchestratedStagedRouteDecision:
+        projection = project_allocation_decision(decision)
+        self._authority_route_decisions[str(run_id)] = projection
+        if self.audit is not None:
+            self.audit.record_value_decision(projection.as_dict())
+        return projection
 
     def _record_allocation_decision(
         self,
@@ -247,6 +424,11 @@ class AdaptiveResourceRouter(ConservativeRouter):
             context.run_id,
             decision,
         )
+        if self.authority_route_projection_enabled:
+            self._record_route_projection(
+                context.run_id,
+                decision,
+            )
         if self.audit is not None:
             self.audit.record_allocation_context(
                 {
@@ -455,6 +637,7 @@ class AdaptiveResourceRouter(ConservativeRouter):
             super().on_run_end(context)
         finally:
             self._allocation_decisions.pop(str(context.run_id), None)
+            self._authority_route_decisions.pop(str(context.run_id), None)
             self._active_context = None
 
 
@@ -637,6 +820,13 @@ def build_adaptive_resource_router(
             None if regime_model is None else regime_model.model_id
         ),
     )
+    authority = getattr(config, "hybrid_authority", None)
+    authority_route_projection_enabled = bool(
+        authority is not None
+        and getattr(authority, "policy", None)
+        == "orchestrated_clocked_staged_preanchor_v1"
+    )
+
     return AdaptiveResourceRouter(
         envelope=envelope,
         policy=policy,
@@ -648,4 +838,7 @@ def build_adaptive_resource_router(
         allocator=allocator,
         staged_model=staged_model,
         regime_model=regime_model,
+        authority_route_projection_enabled=(
+            authority_route_projection_enabled
+        ),
     )

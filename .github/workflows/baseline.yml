@@ -234,6 +234,8 @@ jobs:
         run: python3 scripts/recursive-refinement-contract.py
 
       - name: Verify active VERIFY REFINE specialist envelope
+        env:
+          ALLFATHER_RUNNER_ENVIRONMENT: ${{ runner.environment }}
         run: python3 scripts/active-specialist-contract.py
 
       - name: Verify measured process resource accounting

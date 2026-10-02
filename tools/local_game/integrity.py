@@ -164,6 +164,17 @@ def verify_prerequisites(output: Path, source: dict, p: dict | None = None) -> N
             if label == "g3-v2":
                 require(report.get("evidence_valid") is True,
                         f"{label}: prerequisite evidence is invalid")
+            elif label == "j12":
+                require(
+                    report.get("mechanism_valid") is True
+                    and report.get("qualification_disposition")
+                    in (
+                        "QUALIFIED_ORCHESTRATED_AUTHORITY",
+                        "NOT_QUALIFIED_HOST_CAPACITY",
+                        "NOT_QUALIFIED_POSITIVE_WITNESS",
+                    ),
+                    "J12 prerequisite mechanism evidence is invalid",
+                )
             elif label == "engine-opt-v2":
                 require(
                     report.get("passed") is True
@@ -213,7 +224,10 @@ def verify_prerequisites(output: Path, source: dict, p: dict | None = None) -> N
             and engine.get("passed") is True,
             "ENGINE-OPT-V2 candidate identity is not valid",
         )
-        if p.get("profile_id") == "local-full-game-v2":
+        if p.get("profile_id") in (
+            "local-full-game-v2",
+            "local-full-game-orchestrated-v1",
+        ):
             manifest = load(output / "manifest.json")
             campaign_domain = validate_execution_domain(
                 manifest.get("execution_domain"),
@@ -231,19 +245,34 @@ def verify_prerequisites(output: Path, source: dict, p: dict | None = None) -> N
                 engine.get("candidate_bundle") == candidate,
                 "ENGINE-OPT-V2 prerequisite candidate binding differs from campaign",
             )
-            g3 = reports.get("g3-v2")
-            require(isinstance(g3, dict), "G3-v2 prerequisite report missing")
-            require(
-                g3.get("candidate_bundle") == candidate,
-                "G3-v2 candidate binding differs from campaign",
-            )
-            require_same_execution_domain(
-                {
-                    "local1_campaign": campaign_domain,
-                    "g3_v2": g3.get("execution_domain"),
-                },
-                expected_source_commit=source["commit"],
-            )
+            if p.get("profile_id") == "local-full-game-v2":
+                g3 = reports.get("g3-v2")
+                require(isinstance(g3, dict), "G3-v2 prerequisite report missing")
+                require(
+                    g3.get("candidate_bundle") == candidate,
+                    "G3-v2 candidate binding differs from campaign",
+                )
+                require_same_execution_domain(
+                    {
+                        "local1_campaign": campaign_domain,
+                        "g3_v2": g3.get("execution_domain"),
+                    },
+                    expected_source_commit=source["commit"],
+                )
+            else:
+                j12 = reports.get("j12")
+                require(isinstance(j12, dict), "J12 prerequisite report missing")
+                require(
+                    j12.get("candidate_bundle") == candidate,
+                    "J12 candidate binding differs from campaign",
+                )
+                require_same_execution_domain(
+                    {
+                        "local1_campaign": campaign_domain,
+                        "j12": j12.get("execution_domain"),
+                    },
+                    expected_source_commit=source["commit"],
+                )
         return
     lc0, online, g3 = (load(root / f"{label}.json") for label in ("lc0", "online2", "g3"))
     build = load(ROOT / "build/online-cpu-reference/build-manifest.json")

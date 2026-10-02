@@ -190,6 +190,18 @@ class AdaptiveResourceRouterTests(unittest.TestCase):
         router._allocation_decisions[context.run_id] = decision
         return decision
 
+    def test_j10_router_does_not_emit_j12_route_projection_by_default(self):
+        base, plan = parent()
+        context = FakeContext(base, plan)
+        router = make_router()
+        router.on_run_start(context)
+        decision = self._buy_decision(router, context)
+        self.assertEqual(decision.action, "BUY_BUNDLE")
+        self.assertIsNone(
+            router.staged_route_authority_snapshot(context.run_id)
+        )
+        self.assertEqual(router.audit.value_decisions, [])
+
     def test_round2_grants_bind_allocation_decision(self):
         base, plan = parent()
         context = FakeContext(base, plan)

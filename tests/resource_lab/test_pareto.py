@@ -11,7 +11,11 @@ ROOT=Path(__file__).resolve().parents[2]
 sys.path.insert(0,str(ROOT))
 
 from tools.resource_lab.candidate_matrix import expand_candidates,load_lab_spec
-from tools.resource_lab.pareto import build_pareto_report,dominates
+from tools.resource_lab.pareto import (
+    REFERENCE_NATIVE_WORK_BLOCKER,
+    build_pareto_report,
+    dominates,
+)
 
 SPEC=ROOT/"qualification/resource-lab-v1.json"
 
@@ -92,6 +96,74 @@ class ParetoTests(unittest.TestCase):
         )
         for group in report["groups"]:
             self.assertIn(group["reference_candidate_id"],group["pareto"])
+
+    def test_lc0_reference_native_work_instability_blocks_promotion_group(self):
+        spec=load_lab_spec(SPEC)
+        candidates=expand_candidates(spec,fake_manifest())
+        case_ids=tuple(f"c{i}" for i in range(8))
+        rows=rows_for(candidates,case_ids)
+        targets={
+            16: ("c4", (19, 19, 14)),
+            32: ("c3", (26, 26, 33)),
+        }
+        reference_ids={
+            candidate.nodes: candidate.candidate_id
+            for candidate in candidates
+            if candidate.family=="lc0"
+            and candidate.reference
+            and candidate.nodes in targets
+        }
+        for row in rows:
+            nodes=next(
+                (
+                    budget
+                    for budget,candidate_id in reference_ids.items()
+                    if row["candidate_id"]==candidate_id
+                ),
+                None,
+            )
+            if nodes is None:
+                continue
+            case_id,values=targets[nodes]
+            if row["case_id"]==case_id:
+                row["measurement"]["native_work_value"]=values[row["repeat_index"]]
+
+        report=build_pareto_report(
+            spec=spec,candidates=candidates,rows=rows,case_ids=case_ids
+        )
+        for nodes in targets:
+            group=next(
+                g for g in report["groups"]
+                if g["family"]=="lc0" and g["nodes"]==nodes
+            )
+            summary=report["candidate_summaries"][
+                group["reference_candidate_id"]
+            ]
+            self.assertTrue(summary["bestmove_repeatable"])
+            self.assertFalse(summary["native_work_repeatable"])
+            self.assertFalse(group["promotion_eligible"])
+            self.assertEqual(
+                group["promotion_blockers"],
+                [REFERENCE_NATIVE_WORK_BLOCKER],
+            )
+            self.assertEqual(group["eligible"],[])
+            self.assertEqual(group["pareto"],[])
+            expected_ids={
+                candidate.candidate_id
+                for candidate in candidates
+                if candidate.family=="lc0" and candidate.nodes==nodes
+            }
+            rejected={
+                item["candidate_id"]: item["reasons"]
+                for item in group["rejected"]
+            }
+            self.assertEqual(set(rejected),expected_ids)
+            self.assertTrue(
+                all(
+                    REFERENCE_NATIVE_WORK_BLOCKER in reasons
+                    for reasons in rejected.values()
+                )
+            )
 
     def test_unmeasurable_cpu_rejects_candidate_before_pareto(self):
         spec=load_lab_spec(SPEC)

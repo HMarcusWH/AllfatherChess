@@ -36,7 +36,7 @@ from .measure import (
     reconstruct_physical_measurement,
 )
 from .observe import AffinityObservation, process_cpu_scope
-from .pareto import build_pareto_report
+from .pareto import REFERENCE_NATIVE_WORK_BLOCKER, build_pareto_report
 
 
 class ResourceLabQualificationError(ValueError):
@@ -50,6 +50,57 @@ def require(condition: bool, message: str) -> None:
 
 def load(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _validate_reference_native_work_state(
+    group: Mapping[str, Any],
+    reference_summary: Mapping[str, Any],
+) -> dict[str, Any] | None:
+    """Validate the retained promotion disposition for one reference group.
+
+    A non-repeatable reference native-work vector is valid negative evidence:
+    it blocks profile promotion for that family/budget group, but it does not
+    invalidate already-reconstructible measurements or the lab campaign.
+    """
+
+    reference_id = group.get("reference_candidate_id")
+    blockers = group.get("promotion_blockers")
+    require(
+        isinstance(blockers, list),
+        f"reference promotion blockers are missing: {reference_id}",
+    )
+    stable = reference_summary.get("native_work_repeatable") is True
+    if stable:
+        require(
+            group.get("promotion_eligible") is True,
+            f"stable reference group was marked non-promotable: {reference_id}",
+        )
+        require(
+            blockers == [],
+            f"stable reference group carries promotion blockers: {reference_id}",
+        )
+        return None
+
+    expected = [REFERENCE_NATIVE_WORK_BLOCKER]
+    require(
+        group.get("promotion_eligible") is False,
+        f"unstable reference group was left promotable: {reference_id}",
+    )
+    require(
+        blockers == expected,
+        f"unstable reference group has the wrong promotion blocker: {reference_id}",
+    )
+    require(
+        group.get("eligible") == [] and group.get("pareto") == [],
+        f"unstable reference group retained promotion candidates: {reference_id}",
+    )
+    return {
+        "family": group.get("family"),
+        "nodes": group.get("nodes"),
+        "reference_candidate_id": reference_id,
+        "reason": REFERENCE_NATIVE_WORK_BLOCKER,
+        "native_work_vectors": reference_summary.get("native_work_vectors"),
+    }
 
 
 def validate_attempt_order(
@@ -370,12 +421,18 @@ def qualify(root: Path, spec_path: Path) -> dict[str, Any]:
         canonical_digest(retained_pareto) == canonical_digest(recomputed_pareto),
         "retained Pareto analysis does not independently recompute",
     )
+    reference_native_work_blockers: list[dict[str, Any]] = []
     for group in retained_pareto["groups"]:
         reference_id = group["reference_candidate_id"]
         reference_summary = retained_pareto["candidate_summaries"][reference_id]
         require(reference_summary.get("complete") is True, f"reference candidate did not complete cleanly: {reference_id}")
         require(reference_summary.get("bestmove_repeatable") is True, f"reference bestmove vector unstable: {reference_id}")
-        require(reference_summary.get("native_work_repeatable") is True, f"reference native-work vector unstable: {reference_id}")
+        blocker = _validate_reference_native_work_state(
+            group,
+            reference_summary,
+        )
+        if blocker is not None:
+            reference_native_work_blockers.append(blocker)
         cpu_quality = reference_summary.get("cpu_measurement_quality")
         require(
             isinstance(cpu_quality, dict) and cpu_quality.get("usable") is True,
@@ -508,6 +565,14 @@ def qualify(root: Path, spec_path: Path) -> dict[str, Any]:
         "stage_a_completed_measurements": completed_a,
         "stage_a_error_measurements": errors_a,
         "stage_a_pareto_candidate_ids": pareto_ids,
+        "stage_a_promotion_eligible_groups": (
+            len(retained_pareto["groups"])
+            - len(reference_native_work_blockers)
+        ),
+        "stage_a_promotion_blocked_groups": len(
+            reference_native_work_blockers
+        ),
+        "reference_native_work_blockers": reference_native_work_blockers,
         "stage_b_compositions": len(compositions),
         "stage_b_expected_batches": len(expected_b_plan),
         "stage_b_completed_batches": completed_b,
@@ -519,6 +584,13 @@ def qualify(root: Path, spec_path: Path) -> dict[str, Any]:
         "attempt_order_policy": spec.raw["attempt_order_policy"],
         "promotion_ready": False,
         "promotion_requires": "J7 frozen profile selection",
+        "promotion_blockers": [
+            "J7 frozen profile selection",
+            *[
+                f"{row['family']}/n{row['nodes']}:{row['reason']}"
+                for row in reference_native_work_blockers
+            ],
+        ],
         "claim_boundary": {
             "resource_measurement": True,
             "profile_selection": False,

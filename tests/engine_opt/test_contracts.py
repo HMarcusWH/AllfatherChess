@@ -6,6 +6,7 @@ ROOT=Path(__file__).resolve().parents[2]
 sys.path.insert(0,str(ROOT))
 from controller.engine_opt_profile import EngineOptProfileError,load_json,validate_reference,validate_hybrid
 from tools.engine_opt.corpus import load_epd
+from tools.engine_opt.selection import validate_selected_lc0_rows
 
 class EngineOptContractTests(unittest.TestCase):
     def test_static_profiles(self):
@@ -71,6 +72,22 @@ class EngineOptContractTests(unittest.TestCase):
                 self.assertEqual(lc0["options"]["MinibatchSize"],7)
                 self.assertEqual(lc0["options"]["MaxPrefetch"],8)
                 self.assertEqual(lc0["warmup"]["nodes"],64)
+
+    def test_candidate_cold_profile_row_contract(self):
+        selected=load_json(ROOT/"qualification/engine-opt-v2-candidate-selection.json")["selected"]["lc0"]
+        row={
+            "options":{
+                "NNCacheSize":selected["nn_cache_size"],
+                "MinibatchSize":selected["minibatch_size"],
+                "MaxPrefetch":selected["max_prefetch"],
+                "AdaptivePrefetch":selected["adaptive_prefetch"],
+            },
+            "warmup":None,
+        }
+        validate_selected_lc0_rows([row],selected,lambda ok,msg:self.assertTrue(ok,msg))
+        bad=copy.deepcopy(row); bad["warmup"]={"nodes":64}
+        with self.assertRaises(AssertionError):
+            validate_selected_lc0_rows([bad],selected,lambda ok,msg:self.assertTrue(ok,msg))
 
     def test_historical_host_binding_is_explicitly_legacy_unbound(self):
         binding=load_json(ROOT/"qualification/engine-opt-v2-host-binding.json")

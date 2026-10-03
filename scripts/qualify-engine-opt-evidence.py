@@ -174,10 +174,15 @@ def main() -> int:
             require(report.get("canonical_profile_changed") is False,
                     "candidate report claims the canonical profile changed")
             overlay=report.get("candidate_overlay") or {}
-            require(
-                overlay.get("selection_sha256")==sha256(selection_path),
-                "candidate report selection overlay hash differs from checkout",
-            )
+            expected_overlay={
+                "selection_sha256":sha256(selection_path),
+                "evidence_sha256":sha256(repo/"qualification/engine-opt-v2-candidate-evidence.json"),
+                "reference_runtime_sha256":sha256(repo/"config/allfather.online-engine-opt-v2.candidate.json"),
+                "hybrid_runtime_sha256":sha256(repo/"config/allfather.online-hybrid-v2.candidate.validation.json"),
+                "g3_policy_sha256":sha256(repo/"qualification/online-hybrid-v2.json"),
+            }
+            require(overlay==expected_overlay,
+                    "candidate report overlay hashes differ from source-controlled candidate inputs")
         return {
             "bundle": candidate,
             "bundle_manifest_sha256": report.get("bundle_manifest_sha256"),

@@ -116,6 +116,7 @@ class Meta1MutationTests(unittest.TestCase):
         )
         mutations = [
             ("policy_sha256", "0" * 64),
+            ("runtime_config_sha256", "0" * 64),
             ("candidate_bundle", {"marker": "other"}),
             ("qualification_disposition", "NOT_QUALIFIED_HOST_CAPACITY"),
             ("host_capabilities_digest", "0" * 64),

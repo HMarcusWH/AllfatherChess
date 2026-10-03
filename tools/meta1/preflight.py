@@ -81,6 +81,13 @@ def validate_preflight_payload(
         == host.qualification_domain_digest,
         "META-1 preflight qualification-domain digest mismatch",
     )
+    if os.environ.get("GITHUB_ACTIONS") == "true":
+        require(
+            payload.get("workflow_run_id") == os.environ.get("GITHUB_RUN_ID")
+            and payload.get("workflow_run_attempt")
+            == os.environ.get("GITHUB_RUN_ATTEMPT"),
+            "META-1 preflight workflow attempt identity drift",
+        )
     if derived == RUN_DISPOSITION:
         require(
             j12.get("authority_qualified") is True

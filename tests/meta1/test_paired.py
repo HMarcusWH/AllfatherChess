@@ -109,6 +109,14 @@ class PairedReportTests(unittest.TestCase):
         bad[1]["white"], bad[1]["black"] = bad[0]["white"], bad[0]["black"]
         with self.assertRaises(QualificationError):
             paired_blocks(bad, plies)
+        bad = [dict(row) for row in games]
+        bad[1]["game"] = 0
+        with self.assertRaises(QualificationError):
+            paired_blocks(bad, plies)
+        bad = [dict(row) for row in games]
+        bad[1]["block"] = "forged-block"
+        with self.assertRaises(QualificationError):
+            paired_blocks(bad, plies)
 
 
 if __name__ == "__main__":

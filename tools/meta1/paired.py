@@ -57,6 +57,14 @@ def paired_blocks(
         rows = sorted(by_opening.get(opening_index, []), key=lambda row: row["game"])
         require(len(rows) == 2, f"opening {opening_index} does not contain exactly two games")
         require(
+            {int(row["game"]) for row in rows} == {0, 1},
+            f"opening {opening_index} game ordinals are not exactly 0/1",
+        )
+        require(
+            len({str(row["block"]) for row in rows}) == 1,
+            f"opening {opening_index} spans multiple block identities",
+        )
+        require(
             {rows[0]["white"], rows[0]["black"]} == set(ARMS)
             and {rows[1]["white"], rows[1]["black"]} == set(ARMS),
             f"opening {opening_index} has an invalid arm pairing",

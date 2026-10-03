@@ -25,6 +25,7 @@ from .common import (
     ARMS,
     RUN_DISPOSITION,
     campaign_disposition,
+    campaign_identity,
     command,
     opening_blocks,
     policy,
@@ -63,6 +64,19 @@ def verify_common_evidence(output: Path) -> dict:
     )
     source = source_identity()
     require(manifest.get("source") == source, "META-1 source checkout drift")
+    attempt = manifest.get("campaign_attempt")
+    require(isinstance(attempt, dict), "META-1 campaign attempt identity missing")
+    if __import__("os").environ.get("GITHUB_ACTIONS") == "true":
+        env = __import__("os").environ
+        require(env.get("GITHUB_REF") == "refs/heads/main",
+                "META-1 independent qualification is not running on main")
+        require(output.name == campaign_identity(source),
+                "META-1 campaign directory does not bind source/workflow attempt")
+        require(
+            attempt.get("workflow_run_id") == env.get("GITHUB_RUN_ID")
+            and attempt.get("workflow_run_attempt") == env.get("GITHUB_RUN_ATTEMPT"),
+            "META-1 manifest workflow attempt identity drift",
+        )
 
     policy_path = verify_record(ROOT, manifest.get("policy") or {})
     require(

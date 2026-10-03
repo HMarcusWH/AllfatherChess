@@ -353,6 +353,7 @@ jobs:
             --binary build/online-engine-opt-v2/bin/lc0 \
             --weights build/online-engine-opt-v2/networks/791556.pb.gz \
             --selection qualification/engine-opt-v2-selection.json \
+            --qualification-only \
             --execution-domain build/test-results/engine-opt-v2-profile-domain/execution-domain.json \
             --output build/test-results/engine-opt-v2-profile-domain/matrix/canonical-lc0.json
       - name: Exercise J8 MoveResourcePlan on real ENGINE-OPT-V2 processes
@@ -410,6 +411,7 @@ jobs:
             --binary build/online-engine-opt-v2/bin/lc0 \
             --weights build/online-engine-opt-v2/networks/791556.pb.gz \
             --selection qualification/engine-opt-v2-candidate-selection.json \
+            --qualification-only \
             --execution-domain build/test-results/engine-opt-v2-profile-domain/execution-domain.json \
             --output build/test-results/engine-opt-v2-profile-domain/matrix/candidate-lc0.json
       - name: Build pinned Fastchess against source-test attestation

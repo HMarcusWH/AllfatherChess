@@ -25,6 +25,14 @@ class QualificationError(RuntimeError): pass
 def require(condition,message):
     if not condition: raise QualificationError(message)
 
+def completed_bestmove_by_owner(document):
+    result={}
+    for stage in document.get("stages") or []:
+        owner=stage.get("owner")
+        if stage.get("disposition")=="completed" and isinstance(owner,str):
+            result[owner]=stage.get("bestmove")
+    return dict(sorted(result.items()))
+
 def static_contract():
     policy=load_json(POLICY); reference=load_json(REFERENCE); hybrid=load_json(CONFIG)
     selection=load_json(SELECTION); reference_policy=load_json(REFERENCE_POLICY)
@@ -78,6 +86,9 @@ def main(*,static_only:bool=False,record_disposition:bool=False)->int:
         authorization=decision.get("authorization") or {}; snap=decision.get("authorization_snapshot") or {}
         route_doc=json.loads((run/"route.json").read_text(encoding="utf-8"))
         resource_doc=json.loads((run/"resource.json").read_text(encoding="utf-8"))
+        verification_doc=json.loads((run/"verification"/"manifest.json").read_text(encoding="utf-8"))
+        staged_doc=json.loads((run/"staged_verification"/"manifest.json").read_text(encoding="utf-8"))
+        counterfactual_doc=json.loads((run/"decision"/"counterfactual.json").read_text(encoding="utf-8"))
         envelope=route_doc.get("envelope_claim") or {}; route_resource=route_doc.get("resource_measurement") or {}
         record={"case":label,"run_id":run.name,"authority":decision.get("authority"),
           "authorization_policy":authorization.get("policy"),"authorization_granted":authorization.get("authorized"),
@@ -86,6 +97,13 @@ def main(*,static_only:bool=False,record_disposition:bool=False)->int:
           "route_action":snap.get("route_action"),"staged_complete":snap.get("staged_complete"),
           "envelope_claimed":envelope.get("claimed"),"resource_qualified":resource_doc.get("qualified"),
           "route_resource_qualified":route_resource.get("qualified"),"driver_observed_ms":elapsed,
+          "verification_bestmove_by_owner":completed_bestmove_by_owner(verification_doc),
+          "staged_bestmove_by_owner":completed_bestmove_by_owner(staged_doc),
+          "proposal_disposition":(counterfactual_doc.get("proposal") or {}).get("disposition"),
+          "proposal_matches_anchor":(
+              decision.get("proposal_move")==decision.get("anchor_move")
+              if decision.get("proposal_move") is not None else None
+          ),
           "clock_outcome":manifest.get("clock_outcome")}
         records.append(record)
         qualifies=(decision.get("authority")==requirement.get("require_authority")

@@ -417,6 +417,32 @@ jobs:
           python3 scripts/qualify-engine-opt-evidence.py \
             --root build/engine-opt-artifacts \
             --output build/test-results/engine-opt-v2-aggregate/report.json
+      - name: Summarize aggregate qualification disposition
+        if: always()
+        run: |
+          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          from pathlib import Path
+          path=Path("build/test-results/engine-opt-v2-aggregate/report.json")
+          print("## ENGINE-OPT-V2 aggregate")
+          if not path.is_file():
+              print("\nAggregate report was not produced.")
+          else:
+              report=json.loads(path.read_text(encoding="utf-8"))
+              rows=(
+                  ("Evidence valid",report.get("evidence_valid")),
+                  ("Profile qualified",report.get("profile_qualified")),
+                  ("Passed",report.get("passed")),
+                  ("Disposition",report.get("qualification_disposition")),
+              )
+              for label,value in rows:
+                  print(f"- **{label}:** `{value}`")
+              failures=report.get("qualification_failures") or []
+              if failures:
+                  print("\n### Qualification failures")
+                  for row in failures:
+                      print(f"- `{row.get('code')}`: {row.get('message')}")
+          PY
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
@@ -424,3 +450,33 @@ jobs:
           path: build/test-results/engine-opt-v2-aggregate
           if-no-files-found: error
           retention-days: 14
+      - name: Require selected ENGINE-OPT-V2 profile qualification
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          selection=json.loads(Path("qualification/engine-opt-v2-selection.json").read_text(encoding="utf-8"))
+          report=json.loads(Path("build/test-results/engine-opt-v2-aggregate/report.json").read_text(encoding="utf-8"))
+          if selection.get("status")!="selected":
+              print("selection is not promotion-selected; negative evidence remains non-gating")
+              raise SystemExit(0)
+          allowed={"QUALIFIED_EXACT_HOST_ONLY","QUALIFIED_REUSABLE_DOMAIN"}
+          ok=(
+              report.get("evidence_valid") is True
+              and report.get("profile_qualified") is True
+              and report.get("passed") is True
+              and report.get("qualification_disposition") in allowed
+          )
+          if not ok:
+              raise SystemExit(
+                  "selected ENGINE-OPT-V2 profile did not qualify: "
+                  + json.dumps({
+                      "evidence_valid":report.get("evidence_valid"),
+                      "profile_qualified":report.get("profile_qualified"),
+                      "passed":report.get("passed"),
+                      "qualification_disposition":report.get("qualification_disposition"),
+                      "qualification_failures":report.get("qualification_failures"),
+                  },sort_keys=True)
+              )
+          print("selected ENGINE-OPT-V2 profile qualified:",report["qualification_disposition"])
+          PY

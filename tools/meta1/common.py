@@ -133,6 +133,17 @@ def campaign_disposition(j12: dict) -> str:
         in ("NOT_QUALIFIED_HOST_CAPACITY", "NOT_QUALIFIED_POSITIVE_WITNESS"),
         "J12 has an unsupported non-authority disposition",
     )
+    synthetic = j12.get("synthetic_capacity_observation")
+    if disposition == "NOT_QUALIFIED_HOST_CAPACITY":
+        require(
+            synthetic is True,
+            "J12 host-capacity disposition requires explicit synthetic-capacity evidence",
+        )
+    else:
+        require(
+            synthetic is False,
+            "J12 positive-witness disposition may not carry synthetic capacity",
+        )
     return str(disposition)
 
 

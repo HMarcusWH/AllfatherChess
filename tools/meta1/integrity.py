@@ -116,6 +116,10 @@ def verify_common_evidence(output: Path) -> dict:
 
     preflight_path = verify_record(ROOT, manifest.get("preflight") or {})
     preflight = load(preflight_path)
+    require(
+        preflight.get("j12_report_sha256") == sha(j12_path),
+        "META-1 preflight does not bind the exact J12 report bytes",
+    )
     pre_host = validate_preflight_payload(
         preflight,
         source=source,
@@ -140,6 +144,10 @@ def verify_common_evidence(output: Path) -> dict:
 
     postflight_path = verify_record(ROOT, manifest.get("postflight") or {})
     postflight = load(postflight_path)
+    require(
+        postflight.get("preflight_sha256") == sha(preflight_path),
+        "META-1 postflight does not bind the exact preflight bytes",
+    )
     post_host = validate_postflight_payload(
         postflight,
         source=source,

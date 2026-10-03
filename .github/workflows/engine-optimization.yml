@@ -342,6 +342,49 @@ jobs:
           python3 -m tools.engine_opt.domain validate \
             --input build/test-results/engine-opt-v2-profile-domain/execution-domain.json \
             --expected-source-commit "$ALLFATHER_SOURCE_SHA"
+      - name: Exercise J8 MoveResourcePlan on real ENGINE-OPT-V2 processes
+        run: python3 scripts/adaptive-time-contract.py
+      - name: Exercise J9 WorkGrants on real ENGINE-OPT-V2 processes
+        run: python3 scripts/work-grant-contract.py
+      - name: Exercise J10 adaptive allocation on real ENGINE-OPT-V2 processes
+        run: python3 scripts/adaptive-resource-contract.py
+      - name: Exercise J11 independent orchestration evidence
+        run: |
+          latest="$(
+            find build/replays-m14-j-j10 -mindepth 1 -maxdepth 1 -type d \
+              | sort \
+              | tail -n 1
+          )"
+          test -n "$latest"
+          mkdir -p build/test-results/engine-opt-v2-profile-domain/j11
+          rm -rf build/test-results/engine-opt-v2-profile-domain/j11/replay
+          cp -a "$latest" build/test-results/engine-opt-v2-profile-domain/j11/replay
+          python3 scripts/validate-resource-orchestration.py \
+            --run-dir build/test-results/engine-opt-v2-profile-domain/j11/replay \
+            --expected-source-commit "$ALLFATHER_SOURCE_SHA" \
+            --output build/test-results/engine-opt-v2-profile-domain/j11/report.json
+      - name: Exercise J12 orchestrated composition fail-closed authority
+        env:
+          ALLFATHER_EXECUTION_DOMAIN_PATH: build/test-results/engine-opt-v2-profile-domain/execution-domain.json
+        run: python3 scripts/qualify-resource-orchestration.py --record-disposition
+      - name: Build pinned Fastchess against source-test attestation
+        run: make -f Makefile.local-game build-fastchess
+      - name: Run LOCAL-1 contract regressions
+        run: make -f Makefile.local-game test
+      - name: Qualify G3-v2 and LOCAL-1-v2 on the same bound worker
+        run: |
+          python3 -m tools.local_game.runner \
+            --mode required \
+            --policy qualification/local-full-game-v2.json \
+            --execution-domain build/test-results/engine-opt-v2-profile-domain/execution-domain.json \
+            --output build/test-results/engine-opt-v2-profile-domain/canonical-local1/campaign
+      - name: Qualify J12 orchestrated lifecycle on the same bound worker
+        run: |
+          python3 -m tools.local_game.runner \
+            --mode required \
+            --policy qualification/local-full-game-orchestrated-v1.json \
+            --execution-domain build/test-results/engine-opt-v2-profile-domain/execution-domain.json \
+            --output build/test-results/engine-opt-v2-profile-domain/j12-local1/campaign
       - name: Bind candidate overlay to the exact-head engine bundle
         run: |
           python3 scripts/qualify-engine-opt-v2-candidate.py

@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -375,6 +376,18 @@ class CrossFeedAdapterReplayTests(unittest.TestCase):
             run_shell(config, ["go nodes 64", "await:bestmove "], timeout=45.0)
             run_dir = next(
                 path for path in (root / "replays").iterdir() if path.is_dir()
+            )
+
+            required = (
+                run_dir / "crossfeed" / "manifest.json",
+                run_dir / "refinement" / "manifest.json",
+            )
+            deadline = time.monotonic() + 5.0
+            while time.monotonic() < deadline and not all(path.is_file() for path in required):
+                time.sleep(0.01)
+            self.assertTrue(
+                all(path.is_file() for path in required),
+                "post-output crossfeed/refinement evidence did not seal before timeout",
             )
 
             evidence = build_adapter_evidence_from_run(run_dir)

@@ -61,6 +61,37 @@ class EngineOptContractTests(unittest.TestCase):
         with self.assertRaises(AssertionError):
             validate_selected_lc0_rows([bad],selected,lambda ok,msg:self.assertTrue(ok,msg))
 
+    def test_all_m14_j_runtime_configs_match_selected_lc0_profile(self):
+        selection=load_json(ROOT/"qualification/engine-opt-v2-selection.json")
+        selected=selection["selected"]["lc0"]
+        estimates=selection["selected"]["resource_estimates_ms"]
+        paths=(
+            "config/allfather.online-engine-opt-v2.json",
+            "config/allfather.online-hybrid-v2.validation.json",
+            "config/allfather.m14-j-j8.validation.json",
+            "config/allfather.m14-j-j9.validation.json",
+            "config/allfather.m14-j-j10.validation.json",
+            "config/allfather.orchestrated-v1.validation.json",
+        )
+        for relative in paths:
+            with self.subTest(path=relative):
+                doc=load_json(ROOT/relative)
+                lc0=doc["instances"]["lc0-shadow"]
+                opts=lc0["options"]
+                self.assertEqual(opts["NNCacheSize"],selected["nn_cache_size"])
+                self.assertEqual(opts["MinibatchSize"],selected["minibatch_size"])
+                self.assertEqual(opts["MaxPrefetch"],selected["max_prefetch"])
+                self.assertIs(opts["AdaptivePrefetch"],selected["adaptive_prefetch"])
+                self.assertNotIn("warmup",lc0)
+                self.assertEqual(
+                    doc["routing"]["stage_cpu_ms_estimate_by_owner"],
+                    estimates["explore"],
+                )
+                self.assertEqual(
+                    doc["routing"]["verify_stage_cpu_ms_estimate_by_owner"],
+                    estimates["verify"],
+                )
+
     def test_historical_host_binding_is_explicitly_legacy_unbound(self):
         binding=load_json(ROOT/"qualification/engine-opt-v2-host-binding.json")
         self.assertEqual(binding["profile_id"],"engine-opt-v2")

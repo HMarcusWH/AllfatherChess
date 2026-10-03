@@ -1314,6 +1314,7 @@
     },
     "legacy_policy_path": "qualification/online-hybrid-v2.json",
     "legacy_case_count": 7,
-    "discovery_case_count": 16
+    "discovery_case_count": 16,
+    "source_metadata": "qualification/g3-candidate-discovery-source.json"
   }
 }

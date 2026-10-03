@@ -133,6 +133,7 @@ jobs:
           python3 tests/engine_opt/test_ab.py
           python3 tests/engine_opt/test_execution_domain.py
           python3 tests/engine_opt/test_matrix_qualification.py
+          python3 tests/engine_opt/test_matrix_scope.py
           python3 tests/engine_opt/test_g3_witness_extractor.py
           python3 tests/controller/test_engine_opt_runtime.py
           python3 tests/controller/test_move_resource_plan.py

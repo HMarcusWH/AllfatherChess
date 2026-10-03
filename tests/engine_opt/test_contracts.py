@@ -41,6 +41,37 @@ class EngineOptContractTests(unittest.TestCase):
         self.assertEqual(s["qualification"]["baseline_profile"],"v1-current-cold")
         self.assertEqual(s["qualification"]["corpus_cases"],8)
 
+    def test_candidate_overlay_is_non_authoritative_and_distinct(self):
+        canonical=load_json(ROOT/"qualification/engine-opt-v2-selection.json")
+        candidate=load_json(ROOT/"qualification/engine-opt-v2-candidate-selection.json")
+        self.assertEqual(canonical["status"],"selected")
+        self.assertEqual(candidate["status"],"qualification_candidate")
+        self.assertEqual(canonical["selected"]["lc0"]["matrix_profile"],"b7-p8-c256k-warm64")
+        self.assertEqual(candidate["selected"]["lc0"]["matrix_profile"],"b4-p0-c256k-cold")
+        self.assertFalse(candidate["authority"]["runtime_profile_selection"])
+        self.assertFalse(candidate["authority"]["promotion_authority"])
+        self.assertIsNone(candidate["selected"]["lc0"]["warmup_nodes"])
+        policy=load_json(ROOT/"qualification/online-engine-opt-v2.json")
+        reference=load_json(ROOT/"config/allfather.online-engine-opt-v2.candidate.json")
+        hybrid_policy=load_json(ROOT/"qualification/online-hybrid-v2.json")
+        hybrid=load_json(ROOT/"config/allfather.online-hybrid-v2.candidate.validation.json")
+        validate_reference(policy,candidate,reference,require_selected=False)
+        validate_hybrid(hybrid_policy,reference,hybrid)
+
+    def test_candidate_does_not_mutate_historical_j8_to_j12_configs(self):
+        for relative in (
+            "config/allfather.m14-j-j8.validation.json",
+            "config/allfather.m14-j-j9.validation.json",
+            "config/allfather.m14-j-j10.validation.json",
+            "config/allfather.orchestrated-v1.validation.json",
+        ):
+            with self.subTest(path=relative):
+                doc=load_json(ROOT/relative)
+                lc0=doc["instances"]["lc0-shadow"]
+                self.assertEqual(lc0["options"]["MinibatchSize"],7)
+                self.assertEqual(lc0["options"]["MaxPrefetch"],8)
+                self.assertEqual(lc0["warmup"]["nodes"],64)
+
     def test_historical_host_binding_is_explicitly_legacy_unbound(self):
         binding=load_json(ROOT/"qualification/engine-opt-v2-host-binding.json")
         self.assertEqual(binding["profile_id"],"engine-opt-v2")

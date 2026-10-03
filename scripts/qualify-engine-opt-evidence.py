@@ -17,11 +17,11 @@ import sys
 sys.path.insert(0, str(ROOT))
 
 from tools.engine_opt.domain import (
-from tools.engine_opt.selection import validate_selected_lc0_rows
     candidate_bundle_identity,
     require_same_execution_domain,
     validate_execution_domain,
 )
+from tools.engine_opt.selection import validate_selected_lc0_rows
 
 
 class QualificationError(RuntimeError):
@@ -116,12 +116,23 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument(
+        "--selection",
+        type=Path,
+        default=ROOT / "qualification/engine-opt-v2-selection.json",
+    )
+    parser.add_argument(
+        "--candidate-report-pattern",
+        default="engine-opt-v2-candidate/**/test-results/engine-opt-v2/report.json",
+    )
+    parser.add_argument("--candidate-mode", action="store_true")
     args = parser.parse_args()
 
     artifact_root = args.root.resolve()
     repo = ROOT
     source = current_source(repo)
-    selection = load(repo / "qualification/engine-opt-v2-selection.json")
+    selection_path = args.selection if args.selection.is_absolute() else repo / args.selection
+    selection = load(selection_path)
 
     invalid: list[str] = []
     qualification_failures: list[dict[str, str]] = []
@@ -148,12 +159,7 @@ def main() -> int:
         return domain
 
     def check_candidate() -> dict[str, Any]:
-        report = load(
-            find_one(
-                artifact_root,
-                "engine-opt-v2-candidate/**/test-results/engine-opt-v2/report.json",
-            )
-        )
+        report = load(find_one(artifact_root, args.candidate_report_pattern))
         require(report.get("source_commit") == source, "candidate report source is not exact head")
         require(report.get("passed") is True, "candidate identity report did not pass")
         require(report.get("candidate_identity_valid") is True, "candidate identity is not valid")
@@ -164,10 +170,19 @@ def main() -> int:
             report.get("bundle_manifest_sha256") == candidate.get("build_manifest_sha256"),
             "candidate report/build-manifest identity is internally inconsistent",
         )
+        if args.candidate_mode:
+            require(report.get("canonical_profile_changed") is False,
+                    "candidate report claims the canonical profile changed")
+            overlay=report.get("candidate_overlay") or {}
+            require(
+                overlay.get("selection_sha256")==sha256(selection_path),
+                "candidate report selection overlay hash differs from checkout",
+            )
         return {
             "bundle": candidate,
             "bundle_manifest_sha256": report.get("bundle_manifest_sha256"),
             "evidence_sha256": report.get("evidence_sha256"),
+            "candidate_overlay": report.get("candidate_overlay"),
             "promotion_ready": report.get("promotion_ready"),
             "promotion_requires": report.get("promotion_requires"),
         }
@@ -466,17 +481,22 @@ def main() -> int:
 
     report = {
         "schema_version": 2,
-        "profile_id": "engine-opt-v2-aggregate",
+        "profile_id": "engine-opt-v2-candidate-aggregate" if args.candidate_mode else "engine-opt-v2-aggregate",
+        "qualification_scope": "candidate_overlay" if args.candidate_mode else "canonical_profile",
         "source_commit": source,
         "evidence_valid": evidence_valid,
-        "profile_qualified": profile_qualified,
+        "candidate_qualified": profile_qualified if args.candidate_mode else None,
+        "promotion_ready": profile_qualified if args.candidate_mode else None,
+        "canonical_profile_changed": False if args.candidate_mode else None,
+        "profile_qualified": False if args.candidate_mode else profile_qualified,
         "passed": profile_qualified,
         "qualification_disposition": disposition,
         "invalid_evidence": invalid,
         "qualification_failures": qualification_failures,
         "details": details,
         "claim_boundary": {
-            "engine_profile_qualified": profile_qualified,
+            "engine_profile_qualified": False if args.candidate_mode else profile_qualified,
+            "candidate_overlay_qualified": profile_qualified if args.candidate_mode else False,
             "full_game_lifecycle": bool(
                 evidence_valid and (details.get("local1_g3") or {}).get("validated_games") == 28
             ),

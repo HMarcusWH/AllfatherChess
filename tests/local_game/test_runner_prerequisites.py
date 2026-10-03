@@ -6,6 +6,10 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
+import sys
+
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
 
 from tools.local_game.common import QualificationError
 import tools.local_game.runner as runner

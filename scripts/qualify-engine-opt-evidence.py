@@ -17,6 +17,7 @@ import sys
 sys.path.insert(0, str(ROOT))
 
 from tools.engine_opt.domain import (
+from tools.engine_opt.selection import validate_selected_lc0_rows
     candidate_bundle_identity,
     require_same_execution_domain,
     validate_execution_domain,
@@ -292,19 +293,7 @@ def main() -> int:
             fail("NOT_QUALIFIED_RESOURCE_BOUND", "selected LC0 profile exceeded the frozen n16 wall bound")
 
         raw = [row for row in matrix.get("rows", []) if row.get("profile") == selected_profile]
-        require(raw, "selected LC0 profile has no raw rows")
-        for row in raw:
-            opts = row.get("options") or {}
-            require(opts.get("NNCacheSize") == lc0.get("nn_cache_size"), "selected NNCacheSize differs from frozen selection")
-            require(opts.get("MinibatchSize") == lc0.get("minibatch_size"), "selected MinibatchSize differs from frozen selection")
-            require(opts.get("MaxPrefetch") == lc0.get("max_prefetch"), "selected MaxPrefetch differs from frozen selection")
-            require(opts.get("AdaptivePrefetch") is lc0.get("adaptive_prefetch"), "selected AdaptivePrefetch differs from frozen selection")
-            warm = row.get("warmup")
-            warm_nodes = lc0.get("warmup_nodes")
-            require(
-                isinstance(warm, dict) and warm.get("nodes") == warm_nodes,
-                "selected LC0 warmup differs from frozen selection",
-            )
+        validate_selected_lc0_rows(raw, lc0, require)
 
         return {
             "execution_domain": domain,

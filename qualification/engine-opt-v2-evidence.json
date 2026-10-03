@@ -4,13 +4,15 @@
   "measurement_source": {
     "workflow_runs": [
       36363702414,
-      36366449343
+      36366449343,
+      37128771497
     ],
     "source_commits": [
       "72fe32567591804061b0489b1bb73743dc0f3c9d",
-      "9bc81f51ba761f80754e010f95b5778dcdb353b3"
+      "9bc81f51ba761f80754e010f95b5778dcdb353b3",
+      "4acce20ec427364e51f5ac51204c8d46a32f81d1"
     ],
-    "note": "Run 36363702414 was the original selection basis. Exact-head run 36366449343 exposed one host-sensitive frozen-corpus bestmove drift in auto-p0-c256k-cold while b7-p8-c256k-warm64 retained the v1 8/8 vector on both runs. The revised selection promotes the cross-run-stable warm b7/p8 candidate to a fresh exact-head repeatability gate; final qualification still requires a new aggregate pass."
+    "note": "Runs 36363702414 and 36366449343 are the historical selection basis. PR #61 run 37128771497 added a modern exact-head, execution-domain-bound matrix and showed b7-p8-c256k-warm64 was repeatable but behaviorally non-equivalent (7/8 frozen bestmoves), while b4-p0-c256k-cold matched 8/8 in its single discovery repeat. b4 is therefore proposed for fresh three-repeat exact-head qualification; the PR #61 observation is discovery evidence, not promotion evidence."
   },
   "artifacts": {
     "candidate": {
@@ -50,6 +52,21 @@
       "artifact_id": 10946819863,
       "digest": "sha256:7ac2f676e740c28010e3be1c94b31a5b826ca0238669bdd859285757d6c48ab3",
       "report_sha256": "15f9e4c541aa323194fb473db7f39a646d1b4f518f264cc0ceefcc3ce4c1fdf5"
+    },
+    "lc0_matrix_pr61_repair_basis": {
+      "workflow_run": 37128771497,
+      "artifact_id": 11278961716,
+      "digest": "sha256:8463084270a938d6a0b25c4dd8cbc7f979bb70b67639ade766063286855d1a2e",
+      "report_sha256": "7285be1e6332c58683189becc7a09741b610aab84fffa283df70d02c79e13019",
+      "source_commit": "4acce20ec427364e51f5ac51204c8d46a32f81d1",
+      "execution_scope": "exact_host_observation"
+    },
+    "g3_v2_pr61_diagnostic": {
+      "workflow_run": 37128771497,
+      "artifact_id": 11278961716,
+      "report_sha256": "e3111e51c5b0ee2a6af20476f5fbfc6a5b616602319e31156ae0a062a3fef658",
+      "source_commit": "4acce20ec427364e51f5ac51204c8d46a32f81d1",
+      "observation": "The unchanged seven-case G3-v2 corpus produced one HYBRID proposal equal to the anchor and no qualifying non-anchor witness under b7-p8-c256k-warm64."
     }
   },
   "observations": {
@@ -115,6 +132,30 @@
           440
         ],
         "note": "Cross-run evidence spans two hosted CPU identities; the revised workflow adds three same-head confirmation repeats."
+      },
+      "post_j13b_repair_basis": {
+        "rejected_profile": "b7-p8-c256k-warm64",
+        "rejected_reason": "PR #61 exact-head run 37128771497 produced a stable 7/8 bestmove vector; rook-endgame changed from baseline f2f3 to h2h3 in all three confirmation repeats.",
+        "proposed_profile": "b4-p0-c256k-cold",
+        "workflow_run": 37128771497,
+        "artifact_id": 11278961716,
+        "report_sha256": "7285be1e6332c58683189becc7a09741b610aab84fffa283df70d02c79e13019",
+        "discovery_repeats": 1,
+        "bestmove_agreement_with_baseline": 1,
+        "median_wall_ms": 106.365,
+        "max_wall_ms": 116.917,
+        "max_cpu_ms": 120,
+        "native_work_vector": [
+          19,
+          19,
+          16,
+          19,
+          19,
+          17,
+          17,
+          18
+        ],
+        "note": "Single-repeat discovery only. Promotion still requires three same-head confirmation repeats on the bound execution domain."
       }
     },
     "stockfish": {
@@ -153,7 +194,7 @@
       "prior_selected_reservation_ms": 400,
       "revised_explore_reservation_ms": 600,
       "revised_verify_reservation_ms": 800,
-      "note": "The 600/800 ms reservations are conservative prequalification values for the revised warm b7/p8 profile. Fresh exact-head G3-v2 resource reports must fit inside them before promotion; the aggregate now checks that directly."
+      "note": "The 600/800 ms LC0 EXPLORE/VERIFY reservations remain deliberately conservative during the b4-p0-c256k-cold repair. Fresh exact-head G3-v2 resource reports must fit inside them before promotion; this PR does not shrink the envelope based on one discovery observation."
     }
   },
   "selected": {
@@ -168,13 +209,13 @@
     "lc0": {
       "backend": "blas",
       "network": "791556",
-      "matrix_profile": "b7-p8-c256k-warm64",
+      "matrix_profile": "b4-p0-c256k-cold",
       "nn_cache_size": 262144,
-      "minibatch_size": 7,
-      "max_prefetch": 8,
+      "minibatch_size": 4,
+      "max_prefetch": 0,
       "adaptive_prefetch": false,
       "defect_telemetry": false,
-      "warmup_nodes": 64,
+      "warmup_nodes": null,
       "phase_multipv": {
         "EXPLORE": 1,
         "VERIFY": 3,

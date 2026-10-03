@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "profile_id": "engine-opt-v2",
-  "status": "historically_qualified_legacy_unbound",
+  "status": "profile_change_pending_requalification",
   "historical_qualification": {
     "pull_request": 44,
     "qualified_head": "085420843b95f3f2dd206fc1c66bf642cbd49b6d",
@@ -56,6 +56,16 @@
     "execution_domain_id": "exec-domain/9284bde03da0ebd1677f",
     "execution_domain_digest": "9284bde03da0ebd1677fafa4a5078c00cc842f0b3b5ea8079c6f7989189199af",
     "generic_host_portability_established": false,
-    "note": "This is the first post-J2 qualification whose LC0 matrix, G3-v2 authority evidence, LOCAL-1-v2 lifecycle evidence and candidate artifact identity were all bound to one reconstructed execution domain."
+    "note": "This retained PR #49 exact-host qualification is historical after the LC0 selection changes from b7-p8-c256k-warm64 to the proposed b4-p0-c256k-cold profile. It must not be used to qualify the new selection.",
+    "status": "historical_superseded_by_profile_change"
+  },
+  "pending_domain_bound_qualification": {
+    "status": "pending_exact_head_requalification",
+    "selected_profile": "b4-p0-c256k-cold",
+    "discovery_workflow_run": 37128771497,
+    "discovery_artifact_id": 11278961716,
+    "discovery_report_sha256": "7285be1e6332c58683189becc7a09741b610aab84fffa283df70d02c79e13019",
+    "generic_host_portability_established": false,
+    "note": "Fresh exact-head qualification must bind the candidate bundle, LC0 matrix, G3-v2 authority evidence and LOCAL-1-v2 lifecycle evidence to one reconstructed execution domain before this record can become current."
   }
 }

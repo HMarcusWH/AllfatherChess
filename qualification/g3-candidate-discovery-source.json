@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "repository": "HMarcusWH/AllfatherChess",
+  "workflow_run": 37144819528,
+  "artifact_id": 11283786124,
+  "artifact_name": "engine-opt-v2-profile-domain",
+  "artifact_sha256": "932c2d83d5fc3f2dff0a9e341542c8c245cc002c196149e7a805090781318336",
+  "source_commit": "03a5f958691924fa859586f961087d9c9746569f",
+  "campaign_path": "local1/campaign",
+  "campaign_policy_path": "qualification/local-full-game-v2-candidate.json",
+  "campaign_policy_sha256": "96bc1ee4b80f7af8b2fa7fa67811895f89e443d429dc988a1f43017ea09bcdea",
+  "expected": {
+    "manifest_status": "completed",
+    "report_passed": true,
+    "validated_games": 28,
+    "execution_scope": "required_local1"
+  },
+  "claim_boundary": {
+    "discovery_only": true,
+    "validation_authority": false,
+    "promotion_authority": false,
+    "strength": false,
+    "elo": false
+  }
+}

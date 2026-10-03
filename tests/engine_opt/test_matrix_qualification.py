@@ -6,7 +6,12 @@ import copy
 import hashlib
 import json
 import unittest
+from pathlib import Path
 from unittest import mock
+import sys
+
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
 
 import tools.engine_opt.matrix_qualification as mq
 

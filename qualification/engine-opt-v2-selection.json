@@ -6,15 +6,13 @@
     "path": "qualification/engine-opt-v2-evidence.json",
     "workflow_runs": [
       36363702414,
-      36366449343,
-      37128771497
+      36366449343
     ],
     "measurement_source_commits": [
       "72fe32567591804061b0489b1bb73743dc0f3c9d",
-      "9bc81f51ba761f80754e010f95b5778dcdb353b3",
-      "4acce20ec427364e51f5ac51204c8d46a32f81d1"
+      "9bc81f51ba761f80754e010f95b5778dcdb353b3"
     ],
-    "rationale": "PR #61 exact-head matrix evidence showed b7-p8-c256k-warm64 was internally repeatable but changed the frozen rook-endgame bestmove from f2f3 to h2h3 in all three repeats. In the same bound matrix, b4-p0-c256k-cold matched the frozen 8/8 baseline vector in its discovery observation while also reducing wall time. This commit proposes b4-p0-c256k-cold; promotion still requires the existing three-repeat exact-head aggregate qualification and the unchanged G3 non-anchor witness gate."
+    "rationale": "The original auto-batch p0 choice was rejected after exact-head cross-host bestmove drift. b7-p8-c256k-warm64 preserved the frozen 8/8 vector on both measured hosts; a fresh exact-head matrix must confirm it repeatedly before promotion."
   },
   "selected": {
     "stockfish": {
@@ -29,11 +27,11 @@
       "backend": "blas",
       "network": "791556",
       "nn_cache_size": 262144,
-      "minibatch_size": 4,
-      "max_prefetch": 0,
+      "minibatch_size": 7,
+      "max_prefetch": 8,
       "adaptive_prefetch": false,
       "defect_telemetry": false,
-      "warmup_nodes": null,
+      "warmup_nodes": 64,
       "phase_multipv": {
         "EXPLORE": 1,
         "VERIFY": 3,
@@ -42,7 +40,7 @@
       "uci_args": [
         "--show-hidden"
       ],
-      "matrix_profile": "b4-p0-c256k-cold"
+      "matrix_profile": "b7-p8-c256k-warm64"
     },
     "resource_estimates_ms": {
       "explore": {
@@ -57,7 +55,7 @@
       }
     }
   },
-  "claim_boundary": "Proposed from retained PR #61 exact-head ENGINE-OPT evidence and subject to fresh three-repeat exact-head qualification on the candidate head. This is not an Elo, superiority, equal-compute, generic-portability, GPU, or deployment claim.",
+  "claim_boundary": "Selected from cross-run frozen ENGINE-OPT measurement evidence and subject to repeatability confirmation on the exact candidate head. This is a profile/build/resource selection, not an Elo, superiority, equal-compute, GPU, or deployment claim.",
   "qualification": {
     "baseline_profile": "v1-current-cold",
     "corpus_cases": 8,

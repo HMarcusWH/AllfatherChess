@@ -48,6 +48,7 @@ def validate_preflight_payload(
     p: dict,
     j12: dict,
     candidate_bundle: dict,
+    environ: dict[str, str] | None = None,
 ) -> HostCapabilities:
     require(payload.get("schema_version") == 1, "META-1 preflight schema drift")
     require(payload.get("profile_id") == "meta-1-v1", "META-1 preflight profile drift")
@@ -81,11 +82,12 @@ def validate_preflight_payload(
         == host.qualification_domain_digest,
         "META-1 preflight qualification-domain digest mismatch",
     )
-    if os.environ.get("GITHUB_ACTIONS") == "true":
+    env = os.environ if environ is None else environ
+    if env.get("GITHUB_ACTIONS") == "true":
         require(
-            payload.get("workflow_run_id") == os.environ.get("GITHUB_RUN_ID")
+            payload.get("workflow_run_id") == env.get("GITHUB_RUN_ID")
             and payload.get("workflow_run_attempt")
-            == os.environ.get("GITHUB_RUN_ATTEMPT"),
+            == env.get("GITHUB_RUN_ATTEMPT"),
             "META-1 preflight workflow attempt identity drift",
         )
     if derived == RUN_DISPOSITION:

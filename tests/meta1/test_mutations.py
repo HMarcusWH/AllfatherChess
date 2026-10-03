@@ -113,6 +113,7 @@ class Meta1MutationTests(unittest.TestCase):
             p=p,
             j12=j12,
             candidate_bundle=bundle,
+            environ={},
         )
         mutations = [
             ("policy_sha256", "0" * 64),
@@ -132,7 +133,37 @@ class Meta1MutationTests(unittest.TestCase):
                         p=p,
                         j12=j12,
                         candidate_bundle=bundle,
+                        environ={},
                     )
+
+    def test_preflight_binds_github_workflow_attempt_when_requested(self):
+        _, source, p, bundle, j12, payload = positive_fixture()
+        payload["workflow_run_id"] = "123"
+        payload["workflow_run_attempt"] = "4"
+        env = {
+            "GITHUB_ACTIONS": "true",
+            "GITHUB_RUN_ID": "123",
+            "GITHUB_RUN_ATTEMPT": "4",
+        }
+        validate_preflight_payload(
+            payload,
+            source=source,
+            p=p,
+            j12=j12,
+            candidate_bundle=bundle,
+            environ=env,
+        )
+        bad = dict(payload)
+        bad["workflow_run_attempt"] = "5"
+        with self.assertRaises(QualificationError):
+            validate_preflight_payload(
+                bad,
+                source=source,
+                p=p,
+                j12=j12,
+                candidate_bundle=bundle,
+                environ=env,
+            )
 
     def test_postflight_host_domain_drift_is_rejected(self):
         host, source, _, _, _, payload = positive_fixture()

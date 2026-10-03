@@ -93,6 +93,7 @@ class EngineOptContractTests(unittest.TestCase):
         canonical=load_json(ROOT/"qualification/online-hybrid-v2.json")
         candidate=load_json(ROOT/"qualification/online-hybrid-v2-candidate.json")
         witness=load_json(ROOT/"qualification/online-hybrid-v2-candidate-witnesses.json")
+        source_meta=load_json(ROOT/"qualification/g3-candidate-discovery-source.json")
         meta=candidate["candidate_witnesses"]
         self.assertEqual(
             hashlib.sha256((ROOT/meta["path"]).read_bytes()).hexdigest(),
@@ -101,6 +102,11 @@ class EngineOptContractTests(unittest.TestCase):
         self.assertEqual(witness["source"]["source_commit"],"03a5f958691924fa859586f961087d9c9746569f")
         self.assertEqual(witness["source"]["workflow_run"],37144819528)
         self.assertEqual(witness["source"]["artifact_id"],11283786124)
+        self.assertEqual(meta["source_metadata"],"qualification/g3-candidate-discovery-source.json")
+        self.assertEqual(witness["source"]["source_commit"],source_meta["source_commit"])
+        self.assertEqual(witness["source"]["workflow_run"],source_meta["workflow_run"])
+        self.assertEqual(witness["source"]["artifact_id"],source_meta["artifact_id"])
+        self.assertEqual(witness["source"]["artifact_digest"],"sha256:"+source_meta["artifact_sha256"])
         self.assertEqual(len(witness["cases"]),16)
         self.assertEqual(
             len({row["discovery"]["position_id"] for row in witness["cases"]}),

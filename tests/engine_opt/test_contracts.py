@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-import copy,sys,unittest
+import copy,hashlib,sys,unittest
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[2]
 sys.path.insert(0,str(ROOT))
@@ -88,6 +88,42 @@ class EngineOptContractTests(unittest.TestCase):
         bad=copy.deepcopy(row); bad["warmup"]={"nodes":64}
         with self.assertRaises(AssertionError):
             validate_selected_lc0_rows([bad],selected,lambda ok,msg:self.assertTrue(ok,msg))
+
+    def test_candidate_g3_witness_corpus_preserves_legacy_requirement(self):
+        canonical=load_json(ROOT/"qualification/online-hybrid-v2.json")
+        candidate=load_json(ROOT/"qualification/online-hybrid-v2-candidate.json")
+        witness=load_json(ROOT/"qualification/online-hybrid-v2-candidate-witnesses.json")
+        meta=candidate["candidate_witnesses"]
+        self.assertEqual(
+            hashlib.sha256((ROOT/meta["path"]).read_bytes()).hexdigest(),
+            meta["sha256"],
+        )
+        self.assertEqual(witness["source"]["source_commit"],"03a5f958691924fa859586f961087d9c9746569f")
+        self.assertEqual(witness["source"]["workflow_run"],37144819528)
+        self.assertEqual(witness["source"]["artifact_id"],11283786124)
+        self.assertEqual(len(witness["cases"]),16)
+        self.assertEqual(
+            len({row["discovery"]["position_id"] for row in witness["cases"]}),
+            16,
+        )
+        legacy=[
+            {k:v for k,v in row.items() if k!="source_set"}
+            for row in candidate["positive_cases"]
+            if row.get("source_set")=="legacy_v1"
+        ]
+        discovery=[
+            row for row in candidate["positive_cases"]
+            if row.get("source_set")=="discovery_local1_v1"
+        ]
+        self.assertEqual(legacy,canonical["positive_cases"])
+        self.assertEqual(candidate["positive_requirement"],canonical["positive_requirement"])
+        self.assertTrue(candidate["positive_requirement"]["require_non_anchor_move"])
+        self.assertEqual(len(discovery),16)
+        for expected,actual in zip(witness["cases"],discovery):
+            self.assertEqual(actual["id"],expected["id"])
+            self.assertEqual(actual["moves"],expected["moves"].split())
+            self.assertEqual(actual["command"],expected["command"])
+            self.assertEqual(actual["discovery"],expected["discovery"])
 
     def test_historical_host_binding_is_explicitly_legacy_unbound(self):
         binding=load_json(ROOT/"qualification/engine-opt-v2-host-binding.json")

@@ -31,6 +31,7 @@ from .common import (
     policy,
     schedule,
 )
+from .layout import ProducerLayout
 from .paired import arm_telemetry, paired_blocks
 from .preflight import (
     validate_postflight_payload,
@@ -64,6 +65,10 @@ def verify_common_evidence(output: Path) -> dict:
     )
     source = source_identity()
     require(manifest.get("source") == source, "META-1 source checkout drift")
+    producer_layout = ProducerLayout.from_dict(
+        manifest.get("producer_layout"),
+        campaign_id=output.name,
+    )
     attempt = manifest.get("campaign_attempt")
     require(isinstance(attempt, dict), "META-1 campaign attempt identity missing")
     if __import__("os").environ.get("GITHUB_ACTIONS") == "true":
@@ -126,6 +131,7 @@ def verify_common_evidence(output: Path) -> dict:
         p=p,
         j12=j12,
         candidate_bundle=bundle,
+        expected_j12_report_sha256=sha(j12_path),
     )
     derived_disposition = campaign_disposition(j12)
     require(
@@ -153,6 +159,7 @@ def verify_common_evidence(output: Path) -> dict:
         source=source,
         preflight=preflight,
         require_stable=derived_disposition == RUN_DISPOSITION,
+        expected_preflight_sha256=sha(preflight_path),
     )
 
     producer_path = verify_record(ROOT, manifest.get("producer_summary") or {})
@@ -169,6 +176,7 @@ def verify_common_evidence(output: Path) -> dict:
     )
     return {
         "manifest": manifest,
+        "producer_layout": producer_layout,
         "policy": p,
         "source": source,
         "j12": j12,
@@ -244,6 +252,8 @@ def qualify(output: Path) -> dict:
             )
             directory = output / plan["id"]
             opening_path = directory / plan["opening"]
+            producer_directory = common["producer_layout"].block_directory(plan["id"])
+            producer_opening_path = producer_directory / plan["opening"]
             require(
                 opening_path.is_file()
                 and sha(opening_path) == plan["opening_sha256"]
@@ -255,12 +265,14 @@ def qualify(output: Path) -> dict:
                 execution["argv"]
                 == command(
                     plan,
-                    directory,
+                    producer_directory,
                     p,
                     source_runtime,
-                    common["fastchess"],
-                    opening_path,
+                    Path(common["producer_layout"].fastchess),
+                    producer_opening_path,
                     write_specs=False,
+                    root=Path(common["producer_layout"].repo_root),
+                    python_executable=common["producer_layout"].python_executable,
                 ),
                 f"{plan['id']}: Fastchess argv differs from frozen META-1 contract",
             )
@@ -286,6 +298,9 @@ def qualify(output: Path) -> dict:
                     plan,
                     campaign_run_ids,
                     campaign_manifest_hashes,
+                    producer_root=Path(common["producer_layout"].repo_root),
+                    producer_directory=producer_directory,
+                    producer_python_executable=common["producer_layout"].python_executable,
                 )
                 require(
                     len(groups) == 2,

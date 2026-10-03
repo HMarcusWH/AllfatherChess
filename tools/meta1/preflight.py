@@ -49,6 +49,7 @@ def validate_preflight_payload(
     j12: dict,
     candidate_bundle: dict,
     environ: dict[str, str] | None = None,
+    expected_j12_report_sha256: str | None = None,
 ) -> HostCapabilities:
     require(payload.get("schema_version") == 1, "META-1 preflight schema drift")
     require(payload.get("profile_id") == "meta-1-v1", "META-1 preflight profile drift")
@@ -65,6 +66,16 @@ def validate_preflight_payload(
         payload.get("candidate_bundle") == candidate_bundle,
         "META-1 preflight candidate bundle drift",
     )
+    captured_j12 = payload.get("j12_report_sha256")
+    require(
+        isinstance(captured_j12, str) and len(captured_j12) == 64,
+        "META-1 preflight J12 hash is missing or malformed",
+    )
+    if expected_j12_report_sha256 is not None:
+        require(
+            captured_j12 == expected_j12_report_sha256,
+            "META-1 preflight does not bind the exact J12 report bytes",
+        )
     derived = campaign_disposition(j12)
     require(
         payload.get("qualification_disposition") == derived,
@@ -110,10 +121,21 @@ def validate_postflight_payload(
     source: dict,
     preflight: dict,
     require_stable: bool,
+    expected_preflight_sha256: str | None = None,
 ) -> HostCapabilities:
     require(payload.get("schema_version") == 1, "META-1 postflight schema drift")
     require(payload.get("profile_id") == "meta-1-v1", "META-1 postflight profile drift")
     require(payload.get("source") == source, "META-1 postflight source drift")
+    captured_preflight = payload.get("preflight_sha256")
+    require(
+        isinstance(captured_preflight, str) and len(captured_preflight) == 64,
+        "META-1 postflight preflight hash is missing or malformed",
+    )
+    if expected_preflight_sha256 is not None:
+        require(
+            captured_preflight == expected_preflight_sha256,
+            "META-1 postflight does not bind the exact preflight bytes",
+        )
     raw_host = payload.get("host_capabilities")
     require(isinstance(raw_host, dict), "META-1 postflight HostCapabilities missing")
     host = HostCapabilities.from_dict(raw_host)
@@ -182,6 +204,7 @@ def capture_preflight(j12_path: Path, output: Path) -> dict:
         p=p,
         j12=j12,
         candidate_bundle=bundle,
+        expected_j12_report_sha256=sha(j12_path),
     )
     save(output, payload)
     return payload
@@ -210,6 +233,7 @@ def capture_postflight(preflight_path: Path, output: Path) -> dict:
         source=source,
         preflight=pre,
         require_stable=pre.get("qualification_disposition") == RUN_DISPOSITION,
+        expected_preflight_sha256=sha(preflight_path),
     )
     return payload
 

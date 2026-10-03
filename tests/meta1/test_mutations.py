@@ -86,6 +86,7 @@ def positive_fixture():
         "qualification_disposition": RUN_DISPOSITION,
         "policy_sha256": sha(ROOT / "qualification/meta-1-v1.json"),
         "runtime_config_sha256": sha(ROOT / p["source_runtime"]),
+        "j12_report_sha256": "1" * 64,
         "candidate_bundle": bundle,
         "host_capabilities": host.as_dict(),
         "host_capabilities_digest": host.digest,
@@ -114,6 +115,7 @@ class Meta1MutationTests(unittest.TestCase):
             j12=j12,
             candidate_bundle=bundle,
             environ={},
+            expected_j12_report_sha256="1" * 64,
         )
         mutations = [
             ("policy_sha256", "0" * 64),
@@ -134,6 +136,7 @@ class Meta1MutationTests(unittest.TestCase):
                         j12=j12,
                         candidate_bundle=bundle,
                         environ={},
+                        expected_j12_report_sha256="1" * 64,
                     )
 
     def test_preflight_binds_github_workflow_attempt_when_requested(self):
@@ -152,6 +155,7 @@ class Meta1MutationTests(unittest.TestCase):
             j12=j12,
             candidate_bundle=bundle,
             environ=env,
+            expected_j12_report_sha256="1" * 64,
         )
         bad = dict(payload)
         bad["workflow_run_attempt"] = "5"
@@ -163,6 +167,7 @@ class Meta1MutationTests(unittest.TestCase):
                 j12=j12,
                 candidate_bundle=bundle,
                 environ=env,
+                expected_j12_report_sha256="1" * 64,
             )
 
     def test_postflight_host_domain_drift_is_rejected(self):
@@ -172,6 +177,7 @@ class Meta1MutationTests(unittest.TestCase):
             "schema_version": 1,
             "profile_id": "meta-1-v1",
             "source": source,
+            "preflight_sha256": "2" * 64,
             "host_capabilities": changed.as_dict(),
             "host_capabilities_digest": changed.digest,
             "qualification_domain_digest": changed.qualification_domain_digest,
@@ -187,6 +193,39 @@ class Meta1MutationTests(unittest.TestCase):
                 source=source,
                 preflight=payload,
                 require_stable=True,
+                expected_preflight_sha256="2" * 64,
+            )
+
+    def test_preflight_and_postflight_reject_hash_chain_mutation(self):
+        _, source, p, bundle, j12, payload = positive_fixture()
+        with self.assertRaises(QualificationError):
+            validate_preflight_payload(
+                payload,
+                source=source,
+                p=p,
+                j12=j12,
+                candidate_bundle=bundle,
+                environ={},
+                expected_j12_report_sha256="0" * 64,
+            )
+        host = complete_host()
+        post = {
+            "schema_version": 1,
+            "profile_id": "meta-1-v1",
+            "source": source,
+            "preflight_sha256": "2" * 64,
+            "host_capabilities": host.as_dict(),
+            "host_capabilities_digest": host.digest,
+            "qualification_domain_digest": host.qualification_domain_digest,
+            "qualification_domain_stable": True,
+        }
+        with self.assertRaises(QualificationError):
+            validate_postflight_payload(
+                post,
+                source=source,
+                preflight=payload,
+                require_stable=True,
+                expected_preflight_sha256="0" * 64,
             )
 
     def test_producer_summary_cannot_relabel_campaign(self):

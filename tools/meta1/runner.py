@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -27,6 +28,7 @@ from .common import (
     policy,
     schedule,
 )
+from .layout import ProducerLayout
 from .preflight import (
     capture_postflight,
     validate_preflight_payload,
@@ -98,7 +100,6 @@ def main() -> int:
         not output.exists() and not output.is_symlink(),
         "META-1 campaign attempt already exists; retries require a new workflow attempt",
     )
-    output.mkdir(parents=True)
 
     j12_path = args.j12_report.resolve()
     preflight_path = args.preflight.resolve()
@@ -112,20 +113,31 @@ def main() -> int:
         ROOT / p["bundle_root"],
         expected_source_commit=source["commit"],
     )
+    fastchess_path = args.fastchess.resolve()
+    layout = ProducerLayout.create(
+        repo_root=ROOT.resolve(),
+        campaign_root=output,
+        fastchess=fastchess_path,
+        python_executable=sys.executable,
+        campaign_id=output.name,
+    )
     live_host = validate_preflight_payload(
         preflight,
         source=source,
         p=p,
         j12=j12,
         candidate_bundle=bundle,
+        expected_j12_report_sha256=sha(j12_path),
     )
     disposition = preflight["qualification_disposition"]
+    output.mkdir(parents=True)
     plans = schedule(p)
     manifest = {
         "schema_version": 1,
         "campaign_id": output.name,
         "profile_id": p["profile_id"],
         "source": source,
+        "producer_layout": layout.as_dict(),
         "campaign_attempt": {
             "workflow_run_id": os.environ.get("GITHUB_RUN_ID"),
             "workflow_run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT"),
@@ -150,7 +162,7 @@ def main() -> int:
     exit_code = 0
     try:
         if disposition == RUN_DISPOSITION:
-            require(args.fastchess.is_file(), "pinned Fastchess binary is missing")
+            require(fastchess_path.is_file(), "pinned Fastchess binary is missing")
             source_runtime = load(ROOT / p["source_runtime"])
             blocks = opening_blocks(ROOT / p["opening_file"], p["opening_count"])
             for plan in plans:
@@ -170,8 +182,10 @@ def main() -> int:
                     directory,
                     p,
                     source_runtime,
-                    args.fastchess,
+                    Path(layout.fastchess),
                     opening_path,
+                    root=Path(layout.repo_root),
+                    python_executable=layout.python_executable,
                 )
                 execution = bounded(
                     argv,

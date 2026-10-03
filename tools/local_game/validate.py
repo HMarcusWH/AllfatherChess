@@ -152,9 +152,83 @@ def trace_searches(events: list[dict]) -> dict[int, list[dict]]:
     return dict(games)
 
 
-def session_games(directory: Path, arm: str, source: dict, source_runtime: str, plan: dict,
-                  campaign_run_ids: set[str], campaign_manifest_hashes: set[str]) -> tuple[list[list[dict]], list[dict]]:
+def expected_session_launch(
+    arm: str,
+    source: dict,
+    source_runtime: str,
+    *,
+    session_name: str,
+    producer_root: Path,
+    producer_directory: Path,
+    producer_python_executable: str,
+) -> tuple[dict, list[str], Path]:
     from .runner import engine_options
+
+    _, expected_environment = engine_options(arm, source)
+    producer_session_root = producer_directory / "sessions" / arm
+    producer_session = producer_session_root / session_name
+    expected_spec = {
+        "schema_version": 1,
+        "arm": arm,
+        "root": str(producer_root),
+        "sessions": str(producer_session_root),
+        "environment": expected_environment,
+        "source_runtime": source_runtime,
+    }
+    if arm.startswith("allfather-"):
+        expected_command = [
+            producer_python_executable,
+            "-m",
+            "controller",
+            "--config",
+            str(producer_session / "runtime.json"),
+        ]
+    else:
+        instance = {
+            "stockfish": "stockfish-anchor",
+            "reckless": "reckless-shadow",
+            "lc0": "lc0-shadow",
+        }[arm]
+        engine = source["instances"][instance]
+        raw_args = engine.get("args", [])
+        require(
+            isinstance(raw_args, list)
+            and all(isinstance(item, str) for item in raw_args),
+            f"{arm}: source runtime engine args must be an array of strings",
+        )
+        expected_command = [str(producer_root / engine["binary"]), *raw_args]
+    return expected_spec, expected_command, producer_session
+
+
+def session_games(
+    directory: Path,
+    arm: str,
+    source: dict,
+    source_runtime: str,
+    plan: dict,
+    campaign_run_ids: set[str],
+    campaign_manifest_hashes: set[str],
+    *,
+    producer_root: Path | None = None,
+    producer_directory: Path | None = None,
+    producer_python_executable: str | None = None,
+) -> tuple[list[list[dict]], list[dict]]:
+    provided = (
+        producer_root is not None,
+        producer_directory is not None,
+        producer_python_executable is not None,
+    )
+    require(
+        all(provided) or not any(provided),
+        "producer relocation context must be supplied as one complete tuple",
+    )
+    expected_root = ROOT if producer_root is None else Path(producer_root)
+    expected_directory = directory if producer_directory is None else Path(producer_directory)
+    expected_python = (
+        sys.executable
+        if producer_python_executable is None
+        else producer_python_executable
+    )
 
     groups, summaries = [], []
     session_root = directory / "sessions" / arm
@@ -177,25 +251,17 @@ def session_games(directory: Path, arm: str, source: dict, source_runtime: str, 
             and identity["start_ticks"] > 0,
             "session process identity is missing or inconsistent",
         )
-        _, expected_environment = engine_options(arm, source)
-        expected_spec = {"schema_version": 1, "arm": arm, "root": str(ROOT),
-                         "sessions": str(directory / "sessions" / arm),
-                         "environment": expected_environment,
-                         "source_runtime": source_runtime}
+        expected_spec, expected_command, producer_session = expected_session_launch(
+            arm,
+            source,
+            source_runtime,
+            session_name=session.name,
+            producer_root=expected_root,
+            producer_directory=expected_directory,
+            producer_python_executable=expected_python,
+        )
         require(summary.get("spec") == expected_spec,
                 f"{arm}: proxy spec/environment differs from frozen arm")
-        if arm.startswith("allfather-"):
-            expected_command = [sys.executable, "-m", "controller", "--config", str(session / "runtime.json")]
-        else:
-            instance = {"stockfish": "stockfish-anchor", "reckless": "reckless-shadow",
-                        "lc0": "lc0-shadow"}[arm]
-            engine = source["instances"][instance]
-            raw_args = engine.get("args", [])
-            require(
-                isinstance(raw_args, list) and all(isinstance(item, str) for item in raw_args),
-                f"{arm}: source runtime engine args must be an array of strings",
-            )
-            expected_command = [str(ROOT / engine["binary"]), *raw_args]
         require(summary.get("command") == expected_command,
                 f"{arm}: launched command differs from frozen arm")
         trace = verify_record(session, summary["transcript"])
@@ -214,8 +280,8 @@ def session_games(directory: Path, arm: str, source: dict, source_runtime: str, 
                 source,
                 config,
                 arm,
-                ROOT,
-                session / "replays",
+                expected_root,
+                producer_session / "replays",
             )
             require(
                 (session / "replays").is_dir(),

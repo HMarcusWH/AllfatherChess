@@ -96,10 +96,35 @@ jobs:
         run: |
           python3 -m tools.meta1.mini_e2e --fastchess "$META1_FASTCHESS"
           python3 -m unittest tests.meta1.test_end_to_end -v
+      - name: Upload mini artifact transport fixture
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: meta1-mini-transport
+          path: |
+            build/test-results/meta1-mini
+            build/tools/fastchess
+          if-no-files-found: error
+          retention-days: 14
+
+  mini-artifact-roundtrip:
+    needs: mini-e2e
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: meta1-mini-transport
+          path: build
+      - name: Verify build-root artifact restoration contract
+        run: |
+          test -f build/test-results/meta1-mini/report.json
+          test -f build/tools/fastchess/build-manifest.json
+          python3 -m json.tool build/test-results/meta1-mini/report.json >/dev/null
+          python3 -m json.tool build/tools/fastchess/build-manifest.json >/dev/null
 
   campaign:
     if: ${{ github.event_name == 'workflow_dispatch' }}
-    needs: [static-contracts, fastchess-source-tests, mini-e2e]
+    needs: [static-contracts, fastchess-source-tests, mini-e2e, mini-artifact-roundtrip]
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 360
     env:
@@ -154,10 +179,12 @@ jobs:
             build/test-results/meta1
             build/test-results/meta1-preflight
             build/test-results/engine-opt-v2-profile-domain/j12
+            build/test-results/engine-opt-v2-profile-domain/execution-domain.json
+            build/test-results/engine-opt-v2-profile-domain/host-probe.json
             build/tools/fastchess
             build/online-engine-opt-v2
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 90
 
   independent-verify:
     if: ${{ always() && github.event_name == 'workflow_dispatch' && needs.campaign.result != 'skipped' }}
@@ -173,7 +200,17 @@ jobs:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: meta1-raw-${{ github.run_id }}-${{ github.run_attempt }}
-          path: .
+          path: build
+      - name: Verify restored raw evidence layout
+        run: |
+          META1_CAMPAIGN_ID="${ALLFATHER_SOURCE_SHA:0:12}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          test -f "build/test-results/meta1/$META1_CAMPAIGN_ID/manifest.json"
+          test -f build/test-results/meta1-preflight/preflight.json
+          test -f build/test-results/engine-opt-v2-profile-domain/j12/report.json
+          test -f build/test-results/engine-opt-v2-profile-domain/execution-domain.json
+          test -f build/test-results/engine-opt-v2-profile-domain/host-probe.json
+          test -f build/tools/fastchess/build-manifest.json
+          test -f build/online-engine-opt-v2/build-manifest.json
       - name: Install independent validator dependency
         run: |
           python3 -m pip install --break-system-packages --no-build-isolation --no-deps             --require-hashes -r qualification/local-game-requirements.txt
@@ -186,6 +223,13 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: meta1-qualified-${{ github.run_id }}-${{ github.run_attempt }}
-          path: build/test-results/meta1
+          path: |
+            build/test-results/meta1
+            build/test-results/meta1-preflight
+            build/test-results/engine-opt-v2-profile-domain/j12
+            build/test-results/engine-opt-v2-profile-domain/execution-domain.json
+            build/test-results/engine-opt-v2-profile-domain/host-probe.json
+            build/tools/fastchess
+            build/online-engine-opt-v2
           if-no-files-found: error
           retention-days: 90

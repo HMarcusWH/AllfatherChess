@@ -169,6 +169,8 @@ def command(
     opening_path: Path,
     *,
     write_specs: bool = True,
+    root: Path = ROOT,
+    python_executable: str = sys.executable,
 ) -> list[str]:
     argv = [
         str(fastchess),
@@ -216,7 +218,7 @@ def command(
         spec = {
             "schema_version": 1,
             "arm": arm,
-            "root": str(ROOT),
+            "root": str(root),
             "sessions": str(directory / "sessions" / arm),
             "environment": environment,
             "source_runtime": p["source_runtime"],
@@ -226,9 +228,9 @@ def command(
         argv += [
             "-engine",
             f"name={arm}",
-            f"cmd={sys.executable}",
+            f"cmd={python_executable}",
             f"args=-m tools.local_game.proxy --spec {spec_path}",
-            f"dir={ROOT}",
+            f"dir={root}",
             "proto=uci",
             f"tc={plan['clock']}",
             f"timemargin={p['timemargin_ms']}",

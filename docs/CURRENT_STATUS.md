@@ -1,11 +1,11 @@
 # AllfatherChess current build and release status
 
 **Status date:** 3 October 2026  
-**Authoritative main commit:** `217de24902c50355f186fbae2bd2c558dd0a92ae`  
-**Latest merged milestone:** PR #60 / M14-J J13A — matched-orchestration anchor control  
+**Authoritative main commit:** `2d7d6f19c18bb5ee101199e4a038b7c420405c50`  
+**Latest merged milestone:** PR #61 / M14-J J13B — immutable META-1 execution qualification  
 **Qualified J6 PR head:** `6aecd0bae7848ca8a9893377fadffb049d336c3a`  
 **Frozen fallback:** ENGINE-OPT-V2 / PR #44 remains unchanged  
-**Current execution milestone:** M14-J J13B / META-1 — immutable execution + independent qualification  
+**Current execution milestone:** M14-J J13C — ENGINE-OPT-V2 substrate requalification before META-1 dispatch  
 **Next milestone after J13:** M14-J J14 / ONLINE-PLAY-1 — production-profile 10+5 experiment  
 **Forward roadmap:** [ROADMAP.md](ROADMAP.md)  
 **M14-J rebuild plan:** [M14_J_ADAPTIVE_RESOURCE_ORCHESTRATION.md](M14_J_ADAPTIVE_RESOURCE_ORCHESTRATION.md)  
@@ -192,12 +192,24 @@ M14-G3, LC0 real-inference, ENGINE-OPT-V2 and the resource laboratory. On the
 GitHub-hosted worker, J12 correctly reported `NOT_QUALIFIED_HOST_CAPACITY`: synthetic
 capacity facts exercised the mechanism but did not promote HYBRID authority.
 
-## M14-J J13 / META-1 — CONTROL MERGED / EXECUTION QUALIFICATION IN PROGRESS
+## M14-J J13 / META-1 — EXECUTION QUALIFICATION MERGED / SUBSTRATE REQUALIFICATION IN PROGRESS
 
 PR #60 merged the test-only `ANCHOR_CONTROL` outward disposition after the unchanged
 `DecisionAuthorization` boundary. The control runs the same J12 orchestration,
 proposal and authorization machinery but always emits the Stockfish anchor. A granted
 control authorization remains granted in evidence; it is not relabelled as fallback.
+
+PR #61 then merged immutable campaign attempts, producer-workspace relocation, pre/post
+host-domain binding, independent requalification, paired-opening reporting and artifact
+transport/retention tests. The confirmatory 100-game campaign is still blocked until the
+selected ENGINE-OPT-V2 substrate itself requalifies on exact head.
+
+The retained PR #61 aggregate produced valid negative evidence: the then-selected
+`b7-p8-c256k-warm64` LC0 profile was repeatable but changed one frozen bestmove, and the
+unchanged seven-case G3-v2 corpus produced no non-anchor HYBRID witness. J13C therefore
+proposes `b4-p0-c256k-cold` from that retained discovery matrix, keeps the 600/800 ms
+LC0 reservations and original G3 witness corpus unchanged, and requires a fresh exact-head
+aggregate to be positively qualified before merge.
 
 The actual confirmatory 100-game META-1 campaign has **not yet run**. J13B hardens that
 execution before any result is collected: every attempt is immutable and bound to merged

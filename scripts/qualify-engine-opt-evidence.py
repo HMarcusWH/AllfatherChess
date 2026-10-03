@@ -376,6 +376,16 @@ def main() -> int:
         require(g3.get("evidence_valid") is True, "G3-v2 evidence is invalid")
         require(g3.get("source_commit") == source, "G3-v2 source is not exact head")
         require(g3.get("candidate_bundle") == candidate, "G3-v2 candidate binding mismatch")
+        if args.candidate_mode:
+            overlay=(details.get("candidate") or {}).get("candidate_overlay") or {}
+            contracts=g3.get("contracts") or {}
+            require(
+                contracts.get("policy_sha256")==overlay.get("g3_policy_sha256")
+                and contracts.get("selection_sha256")==overlay.get("selection_sha256")
+                and contracts.get("reference_runtime_sha256")==overlay.get("reference_runtime_sha256")
+                and contracts.get("hybrid_runtime_sha256")==overlay.get("hybrid_runtime_sha256"),
+                "G3-v2 report is not bound to the source-controlled candidate overlay",
+            )
         g3_domain = validate_execution_domain(
             g3.get("execution_domain"),
             expected_source_commit=source,

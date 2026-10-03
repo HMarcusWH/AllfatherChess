@@ -67,6 +67,28 @@
       "report_sha256": "e3111e51c5b0ee2a6af20476f5fbfc6a5b616602319e31156ae0a062a3fef658",
       "source_commit": "4acce20ec427364e51f5ac51204c8d46a32f81d1",
       "observation": "The unchanged seven-case G3-v2 corpus produced one HYBRID proposal equal to the anchor and no qualifying non-anchor witness under b7-p8-c256k-warm64."
+    },
+    "g3_candidate_witness_corpus": {
+      "path": "qualification/online-hybrid-v2-candidate-witnesses.json",
+      "sha256": "7418f77ae73df08b1f323bc7714d741cb5215c05232ff081132d0911d2b40e2f",
+      "corpus_id": "g3-candidate-local1-discovery-v1",
+      "source": {
+        "artifact_digest": "sha256:932c2d83d5fc3f2dff0a9e341542c8c245cc002c196149e7a805090781318336",
+        "artifact_id": 11283786124,
+        "artifact_name": "engine-opt-v2-profile-domain",
+        "repository": "HMarcusWH/AllfatherChess",
+        "source_commit": "03a5f958691924fa859586f961087d9c9746569f",
+        "workflow_run": 37144819528
+      },
+      "selection_algorithm": {
+        "case_count": 16,
+        "description": "From candidate LOCAL-1 base-* allfather-g3 replays, retain only valid non-anchor HYBRID decisions with granted authorization, BUY_STAGED_VERIFY, completed staged verification, claimed envelope, qualified resource evidence, output within deadline, startpos history, and available_clock_ms >= 10000. Deduplicate position_id, sort each job by (generation, run_id), sort job ids lexicographically, and take the earliest four distinct positions from each override-bearing base job. No validation-run result may alter this frozen set.",
+        "id": "qualified-natural-override-base-round-robin-v1",
+        "minimum_available_clock_ms": 10000,
+        "required_per_job": 4
+      },
+      "case_count": 16,
+      "note": "Frozen discovery corpus only. Fresh validation on a later candidate head is required; no discovery result itself grants promotion authority."
     }
   },
   "observations": {

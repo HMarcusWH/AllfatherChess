@@ -30,6 +30,15 @@ class Meta1GateTests(unittest.TestCase):
             "NOT_QUALIFIED_HOST_CAPACITY",
         )
 
+    def test_authority_qualified_synthetic_host_is_rejected(self):
+        with self.assertRaises(QualificationError):
+            campaign_disposition({
+                "mechanism_valid": True,
+                "authority_qualified": True,
+                "qualification_disposition": "QUALIFIED_ORCHESTRATED_AUTHORITY",
+                "synthetic_capacity_observation": True,
+            })
+
     def test_invalid_j12_evidence_fails_closed(self):
         with self.assertRaises(QualificationError):
             campaign_disposition({

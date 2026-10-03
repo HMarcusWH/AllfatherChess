@@ -32,11 +32,19 @@ def _percentile(values: list[float], fraction: float) -> float | None:
     return round(float(ordered[index]), 6)
 
 
-def paired_blocks(games: list[dict], plies: list[dict]) -> tuple[list[dict], dict]:
+def paired_blocks(
+    games: list[dict],
+    plies: list[dict],
+    *,
+    expected_blocks: int = 50,
+) -> tuple[list[dict], dict]:
     by_opening: dict[int, list[dict]] = defaultdict(list)
     for game in games:
         by_opening[int(game["opening_index"])].append(game)
-    require(len(by_opening) == 50, "META-1 paired report requires 50 opening blocks")
+    require(
+        len(by_opening) == expected_blocks,
+        f"META-1 paired report requires {expected_blocks} opening blocks",
+    )
 
     ply_groups: dict[tuple[str, int], list[dict]] = defaultdict(list)
     for row in plies:
@@ -45,7 +53,7 @@ def paired_blocks(games: list[dict], plies: list[dict]) -> tuple[list[dict], dic
     blocks: list[dict] = []
     live_higher = tied = control_higher = 0
     live_total = control_total = 0.0
-    for opening_index in range(50):
+    for opening_index in range(expected_blocks):
         rows = sorted(by_opening.get(opening_index, []), key=lambda row: row["game"])
         require(len(rows) == 2, f"opening {opening_index} does not contain exactly two games")
         require(
@@ -120,14 +128,14 @@ def paired_blocks(games: list[dict], plies: list[dict]) -> tuple[list[dict], dic
         )
 
     summary = {
-        "blocks": 50,
+        "blocks": expected_blocks,
         "live_higher": live_higher,
         "tied": tied,
         "control_higher": control_higher,
         "live_points": live_total,
         "control_points": control_total,
         "sum_point_delta": live_total - control_total,
-        "mean_point_delta": (live_total - control_total) / 50.0,
+        "mean_point_delta": (live_total - control_total) / float(expected_blocks),
     }
     return blocks, summary
 

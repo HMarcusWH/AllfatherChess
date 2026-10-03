@@ -5,7 +5,13 @@ import copy
 import unittest
 
 from tools.local_game.common import ROOT, load, runtime_config, verify_controller_derivation
-from tools.meta1.common import ARMS, opening_blocks, policy, schedule
+from tools.meta1.common import (
+    ARMS,
+    campaign_identity,
+    opening_blocks,
+    policy,
+    schedule,
+)
 
 
 class Meta1ContractTests(unittest.TestCase):
@@ -25,6 +31,20 @@ class Meta1ContractTests(unittest.TestCase):
             self.assertEqual(len(job["opening_sha256"]), 64)
             block_hashes.add(job["opening_sha256"])
         self.assertEqual(len(block_hashes), 50)
+
+    def test_campaign_identity_binds_source_run_and_attempt(self):
+        source = {"commit": "a" * 40, "tree": "b" * 40}
+        self.assertEqual(
+            campaign_identity(
+                source,
+                {
+                    "GITHUB_ACTIONS": "true",
+                    "GITHUB_RUN_ID": "123",
+                    "GITHUB_RUN_ATTEMPT": "4",
+                },
+            ),
+            "aaaaaaaaaaaa-123-4",
+        )
 
     def test_control_runtime_diff_is_only_relocation_plus_outward_mode(self):
         source = load(ROOT / "config/allfather.orchestrated-v1.validation.json")

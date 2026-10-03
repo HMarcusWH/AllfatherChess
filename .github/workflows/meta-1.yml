@@ -10,12 +10,13 @@ on:
       - 'qualification/meta-1-v1.json'
       - 'tests/meta1/**'
       - 'tests/fixtures/meta1/**'
+      - 'tests/fixtures/meta1-mini/**'
       - 'Makefile.local-game'
       - '.github/workflows/meta-1.yml'
   workflow_dispatch:
     inputs:
       runner:
-        description: 'Runner label for the real META-1 campaign (use a J12-qualified host)'
+        description: 'Runner label for the real META-1 campaign (must qualify J12 authority)'
         required: true
         default: 'ubuntu-24.04'
 
@@ -39,6 +40,9 @@ jobs:
           ref: ${{ env.ALLFATHER_SOURCE_SHA }}
       - name: Verify exact source checkout
         run: test "$(git rev-parse HEAD)" = "$ALLFATHER_SOURCE_SHA"
+      - name: Install pinned test dependency
+        run: |
+          python3 -m pip install --break-system-packages --no-build-isolation --no-deps             --require-hashes -r qualification/local-game-requirements.txt
       - name: Compile and validate META-1 contracts
         run: |
           python3 -m compileall -q tools/meta1 scripts/qualify-meta-1.py tests/meta1 tests/controller/test_meta1_anchor_control.py
@@ -46,15 +50,18 @@ jobs:
           make -f Makefile.local-game meta1-tests
 
   fastchess-source-tests:
-    if: ${{ github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-22.04
     timeout-minutes: 30
+    env:
+      JOBS: '2'
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           ref: ${{ env.ALLFATHER_SOURCE_SHA }}
       - name: Verify exact source checkout
         run: test "$(git rev-parse HEAD)" = "$ALLFATHER_SOURCE_SHA"
+      - name: Match upstream Fastchess Linux test host
+        run: sudo sysctl -w vm.mmap_rnd_bits=28
       - name: Run pinned Fastchess source tests
         run: python3 -m tools.local_game.build_fastchess --source-test-only
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -64,19 +71,49 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-  campaign:
-    if: ${{ github.event_name == 'workflow_dispatch' }}
+  mini-e2e:
     needs: [static-contracts, fastchess-source-tests]
-    runs-on: ${{ inputs.runner }}
-    timeout-minutes: 360
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           ref: ${{ env.ALLFATHER_SOURCE_SHA }}
-      - name: Verify exact source checkout and bind runner environment
+      - name: Verify exact source checkout
+        run: test "$(git rev-parse HEAD)" = "$ALLFATHER_SOURCE_SHA"
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: meta1-fastchess-source-test
+          path: build/fastchess-source-test
+      - name: Install pinned runtime dependency
         run: |
+          python3 -m pip install --break-system-packages --no-build-isolation --no-deps             --require-hashes -r qualification/local-game-requirements.txt
+      - name: Build pinned Fastchess
+        run: make -f Makefile.local-game build-fastchess
+      - name: Execute four-game reversed-color META-1 smoke
+        env:
+          META1_FASTCHESS: ${{ github.workspace }}/build/tools/fastchess/bin/fastchess
+        run: |
+          python3 -m tools.meta1.mini_e2e --fastchess "$META1_FASTCHESS"
+          python3 -m unittest tests.meta1.test_end_to_end -v
+
+  campaign:
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    needs: [static-contracts, fastchess-source-tests, mini-e2e]
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 360
+    env:
+      JOBS: '2'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.ALLFATHER_SOURCE_SHA }}
+      - name: Verify exact merged-main checkout and bind attempt identity
+        run: |
+          test "$GITHUB_REF" = "refs/heads/main"
           test "$(git rev-parse HEAD)" = "$ALLFATHER_SOURCE_SHA"
           echo "ALLFATHER_RUNNER_ENVIRONMENT=${{ runner.environment }}" >> "$GITHUB_ENV"
+          echo "META1_CAMPAIGN_ID=${ALLFATHER_SOURCE_SHA:0:12}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_ENV"
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: meta1-fastchess-source-test
@@ -102,15 +139,53 @@ jobs:
         run: python3 scripts/qualify-resource-orchestration.py --record-disposition
       - name: Build pinned Fastchess
         run: make -f Makefile.local-game build-fastchess
-      - name: Run META-1 or retain non-qualified host disposition
+      - name: Capture immutable META-1 host/source preflight
         run: |
-          python3 -m tools.meta1.runner             --j12-report build/test-results/engine-opt-v2-profile-domain/j12/report.json             --output build/test-results/meta1/campaign
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+          python3 -m tools.meta1.preflight pre             --j12-report build/test-results/engine-opt-v2-profile-domain/j12/report.json             --output build/test-results/meta1-preflight/preflight.json
+      - name: Run one immutable META-1 attempt or retain the gated disposition
+        run: |
+          python3 -m tools.meta1.runner             --j12-report build/test-results/engine-opt-v2-profile-domain/j12/report.json             --preflight build/test-results/meta1-preflight/preflight.json             --output "build/test-results/meta1/$META1_CAMPAIGN_ID"
+      - name: Upload raw immutable META-1 evidence and exact build identities
         if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: meta1-v1
+          name: meta1-raw-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             build/test-results/meta1
+            build/test-results/meta1-preflight
             build/test-results/engine-opt-v2-profile-domain/j12
+            build/tools/fastchess
+            build/online-engine-opt-v2
           if-no-files-found: error
           retention-days: 30
+
+  independent-verify:
+    if: ${{ always() && github.event_name == 'workflow_dispatch' && needs.campaign.result != 'skipped' }}
+    needs: campaign
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.ALLFATHER_SOURCE_SHA }}
+      - name: Verify exact source checkout
+        run: test "$(git rev-parse HEAD)" = "$ALLFATHER_SOURCE_SHA"
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: meta1-raw-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .
+      - name: Install independent validator dependency
+        run: |
+          python3 -m pip install --break-system-packages --no-build-isolation --no-deps             --require-hashes -r qualification/local-game-requirements.txt
+      - name: Independently reconstruct campaign from raw evidence
+        run: |
+          META1_CAMPAIGN_ID="${ALLFATHER_SOURCE_SHA:0:12}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          python3 scripts/qualify-meta-1.py             --campaign "build/test-results/meta1/$META1_CAMPAIGN_ID"             --output-report "build/test-results/meta1/$META1_CAMPAIGN_ID/report-independent.json"
+      - name: Retain authoritative independent qualification
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: meta1-qualified-${{ github.run_id }}-${{ github.run_attempt }}
+          path: build/test-results/meta1
+          if-no-files-found: error
+          retention-days: 90

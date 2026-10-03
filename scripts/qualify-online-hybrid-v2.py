@@ -13,19 +13,31 @@ from controller.final_decision import load_final_decision_artifact,verify_final_
 from tests.harness.uci_session import UciSession
 from tools.engine_opt.domain import candidate_bundle_identity,load_execution_domain
 
+def env_path(name:str,default:str)->Path:
+    value=os.environ.get(name,default)
+    path=Path(value)
+    return path if path.is_absolute() else ROOT/path
+
 POLICY=ROOT/"qualification/online-hybrid-v2.json"
 REFERENCE_POLICY=ROOT/"qualification/online-engine-opt-v2.json"
-SELECTION=ROOT/"qualification/engine-opt-v2-selection.json"
-CONFIG=ROOT/"config/allfather.online-hybrid-v2.validation.json"
-REFERENCE=ROOT/"config/allfather.online-engine-opt-v2.json"
-RESULT=ROOT/"build/test-results/online-hybrid-v2"
+SELECTION=env_path("ALLFATHER_G3_SELECTION","qualification/engine-opt-v2-selection.json")
+CONFIG=env_path("ALLFATHER_G3_CONFIG","config/allfather.online-hybrid-v2.validation.json")
+REFERENCE=env_path("ALLFATHER_G3_REFERENCE","config/allfather.online-engine-opt-v2.json")
+RESULT=env_path("ALLFATHER_G3_RESULT","build/test-results/online-hybrid-v2")
 MOVE_RE=re.compile(r"^[a-h][1-8][a-h][1-8][qrbn]?$")
 
 class QualificationError(RuntimeError): pass
 def require(condition,message):
     if not condition: raise QualificationError(message)
 
+def load_optional_json(path:Path):
+    if not path.is_file():
+        return None
+    return json.loads(path.read_text(encoding="utf-8"))
+
 def completed_bestmove_by_owner(document):
+    if not isinstance(document,dict):
+        return {}
     result={}
     for stage in document.get("stages") or []:
         owner=stage.get("owner")
@@ -86,9 +98,9 @@ def main(*,static_only:bool=False,record_disposition:bool=False)->int:
         authorization=decision.get("authorization") or {}; snap=decision.get("authorization_snapshot") or {}
         route_doc=json.loads((run/"route.json").read_text(encoding="utf-8"))
         resource_doc=json.loads((run/"resource.json").read_text(encoding="utf-8"))
-        verification_doc=json.loads((run/"verification"/"manifest.json").read_text(encoding="utf-8"))
-        staged_doc=json.loads((run/"staged_verification"/"manifest.json").read_text(encoding="utf-8"))
-        counterfactual_doc=json.loads((run/"decision"/"counterfactual.json").read_text(encoding="utf-8"))
+        verification_doc=load_optional_json(run/"verification"/"manifest.json")
+        staged_doc=load_optional_json(run/"staged_verification"/"manifest.json")
+        counterfactual_doc=load_optional_json(run/"decision"/"counterfactual.json")
         envelope=route_doc.get("envelope_claim") or {}; route_resource=route_doc.get("resource_measurement") or {}
         record={"case":label,"run_id":run.name,"authority":decision.get("authority"),
           "authorization_policy":authorization.get("policy"),"authorization_granted":authorization.get("authorized"),
@@ -97,9 +109,15 @@ def main(*,static_only:bool=False,record_disposition:bool=False)->int:
           "route_action":snap.get("route_action"),"staged_complete":snap.get("staged_complete"),
           "envelope_claimed":envelope.get("claimed"),"resource_qualified":resource_doc.get("qualified"),
           "route_resource_qualified":route_resource.get("qualified"),"driver_observed_ms":elapsed,
+          "verification_artifact_present":verification_doc is not None,
+          "staged_artifact_present":staged_doc is not None,
+          "counterfactual_artifact_present":counterfactual_doc is not None,
           "verification_bestmove_by_owner":completed_bestmove_by_owner(verification_doc),
           "staged_bestmove_by_owner":completed_bestmove_by_owner(staged_doc),
-          "proposal_disposition":(counterfactual_doc.get("proposal") or {}).get("disposition"),
+          "proposal_disposition":(
+              (counterfactual_doc.get("proposal") or {}).get("disposition")
+              if isinstance(counterfactual_doc,dict) else None
+          ),
           "proposal_matches_anchor":(
               decision.get("proposal_move")==decision.get("anchor_move")
               if decision.get("proposal_move") is not None else None
@@ -137,6 +155,12 @@ def main(*,static_only:bool=False,record_disposition:bool=False)->int:
         "qualification_failures":failures,
         "execution_domain":execution_domain,
         "candidate_bundle":candidate_bundle,
+        "contracts":{
+            "policy_sha256":__import__("hashlib").sha256(POLICY.read_bytes()).hexdigest(),
+            "selection_sha256":__import__("hashlib").sha256(SELECTION.read_bytes()).hexdigest(),
+            "reference_runtime_sha256":__import__("hashlib").sha256(REFERENCE.read_bytes()).hexdigest(),
+            "hybrid_runtime_sha256":__import__("hashlib").sha256(CONFIG.read_bytes()).hexdigest(),
+        },
         "claim_boundary":{
             "hybrid_authority":authority_qualified,
             "strength":False,

@@ -1,9 +1,9 @@
 # AllfatherChess roadmap
 
 **Status date:** 3 October 2026  
-**Current main:** `217de24902c50355f186fbae2bd2c558dd0a92ae`  
-**Latest merged milestone:** PR #60 / M14-J J13A — matched-orchestration anchor control  
-**Current execution milestone:** M14-J J13B / META-1 — immutable execution + independent qualification  
+**Current main:** `2d7d6f19c18bb5ee101199e4a038b7c420405c50`  
+**Latest merged milestone:** PR #61 / M14-J J13B — immutable META-1 execution qualification  
+**Current execution milestone:** M14-J J13C — isolated b4 candidate qualification before promotion  
 **Current-state authority:** [CURRENT_STATUS.md](CURRENT_STATUS.md)  
 **M14-J implementation plan:** [M14_J_ADAPTIVE_RESOURCE_ORCHESTRATION.md](M14_J_ADAPTIVE_RESOURCE_ORCHESTRATION.md)  
 **Detailed deployment audit:** [ONLINE_RELEASE_PLAN.md](ONLINE_RELEASE_PLAN.md)
@@ -123,9 +123,22 @@ META-1 / J13A / PR #60
 matched-orchestration ANCHOR_CONTROL architecture
         |
         v
+DONE
+META-1 / J13B / PR #61
+immutable execution + independent paired verification
+        |
+        v
 IN PROGRESS
-META-1 / J13B
-immutable qualified-host execution + independent paired verification
+M14-J J13C
+b4 candidate qualification; canonical b7/J3/J8-J12 unchanged
+        |
+        v
+PENDING
+ENGINE-OPT-V2 canonical promotion / substrate requalification
+        |
+        v
+META-1 / J13
+100-game qualified-host campaign
         |
         v
 ONLINE-PLAY-1

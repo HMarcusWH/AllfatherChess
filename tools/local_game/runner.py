@@ -15,7 +15,7 @@ import uuid
 from .common import (ROOT, contained, controller_arm, file_record, load, policy, require,
                      safe_copy_regular_tree, save, sha, source_identity,
                      terminate_token_processes, verify_record)
-from .integrity import input_paths, verify_builds
+from .integrity import input_paths, verify_builds, verify_local1_g3_prerequisite_report
 from tools.engine_opt.domain import candidate_bundle_identity, load_execution_domain
 
 
@@ -169,7 +169,7 @@ def retain_report_runs(source_root: Path, destination: Path, run_ids: list[str],
         safe_copy_regular_tree(source, destination / run_id)
 
 
-def prerequisites(output: Path, p: dict, execution_domain_path: Path | None = None) -> list[dict]:
+def prerequisites(output: Path, p: dict, source_id: dict, execution_domain_path: Path | None = None) -> list[dict]:
     """Run the prerequisite family declared by the selected lifecycle policy."""
     declared = p.get("prerequisites")
     if declared is not None:
@@ -257,16 +257,17 @@ def prerequisites(output: Path, p: dict, execution_domain_path: Path | None = No
         shutil.copy2(report, output / f"{label}.json")
     online=load(output / "online2.json")
     g3_report=load(output / "g3.json")
-    g3=g3_report["positive_case"]
-    require(g3["authority"] == "HYBRID" and g3["emitted_move"] != g3["anchor_move"],
-            "G3 prerequisite did not exercise actual non-anchor authority")
+    verify_local1_g3_prerequisite_report(g3_report, source_id)
     online_ids=referenced_run_ids(online, "ONLINE-2")
     g3_ids=referenced_run_ids(g3_report, "G3")
     retain_report_runs(replay_roots["online2"], output / "online2-replays", online_ids,
                        replay_snapshots["online2"], "ONLINE-2")
     retain_report_runs(replay_roots["g3"], output / "g3-replays", g3_ids,
                        replay_snapshots["g3"], "G3")
-    require(g3["run_id"] in set(g3_ids), "positive G3 run is absent from current report")
+    positive=g3_report.get("positive_case")
+    if isinstance(positive, dict):
+        require(positive.get("run_id") in set(g3_ids),
+                "optional positive G3 run is absent from current report")
     return records
 
 def run(mode: str, output: Path, *, shard_index: int = 0, shard_count: int = 1,
@@ -329,7 +330,7 @@ def run(mode: str, output: Path, *, shard_index: int = 0, shard_count: int = 1,
         fastchess = verify_builds(manifest["source"], p)
         pre = output / "prerequisites"
         pre.mkdir()
-        manifest["prerequisites"] = prerequisites(pre, p, execution_domain_path)
+        manifest["prerequisites"] = prerequisites(pre, p, source_id, execution_domain_path)
         from .probes import run_probes
         manifest["rule_probes"] = run_probes(
             output / "rule-probes",

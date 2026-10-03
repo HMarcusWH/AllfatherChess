@@ -45,6 +45,16 @@ def load_selection(path: Path) -> tuple[str,str,int]:
         raise ValueError("selection confirmation_repeats must be an integer >= 2")
     return selected,baseline,repeats
 
+def profiles_for_run(selected_profile: str, baseline_profile: str, qualification_only: bool):
+    if not qualification_only:
+        return PROFILES
+    required={selected_profile,baseline_profile}
+    selected=tuple(row for row in PROFILES if row[0] in required)
+    names={row[0] for row in selected}
+    if names != required:
+        raise ValueError(f"qualification profile set incomplete: expected {sorted(required)}, got {sorted(names)}")
+    return selected
+
 def main()->int:
     ap=argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--binary",type=Path,required=True)
@@ -55,6 +65,11 @@ def main()->int:
     ap.add_argument("--deadline-ms",type=float,default=3500.0)
     ap.add_argument("--selection",type=Path,default=ROOT/"qualification/engine-opt-v2-selection.json")
     ap.add_argument("--quick",action="store_true")
+    ap.add_argument(
+        "--qualification-only",
+        action="store_true",
+        help="Run only the selected and baseline profiles required for qualification.",
+    )
     args=ap.parse_args()
     selected_profile,baseline_profile,confirmation_repeats=load_selection(args.selection)
     source=source_identity(ROOT)
@@ -74,7 +89,8 @@ def main()->int:
       "ScoreType":"WDL_mu","DefectTelemetry":False,"UCI_Chess960":False,
     }
     confirmation_profiles={selected_profile,baseline_profile}
-    for profile,delta,warmup_nodes in PROFILES:
+    active_profiles=profiles_for_run(selected_profile,baseline_profile,args.qualification_only)
+    for profile,delta,warmup_nodes in active_profiles:
         per_repeat=[]
         repeat_count=confirmation_repeats if profile in confirmation_profiles else 1
         for repeat_index in range(repeat_count):
@@ -119,10 +135,11 @@ def main()->int:
       "binary":{"path":str(args.binary),"sha256":sha256(args.binary)},
       "weights":{"path":str(args.weights),"sha256":sha256(args.weights)},
       "uci_args":["--show-hidden"],"nodes":args.nodes,"deadline_ms":args.deadline_ms,
-      "profiles":[name for name,_,_ in PROFILES],"rows":rows,"summaries":summaries,
+      "profiles":[name for name,_,_ in active_profiles],"rows":rows,"summaries":summaries,
       "repeat_summaries":repeat_summaries,
       "confirmation":{"selected_profile":selected_profile,"baseline_profile":baseline_profile,
                       "repeats":confirmation_repeats},
+      "execution_mode":"qualification_only" if args.qualification_only else "full_matrix",
       "errors":errors,
       "claim_boundary":{"strength":False,"elo":False,"selection_is_automatic":False},
     }

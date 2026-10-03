@@ -12,14 +12,20 @@ on:
       - 'qualification/j10-*.json'
       - 'qualification/online-engine-opt-v2.json'
       - 'qualification/online-hybrid-v2.json'
+      - 'qualification/online-hybrid-v2-candidate.json'
+      - 'qualification/online-hybrid-v2-candidate-witnesses.json'
+      - 'qualification/g3-candidate-discovery-source.json'
       - 'qualification/local-full-game-v2.json'
+      - 'qualification/local-full-game-v2-candidate.json'
       - 'qualification/local-full-game-orchestrated-v1.json'
       - 'config/allfather.online-engine-opt-v2.json'
+      - 'config/allfather.online-engine-opt-v2.candidate.json'
       - 'config/allfather.m14-j-j8.validation.json'
       - 'config/allfather.m14-j-j9.validation.json'
       - 'config/allfather.m14-j-j10.validation.json'
       - 'config/allfather.orchestrated-v1.validation.json'
       - 'config/allfather.online-hybrid-v2.validation.json'
+      - 'config/allfather.online-hybrid-v2.candidate.validation.json'
       - 'controller/**'
       - 'adapters/process/**'
       - 'adapters/resource/**'
@@ -39,6 +45,8 @@ on:
       - 'scripts/collect-j10-staged-calibration.py'
       - 'scripts/build-j10-allocation-calibration.py'
       - 'scripts/qualify-online-hybrid-v2.py'
+      - 'scripts/qualify-online-hybrid-v2-candidate.py'
+      - 'scripts/qualify-engine-opt-v2-candidate.py'
       - 'tests/engine_opt/**'
       - 'tests/controller/test_engine_opt_runtime.py'
       - 'tests/controller/test_adaptive_time.py'
@@ -124,6 +132,9 @@ jobs:
           python3 tests/engine_opt/test_contracts.py
           python3 tests/engine_opt/test_ab.py
           python3 tests/engine_opt/test_execution_domain.py
+          python3 tests/engine_opt/test_matrix_qualification.py
+          python3 tests/engine_opt/test_matrix_scope.py
+          python3 tests/engine_opt/test_g3_witness_extractor.py
           python3 tests/controller/test_engine_opt_runtime.py
           python3 tests/controller/test_move_resource_plan.py
           python3 tests/controller/test_adaptive_time.py
@@ -147,8 +158,10 @@ jobs:
           python3 tests/controller/test_runtime_profiles.py
           python3 tests/adapters/test_linux_affinity.py
           python3 tests/controller/test_resource_control.py
+          python3 -m py_compile scripts/qualify-engine-opt-evidence.py scripts/qualify-engine-opt-v2-candidate.py scripts/qualify-engine-opt-matrix.py scripts/qualify-online-hybrid-v2-candidate.py scripts/extract-g3-candidate-witnesses.py tools/engine_opt/matrix_qualification.py
           python3 scripts/qualify-online-hybrid-v2.py --static
-          for f in qualification/resource-profile-catalog-v1.json qualification/adaptive-clock-v1.json qualification/work-grant-scheduler-v1.json qualification/adaptive-resource-allocation-v1.json qualification/j10-calibration-source-v1.json qualification/j10-calibration-corpus-v1.json qualification/j10-staged-decision-model-v1.json qualification/j10-regime-support-model-v1.json qualification/engine-opt-v2.json qualification/engine-opt-v2-selection.json qualification/engine-opt-v2-evidence.json qualification/engine-opt-v2-host-binding.json qualification/engine-derived-lock.json qualification/online-engine-opt-v2.json qualification/online-hybrid-v2.json qualification/local-full-game-v2.json qualification/local-full-game-orchestrated-v1.json config/allfather.online-engine-opt-v2.json config/allfather.m14-j-j8.validation.json config/allfather.m14-j-j9.validation.json config/allfather.m14-j-j10.validation.json config/allfather.orchestrated-v1.validation.json config/allfather.online-hybrid-v2.validation.json; do python3 -m json.tool "$f" >/dev/null; done
+          python3 scripts/qualify-online-hybrid-v2-candidate.py --static
+          for f in qualification/resource-profile-catalog-v1.json qualification/adaptive-clock-v1.json qualification/work-grant-scheduler-v1.json qualification/adaptive-resource-allocation-v1.json qualification/j10-calibration-source-v1.json qualification/j10-calibration-corpus-v1.json qualification/j10-staged-decision-model-v1.json qualification/j10-regime-support-model-v1.json qualification/engine-opt-v2.json qualification/engine-opt-v2-selection.json qualification/engine-opt-v2-evidence.json qualification/engine-opt-v2-host-binding.json qualification/engine-opt-v2-candidate-selection.json qualification/engine-opt-v2-candidate-evidence.json qualification/engine-derived-lock.json qualification/online-engine-opt-v2.json qualification/online-hybrid-v2.json qualification/online-hybrid-v2-candidate.json qualification/online-hybrid-v2-candidate-witnesses.json qualification/g3-candidate-discovery-source.json qualification/local-full-game-v2.json qualification/local-full-game-v2-candidate.json qualification/local-full-game-orchestrated-v1.json config/allfather.online-engine-opt-v2.json config/allfather.online-engine-opt-v2.candidate.json config/allfather.m14-j-j8.validation.json config/allfather.m14-j-j9.validation.json config/allfather.m14-j-j10.validation.json config/allfather.orchestrated-v1.validation.json config/allfather.online-hybrid-v2.validation.json config/allfather.online-hybrid-v2.candidate.validation.json; do python3 -m json.tool "$f" >/dev/null; done
           bash -n scripts/build-online-engine-opt-v2.sh
 
   build-candidate:
@@ -335,13 +348,15 @@ jobs:
           python3 -m tools.engine_opt.domain validate \
             --input build/test-results/engine-opt-v2-profile-domain/execution-domain.json \
             --expected-source-commit "$ALLFATHER_SOURCE_SHA"
-      - name: Run real-network LC0 matrix on the bound domain
+      - name: Run canonical LC0 matrix on the bound domain
         run: |
           python3 scripts/engine-opt-matrix.py \
             --binary build/online-engine-opt-v2/bin/lc0 \
             --weights build/online-engine-opt-v2/networks/791556.pb.gz \
+            --selection qualification/engine-opt-v2-selection.json \
+            --qualification-only \
             --execution-domain build/test-results/engine-opt-v2-profile-domain/execution-domain.json \
-            --output build/test-results/engine-opt-v2-profile-domain/matrix/lc0.json
+            --output build/test-results/engine-opt-v2-profile-domain/matrix/canonical-lc0.json
       - name: Exercise J8 MoveResourcePlan on real ENGINE-OPT-V2 processes
         run: python3 scripts/adaptive-time-contract.py
       - name: Exercise J9 WorkGrants on real ENGINE-OPT-V2 processes
@@ -377,7 +392,7 @@ jobs:
             --mode required \
             --policy qualification/local-full-game-v2.json \
             --execution-domain build/test-results/engine-opt-v2-profile-domain/execution-domain.json \
-            --output build/test-results/engine-opt-v2-profile-domain/local1/campaign
+            --output build/test-results/engine-opt-v2-profile-domain/canonical-local1/campaign
       - name: Qualify J12 orchestrated lifecycle on the same bound worker
         run: |
           python3 -m tools.local_game.runner \
@@ -385,6 +400,32 @@ jobs:
             --policy qualification/local-full-game-orchestrated-v1.json \
             --execution-domain build/test-results/engine-opt-v2-profile-domain/execution-domain.json \
             --output build/test-results/engine-opt-v2-profile-domain/j12-local1/campaign
+      - name: Bind candidate overlay to the exact-head engine bundle
+        run: |
+          python3 scripts/qualify-engine-opt-v2-candidate.py
+          mkdir -p build/test-results/engine-opt-v2-profile-domain/candidate
+          cp build/test-results/engine-opt-v2-candidate/report.json \
+            build/test-results/engine-opt-v2-profile-domain/candidate/report.json
+      - name: Run b4 candidate LC0 matrix on the bound domain
+        run: |
+          python3 scripts/engine-opt-matrix.py \
+            --binary build/online-engine-opt-v2/bin/lc0 \
+            --weights build/online-engine-opt-v2/networks/791556.pb.gz \
+            --selection qualification/engine-opt-v2-candidate-selection.json \
+            --qualification-only \
+            --execution-domain build/test-results/engine-opt-v2-profile-domain/execution-domain.json \
+            --output build/test-results/engine-opt-v2-profile-domain/matrix/candidate-lc0.json
+      - name: Build pinned Fastchess against source-test attestation
+        run: make -f Makefile.local-game build-fastchess
+      - name: Run canonical LOCAL-1 regressions unchanged
+        run: make -f Makefile.local-game test
+      - name: Qualify b4 candidate G3 and LOCAL-1 on the same bound worker
+        run: |
+          python3 -m tools.local_game.runner \
+            --mode required \
+            --policy qualification/local-full-game-v2-candidate.json \
+            --execution-domain build/test-results/engine-opt-v2-profile-domain/execution-domain.json \
+            --output build/test-results/engine-opt-v2-profile-domain/local1/campaign
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
@@ -412,15 +453,100 @@ jobs:
           pattern: engine-opt-v2-*
           path: build/engine-opt-artifacts
           merge-multiple: false
-      - name: Aggregate exact-head optimization evidence
+      - name: Qualify canonical LC0 matrix independently
         run: |
-          python3 scripts/qualify-engine-opt-evidence.py \
+          python3 scripts/qualify-engine-opt-matrix.py \
             --root build/engine-opt-artifacts \
-            --output build/test-results/engine-opt-v2-aggregate/report.json
+            --selection qualification/engine-opt-v2-selection.json \
+            --output build/test-results/engine-opt-v2-canonical-matrix/report.json
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
-          name: engine-opt-v2-aggregate
-          path: build/test-results/engine-opt-v2-aggregate
+          name: engine-opt-v2-canonical-matrix
+          path: build/test-results/engine-opt-v2-canonical-matrix
           if-no-files-found: error
           retention-days: 14
+      - name: Aggregate exact-head b4 candidate evidence
+        run: |
+          python3 scripts/qualify-engine-opt-evidence.py \
+            --root build/engine-opt-artifacts \
+            --selection qualification/engine-opt-v2-candidate-selection.json \
+            --candidate-report-pattern 'engine-opt-v2-profile-domain/**/candidate/report.json' \
+            --candidate-mode \
+            --output build/test-results/engine-opt-v2-candidate-aggregate/report.json
+      - name: Summarize b4 candidate disposition
+        if: always()
+        run: |
+          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          from pathlib import Path
+          path=Path("build/test-results/engine-opt-v2-candidate-aggregate/report.json")
+          print("## ENGINE-OPT-V2 b4 candidate aggregate")
+          if not path.is_file():
+              print("\nCandidate aggregate report was not produced.")
+          else:
+              report=json.loads(path.read_text(encoding="utf-8"))
+              for label,key in (
+                  ("Evidence valid","evidence_valid"),
+                  ("Candidate qualified","candidate_qualified"),
+                  ("Promotion ready","promotion_ready"),
+                  ("Canonical profile changed","canonical_profile_changed"),
+                  ("Disposition","qualification_disposition"),
+              ):
+                  print(f"- **{label}:** `{report.get(key)}`")
+              failures=report.get("qualification_failures") or []
+              if failures:
+                  print("\n### Qualification failures")
+                  for row in failures:
+                      print(f"- `{row.get('code')}`: {row.get('message')}")
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: engine-opt-v2-candidate-aggregate
+          path: build/test-results/engine-opt-v2-candidate-aggregate
+          if-no-files-found: error
+          retention-days: 14
+      - name: Require canonical matrix qualification and b4 candidate promotion readiness
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          canonical=json.loads(Path("build/test-results/engine-opt-v2-canonical-matrix/report.json").read_text(encoding="utf-8"))
+          candidate=json.loads(Path("build/test-results/engine-opt-v2-candidate-aggregate/report.json").read_text(encoding="utf-8"))
+          allowed={"QUALIFIED_EXACT_HOST_ONLY","QUALIFIED_REUSABLE_DOMAIN"}
+          canonical_ok=(
+              canonical.get("evidence_valid") is True
+              and canonical.get("qualified") is True
+              and canonical.get("passed") is True
+          )
+          candidate_ok=(
+              candidate.get("evidence_valid") is True
+              and candidate.get("candidate_qualified") is True
+              and candidate.get("promotion_ready") is True
+              and candidate.get("canonical_profile_changed") is False
+              and candidate.get("passed") is True
+              and candidate.get("qualification_disposition") in allowed
+          )
+          if not canonical_ok or not candidate_ok:
+              raise SystemExit("ENGINE-OPT-V2 qualification gate failed: "+json.dumps({
+                  "canonical":{
+                      "evidence_valid":canonical.get("evidence_valid"),
+                      "qualified":canonical.get("qualified"),
+                      "passed":canonical.get("passed"),
+                      "qualification_failures":canonical.get("qualification_failures"),
+                      "invalid_evidence":canonical.get("invalid_evidence"),
+                  },
+                  "candidate":{
+                      "evidence_valid":candidate.get("evidence_valid"),
+                      "candidate_qualified":candidate.get("candidate_qualified"),
+                      "promotion_ready":candidate.get("promotion_ready"),
+                      "canonical_profile_changed":candidate.get("canonical_profile_changed"),
+                      "passed":candidate.get("passed"),
+                      "qualification_disposition":candidate.get("qualification_disposition"),
+                      "qualification_failures":candidate.get("qualification_failures"),
+                      "invalid_evidence":candidate.get("invalid_evidence"),
+                  },
+              },sort_keys=True))
+          print("canonical matrix qualified and b4 candidate promotion-ready")
+          PY

@@ -21,6 +21,7 @@ from tools.engine_opt.domain import (
     require_same_execution_domain,
     validate_execution_domain,
 )
+from tools.engine_opt.matrix_qualification import qualify_lc0_matrix
 
 
 class QualificationError(RuntimeError):
@@ -62,65 +63,27 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def verify_report_seal(doc: dict[str, Any], label: str) -> None:
-    observed = doc.get("content_sha256")
-    require(isinstance(observed, str) and len(observed) == 64, f"{label}: content seal missing")
-    core = dict(doc)
-    core.pop("content_sha256", None)
-    encoded = json.dumps(
-        core,
-        sort_keys=True,
-        separators=(",", ":"),
-        allow_nan=False,
-    ).encode("utf-8")
-    require(hashlib.sha256(encoded).hexdigest() == observed, f"{label}: content seal mismatch")
-
-
-def repeat_evidence(matrix: dict[str, Any], profile: str, repeats: int, cases: int) -> dict[str, Any]:
-    rows = (matrix.get("repeat_summaries") or {}).get(profile) or []
-    require(len(rows) == repeats, f"{profile}: expected {repeats} repeats, found {len(rows)}")
-    bestmoves: list[tuple[str, ...]] = []
-    native_work: list[tuple[Any, ...]] = []
-    for index, row in enumerate(rows):
-        require(row.get("cases") == cases, f"{profile} repeat {index}: incomplete corpus")
-        require(row.get("completion_rate") == 1.0, f"{profile} repeat {index}: incomplete search")
-        best = tuple(row.get("bestmoves") or [])
-        native = tuple(row.get("native_work_values") or [])
-        require(len(best) == cases, f"{profile} repeat {index}: malformed bestmove vector")
-        require(len(native) == cases, f"{profile} repeat {index}: malformed native-work vector")
-        require(
-            all(
-                isinstance(value, (int, float))
-                and not isinstance(value, bool)
-                and math.isfinite(float(value))
-                and float(value) >= 0
-                for value in native
-            ),
-            f"{profile} repeat {index}: invalid native-work value",
-        )
-        bestmoves.append(best)
-        native_work.append(native)
-    return {
-        "rows": rows,
-        "bestmove_vectors": [list(row) for row in bestmoves],
-        "native_work_vectors": [list(row) for row in native_work],
-        "bestmove_stable": len(set(bestmoves)) == 1,
-        "native_work_stable": len(set(native_work)) == 1,
-        "bestmove_vector": list(bestmoves[0]),
-        "native_work_vector": list(native_work[0]),
-    }
-
-
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument(
+        "--selection",
+        type=Path,
+        default=ROOT / "qualification/engine-opt-v2-selection.json",
+    )
+    parser.add_argument(
+        "--candidate-report-pattern",
+        default="engine-opt-v2-candidate/**/test-results/engine-opt-v2/report.json",
+    )
+    parser.add_argument("--candidate-mode", action="store_true")
     args = parser.parse_args()
 
     artifact_root = args.root.resolve()
     repo = ROOT
     source = current_source(repo)
-    selection = load(repo / "qualification/engine-opt-v2-selection.json")
+    selection_path = args.selection if args.selection.is_absolute() else repo / args.selection
+    selection = load(selection_path)
 
     invalid: list[str] = []
     qualification_failures: list[dict[str, str]] = []
@@ -147,12 +110,7 @@ def main() -> int:
         return domain
 
     def check_candidate() -> dict[str, Any]:
-        report = load(
-            find_one(
-                artifact_root,
-                "engine-opt-v2-candidate/**/test-results/engine-opt-v2/report.json",
-            )
-        )
+        report = load(find_one(artifact_root, args.candidate_report_pattern))
         require(report.get("source_commit") == source, "candidate report source is not exact head")
         require(report.get("passed") is True, "candidate identity report did not pass")
         require(report.get("candidate_identity_valid") is True, "candidate identity is not valid")
@@ -163,10 +121,26 @@ def main() -> int:
             report.get("bundle_manifest_sha256") == candidate.get("build_manifest_sha256"),
             "candidate report/build-manifest identity is internally inconsistent",
         )
+        if args.candidate_mode:
+            require(report.get("canonical_profile_changed") is False,
+                    "candidate report claims the canonical profile changed")
+            overlay=report.get("candidate_overlay") or {}
+            expected_overlay={
+                "selection_sha256":sha256(selection_path),
+                "evidence_sha256":sha256(repo/"qualification/engine-opt-v2-candidate-evidence.json"),
+                "reference_runtime_sha256":sha256(repo/"config/allfather.online-engine-opt-v2.candidate.json"),
+                "hybrid_runtime_sha256":sha256(repo/"config/allfather.online-hybrid-v2.candidate.validation.json"),
+                "g3_policy_sha256":sha256(repo/"qualification/online-hybrid-v2-candidate.json"),
+                "g3_witnesses_sha256":sha256(repo/"qualification/online-hybrid-v2-candidate-witnesses.json"),
+                "g3_discovery_source_sha256":sha256(repo/"qualification/g3-candidate-discovery-source.json"),
+            }
+            require(overlay==expected_overlay,
+                    "candidate report overlay hashes differ from source-controlled candidate inputs")
         return {
             "bundle": candidate,
             "bundle_manifest_sha256": report.get("bundle_manifest_sha256"),
             "evidence_sha256": report.get("evidence_sha256"),
+            "candidate_overlay": report.get("candidate_overlay"),
             "promotion_ready": report.get("promotion_ready"),
             "promotion_requires": report.get("promotion_requires"),
         }
@@ -224,109 +198,23 @@ def main() -> int:
         }
 
     def check_lc0() -> dict[str, Any]:
+        matrix_name = "candidate-lc0.json" if args.candidate_mode else "canonical-lc0.json"
         matrix = load(
             find_one(
                 artifact_root,
-                "engine-opt-v2-profile-domain/**/matrix/lc0.json",
+                f"engine-opt-v2-profile-domain/**/matrix/{matrix_name}",
             )
         )
-        verify_report_seal(matrix, "LC0 matrix")
-        require((matrix.get("source") or {}).get("commit") == source, "LC0 matrix source is not exact head")
-        require(not matrix.get("errors"), "LC0 matrix contains failed cases")
-
-        domain = validate_execution_domain(
-            matrix.get("execution_domain"),
+        result = qualify_lc0_matrix(
+            matrix=matrix,
+            selection=selection,
             expected_source_commit=source,
+            expected_execution_domain=details["execution_domain"],
+            candidate_bundle=details["candidate"]["bundle"],
         )
-        require_same_execution_domain(
-            {"profile_domain": details["execution_domain"], "lc0_matrix": domain},
-            expected_source_commit=source,
-        )
-
-        candidate = details["candidate"]["bundle"]
-        require(
-            (matrix.get("binary") or {}).get("sha256")
-            == candidate["artifacts"]["engines"]["lc0"]["sha256"],
-            "LC0 matrix binary differs from candidate bundle",
-        )
-        require(
-            (matrix.get("weights") or {}).get("sha256")
-            == candidate["artifacts"]["networks"]["lc0"]["sha256"],
-            "LC0 matrix network differs from candidate bundle",
-        )
-
-        lc0 = ((selection.get("selected") or {}).get("lc0") or {})
-        q = selection.get("qualification") or {}
-        selected_profile = str(lc0.get("matrix_profile") or "")
-        baseline_profile = str(q.get("baseline_profile") or "v1-current-cold")
-        repeats = q.get("confirmation_repeats")
-        cases = q.get("corpus_cases", 8)
-        require(isinstance(repeats, int) and not isinstance(repeats, bool) and repeats >= 2,
-                "selection confirmation_repeats is invalid")
-        require(isinstance(cases, int) and not isinstance(cases, bool) and cases >= 1,
-                "selection corpus_cases is invalid")
-        confirmation = matrix.get("confirmation") or {}
-        require(confirmation.get("selected_profile") == selected_profile, "matrix selected profile drift")
-        require(confirmation.get("baseline_profile") == baseline_profile, "matrix baseline profile drift")
-        require(confirmation.get("repeats") == repeats, "matrix confirmation repeat count drift")
-
-        baseline = repeat_evidence(matrix, baseline_profile, repeats, cases)
-        selected = repeat_evidence(matrix, selected_profile, repeats, cases)
-
-        if not baseline["bestmove_stable"] or not selected["bestmove_stable"]:
-            fail("NOT_QUALIFIED_REPEATABILITY", "LC0 bestmove vectors are not repeatable within the bound domain")
-        if not baseline["native_work_stable"] or not selected["native_work_stable"]:
-            fail("NOT_QUALIFIED_REPEATABILITY", "LC0 native-work vectors are not repeatable within the bound domain")
-        if selected["bestmove_vector"] != baseline["bestmove_vector"]:
-            fail("NOT_QUALIFIED_BEHAVIORAL_EQUIVALENCE", "selected LC0 profile changed the frozen baseline bestmove vector")
-
-        baseline_rows = baseline["rows"]
-        selected_rows = selected["rows"]
-        worst_selected = max(float(row["median_wall_ms"]) for row in selected_rows)
-        fastest_baseline = min(float(row["median_wall_ms"]) for row in baseline_rows)
-        ratio = worst_selected / fastest_baseline
-        observed_max = max(float(row["max_wall_ms"]) for row in selected_rows)
-        if ratio > float(q.get("max_median_wall_ratio", 0.40)):
-            fail("NOT_QUALIFIED_RESOURCE_BOUND", "selected LC0 profile lost the frozen median-wall advantage")
-        if observed_max > float(q.get("max_wall_ms", 600.0)):
-            fail("NOT_QUALIFIED_RESOURCE_BOUND", "selected LC0 profile exceeded the frozen n16 wall bound")
-
-        raw = [row for row in matrix.get("rows", []) if row.get("profile") == selected_profile]
-        require(raw, "selected LC0 profile has no raw rows")
-        for row in raw:
-            opts = row.get("options") or {}
-            require(opts.get("NNCacheSize") == lc0.get("nn_cache_size"), "selected NNCacheSize differs from frozen selection")
-            require(opts.get("MinibatchSize") == lc0.get("minibatch_size"), "selected MinibatchSize differs from frozen selection")
-            require(opts.get("MaxPrefetch") == lc0.get("max_prefetch"), "selected MaxPrefetch differs from frozen selection")
-            require(opts.get("AdaptivePrefetch") is lc0.get("adaptive_prefetch"), "selected AdaptivePrefetch differs from frozen selection")
-            warm = row.get("warmup")
-            warm_nodes = lc0.get("warmup_nodes")
-            require(
-                isinstance(warm, dict) and warm.get("nodes") == warm_nodes,
-                "selected LC0 warmup differs from frozen selection",
-            )
-
-        return {
-            "execution_domain": domain,
-            "baseline_profile": baseline_profile,
-            "selected_profile": selected_profile,
-            "confirmation_repeats": repeats,
-            "baseline": {
-                "bestmove_stable": baseline["bestmove_stable"],
-                "native_work_stable": baseline["native_work_stable"],
-                "bestmove_vectors": baseline["bestmove_vectors"],
-                "native_work_vectors": baseline["native_work_vectors"],
-            },
-            "selected": {
-                "bestmove_stable": selected["bestmove_stable"],
-                "native_work_stable": selected["native_work_stable"],
-                "bestmove_vectors": selected["bestmove_vectors"],
-                "native_work_vectors": selected["native_work_vectors"],
-            },
-            "wall_ratio_worst_selected_over_fastest_baseline": ratio,
-            "selected_max_wall_ms": observed_max,
-            "selected_max_cpu_ms": max(float(row.get("max_cpu_ms") or 0.0) for row in selected_rows),
-        }
+        for row in result["qualification_failures"]:
+            fail(row["code"], row["message"])
+        return result["details"]
 
     def check_local1_and_g3() -> dict[str, Any]:
         report_path = find_one(
@@ -367,6 +255,17 @@ def main() -> int:
         require(g3.get("evidence_valid") is True, "G3-v2 evidence is invalid")
         require(g3.get("source_commit") == source, "G3-v2 source is not exact head")
         require(g3.get("candidate_bundle") == candidate, "G3-v2 candidate binding mismatch")
+        if args.candidate_mode:
+            overlay=(details.get("candidate") or {}).get("candidate_overlay") or {}
+            contracts=g3.get("contracts") or {}
+            require(
+                contracts.get("policy_sha256")==overlay.get("g3_policy_sha256")
+                and contracts.get("selection_sha256")==overlay.get("selection_sha256")
+                and contracts.get("reference_runtime_sha256")==overlay.get("reference_runtime_sha256")
+                and contracts.get("hybrid_runtime_sha256")==overlay.get("hybrid_runtime_sha256")
+                and contracts.get("witnesses_sha256")==overlay.get("g3_witnesses_sha256"),
+                "G3-v2 report is not bound to the source-controlled candidate overlay",
+            )
         g3_domain = validate_execution_domain(
             g3.get("execution_domain"),
             expected_source_commit=source,
@@ -477,17 +376,22 @@ def main() -> int:
 
     report = {
         "schema_version": 2,
-        "profile_id": "engine-opt-v2-aggregate",
+        "profile_id": "engine-opt-v2-candidate-aggregate" if args.candidate_mode else "engine-opt-v2-aggregate",
+        "qualification_scope": "candidate_overlay" if args.candidate_mode else "canonical_profile",
         "source_commit": source,
         "evidence_valid": evidence_valid,
-        "profile_qualified": profile_qualified,
+        "candidate_qualified": profile_qualified if args.candidate_mode else None,
+        "promotion_ready": profile_qualified if args.candidate_mode else None,
+        "canonical_profile_changed": False if args.candidate_mode else None,
+        "profile_qualified": False if args.candidate_mode else profile_qualified,
         "passed": profile_qualified,
         "qualification_disposition": disposition,
         "invalid_evidence": invalid,
         "qualification_failures": qualification_failures,
         "details": details,
         "claim_boundary": {
-            "engine_profile_qualified": profile_qualified,
+            "engine_profile_qualified": False if args.candidate_mode else profile_qualified,
+            "candidate_overlay_qualified": profile_qualified if args.candidate_mode else False,
             "full_game_lifecycle": bool(
                 evidence_valid and (details.get("local1_g3") or {}).get("validated_games") == 28
             ),

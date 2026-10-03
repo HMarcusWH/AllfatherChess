@@ -1,9 +1,9 @@
 # AllfatherChess — M14-J Adaptive Resource Orchestration Rebuild Plan
 
-> **Status:** active implementation; J0-J12 merged, J13 / META-1 in progress  
-> **Current main:** `bc6140fa7d23d385d82be5958730a68232a37a42` (PR #59 merge)  
+> **Status:** active implementation; J0-J12 and J13A control architecture merged, J13B execution qualification in progress  
+> **Current main:** `217de24902c50355f186fbae2bd2c558dd0a92ae` (PR #60 merge)  
 > **Frozen fallback composition:** ENGINE-OPT-V2 / PR #44  
-> **Latest completed stage:** J12 full orchestrated composition / PR #59  
+> **Latest completed stage:** J13A matched-orchestration ANCHOR_CONTROL / PR #60  
 > **Authority:** documentation only; this plan does not itself promote M14-J behavior  
 
 **Program:** M14-J — Adaptive Resource Orchestration
@@ -1574,30 +1574,46 @@ The old path must remain green.
 
 ---
 
-## 42. J13 — META-1 — **IN PROGRESS**
+## 42. J13 — META-1 — **CONTROL MERGED / EXECUTION QUALIFICATION IN PROGRESS**
 
 Primary comparative experiment:
 
 **orchestrated HYBRID vs orchestrated ANCHOR_CONTROL**
 
-Use:
+The J13A control plane is merged in PR #60. J13B does not change controller policy,
+engines, allocator, WorkGrants, openings or clocks. It makes the already-frozen experiment
+confirmatory and independently auditable:
+
+- every campaign attempt is immutable and source/workflow-attempt bound;
+- workflow-dispatch execution is accepted only from merged `main`;
+- J12 authority qualification and the exact candidate bundle are independently rebound;
+- pre/post HostCapabilities must remain in the same qualification domain for a real campaign;
+- raw evidence is uploaded before a fresh verifier job reconstructs the authoritative report;
+- 50 opening pairs are scored as 50 paired blocks, with intervention/suppression and resource
+  telemetry reported descriptively;
+- destructive mutations of policy, host, schedule, result, replay and settlement evidence
+  fail closed;
+- a pinned-Fastchess four-game mini campaign exercises reversed-color match plumbing in CI.
+
+The production design remains:
 
 - 50 frozen openings
 - colors reversed
 - 100 games total
 
-Both sides receive identical:
+Both sides receive the same frozen:
 
-- host
+- host qualification domain
 - composition profile
 - allocator
 - move envelopes
-- WorkGrants
+- WorkGrant rules
 - resource topology
 
-Only final move authority differs.
+Realized WorkGrant IDs and resource use may differ after board trajectories diverge; this is
+therefore **not** an equal-compute claim. Only final move authority is experimentally ablated.
 
-This isolates the value of the meta-controller's decisions.
+This isolates the value of the meta-controller's decisions without making W/D/L a merge gate.
 
 ---
 

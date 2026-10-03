@@ -1,0 +1,19 @@
+[Event "META-1 mini fool mate"]
+[Site "fixture"]
+[Date "2026.10.03"]
+[Round "1"]
+[White "fixture"]
+[Black "fixture"]
+[Result "*"]
+
+1. f3 e5 2. g4 *
+
+[Event "META-1 mini scholar mate"]
+[Site "fixture"]
+[Date "2026.10.03"]
+[Round "2"]
+[White "fixture"]
+[Black "fixture"]
+[Result "*"]
+
+1. e4 e5 2. Bc4 Nc6 3. Qh5 Nf6 *

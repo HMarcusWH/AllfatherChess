@@ -1,9 +1,9 @@
 # AllfatherChess roadmap
 
-**Status date:** 2 October 2026  
-**Current main:** `bc6140fa7d23d385d82be5958730a68232a37a42`  
-**Latest merged milestone:** PR #59 / M14-J J12 — full orchestrated composition  
-**Current execution milestone:** M14-J J13 / META-1 — matched-orchestration anchor control  
+**Status date:** 3 October 2026  
+**Current main:** `217de24902c50355f186fbae2bd2c558dd0a92ae`  
+**Latest merged milestone:** PR #60 / M14-J J13A — matched-orchestration anchor control  
+**Current execution milestone:** M14-J J13B / META-1 — immutable execution + independent qualification  
 **Current-state authority:** [CURRENT_STATUS.md](CURRENT_STATUS.md)  
 **M14-J implementation plan:** [M14_J_ADAPTIVE_RESOURCE_ORCHESTRATION.md](M14_J_ADAPTIVE_RESOURCE_ORCHESTRATION.md)  
 **Detailed deployment audit:** [ONLINE_RELEASE_PLAN.md](ONLINE_RELEASE_PLAN.md)
@@ -59,6 +59,12 @@ allocation/resource provenance before J12 is allowed to compose orchestration wi
 move authority. The project is **not** yet deployable as a qualified service and has not
 established superiority over a constituent engine.
 
+PR #60 subsequently merged the matched-orchestration `ANCHOR_CONTROL` arm and the frozen
+50-opening / 100-game META-1 schedule. That merge did **not** execute the confirmatory
+campaign. J13B is the final execution-qualification step before the real campaign: immutable
+attempt IDs, exact merged-main/source/build binding, pre/post host-domain binding, destructive
+evidence mutations, a pinned-Fastchess mini smoke, and a separate independent verifier job.
+
 ## 2. Critical path to the first public canary
 
 ```text
@@ -112,9 +118,14 @@ M14-J J12 / PR #59
 single-allocation orchestrated composition + bounded HYBRID authority
         |
         v
+DONE
+META-1 / J13A / PR #60
+matched-orchestration ANCHOR_CONTROL architecture
+        |
+        v
 IN PROGRESS
-META-1 / J13
-matched-orchestration authority-value control
+META-1 / J13B
+immutable qualified-host execution + independent paired verification
         |
         v
 ONLINE-PLAY-1

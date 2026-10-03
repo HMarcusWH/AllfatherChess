@@ -7,7 +7,12 @@ def empty_scores(arms: tuple[str, ...]) -> dict[str, dict[str, int]]:
     return {arm: {"W": 0, "D": 0, "L": 0, "games": 0} for arm in arms}
 
 
-def record_result(scores: dict[str, dict[str, int]], white: str, black: str, result: str) -> None:
+def record_result(
+    scores: dict[str, dict[str, int]],
+    white: str,
+    black: str,
+    result: str,
+) -> None:
     for arm, is_white in ((white, True), (black, False)):
         if result == "1/2-1/2":
             outcome = "D"

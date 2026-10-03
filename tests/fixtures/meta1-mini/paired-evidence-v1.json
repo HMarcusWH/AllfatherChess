@@ -1,0 +1,83 @@
+{
+  "games": [
+    {
+      "block": "mini-0",
+      "opening_index": 0,
+      "game": 0,
+      "white": "allfather-orchestrated",
+      "black": "allfather-anchor-control",
+      "result": "1-0"
+    },
+    {
+      "block": "mini-0",
+      "opening_index": 0,
+      "game": 1,
+      "white": "allfather-anchor-control",
+      "black": "allfather-orchestrated",
+      "result": "1/2-1/2"
+    },
+    {
+      "block": "mini-1",
+      "opening_index": 1,
+      "game": 0,
+      "white": "allfather-anchor-control",
+      "black": "allfather-orchestrated",
+      "result": "1-0"
+    },
+    {
+      "block": "mini-1",
+      "opening_index": 1,
+      "game": 1,
+      "white": "allfather-orchestrated",
+      "black": "allfather-anchor-control",
+      "result": "0-1"
+    }
+  ],
+  "plies": [
+    {
+      "block": "mini-0",
+      "game": 0,
+      "arm": "allfather-orchestrated",
+      "ply": 8,
+      "response_ms": 100,
+      "physical_cpu_ms": 10,
+      "authorization_granted": true,
+      "authorized_non_anchor": true,
+      "override": true,
+      "suppressed_authorized_non_anchor": false,
+      "work_grants_authorized": 9,
+      "work_grants_settled": 9,
+      "route_action": "BUY_STAGED_VERIFY"
+    },
+    {
+      "block": "mini-0",
+      "game": 0,
+      "arm": "allfather-anchor-control",
+      "ply": 9,
+      "response_ms": 101,
+      "physical_cpu_ms": 11,
+      "authorization_granted": true,
+      "authorized_non_anchor": true,
+      "override": false,
+      "suppressed_authorized_non_anchor": true,
+      "work_grants_authorized": 9,
+      "work_grants_settled": 9,
+      "route_action": "BUY_STAGED_VERIFY"
+    },
+    {
+      "block": "mini-1",
+      "game": 1,
+      "arm": "allfather-orchestrated",
+      "ply": 12,
+      "response_ms": 110,
+      "physical_cpu_ms": 12,
+      "authorization_granted": true,
+      "authorized_non_anchor": true,
+      "override": true,
+      "suppressed_authorized_non_anchor": false,
+      "work_grants_authorized": 9,
+      "work_grants_settled": 9,
+      "route_action": "BUY_STAGED_VERIFY"
+    }
+  ]
+}

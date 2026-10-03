@@ -15,12 +15,18 @@
   "ping_ms": 30000,
   "timemargin_ms": 0,
   "job_timeout_s": 900,
-  "arms": ["allfather-orchestrated", "allfather-anchor-control"],
+  "arms": [
+    "allfather-orchestrated",
+    "allfather-anchor-control"
+  ],
   "same_compute_claim": false,
   "result_gate": false,
   "sprt": false,
   "elo_gate": false,
   "require_real_j12_authority_host": true,
+  "immutable_attempts": true,
+  "require_independent_requalification": true,
+  "require_host_pre_post_binding": true,
   "claim_boundary": {
     "matched_orchestration_control": true,
     "descriptive_results": true,

@@ -5,7 +5,7 @@
 **Latest merged milestone:** PR #61 / M14-J J13B — immutable META-1 execution qualification  
 **Qualified J6 PR head:** `6aecd0bae7848ca8a9893377fadffb049d336c3a`  
 **Frozen fallback:** ENGINE-OPT-V2 / PR #44 remains unchanged  
-**Current execution milestone:** M14-J J13C — ENGINE-OPT-V2 substrate requalification before META-1 dispatch  
+**Current execution milestone:** M14-J J13C — b4 candidate qualification before canonical substrate promotion  
 **Next milestone after J13:** M14-J J14 / ONLINE-PLAY-1 — production-profile 10+5 experiment  
 **Forward roadmap:** [ROADMAP.md](ROADMAP.md)  
 **M14-J rebuild plan:** [M14_J_ADAPTIVE_RESOURCE_ORCHESTRATION.md](M14_J_ADAPTIVE_RESOURCE_ORCHESTRATION.md)  
@@ -206,10 +206,7 @@ selected ENGINE-OPT-V2 substrate itself requalifies on exact head.
 
 The retained PR #61 aggregate produced valid negative evidence: the then-selected
 `b7-p8-c256k-warm64` LC0 profile was repeatable but changed one frozen bestmove, and the
-unchanged seven-case G3-v2 corpus produced no non-anchor HYBRID witness. J13C therefore
-proposes `b4-p0-c256k-cold` from that retained discovery matrix, keeps the 600/800 ms
-LC0 reservations and original G3 witness corpus unchanged, and requires a fresh exact-head
-aggregate to be positively qualified before merge.
+unchanged seven-case G3-v2 corpus produced no non-anchor HYBRID witness. J13C therefore qualifies `b4-p0-c256k-cold` only as an isolated candidate overlay from that retained discovery matrix. The canonical b7/p8/warm64 selection, J3 catalog and J8-J12 runtimes remain unchanged in this PR. The candidate keeps the 600/800 ms LC0 reservations and original G3 witness corpus unchanged and must earn a fresh exact-head promotion-ready aggregate before a later explicit canonical migration.
 
 The actual confirmatory 100-game META-1 campaign has **not yet run**. J13B hardens that
 execution before any result is collected: every attempt is immutable and bound to merged

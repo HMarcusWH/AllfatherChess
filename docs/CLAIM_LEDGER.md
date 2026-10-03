@@ -50,9 +50,10 @@
 - **PROVED / J13B META-1 EXECUTION QUALIFICATION:** PR #61 merged immutable attempts,
   relocation-aware independent verification, pre/post host-domain binding, paired-opening
   reporting and tested artifact transport/retention.
-- **OPEN / J13C ENGINE-OPT SUBSTRATE REQUALIFICATION:** PR #61 retained valid negative
-  aggregate evidence for the then-selected LC0 profile and G3-v2 witness. A fresh exact-head
-  positive aggregate is required before the 100-game META-1 campaign may run.
+- **OPEN / J13C ENGINE-OPT CANDIDATE QUALIFICATION:** PR #61 retained valid negative
+  aggregate evidence for the then-selected LC0 profile and G3-v2 witness. PR #62 qualifies
+  `b4-p0-c256k-cold` only as a non-authoritative candidate overlay while canonical b7/J3/J8-J12
+  remain unchanged. A later promotion/requalification step is required before META-1 may run.
 - **OPEN / J13 META-1 CAMPAIGN:** the frozen 50-opening / 100-game experiment still
   requires one real J12-authority-qualified host after J13C closes.
 - **OPEN RELEASE GATES:** ONLINE-3 packaging/bridge, ONLINE-4

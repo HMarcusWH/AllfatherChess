@@ -1587,9 +1587,7 @@ confirmatory and independently auditable:
 PR #61 merged those J13B execution-qualification controls. Before the actual campaign,
 J13C must requalify the ENGINE-OPT-V2 substrate because the retained PR #61 aggregate was
 valid negative evidence: the selected LC0 profile changed one frozen bestmove and the
-unchanged G3-v2 corpus produced no non-anchor positive witness. J13C may change only the
-selected LC0 runtime profile and qualification diagnostics/gates; it may not weaken the
-G3 witness criterion or META-1 protocol.
+unchanged G3-v2 corpus produced no non-anchor positive witness. J13C qualifies the proposed LC0 profile only through candidate-specific selection/reference/G3/LOCAL-1 surfaces. It must leave the canonical ENGINE-OPT selection, J3 catalog, J6/J7 evidence and J8-J12 runtimes unchanged until a later explicit promotion/requalification PR. It may not weaken the G3 witness criterion or META-1 protocol.
 
 - every campaign attempt is immutable and source/workflow-attempt bound;
 - workflow-dispatch execution is accepted only from merged `main`;

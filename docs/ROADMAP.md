@@ -3,7 +3,7 @@
 **Status date:** 3 October 2026  
 **Current main:** `2d7d6f19c18bb5ee101199e4a038b7c420405c50`  
 **Latest merged milestone:** PR #61 / M14-J J13B — immutable META-1 execution qualification  
-**Current execution milestone:** M14-J J13C — exact-head ENGINE-OPT-V2 substrate requalification  
+**Current execution milestone:** M14-J J13C — isolated b4 candidate qualification before promotion  
 **Current-state authority:** [CURRENT_STATUS.md](CURRENT_STATUS.md)  
 **M14-J implementation plan:** [M14_J_ADAPTIVE_RESOURCE_ORCHESTRATION.md](M14_J_ADAPTIVE_RESOURCE_ORCHESTRATION.md)  
 **Detailed deployment audit:** [ONLINE_RELEASE_PLAN.md](ONLINE_RELEASE_PLAN.md)
@@ -130,7 +130,11 @@ immutable execution + independent paired verification
         v
 IN PROGRESS
 M14-J J13C
-ENGINE-OPT-V2 exact-head substrate requalification
+b4 candidate qualification; canonical b7/J3/J8-J12 unchanged
+        |
+        v
+PENDING
+ENGINE-OPT-V2 canonical promotion / substrate requalification
         |
         v
 META-1 / J13

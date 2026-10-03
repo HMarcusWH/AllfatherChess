@@ -88,7 +88,8 @@
         "required_per_job": 4
       },
       "case_count": 16,
-      "note": "Frozen discovery corpus only. Fresh validation on a later candidate head is required; no discovery result itself grants promotion authority."
+      "note": "Frozen discovery corpus only. Fresh validation on a later candidate head is required; no discovery result itself grants promotion authority.",
+      "source_metadata": "qualification/g3-candidate-discovery-source.json"
     }
   },
   "observations": {

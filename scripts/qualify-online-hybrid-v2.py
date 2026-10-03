@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Real-process G3-v2 authority qualification on the ENGINE-OPT-V2 CPU bundle."""
 from __future__ import annotations
-import argparse,json,os,re,sys,time
+import argparse,hashlib,json,os,re,sys,time
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT))
@@ -18,7 +18,7 @@ def env_path(name:str,default:str)->Path:
     path=Path(value)
     return path if path.is_absolute() else ROOT/path
 
-POLICY=ROOT/"qualification/online-hybrid-v2.json"
+POLICY=env_path("ALLFATHER_G3_POLICY","qualification/online-hybrid-v2.json")
 REFERENCE_POLICY=ROOT/"qualification/online-engine-opt-v2.json"
 SELECTION=env_path("ALLFATHER_G3_SELECTION","qualification/engine-opt-v2-selection.json")
 CONFIG=env_path("ALLFATHER_G3_CONFIG","config/allfather.online-hybrid-v2.validation.json")
@@ -45,11 +45,41 @@ def completed_bestmove_by_owner(document):
             result[owner]=stage.get("bestmove")
     return dict(sorted(result.items()))
 
+def file_sha256(path:Path)->str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
 def static_contract():
     policy=load_json(POLICY); reference=load_json(REFERENCE); hybrid=load_json(CONFIG)
     selection=load_json(SELECTION); reference_policy=load_json(REFERENCE_POLICY)
     validate_reference(reference_policy,selection,reference,require_selected=False)
     validate_hybrid(policy,reference,hybrid)
+    meta=policy.get("candidate_witnesses")
+    if meta is not None:
+        require(isinstance(meta,dict),"candidate_witnesses must be an object")
+        witness_path=ROOT/str(meta.get("path"))
+        require(witness_path.is_file(),"candidate witness corpus is missing")
+        require(file_sha256(witness_path)==meta.get("sha256"),"candidate witness corpus hash drift")
+        witness=load_json(witness_path)
+        require(witness.get("corpus_id")==meta.get("corpus_id"),"candidate witness corpus id drift")
+        require(witness.get("source")==meta.get("discovery_source"),"candidate witness source drift")
+        require(witness.get("selection_algorithm")==meta.get("selection_algorithm"),"candidate witness algorithm drift")
+        legacy_policy=load_json(ROOT/str(meta.get("legacy_policy_path")))
+        legacy=[
+            {k:v for k,v in case.items() if k!="source_set"}
+            for case in policy.get("positive_cases") or []
+            if case.get("source_set")=="legacy_v1"
+        ]
+        require(legacy==legacy_policy.get("positive_cases"),"candidate policy changed legacy G3 cases")
+        require(policy.get("positive_requirement")==legacy_policy.get("positive_requirement"),
+                "candidate policy changed non-anchor authority requirement")
+        expected=[
+            {"id":case["id"],"moves":str(case.get("moves") or "").split(),
+             "command":case["command"],"source_set":case["source_set"],"discovery":case["discovery"]}
+            for case in witness.get("cases") or []
+        ]
+        actual=[case for case in policy.get("positive_cases") or []
+                if case.get("source_set")=="discovery_local1_v1"]
+        require(actual==expected,"candidate policy discovery cases differ from frozen corpus")
     return policy,hybrid
 
 def wait_bundle(root:Path,known:set[str])->Path:
@@ -102,7 +132,8 @@ def main(*,static_only:bool=False,record_disposition:bool=False)->int:
         staged_doc=load_optional_json(run/"staged_verification"/"manifest.json")
         counterfactual_doc=load_optional_json(run/"decision"/"counterfactual.json")
         envelope=route_doc.get("envelope_claim") or {}; route_resource=route_doc.get("resource_measurement") or {}
-        record={"case":label,"run_id":run.name,"authority":decision.get("authority"),
+        record={"case":label,"source_set":case.get("source_set","legacy_v1"),
+          "run_id":run.name,"authority":decision.get("authority"),
           "authorization_policy":authorization.get("policy"),"authorization_granted":authorization.get("authorized"),
           "anchor_move":decision.get("anchor_move"),"proposal_move":decision.get("proposal_move"),
           "emitted_move":decision.get("emitted_move"),"terminal_source":snap.get("terminal_source"),
@@ -156,10 +187,18 @@ def main(*,static_only:bool=False,record_disposition:bool=False)->int:
         "execution_domain":execution_domain,
         "candidate_bundle":candidate_bundle,
         "contracts":{
-            "policy_sha256":__import__("hashlib").sha256(POLICY.read_bytes()).hexdigest(),
-            "selection_sha256":__import__("hashlib").sha256(SELECTION.read_bytes()).hexdigest(),
-            "reference_runtime_sha256":__import__("hashlib").sha256(REFERENCE.read_bytes()).hexdigest(),
-            "hybrid_runtime_sha256":__import__("hashlib").sha256(CONFIG.read_bytes()).hexdigest(),
+            "policy_sha256":file_sha256(POLICY),
+            "selection_sha256":file_sha256(SELECTION),
+            "reference_runtime_sha256":file_sha256(REFERENCE),
+            "hybrid_runtime_sha256":file_sha256(CONFIG),
+            "witnesses_sha256":(
+                file_sha256(ROOT/policy["candidate_witnesses"]["path"])
+                if isinstance(policy.get("candidate_witnesses"),dict) else None
+            ),
+        },
+        "case_sets":{
+            "legacy_v1":sum(1 for row in records if row.get("source_set")=="legacy_v1"),
+            "discovery_local1_v1":sum(1 for row in records if row.get("source_set")=="discovery_local1_v1"),
         },
         "claim_boundary":{
             "hybrid_authority":authority_qualified,

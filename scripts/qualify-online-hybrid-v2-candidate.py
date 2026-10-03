@@ -6,6 +6,7 @@ from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 env=os.environ.copy()
 env.update({
+ "ALLFATHER_G3_POLICY":"qualification/online-hybrid-v2-candidate.json",
  "ALLFATHER_G3_SELECTION":"qualification/engine-opt-v2-candidate-selection.json",
  "ALLFATHER_G3_REFERENCE":"config/allfather.online-engine-opt-v2.candidate.json",
  "ALLFATHER_G3_CONFIG":"config/allfather.online-hybrid-v2.candidate.validation.json",

@@ -15,7 +15,8 @@ SELECTION=ROOT/"qualification/engine-opt-v2-candidate-selection.json"
 EVIDENCE=ROOT/"qualification/engine-opt-v2-candidate-evidence.json"
 REFERENCE=ROOT/"config/allfather.online-engine-opt-v2.candidate.json"
 HYBRID=ROOT/"config/allfather.online-hybrid-v2.candidate.validation.json"
-G3_POLICY=ROOT/"qualification/online-hybrid-v2.json"
+G3_POLICY=ROOT/"qualification/online-hybrid-v2-candidate.json"
+G3_WITNESSES=ROOT/"qualification/online-hybrid-v2-candidate-witnesses.json"
 DERIVED=ROOT/"qualification/engine-derived-lock.json"
 RESULT=ROOT/"build/test-results/engine-opt-v2-candidate/report.json"
 def sha(path):
@@ -60,6 +61,7 @@ def main():
           "reference_runtime_sha256":sha(REFERENCE),
           "hybrid_runtime_sha256":sha(HYBRID),
           "g3_policy_sha256":sha(G3_POLICY),
+          "g3_witnesses_sha256":sha(G3_WITNESSES),
         }
         report={"schema_version":1,"profile_id":"engine-opt-v2-candidate","status":"qualification_candidate",
           "source_commit":source,"source_tree":tree,"bundle_manifest_sha256":sha(bundle/"build-manifest.json"),

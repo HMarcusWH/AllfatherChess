@@ -179,7 +179,8 @@ def main() -> int:
                 "evidence_sha256":sha256(repo/"qualification/engine-opt-v2-candidate-evidence.json"),
                 "reference_runtime_sha256":sha256(repo/"config/allfather.online-engine-opt-v2.candidate.json"),
                 "hybrid_runtime_sha256":sha256(repo/"config/allfather.online-hybrid-v2.candidate.validation.json"),
-                "g3_policy_sha256":sha256(repo/"qualification/online-hybrid-v2.json"),
+                "g3_policy_sha256":sha256(repo/"qualification/online-hybrid-v2-candidate.json"),
+                "g3_witnesses_sha256":sha256(repo/"qualification/online-hybrid-v2-candidate-witnesses.json"),
             }
             require(overlay==expected_overlay,
                     "candidate report overlay hashes differ from source-controlled candidate inputs")
@@ -383,7 +384,8 @@ def main() -> int:
                 contracts.get("policy_sha256")==overlay.get("g3_policy_sha256")
                 and contracts.get("selection_sha256")==overlay.get("selection_sha256")
                 and contracts.get("reference_runtime_sha256")==overlay.get("reference_runtime_sha256")
-                and contracts.get("hybrid_runtime_sha256")==overlay.get("hybrid_runtime_sha256"),
+                and contracts.get("hybrid_runtime_sha256")==overlay.get("hybrid_runtime_sha256")
+                and contracts.get("witnesses_sha256")==overlay.get("g3_witnesses_sha256"),
                 "G3-v2 report is not bound to the source-controlled candidate overlay",
             )
         g3_domain = validate_execution_domain(

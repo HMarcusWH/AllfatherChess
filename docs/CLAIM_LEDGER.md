@@ -44,8 +44,12 @@
   allocator with staged G3 authority, complete WorkGrant settlement and independent
   post-output reconstruction. GitHub-hosted synthetic capacity remains mechanism evidence
   only and correctly reports `NOT_QUALIFIED_HOST_CAPACITY`.
-- **OPEN / J13 META-1:** add the matched-orchestration `ANCHOR_CONTROL` experiment in
-  which proposal and authorization still execute but the control always emits Stockfish.
+- **PROVED / J13A CONTROL ARCHITECTURE:** PR #60 adds the matched-orchestration
+  `ANCHOR_CONTROL` disposition while preserving proposal, authorization and the
+  clock-authority publication gate.
+- **OPEN / J13B META-1 EXECUTION:** the frozen 50-opening / 100-game experiment still
+  requires one real J12-authority-qualified host, immutable raw evidence and independent
+  paired-block requalification before J13 can close.
 - **OPEN RELEASE GATES:** ONLINE-3 packaging/bridge, ONLINE-4
   network/restart/rollback, aggregate release qualification, ONLINE-RC, main governance,
   and combined-distribution licensing.
@@ -218,25 +222,38 @@
 - no J12 result by itself establishes Elo, move-quality superiority, equal-resource strength,
   generic-host portability or deployment readiness.
 
-## M14-J J13 META-1 matched authority control — IN PROGRESS
+## M14-J J13 META-1 matched authority control — CONTROL MERGED / EXECUTION OPEN
 
-### IMPLEMENTED / TEST-GATED BY THIS PR
+### PROVED / TEST-GATED BY PR #60
 
-- adds `ANCHOR_CONTROL` as a third FinalDecision disposition without altering
+- `ANCHOR_CONTROL` is a third FinalDecision disposition without altering
   DecisionAuthorization semantics;
 - control and live arms share the J12 allocator, WorkGrant grid, staged VERIFY, proposal,
   authorization policy and clock-authority publication gate;
 - the only test bit is `hybrid_authority.outward_mode=anchor_control_v1`, accepted only
   for `orchestrated_clocked_staged_preanchor_v1` and independently verified against the
   frozen J12 config;
-- the campaign freezes 50 openings, color reversal and 100 total games, but begins only
-  when the host itself qualifies real J12 HYBRID authority.
+- the frozen schedule contains 50 opening pairs / 100 games and cannot convert an
+  unqualified host into positive authority evidence.
+
+### J13B EXECUTION-QUALIFICATION REQUIREMENTS
+
+- producer-written non-run dispositions are not trusted; common policy/runtime/J12/build/host
+  evidence is reconstructed before a zero-game disposition may pass;
+- attempts are immutable and bound to merged-main commit/tree plus workflow run/attempt;
+- a real campaign requires one non-synthetic J12-authority-qualified host domain before play
+  and the same qualification domain after game 100;
+- raw evidence is uploaded and independently requalified in a fresh job;
+- result reporting is paired by opening block and includes authorization, intervention,
+  suppression, WorkGrant, CPU and response telemetry;
+- incomplete campaigns remain retained evidence and are not silently retried or truncated.
 
 ### NOT PROMOTED BY J13
 
 - GitHub-hosted `NOT_QUALIFIED_HOST_CAPACITY` does not become comparative evidence;
 - META-1 W/D/L is descriptive paired-opening evidence, not an Elo or equal-compute claim;
-- no result threshold, SPRT or superiority requirement is a merge gate.
+- no result threshold, SPRT or superiority requirement is a merge gate;
+- J14 does not begin until the real META-1 campaign is independently qualified and frozen.
 
 ## LOCAL-1 full-game lifecycle — PROVED / CI-GATED
 

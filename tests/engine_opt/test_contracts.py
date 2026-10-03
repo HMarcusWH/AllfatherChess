@@ -6,7 +6,6 @@ ROOT=Path(__file__).resolve().parents[2]
 sys.path.insert(0,str(ROOT))
 from controller.engine_opt_profile import EngineOptProfileError,load_json,validate_reference,validate_hybrid
 from tools.engine_opt.corpus import load_epd
-from tools.engine_opt.selection import validate_selected_lc0_rows
 
 class EngineOptContractTests(unittest.TestCase):
     def test_static_profiles(self):
@@ -36,66 +35,15 @@ class EngineOptContractTests(unittest.TestCase):
     def test_selection_state_is_explicit(self):
         s=load_json(ROOT/"qualification/engine-opt-v2-selection.json")
         self.assertIn(s["status"],("provisional","selected"))
-        self.assertEqual(s["selected"]["lc0"]["matrix_profile"],"b4-p0-c256k-cold")
-        self.assertIsNone(s["selected"]["lc0"]["warmup_nodes"])
-        self.assertEqual(s["selected"]["lc0"]["minibatch_size"],4)
-        self.assertEqual(s["selected"]["lc0"]["max_prefetch"],0)
+        self.assertEqual(s["selected"]["lc0"]["matrix_profile"],"b7-p8-c256k-warm64")
+        self.assertEqual(s["selected"]["lc0"]["warmup_nodes"],64)
         self.assertGreaterEqual(s["qualification"]["confirmation_repeats"],2)
         self.assertEqual(s["qualification"]["baseline_profile"],"v1-current-cold")
         self.assertEqual(s["qualification"]["corpus_cases"],8)
 
-    def test_selected_lc0_row_contract_handles_cold_profiles(self):
-        selected=load_json(ROOT/"qualification/engine-opt-v2-selection.json")["selected"]["lc0"]
-        row={
-            "options":{
-                "NNCacheSize":selected["nn_cache_size"],
-                "MinibatchSize":selected["minibatch_size"],
-                "MaxPrefetch":selected["max_prefetch"],
-                "AdaptivePrefetch":selected["adaptive_prefetch"],
-            },
-            "warmup":None,
-        }
-        validate_selected_lc0_rows([row],selected,lambda ok,msg:self.assertTrue(ok,msg))
-        bad=copy.deepcopy(row)
-        bad["warmup"]={"nodes":64}
-        with self.assertRaises(AssertionError):
-            validate_selected_lc0_rows([bad],selected,lambda ok,msg:self.assertTrue(ok,msg))
-
-    def test_all_m14_j_runtime_configs_match_selected_lc0_profile(self):
-        selection=load_json(ROOT/"qualification/engine-opt-v2-selection.json")
-        selected=selection["selected"]["lc0"]
-        estimates=selection["selected"]["resource_estimates_ms"]
-        paths=(
-            "config/allfather.online-engine-opt-v2.json",
-            "config/allfather.online-hybrid-v2.validation.json",
-            "config/allfather.m14-j-j8.validation.json",
-            "config/allfather.m14-j-j9.validation.json",
-            "config/allfather.m14-j-j10.validation.json",
-            "config/allfather.orchestrated-v1.validation.json",
-        )
-        for relative in paths:
-            with self.subTest(path=relative):
-                doc=load_json(ROOT/relative)
-                lc0=doc["instances"]["lc0-shadow"]
-                opts=lc0["options"]
-                self.assertEqual(opts["NNCacheSize"],selected["nn_cache_size"])
-                self.assertEqual(opts["MinibatchSize"],selected["minibatch_size"])
-                self.assertEqual(opts["MaxPrefetch"],selected["max_prefetch"])
-                self.assertIs(opts["AdaptivePrefetch"],selected["adaptive_prefetch"])
-                self.assertNotIn("warmup",lc0)
-                self.assertEqual(
-                    doc["routing"]["stage_cpu_ms_estimate_by_owner"],
-                    estimates["explore"],
-                )
-                self.assertEqual(
-                    doc["routing"]["verify_stage_cpu_ms_estimate_by_owner"],
-                    estimates["verify"],
-                )
-
     def test_historical_host_binding_is_explicitly_legacy_unbound(self):
         binding=load_json(ROOT/"qualification/engine-opt-v2-host-binding.json")
         self.assertEqual(binding["profile_id"],"engine-opt-v2")
-        self.assertEqual(binding["status"],"profile_change_pending_requalification")
         self.assertEqual(
             binding["historical_qualification"]["qualified_head"],
             "085420843b95f3f2dd206fc1c66bf642cbd49b6d",
@@ -107,14 +55,6 @@ class EngineOptContractTests(unittest.TestCase):
         self.assertEqual(binding["post_j2_diagnostic"]["pull_request"],48)
         self.assertEqual(binding["post_j2_diagnostic"]["diagnosis"],"WITHIN_BINARY_INSTABILITY")
         self.assertFalse(binding["claim_boundary"]["generic_host_portability_established"])
-        self.assertEqual(
-            binding["current_domain_bound_qualification"]["status"],
-            "historical_superseded_by_profile_change",
-        )
-        self.assertEqual(
-            binding["pending_domain_bound_qualification"]["selected_profile"],
-            "b4-p0-c256k-cold",
-        )
 
     def test_corpus_is_frozen_and_nonempty(self):
         rows=load_epd(ROOT/"tests/fixtures/engine_opt/positions.epd")

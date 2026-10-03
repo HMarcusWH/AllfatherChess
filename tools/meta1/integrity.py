@@ -1,10 +1,11 @@
-"""Independent META-1 schedule/game/replay validation."""
+"""Independent META-1 evidence reconstruction and paired result validation."""
 
 from __future__ import annotations
 
 from collections import Counter
 from pathlib import Path
 
+from tools.engine_opt.domain import candidate_bundle_identity
 from tools.local_game.common import (
     ROOT,
     load,
@@ -14,7 +15,12 @@ from tools.local_game.common import (
     verify_record,
 )
 from tools.local_game.integrity import verify_builds
-from tools.local_game.validate import match_game, read_games, session_games, verify_runner_log
+from tools.local_game.validate import (
+    match_game,
+    read_games,
+    session_games,
+    verify_runner_log,
+)
 from .common import (
     ARMS,
     RUN_DISPOSITION,
@@ -24,73 +30,182 @@ from .common import (
     policy,
     schedule,
 )
+from .paired import arm_telemetry, paired_blocks
+from .preflight import (
+    validate_postflight_payload,
+    validate_preflight_payload,
+)
 from .report import empty_scores, record_result
+
+
+def _verify_producer_summary(manifest: dict, path: Path) -> dict:
+    producer = load(path)
+    expected = {
+        "schema_version": 1,
+        "profile_id": "meta-1-v1",
+        "source": manifest["source"],
+        "qualification_disposition": manifest["qualification_disposition"],
+        "status": manifest["status"],
+        "planned_blocks": len(manifest["planned_blocks"]),
+        "blocks_executed": len(manifest["jobs"]),
+        "failures": list(manifest["failures"]),
+    }
+    require(producer == expected, "META-1 producer summary disagrees with manifest")
+    return producer
+
+
+def verify_common_evidence(output: Path) -> dict:
+    output = Path(output)
+    manifest = load(output / "manifest.json")
+    require(
+        manifest.get("campaign_id") == output.name,
+        "META-1 campaign id differs from its directory",
+    )
+    source = source_identity()
+    require(manifest.get("source") == source, "META-1 source checkout drift")
+
+    policy_path = verify_record(ROOT, manifest.get("policy") or {})
+    require(
+        policy_path.resolve()
+        == (ROOT / "qualification/meta-1-v1.json").resolve(),
+        "META-1 manifest is not bound to the frozen policy",
+    )
+    p = policy(policy_path)
+
+    opening_fixture = verify_record(ROOT, manifest.get("opening_fixture") or {})
+    require(
+        opening_fixture.resolve() == (ROOT / p["opening_file"]).resolve(),
+        "META-1 manifest is not bound to the frozen opening fixture",
+    )
+    runtime_path = verify_record(ROOT, manifest.get("source_runtime") or {})
+    require(
+        runtime_path.resolve() == (ROOT / p["source_runtime"]).resolve(),
+        "META-1 manifest is not bound to the frozen J12 runtime",
+    )
+
+    j12_path = verify_record(ROOT, manifest.get("j12_report") or {})
+    j12 = load(j12_path)
+    require(
+        j12.get("source_commit") == source["commit"],
+        "META-1 J12 prerequisite source differs from campaign source",
+    )
+
+    fastchess = verify_builds(source, p)
+    bundle = candidate_bundle_identity(
+        ROOT / p["bundle_root"],
+        expected_source_commit=source["commit"],
+    )
+    require(
+        manifest.get("candidate_bundle") == bundle,
+        "META-1 candidate bundle identity drift",
+    )
+
+    preflight_path = verify_record(ROOT, manifest.get("preflight") or {})
+    preflight = load(preflight_path)
+    pre_host = validate_preflight_payload(
+        preflight,
+        source=source,
+        p=p,
+        j12=j12,
+        candidate_bundle=bundle,
+    )
+    derived_disposition = campaign_disposition(j12)
+    require(
+        manifest.get("qualification_disposition") == derived_disposition,
+        "META-1 producer disposition disagrees with independently reconstructed J12 evidence",
+    )
+    require(
+        manifest.get("preflight_host_capabilities_digest") == pre_host.digest,
+        "META-1 manifest preflight host digest drift",
+    )
+    require(
+        manifest.get("preflight_qualification_domain_digest")
+        == pre_host.qualification_domain_digest,
+        "META-1 manifest preflight domain digest drift",
+    )
+
+    postflight_path = verify_record(ROOT, manifest.get("postflight") or {})
+    postflight = load(postflight_path)
+    post_host = validate_postflight_payload(
+        postflight,
+        source=source,
+        preflight=preflight,
+        require_stable=derived_disposition == RUN_DISPOSITION,
+    )
+
+    producer_path = verify_record(ROOT, manifest.get("producer_summary") or {})
+    producer = _verify_producer_summary(manifest, producer_path)
+
+    expected = schedule(p)
+    require(
+        manifest.get("planned_blocks") == expected,
+        "META-1 frozen schedule drift",
+    )
+    require(
+        sha(ROOT / p["opening_file"]) == p["opening_sha256"],
+        "META-1 opening fixture changed",
+    )
+    return {
+        "manifest": manifest,
+        "policy": p,
+        "source": source,
+        "j12": j12,
+        "preflight": preflight,
+        "postflight": postflight,
+        "pre_host": pre_host,
+        "post_host": post_host,
+        "fastchess": fastchess,
+        "bundle": bundle,
+        "expected": expected,
+        "producer": producer,
+        "disposition": derived_disposition,
+    }
 
 
 def qualify(output: Path) -> dict:
     output = Path(output)
-    m = load(output / "manifest.json")
-    p = policy(ROOT / "qualification/meta-1-v1.json")
-    disposition = m.get("qualification_disposition")
-    if disposition != RUN_DISPOSITION:
-        return {
-            "schema_version": 1,
-            "profile_id": "meta-1-v1",
-            "passed": disposition in (
-                "NOT_QUALIFIED_HOST_CAPACITY",
-                "NOT_QUALIFIED_POSITIVE_WITNESS",
-            ),
-            "experiment_valid": False,
-            "campaign_executed": False,
-            "qualification_disposition": disposition,
-            "games_observed": 0,
-            "opening_blocks_observed": 0,
-            "claim_boundary": p["claim_boundary"],
-        }
-
-    errors: list[str] = []
-    games_out = []
-    plies = []
+    games_out: list[dict] = []
+    plies: list[dict] = []
     scores = empty_scores(ARMS)
+    errors: list[str] = []
+    disposition = "INVALID_EVIDENCE"
+    claim_boundary = {}
+    campaign_executed = False
     try:
-        require(m.get("source") == source_identity(), "META-1 source checkout drift")
-        require(m.get("status") == "completed" and not m.get("failures"),
-                "META-1 campaign did not complete")
+        common = verify_common_evidence(output)
+        m = common["manifest"]
+        p = common["policy"]
+        disposition = common["disposition"]
+        claim_boundary = p["claim_boundary"]
 
-        policy_path = verify_record(ROOT, m.get("policy") or {})
-        require(
-            policy_path.resolve()
-            == (ROOT / "qualification/meta-1-v1.json").resolve(),
-            "META-1 manifest is not bound to the frozen policy",
-        )
-        opening_fixture = verify_record(ROOT, m.get("opening_fixture") or {})
-        require(
-            opening_fixture.resolve() == (ROOT / p["opening_file"]).resolve(),
-            "META-1 manifest is not bound to the frozen opening fixture",
-        )
-        runtime_path = verify_record(ROOT, m.get("source_runtime") or {})
-        require(
-            runtime_path.resolve() == (ROOT / p["source_runtime"]).resolve(),
-            "META-1 manifest is not bound to the frozen J12 runtime",
-        )
-        j12_path = verify_record(ROOT, m.get("j12_report") or {})
-        j12 = load(j12_path)
-        require(
-            j12.get("source_commit") == m["source"]["commit"],
-            "META-1 J12 prerequisite source differs from campaign source",
-        )
-        require(
-            campaign_disposition(j12) == RUN_DISPOSITION,
-            "META-1 campaign executed without real J12 authority qualification",
-        )
+        if disposition != RUN_DISPOSITION:
+            require(m.get("status") == "gated", "non-qualified META-1 attempt is not gated")
+            require(not m.get("jobs"), "non-qualified META-1 attempt played games")
+            require(not m.get("failures"), "gated META-1 attempt contains failures")
+            return {
+                "schema_version": 1,
+                "profile_id": "meta-1-v1",
+                "passed": True,
+                "experiment_valid": False,
+                "campaign_executed": False,
+                "qualification_disposition": disposition,
+                "games_observed": 0,
+                "opening_blocks_observed": 0,
+                "errors": [],
+                "claim_boundary": claim_boundary,
+                "source": common["source"],
+                "candidate_bundle": common["bundle"],
+                "preflight_host_capabilities_digest": common["pre_host"].digest,
+                "postflight_host_capabilities_digest": common["post_host"].digest,
+            }
 
-        expected = schedule(p)
-        require(m.get("planned_blocks") == expected, "META-1 schedule drift")
+        campaign_executed = True
+        require(
+            m.get("status") == "completed" and not m.get("failures"),
+            "META-1 campaign did not complete cleanly",
+        )
         require(len(m.get("jobs") or []) == 50, "META-1 did not execute 50 blocks")
-        require(sha(ROOT / p["opening_file"]) == p["opening_sha256"],
-                "META-1 opening fixture changed")
-        source = load(ROOT / p["source_runtime"])
-        fastchess = verify_builds(m["source"], p)
+        source_runtime = load(ROOT / p["source_runtime"])
         frozen_blocks = opening_blocks(
             ROOT / p["opening_file"],
             p["opening_count"],
@@ -101,7 +216,10 @@ def qualify(output: Path) -> dict:
         for index, job in enumerate(m["jobs"]):
             plan = job["plan"]
             execution = job["execution"]
-            require(plan == expected[index], f"{plan.get('id')}: executed plan drift")
+            require(
+                plan == common["expected"][index],
+                f"{plan.get('id')}: executed plan drift",
+            )
             directory = output / plan["id"]
             opening_path = directory / plan["opening"]
             require(
@@ -112,8 +230,14 @@ def qualify(output: Path) -> dict:
                 f"{plan['id']}: per-block opening evidence differs from frozen fixture",
             )
             require(
-                execution["argv"] == command(
-                    plan, directory, p, source, fastchess, opening_path,
+                execution["argv"]
+                == command(
+                    plan,
+                    directory,
+                    p,
+                    source_runtime,
+                    common["fastchess"],
+                    opening_path,
                     write_specs=False,
                 ),
                 f"{plan['id']}: Fastchess argv differs from frozen META-1 contract",
@@ -133,26 +257,48 @@ def qualify(output: Path) -> dict:
             by_arm = {}
             for arm in plan["arms"]:
                 groups, summaries = session_games(
-                    directory, arm, source, p["source_runtime"], plan,
-                    campaign_run_ids, campaign_manifest_hashes,
+                    directory,
+                    arm,
+                    source_runtime,
+                    p["source_runtime"],
+                    plan,
+                    campaign_run_ids,
+                    campaign_manifest_hashes,
                 )
-                require(len(groups) == 2, f"{plan['id']}/{arm}: expected two game traces")
-                require(len(summaries) == 1, f"{plan['id']}/{arm}: process reuse drift")
+                require(
+                    len(groups) == 2,
+                    f"{plan['id']}/{arm}: expected two game traces",
+                )
+                require(
+                    len(summaries) == 1,
+                    f"{plan['id']}/{arm}: process reuse drift",
+                )
                 by_arm[arm] = groups
 
             for game_index, game in enumerate(games):
                 expected_colors = (
-                    plan["arms"] if game_index == 0 else list(reversed(plan["arms"]))
+                    plan["arms"]
+                    if game_index == 0
+                    else list(reversed(plan["arms"]))
                 )
                 require(
-                    [game.headers["White"], game.headers["Black"]] == expected_colors,
+                    [game.headers["White"], game.headers["Black"]]
+                    == expected_colors,
                     f"{plan['id']}: colors were not reversed",
                 )
                 result = game.headers["Result"]
-                record_result(scores, game.headers["White"], game.headers["Black"], result)
+                record_result(
+                    scores,
+                    game.headers["White"],
+                    game.headers["Black"],
+                    result,
+                )
                 game_plies = match_game(
                     game,
-                    {arm: by_arm[arm][game_index] for arm in plan["arms"]},
+                    {
+                        arm: by_arm[arm][game_index]
+                        for arm in plan["arms"]
+                    },
                     False,
                     opening,
                     plan,
@@ -165,58 +311,84 @@ def qualify(output: Path) -> dict:
                         )
                     else:
                         require(
-                            row.get("authority") in ("HYBRID", "ANCHOR_FALLBACK"),
+                            row.get("authority")
+                            in ("HYBRID", "ANCHOR_FALLBACK"),
                             "META-1 live ply has unsupported authority",
                         )
-                plies.extend({
-                    "block": plan["id"], "game": game_index, **row,
-                } for row in game_plies)
-                games_out.append({
-                    "block": plan["id"],
-                    "opening_index": plan["opening_index"],
-                    "game": game_index,
-                    "white": game.headers["White"],
-                    "black": game.headers["Black"],
-                    "result": result,
-                })
+                plies.extend(
+                    {
+                        "block": plan["id"],
+                        "game": game_index,
+                        **row,
+                    }
+                    for row in game_plies
+                )
+                games_out.append(
+                    {
+                        "block": plan["id"],
+                        "opening_index": plan["opening_index"],
+                        "game": game_index,
+                        "white": game.headers["White"],
+                        "black": game.headers["Black"],
+                        "result": result,
+                    }
+                )
 
         require(len(games_out) == 100, "META-1 must retain exactly 100 games")
-        require(len({row["opening_index"] for row in games_out}) == 50,
-                "META-1 did not retain all 50 opening blocks")
+        require(
+            len({row["opening_index"] for row in games_out}) == 50,
+            "META-1 did not retain all 50 opening blocks",
+        )
     except Exception as exc:
         errors.append(f"{type(exc).__name__}: {exc}")
 
+    paired = []
+    paired_summary = None
+    telemetry = {}
+    if not errors and campaign_executed:
+        try:
+            paired, paired_summary = paired_blocks(games_out, plies)
+            telemetry = arm_telemetry(plies)
+        except Exception as exc:
+            errors.append(f"{type(exc).__name__}: {exc}")
+
     authority_counts = Counter(row.get("authority") for row in plies)
-    hybrid_interventions = sum(bool(row.get("override")) for row in plies)
-    authorized_non_anchor = sum(bool(row.get("authorized_non_anchor")) for row in plies)
-    suppressed = sum(bool(row.get("suppressed_authorized_non_anchor")) for row in plies)
-    grants_authorized = sum(int(row.get("work_grants_authorized") or 0) for row in plies)
-    grants_settled = sum(int(row.get("work_grants_settled") or 0) for row in plies)
     return {
         "schema_version": 1,
         "profile_id": "meta-1-v1",
         "passed": not errors,
-        "experiment_valid": not errors and len(games_out) == 100,
-        "campaign_executed": True,
+        "experiment_valid": not errors
+        and campaign_executed
+        and len(games_out) == 100,
+        "campaign_executed": campaign_executed,
         "qualification_disposition": (
-            "QUALIFIED_META1_CAMPAIGN" if not errors else "INVALID_EVIDENCE"
+            "QUALIFIED_META1_CAMPAIGN"
+            if not errors and campaign_executed
+            else ("INVALID_EVIDENCE" if errors else disposition)
         ),
         "errors": errors,
         "games_observed": len(games_out),
-        "opening_blocks_observed": len({row["opening_index"] for row in games_out}),
+        "opening_blocks_observed": len(
+            {row["opening_index"] for row in games_out}
+        ),
         "scores": scores,
+        "paired_blocks": paired,
+        "paired_summary": paired_summary,
         "authority_counts": dict(authority_counts),
-        "authorized_non_anchor_proposals": authorized_non_anchor,
-        "hybrid_interventions": hybrid_interventions,
-        "control_suppressed_authorized_non_anchor": suppressed,
-        "work_grants_authorized": grants_authorized,
-        "work_grants_settled": grants_settled,
-        "physical_cpu_ms_by_arm": {
-            arm: round(sum(
-                float(row.get("physical_cpu_ms") or 0.0)
-                for row in plies if row.get("arm") == arm
-            ), 3)
-            for arm in ARMS
-        },
-        "claim_boundary": p["claim_boundary"],
+        "arm_telemetry": telemetry,
+        "authorized_non_anchor_proposals": sum(
+            bool(row.get("authorized_non_anchor")) for row in plies
+        ),
+        "hybrid_interventions": sum(bool(row.get("override")) for row in plies),
+        "control_suppressed_authorized_non_anchor": sum(
+            bool(row.get("suppressed_authorized_non_anchor"))
+            for row in plies
+        ),
+        "work_grants_authorized": sum(
+            int(row.get("work_grants_authorized") or 0) for row in plies
+        ),
+        "work_grants_settled": sum(
+            int(row.get("work_grants_settled") or 0) for row in plies
+        ),
+        "claim_boundary": claim_boundary,
     }

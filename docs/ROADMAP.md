@@ -72,6 +72,10 @@ isolated profile selections while preserving all historical J6/J7 evidence. Only
 measurement evidence is source-controlled does the roadmap permit an atomic canonical b4
 promotion and J3→J12 requalification.
 
+### PR #63 resource-accounting closure
+
+PR #63 also repairs a legacy ONLINE/G3 resource-accounting defect exposed by fresh LOCAL-1 evidence before any b4 authority is promoted. The declared controller-overhead reserve is now treated as an absolute profile partition during per-move envelope derivation rather than being scaled with the clock. Two retained lifecycle artifacts also freeze owner-specific legacy G3 estimates: EXPLORE 100/100/1800 ms and VERIFY 100/100/1400 ms for Stockfish/Reckless/LC0 respectively, with the original 500/750 ms scalars retained only as unknown-owner fallbacks. The 4000 ms wall / 12000 ms CPU outer envelope remains unchanged and all ordinary fail-closed LOCAL-1 resource gates remain mandatory.
+
 ## 2. Critical path to the first public canary
 
 ```text

@@ -204,6 +204,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y             meson ninja-build pkg-config libprotobuf-dev protobuf-compiler zlib1g-dev             libopenblas-dev python3-pip python3-setuptools python3-wheel
           python3 -m pip install --break-system-packages --no-build-isolation --no-deps             --require-hashes -r qualification/local-game-requirements.txt
+      - name: Validate legacy G3 resource calibration
+        run: |
+          python3 -m json.tool qualification/online-hybrid-v1-resource-calibration.json >/dev/null
+          python3 scripts/validate-online-hybrid-resource-calibration.py
+          python3 tests/controller/test_online_hybrid_resource_calibration.py
       - name: Run LOCAL-1 negative controls and cross-generation regressions
         run: make -f Makefile.local-game test
       - name: Qualify prerequisites, failure cases, rule transitions, full games and five-arm results
@@ -253,6 +258,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y             meson ninja-build pkg-config libprotobuf-dev protobuf-compiler zlib1g-dev             libopenblas-dev python3-pip python3-setuptools python3-wheel
           python3 -m pip install --break-system-packages --no-build-isolation --no-deps             --require-hashes -r qualification/local-game-requirements.txt
+      - name: Validate legacy G3 resource calibration
+        run: |
+          python3 -m json.tool qualification/online-hybrid-v1-resource-calibration.json >/dev/null
+          python3 scripts/validate-online-hybrid-resource-calibration.py
+          python3 tests/controller/test_online_hybrid_resource_calibration.py
       - name: Run LOCAL-1 test contracts
         run: make -f Makefile.local-game test
       - name: Run bounded soak shard

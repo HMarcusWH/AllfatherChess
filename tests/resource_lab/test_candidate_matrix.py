@@ -23,6 +23,7 @@ from tools.resource_lab.candidate_matrix import (
 )
 
 SPEC=ROOT/"qualification/resource-lab-v1.json"
+SPEC_V2=ROOT/"qualification/resource-lab-v2.json"
 
 
 def fake_manifest():
@@ -104,6 +105,28 @@ class CandidateMatrixTests(unittest.TestCase):
 
     def test_v2_reference_contract_matches_runtime_catalog_and_build_policy(self):
         validate_reference_contract(load_lab_spec(SPEC),ROOT)
+
+    def test_b4_v2_spec_binds_candidate_runtime_without_mutating_v1_catalog(self):
+        spec=load_lab_spec(SPEC_V2)
+        candidates=expand_candidates(spec,fake_manifest())
+        self.assertEqual(len(candidates),57)
+        self.assertEqual(len({row.candidate_id for row in candidates}),57)
+        refs=[row for row in candidates if row.family=="lc0" and row.reference]
+        self.assertEqual(len(refs),3)
+        for row in refs:
+            options=dict(row.options)
+            self.assertEqual(options["NNCacheSize"],262144)
+            self.assertEqual(options["MinibatchSize"],4)
+            self.assertEqual(options["MaxPrefetch"],0)
+            self.assertIsNone(row.warmup_nodes)
+        validate_reference_contract(spec,ROOT)
+
+    def test_b4_v2_expected_counts_are_frozen_per_spec_not_global_tooling(self):
+        raw=json.loads(SPEC_V2.read_text())
+        mutated=copy.deepcopy(raw)
+        mutated["expected_counts"]["stage_a_candidates"]=58
+        with self.assertRaises(ResourceLabSpecError):
+            validate_lab_spec(mutated)
 
     def test_reference_contract_rejects_fixed_policy_drift(self):
         raw=json.loads(SPEC.read_text())

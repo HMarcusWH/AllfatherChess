@@ -151,6 +151,7 @@ controller-tests:
 	python3 tests/adapters/test_linux_affinity.py
 	python3 tests/controller/test_resource_control.py
 	python3 tests/controller/test_online_time.py
+	python3 tests/controller/test_online_hybrid_resource_calibration.py
 	python3 tests/controller/test_online_deadlines.py
 	python3 tests/adapters/test_uci_process.py
 	python3 tests/adapters/test_linux_proc_resource.py

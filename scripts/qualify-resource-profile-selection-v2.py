@@ -19,6 +19,26 @@ EVIDENCE = ROOT / "qualification/resource-profile-evidence-v2.json"
 SELECTION = ROOT / "qualification/resource-profile-selection-v2.json"
 SPEC = ROOT / "qualification/resource-lab-v2.json"
 AUTH = {"runtime_authority": False, "resource_authorization": False, "outward_move": False}
+EVIDENCE_CLAIM = {
+    "isolated_resource_measurement": True,
+    "profile_selection_freeze": True,
+    "composition_qualification": False,
+    "runtime_profile_selection": False,
+    "deployment": False,
+    "strength": False,
+    "elo": False,
+    "equal_compute": False,
+}
+SELECTION_CLAIM = {
+    "isolated_resource_profile_selection": True,
+    "composition_qualification": False,
+    "runtime_profile_selection": False,
+    "adaptive_allocation": False,
+    "deployment": False,
+    "strength": False,
+    "elo": False,
+    "equal_compute": False,
+}
 FAMILIES = {"stockfish": (16, 64, 256), "reckless": (16, 64, 256), "lc0": (16, 32, 64)}
 METRICS = ("median_wall_ms", "p95_wall_ms", "median_cpu_ms", "p95_cpu_ms", "p95_vm_hwm_bytes")
 TIE_BREAK = METRICS + ("candidate_id",)
@@ -78,7 +98,18 @@ def validate(
         and selection.get("selection_id") == "resource-profile-selection-v2",
         "wrong selection schema/id",
     )
-    require(evidence.get("authority") == AUTH and selection.get("authority") == AUTH, "authority boundary changed")
+    require(
+        evidence.get("authority") == AUTH and selection.get("authority") == AUTH,
+        "authority boundary changed",
+    )
+    require(
+        evidence.get("claim_boundary") == EVIDENCE_CLAIM,
+        "evidence claim boundary changed",
+    )
+    require(
+        selection.get("claim_boundary") == SELECTION_CLAIM,
+        "selection claim boundary changed",
+    )
     require(selection.get("evidence_path") == "qualification/resource-profile-evidence-v2.json", "selection evidence path drift")
     require(selection.get("evidence_sha256") == sha(evidence_path), "selection/evidence SHA mismatch")
 
@@ -88,7 +119,13 @@ def validate(
     require(selection.get("source_tree") == source.get("source_tree"), "selection/source tree mismatch")
     require(isinstance(source.get("workflow_run"), int) and source["workflow_run"] > 0, "workflow run missing")
     require(isinstance(source.get("artifact_id"), int) and source["artifact_id"] > 0, "artifact id missing")
-    require(isinstance(source.get("artifact_sha256"), str) and len(source["artifact_sha256"]) == 64, "artifact SHA missing")
+    artifact_sha = source.get("artifact_sha256")
+    require(
+        isinstance(artifact_sha, str)
+        and len(artifact_sha) == 64
+        and all(ch in "0123456789abcdef" for ch in artifact_sha),
+        "artifact SHA missing or malformed",
+    )
 
     frozen_spec = source.get("lab_spec")
     require(isinstance(frozen_spec, dict), "frozen lab spec missing")

@@ -24,6 +24,8 @@ CATALOG = ROOT / "qualification/resource-profile-catalog-v1.json"
 RUNTIME = ROOT / "config/allfather.online-hybrid-v2.validation.json"
 SELECTION = ROOT / "qualification/engine-opt-v2-selection.json"
 HOST_BINDING = ROOT / "qualification/engine-opt-v2-host-binding.json"
+CANDIDATE_RUNTIME = ROOT / "config/allfather.online-engine-opt-v2.candidate.json"
+CANDIDATE_SELECTION = ROOT / "qualification/engine-opt-v2-candidate-selection.json"
 
 
 def load(path: Path) -> dict:
@@ -45,6 +47,29 @@ class ResourceProfileCatalogTests(unittest.TestCase):
         restored = ResourceProfileCatalog.from_dict(catalog.as_dict())
         self.assertEqual(restored.as_dict(), catalog.as_dict())
         self.assertEqual(restored.digest, catalog.digest)
+
+    def test_equivalence_contract_accepts_explicit_no_warmup_selection(self):
+        raw = load(CATALOG)
+        runtime = load(CANDIDATE_RUNTIME)
+        selection = load(CANDIDATE_SELECTION)
+        lc0 = next(
+            item
+            for item in raw["profiles"]
+            if item["profile_id"] == "lc0/specialist-engine-opt-v2"
+        )
+        for option in lc0["options"]:
+            if option["name"] == "MinibatchSize":
+                option["value"] = 4
+            elif option["name"] == "MaxPrefetch":
+                option["value"] = 0
+        raw["profile_runtime"]["lc0/specialist-engine-opt-v2"]["warmup"] = None
+        catalog = ResourceProfileCatalog.from_dict(raw)
+        result = catalog.validate_v2_equivalence(runtime, selection)
+        self.assertEqual(
+            result["composition_id"],
+            "composition/engine-opt-v2-exact-host",
+        )
+        self.assertIsNone(catalog.warmup("lc0/specialist-engine-opt-v2"))
 
     def test_seed_is_bound_to_pr49_exact_host_qualification(self):
         catalog = load_resource_profile_catalog(CATALOG)

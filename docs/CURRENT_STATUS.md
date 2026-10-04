@@ -51,6 +51,12 @@ n16/n256 → `v2-current`, Stockfish n64 → `t1-h64`. These are measurement/sel
 evidence only: they grant no runtime profile selection, composition qualification, resource
 authorization, outward move authority, deployment or strength claim.
 
+### PR #63 lifecycle accounting repair — IMPLEMENTED / REQUALIFYING
+
+The first retained PR #63 LOCAL-1 campaigns exposed two independent stale assumptions in the legacy G3 resource model. Per-move envelope derivation was proportionally shrinking the declared 250 ms controller partition even though legal-root qualification and controller finalization are fixed work; retained controller-purpose maxima were 165.460 ms and 217.362 ms. The repair preserves the 250 ms controller reserve whenever the shrunken CPU envelope can contain it, while low-clock envelopes still clamp fail-closed by reducing solver capacity first.
+
+The same evidence showed that the legacy scalar 500/750 ms specialist estimates materially under-described real BLAS-LC0. Two retained LOCAL-1 artifacts now back a source-controlled calibration: LC0 EXPLORE maxima were 1760/1750 ms, base VERIFY maxima 740/750 ms, and staged VERIFY-extension maxima 1290/1140 ms. The legacy v1 runtime therefore uses explicit owner estimates of Stockfish/Reckless/LC0 = 100/100/1800 ms for EXPLORE and 100/100/1400 ms for VERIFY, while preserving 500/750 ms only as unknown-owner fallbacks. The outer 4000 ms wall / 12000 ms CPU envelope is unchanged. This repair grants no b4 canonical promotion, no new move/resource authority and no strength/Elo/deployment claim.
+
 ## Current qualification evidence
 
 PR #52 / J6 qualified on exact candidate head

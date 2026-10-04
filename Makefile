@@ -76,6 +76,7 @@ resource-lab-tests:
 	python3 tests/resource_lab/test_process_cpu.py
 	python3 tests/resource_lab/test_observe.py
 	python3 tests/resource_lab/test_uci_environment.py
+	python3 tests/resource_lab/test_freeze_v2.py
 
 resource-lab-run:
 	@test -n "$(EXECUTION_DOMAIN)" || (echo "Set EXECUTION_DOMAIN=<path>" >&2; exit 2)

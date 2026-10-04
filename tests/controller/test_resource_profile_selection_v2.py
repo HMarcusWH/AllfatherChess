@@ -136,6 +136,17 @@ class ResourceProfileSelectionV2Tests(unittest.TestCase):
             with self.subTest(key=key), self.assertRaises(mod.SelectionV2Error):
                 self._validate(selection=selection)
 
+    def test_claim_boundary_overclaim_is_rejected(self):
+        evidence = copy.deepcopy(self.evidence)
+        evidence["claim_boundary"]["deployment"] = True
+        with self.assertRaises(mod.SelectionV2Error):
+            self._validate(evidence=evidence)
+
+        selection = copy.deepcopy(self.selection)
+        selection["claim_boundary"]["runtime_profile_selection"] = True
+        with self.assertRaises(mod.SelectionV2Error):
+            self._validate(selection=selection)
+
     def test_composition_overclaim_is_rejected(self):
         selection = copy.deepcopy(self.selection)
         selection["selections"][0]["composition_qualification"] = "qualified"

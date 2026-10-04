@@ -129,10 +129,30 @@ class ResourceEnvelope:
             raise BudgetError("per-move v1 requires a positive CPU-only envelope")
         wall = min(float(wall_ms), self.wall_ms)
         cpu = min(self.cpu_ms, wall * cpu_parallelism)
-        return ResourceEnvelope(wall_ms=wall, cpu_ms=cpu, gpu_ms=0,
+        # VERIFY/REFINE reserves are intentionally fractional, but controller
+        # preparation/qualification/finalization is fixed work. Scaling the
+        # declared controller reserve with the move clock made a 250 ms profile
+        # partition silently become ~125-154 ms on ordinary LOCAL-1 moves.
+        # Preserve the absolute profile reservation whenever the shrunken CPU
+        # envelope can contain it; on very small moves the solver partition
+        # collapses before the total envelope can be exceeded.
+        fractional_reserves = cpu * (
+            self.verification_reserve_fraction
+            + self.refinement_reserve_fraction
+        )
+        controller_capacity = max(0.0, cpu - fractional_reserves)
+        controller_reserve = min(
+            self.controller_overhead_reserve_ms,
+            controller_capacity,
+        )
+        return ResourceEnvelope(
+            wall_ms=wall,
+            cpu_ms=cpu,
+            gpu_ms=0,
             verification_reserve_fraction=self.verification_reserve_fraction,
             refinement_reserve_fraction=self.refinement_reserve_fraction,
-            controller_overhead_reserve_ms=cpu * self.controller_overhead_reserve_ms / self.cpu_ms)
+            controller_overhead_reserve_ms=controller_reserve,
+        )
 
     @property
     def verification_reserve_ms(self) -> float:

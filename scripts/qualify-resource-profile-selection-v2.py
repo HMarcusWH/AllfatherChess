@@ -84,6 +84,7 @@ def validate(
     evidence_path: Path = EVIDENCE,
     selection_path: Path = SELECTION,
     spec_path: Path = SPEC,
+    source_metadata_path: Path = SOURCE_METADATA,
 ) -> dict[str, Any]:
     evidence = load(evidence_path)
     selection = load(selection_path)
@@ -116,7 +117,7 @@ def validate(
 
     source = evidence.get("source")
     require(isinstance(source, dict) and source.get("lab_id") == "resource-lab-v2", "wrong source lab")
-    frozen_source = load(SOURCE_METADATA)
+    frozen_source = load(source_metadata_path)
     require(
         frozen_source.get("schema_version") == 1
         and frozen_source.get("repository") == "HMarcusWH/AllfatherChess",
@@ -330,10 +331,16 @@ def main() -> int:
     parser.add_argument("--evidence", type=Path, default=EVIDENCE)
     parser.add_argument("--selection", type=Path, default=SELECTION)
     parser.add_argument("--spec", type=Path, default=SPEC)
+    parser.add_argument("--source-metadata", type=Path, default=SOURCE_METADATA)
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
     try:
-        report = validate(args.evidence, args.selection, args.spec)
+        report = validate(
+            args.evidence,
+            args.selection,
+            args.spec,
+            args.source_metadata,
+        )
     except SelectionV2Error as exc:
         print(f"resource-profile selection v2 qualification FAILED: {exc}")
         return 2

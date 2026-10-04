@@ -21,6 +21,7 @@ METRICS = (
     "p95_vm_hwm_bytes",
 )
 AUTH = {"runtime_authority": False, "resource_authorization": False, "outward_move": False}
+SOURCE_METADATA = ROOT / "qualification/resource-profile-evidence-v2-source.json"
 
 
 class FreezeError(RuntimeError):
@@ -37,6 +38,35 @@ def load(path: Path) -> Any:
         return json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise FreezeError(f"{path}: cannot load JSON: {exc}") from exc
+
+
+def load_source_metadata(path: Path) -> dict[str, Any]:
+    source = load(path)
+    require(source.get("schema_version") == 1, "unsupported v2 source-metadata schema")
+    require(
+        source.get("repository") == "HMarcusWH/AllfatherChess",
+        "v2 source metadata repository mismatch",
+    )
+    for key in (
+        "workflow_run",
+        "artifact_id",
+        "artifact_name",
+        "artifact_sha256",
+        "source_commit",
+        "source_tree",
+        "lab_spec",
+        "execution_domain",
+        "candidate_build_manifest_sha256",
+    ):
+        require(source.get(key) not in (None, ""), f"v2 source metadata missing {key}")
+    digest = source.get("artifact_sha256")
+    require(
+        isinstance(digest, str)
+        and len(digest) == 64
+        and all(ch in "0123456789abcdef" for ch in digest),
+        "v2 source metadata artifact SHA is malformed",
+    )
+    return source
 
 
 def sha256_file(path: Path) -> str:
@@ -130,8 +160,18 @@ def build_documents(
     workflow_run: int,
     artifact_id: int,
     evidence_path: str,
+    source_metadata: dict[str, Any],
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     artifact_sha = sha256_file(archive)
+    require(
+        workflow_run == source_metadata["workflow_run"]
+        and artifact_id == source_metadata["artifact_id"],
+        "workflow/artifact id differs from frozen v2 source metadata",
+    )
+    require(
+        artifact_sha == source_metadata["artifact_sha256"],
+        "artifact ZIP SHA-256 differs from frozen v2 source metadata",
+    )
     with tempfile.TemporaryDirectory() as tmp:
         extracted = Path(tmp) / "artifact"
         safe_extract_zip(archive, extracted)
@@ -145,6 +185,30 @@ def build_documents(
         stage_b_summary = load(lab / "stage-b/summary.json")
 
         require(manifest.get("lab_id") == "resource-lab-v2", "artifact lab id is not v2")
+        require(
+            manifest.get("source_commit") == source_metadata["source_commit"]
+            and manifest.get("source_tree") == source_metadata["source_tree"],
+            "artifact source commit/tree differs from frozen v2 source metadata",
+        )
+        require(
+            manifest.get("lab_spec") == source_metadata["lab_spec"],
+            "artifact lab-spec identity differs from frozen v2 source metadata",
+        )
+        artifact_domain = manifest.get("execution_domain") or {}
+        require(
+            {
+                "id": artifact_domain.get("execution_domain_id"),
+                "digest": artifact_domain.get("execution_domain_digest"),
+                "binding_scope": artifact_domain.get("binding_scope"),
+            }
+            == source_metadata["execution_domain"],
+            "artifact execution domain differs from frozen v2 source metadata",
+        )
+        require(
+            (manifest.get("candidate_bundle") or {}).get("build_manifest_sha256")
+            == source_metadata["candidate_build_manifest_sha256"],
+            "artifact candidate build manifest differs from frozen v2 source metadata",
+        )
         require(report.get("profile_id") == "resource-lab-v2-report", "wrong v2 report id")
         require(report.get("evidence_valid") is True, "resource-lab-v2 evidence invalid")
         require(report.get("lab_complete") is True, "resource-lab-v2 did not complete")
@@ -385,6 +449,11 @@ def main() -> int:
     parser.add_argument("--workflow-run", type=int, required=True)
     parser.add_argument("--artifact-id", type=int, required=True)
     parser.add_argument(
+        "--source-metadata",
+        type=Path,
+        default=SOURCE_METADATA,
+    )
+    parser.add_argument(
         "--evidence-output",
         type=Path,
         default=ROOT / "qualification/resource-profile-evidence-v2.json",
@@ -401,11 +470,13 @@ def main() -> int:
         if args.evidence_output.resolve().is_relative_to(ROOT)
         else str(args.evidence_output)
     )
+    source_metadata = load_source_metadata(args.source_metadata.resolve())
     evidence, selection = build_documents(
         archive=args.artifact_zip.resolve(),
         workflow_run=args.workflow_run,
         artifact_id=args.artifact_id,
         evidence_path=evidence_rel,
+        source_metadata=source_metadata,
     )
     args.evidence_output.parent.mkdir(parents=True, exist_ok=True)
     args.selection_output.parent.mkdir(parents=True, exist_ok=True)

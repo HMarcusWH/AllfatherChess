@@ -44,6 +44,18 @@ def validate_online_hybrid_profile(
     if policy.get("allow_skipped_extension_authority") is not False:
         raise OnlineHybridProfileError("G3 may not license SKIP-derived authority")
 
+    calibration = policy.get("resource_calibration")
+    if not isinstance(calibration, dict):
+        raise OnlineHybridProfileError("G3 requires a frozen resource calibration")
+    _eq(
+        calibration,
+        {
+            "path": "qualification/online-hybrid-v1-resource-calibration.json",
+            "profile_id": "online-hybrid-v1-resource-calibration",
+        },
+        "G3 resource calibration",
+    )
+
     cases = policy.get("positive_cases")
     if not isinstance(cases, list) or not cases:
         raise OnlineHybridProfileError("G3 requires a non-empty positive_cases corpus")
@@ -125,10 +137,26 @@ def validate_online_hybrid_profile(
 
     if (config.get("routing") or {}).get("policy") != "unified_value_v1":
         raise OnlineHybridProfileError("G3 requires unified_value_v1 routing")
+    routing = config.get("routing") or {}
     _eq(
-        (config.get("routing") or {}).get("verify_stage_cpu_ms_estimate"),
+        routing.get("stage_cpu_ms_estimate"),
+        policy["explore"].get("reservation_cpu_ms_per_stage"),
+        "G3 EXPLORE fallback reservation estimate",
+    )
+    _eq(
+        routing.get("stage_cpu_ms_estimate_by_owner"),
+        policy["explore"].get("reservation_cpu_ms_by_owner"),
+        "G3 EXPLORE owner reservation estimates",
+    )
+    _eq(
+        routing.get("verify_stage_cpu_ms_estimate"),
         policy["verification"].get("reservation_cpu_ms_per_stage"),
-        "G3 VERIFY reservation estimate",
+        "G3 VERIFY fallback reservation estimate",
+    )
+    _eq(
+        routing.get("verify_stage_cpu_ms_estimate_by_owner"),
+        policy["verification"].get("reservation_cpu_ms_by_owner"),
+        "G3 VERIFY owner reservation estimates",
     )
     if (config.get("routing") or {}).get("staged_decision_calibration") is not None:
         raise OnlineHybridProfileError("G3 does not promote a learned SKIP model")

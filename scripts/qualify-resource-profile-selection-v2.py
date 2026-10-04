@@ -18,6 +18,7 @@ from tools.resource_lab.candidate_matrix import expand_candidates, expand_compos
 EVIDENCE = ROOT / "qualification/resource-profile-evidence-v2.json"
 SELECTION = ROOT / "qualification/resource-profile-selection-v2.json"
 SPEC = ROOT / "qualification/resource-lab-v2.json"
+SOURCE_METADATA = ROOT / "qualification/resource-profile-evidence-v2-source.json"
 AUTH = {"runtime_authority": False, "resource_authorization": False, "outward_move": False}
 EVIDENCE_CLAIM = {
     "isolated_resource_measurement": True,
@@ -115,6 +116,29 @@ def validate(
 
     source = evidence.get("source")
     require(isinstance(source, dict) and source.get("lab_id") == "resource-lab-v2", "wrong source lab")
+    frozen_source = load(SOURCE_METADATA)
+    require(
+        frozen_source.get("schema_version") == 1
+        and frozen_source.get("repository") == "HMarcusWH/AllfatherChess",
+        "frozen v2 source metadata schema/repository drift",
+    )
+    require(
+        {
+            "workflow_run": source.get("workflow_run"),
+            "artifact_id": source.get("artifact_id"),
+            "artifact_sha256": source.get("artifact_sha256"),
+            "source_commit": source.get("source_commit"),
+            "source_tree": source.get("source_tree"),
+        }
+        == {
+            "workflow_run": frozen_source.get("workflow_run"),
+            "artifact_id": frozen_source.get("artifact_id"),
+            "artifact_sha256": frozen_source.get("artifact_sha256"),
+            "source_commit": frozen_source.get("source_commit"),
+            "source_tree": frozen_source.get("source_tree"),
+        },
+        "v2 evidence source identity differs from frozen artifact metadata",
+    )
     require(selection.get("source_commit") == source.get("source_commit"), "selection/source commit mismatch")
     require(selection.get("source_tree") == source.get("source_tree"), "selection/source tree mismatch")
     require(isinstance(source.get("workflow_run"), int) and source["workflow_run"] > 0, "workflow run missing")
@@ -129,6 +153,10 @@ def validate(
 
     frozen_spec = source.get("lab_spec")
     require(isinstance(frozen_spec, dict), "frozen lab spec missing")
+    require(
+        frozen_spec == frozen_source.get("lab_spec"),
+        "v2 evidence lab-spec identity differs from frozen source metadata",
+    )
     require(frozen_spec.get("path") == "qualification/resource-lab-v2.json", "frozen lab-spec path drift")
     require(frozen_spec.get("sha256") == sha(spec_path), "current resource-lab-v2 spec differs from measured spec")
     require(frozen_spec.get("canonical_digest") == spec.digest, "lab-spec canonical digest drift")
@@ -143,6 +171,16 @@ def validate(
 
     domain = evidence.get("execution_domain")
     sdomain = selection.get("execution_domain")
+    require(
+        isinstance(domain, dict)
+        and {
+            "id": domain.get("id"),
+            "digest": domain.get("digest"),
+            "binding_scope": domain.get("binding_scope"),
+        }
+        == frozen_source.get("execution_domain"),
+        "v2 evidence execution domain differs from frozen source metadata",
+    )
     require(isinstance(domain, dict) and isinstance(sdomain, dict), "execution domain missing")
     require(
         {k: domain.get(k) for k in ("id", "digest", "binding_scope")}
@@ -153,6 +191,11 @@ def validate(
 
     bundle = source.get("candidate_bundle")
     require(isinstance(bundle, dict), "candidate bundle missing")
+    require(
+        bundle.get("build_manifest_sha256")
+        == frozen_source.get("candidate_build_manifest_sha256"),
+        "candidate bundle manifest differs from frozen source metadata",
+    )
     require(bundle.get("source_commit") == source.get("source_commit"), "candidate bundle source mismatch")
     candidates = expand_candidates(spec, bundle)
     generated = {candidate.candidate_id: candidate for candidate in candidates}

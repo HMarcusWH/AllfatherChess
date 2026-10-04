@@ -221,9 +221,15 @@ def validate(
         require(chosen.get("selection_status") == "isolated_resource_profile", f"{key}: invalid selection status")
         require(chosen.get("composition_qualification") == "not_established", f"{key}: composition qualification overclaim")
         skey = chosen.get("selection_key")
-        require(isinstance(skey, dict) and tuple(skey) == METRICS, f"{key}: selection key drift")
+        require(
+            isinstance(skey, dict) and set(skey) == set(METRICS),
+            f"{key}: selection key drift",
+        )
         for index, name in enumerate(METRICS):
-            require(float(skey[name]) == float(row["metrics"][index]), f"{key}: selection metric mismatch {name}")
+            require(
+                float(skey[name]) == float(row["metrics"][index]),
+                f"{key}: selection metric mismatch {name}",
+            )
         winners[f"{key[0]}/n{key[1]}"] = row["variant"]
     require(seen == expected_keys, "selection coverage incomplete")
 

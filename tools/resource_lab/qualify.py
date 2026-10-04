@@ -288,6 +288,7 @@ def qualify(root: Path, spec_path: Path) -> dict[str, Any]:
     manifest = load(root / "manifest.json")
     require(isinstance(manifest, dict), "manifest must be object")
     source = source_identity(ROOT)
+    require(manifest.get("lab_id") == spec.lab_id, "lab id differs from requested specification")
     require(manifest.get("source_commit") == source["commit"], "lab source is not exact head")
     require(manifest.get("attempt_policy") == "single-pass-no-retry-v1", "retry policy drift")
     require(manifest.get("attempt_order_policy") == "blocked-cyclic-v1", "attempt order policy drift")
@@ -371,7 +372,10 @@ def qualify(root: Path, spec_path: Path) -> dict[str, Any]:
         identity_field="candidate_id",
         label="Stage-A",
     )
-    require(len(rows) == 1368, "frozen Stage-A attempt count drift")
+    require(
+        len(rows) == len(expected_a_plan),
+        "Stage-A attempt count differs from the frozen specification",
+    )
 
     completed_a = errors_a = observation_faults = 0
     reconstructed_a: list[dict[str, Any]] = []
@@ -452,7 +456,10 @@ def qualify(root: Path, spec_path: Path) -> dict[str, Any]:
         identity_field="composition_id",
         label="Stage-B",
     )
-    require(len(stage_b_rows) == 72, "frozen Stage-B batch count drift")
+    require(
+        len(stage_b_rows) == len(expected_b_plan),
+        "Stage-B batch count differs from the frozen specification",
+    )
 
     completed_b = errors_b = 0
     reconstructed_b: list[dict[str, Any]] = []
@@ -513,10 +520,11 @@ def qualify(root: Path, spec_path: Path) -> dict[str, Any]:
         rebuilt["aggregate_resource"] = aggregate
         reconstructed_b.append(rebuilt)
 
+    baseline_composition_id = compositions[0].composition_id
     baseline_batches = [
         row
         for row in reconstructed_b
-        if row.get("composition_id") == "c0-four-way-v2-current"
+        if row.get("composition_id") == baseline_composition_id
     ]
     require(
         len(baseline_batches) == spec.repeats * len(case_ids)
@@ -526,7 +534,7 @@ def qualify(root: Path, spec_path: Path) -> dict[str, Any]:
             and row["aggregate_resource"].get("process_scope_complete") is True
             for row in baseline_batches
         ),
-        "current-v2 Stage-B reference composition did not complete with complete process scope",
+        "Stage-B reference composition did not complete with complete process scope",
     )
 
     retained_stage_b_summary = load(root / "stage-b/summary.json")
@@ -553,7 +561,7 @@ def qualify(root: Path, spec_path: Path) -> dict[str, Any]:
     }
     return {
         "schema_version": 1,
-        "profile_id": "resource-lab-v1-report",
+        "profile_id": f"{spec.lab_id}-report",
         "source_commit": source["commit"],
         "execution_domain_id": domain["execution_domain_id"],
         "execution_domain_digest": domain["execution_domain_digest"],
@@ -583,9 +591,17 @@ def qualify(root: Path, spec_path: Path) -> dict[str, Any]:
         "reference_cpu_measurement_quality": reference_cpu_quality,
         "attempt_order_policy": spec.raw["attempt_order_policy"],
         "promotion_ready": False,
-        "promotion_requires": "J7 frozen profile selection",
+        "promotion_requires": (
+            "J7 frozen profile selection"
+            if spec.lab_id == "resource-lab-v1"
+            else "resource-profile-selection-v2 freeze before canonical promotion"
+        ),
         "promotion_blockers": [
-            "J7 frozen profile selection",
+            (
+                "J7 frozen profile selection"
+                if spec.lab_id == "resource-lab-v1"
+                else "resource-profile-selection-v2 freeze before canonical promotion"
+            ),
             *[
                 f"{row['family']}/n{row['nodes']}:{row['reason']}"
                 for row in reference_native_work_blockers

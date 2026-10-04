@@ -63,8 +63,13 @@ jobs:
           python3 -m compileall -q tools/resource_lab tests/resource_lab tests/harness/uci_session.py controller/resource_profile_catalog.py
           python3 -m json.tool qualification/resource-lab-v1.json >/dev/null
           python3 -m json.tool qualification/resource-lab-v2.json >/dev/null
+          python3 -m json.tool qualification/resource-profile-evidence-v2.json >/dev/null
+          python3 -m json.tool qualification/resource-profile-selection-v2.json >/dev/null
+          python3 -m py_compile scripts/freeze-resource-profile-evidence-v2.py scripts/qualify-resource-profile-selection-v2.py
           make resource-lab-tests
           python3 tests/controller/test_resource_profile_catalog.py
+          python3 scripts/qualify-resource-profile-selection-v2.py
+          python3 tests/controller/test_resource_profile_selection_v2.py
 
   build-candidate:
     needs: static-contracts

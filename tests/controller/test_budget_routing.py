@@ -118,6 +118,48 @@ class EnvelopeTests(unittest.TestCase):
             ResourceEnvelope(wall_ms=10, cpu_ms=10, controller_overhead_reserve_ms=100)
 
 
+class PerMovePartitionRegressionTests(unittest.TestCase):
+    def test_controller_reserve_stays_absolute_on_retained_local1_envelopes(self):
+        declared = ResourceEnvelope(
+            wall_ms=4000.0,
+            cpu_ms=12000.0,
+            verification_reserve_fraction=0.3,
+            controller_overhead_reserve_ms=250.0,
+        )
+        for wall_ms, observed_controller_ms in (
+            (1596, 175.344),
+            (1847, 157.175),
+        ):
+            with self.subTest(wall_ms=wall_ms):
+                move = declared.bounded_for_move(
+                    wall_ms=wall_ms,
+                    cpu_parallelism=4,
+                )
+                self.assertEqual(move.controller_overhead_reserve_ms, 250.0)
+                ledger = BudgetLedger(move, clock=lambda: 0.0, started=0.0)
+                ledger.charge_elapsed(
+                    "qualification",
+                    cpu_ms=observed_controller_ms,
+                    purpose="controller",
+                )
+                self.assertTrue(ledger.within_partition_caps())
+
+    def test_controller_partition_still_fails_closed_above_declared_absolute_cap(self):
+        move = ResourceEnvelope(
+            wall_ms=4000.0,
+            cpu_ms=12000.0,
+            verification_reserve_fraction=0.3,
+            controller_overhead_reserve_ms=250.0,
+        ).bounded_for_move(wall_ms=1596, cpu_parallelism=4)
+        ledger = BudgetLedger(move, clock=lambda: 0.0, started=0.0)
+        ledger.charge_elapsed(
+            "qualification",
+            cpu_ms=251.0,
+            purpose="controller",
+        )
+        self.assertFalse(ledger.within_partition_caps())
+
+
 class BudgetLedgerTests(unittest.TestCase):
     def test_concurrent_reservations_cannot_exceed_the_envelope(self):
         ledger = BudgetLedger(envelope(cpu_ms=1000.0, verification_reserve_fraction=0.0,

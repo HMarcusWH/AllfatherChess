@@ -1574,7 +1574,7 @@ The old path must remain green.
 
 ---
 
-## 42. J13 — META-1 — **CONTROL MERGED / EXECUTION QUALIFICATION IN PROGRESS**
+## 42. J13 — META-1 — **EXECUTION QUALIFICATION MERGED / SUBSTRATE REQUALIFICATION IN PROGRESS**
 
 Primary comparative experiment:
 
@@ -1583,6 +1583,11 @@ Primary comparative experiment:
 The J13A control plane is merged in PR #60. J13B does not change controller policy,
 engines, allocator, WorkGrants, openings or clocks. It makes the already-frozen experiment
 confirmatory and independently auditable:
+
+PR #61 merged those J13B execution-qualification controls. Before the actual campaign,
+J13C must requalify the ENGINE-OPT-V2 substrate because the retained PR #61 aggregate was
+valid negative evidence: the selected LC0 profile changed one frozen bestmove and the
+unchanged G3-v2 corpus produced no non-anchor positive witness. J13C qualifies the proposed LC0 profile only through candidate-specific selection/reference/G3/LOCAL-1 surfaces. It must leave the canonical ENGINE-OPT selection, J3 catalog, J6/J7 evidence and J8-J12 runtimes unchanged until a later explicit promotion/requalification PR. It may not weaken the G3 witness criterion or META-1 protocol.
 
 - every campaign attempt is immutable and source/workflow-attempt bound;
 - workflow-dispatch execution is accepted only from merged `main`;

@@ -47,9 +47,15 @@
 - **PROVED / J13A CONTROL ARCHITECTURE:** PR #60 adds the matched-orchestration
   `ANCHOR_CONTROL` disposition while preserving proposal, authorization and the
   clock-authority publication gate.
-- **OPEN / J13B META-1 EXECUTION:** the frozen 50-opening / 100-game experiment still
-  requires one real J12-authority-qualified host, immutable raw evidence and independent
-  paired-block requalification before J13 can close.
+- **PROVED / J13B META-1 EXECUTION QUALIFICATION:** PR #61 merged immutable attempts,
+  relocation-aware independent verification, pre/post host-domain binding, paired-opening
+  reporting and tested artifact transport/retention.
+- **OPEN / J13C ENGINE-OPT CANDIDATE QUALIFICATION:** PR #61 retained valid negative
+  aggregate evidence for the then-selected LC0 profile and G3-v2 witness. PR #62 qualifies
+  `b4-p0-c256k-cold` only as a non-authoritative candidate overlay while canonical b7/J3/J8-J12
+  remain unchanged. A later promotion/requalification step is required before META-1 may run.
+- **OPEN / J13 META-1 CAMPAIGN:** the frozen 50-opening / 100-game experiment still
+  requires one real J12-authority-qualified host after J13C closes.
 - **OPEN RELEASE GATES:** ONLINE-3 packaging/bridge, ONLINE-4
   network/restart/rollback, aggregate release qualification, ONLINE-RC, main governance,
   and combined-distribution licensing.

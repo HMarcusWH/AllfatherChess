@@ -8,6 +8,7 @@ on:
       - 'vendor.lock.json'
       - 'qualification/resource-lab-v2.json'
       - 'qualification/resource-profile-evidence-v2.json'
+      - 'qualification/resource-profile-evidence-v2-source.json'
       - 'qualification/resource-profile-selection-v2.json'
       - 'qualification/engine-opt-v2-candidate-selection.json'
       - 'qualification/engine-opt-v2-candidate-evidence.json'
@@ -69,6 +70,7 @@ jobs:
           python3 -m json.tool qualification/resource-lab-v1.json >/dev/null
           python3 -m json.tool qualification/resource-lab-v2.json >/dev/null
           python3 -m json.tool qualification/resource-profile-evidence-v2.json >/dev/null
+          python3 -m json.tool qualification/resource-profile-evidence-v2-source.json >/dev/null
           python3 -m json.tool qualification/resource-profile-selection-v2.json >/dev/null
           python3 -m py_compile scripts/freeze-resource-profile-evidence-v2.py scripts/qualify-resource-profile-selection-v2.py
           make resource-lab-tests

@@ -207,9 +207,13 @@ def main() -> int:
     try:
         report = validate_preflight(args.root.resolve(), args.spec.resolve())
     except Exception as exc:
+        try:
+            failed_profile_id = f"{load_lab_spec(args.spec.resolve()).lab_id}-preflight"
+        except Exception:
+            failed_profile_id = "resource-lab-invalid-preflight"
         report = {
             "schema_version": 1,
-            "profile_id": "resource-lab-v1-preflight",
+            "profile_id": failed_profile_id,
             "preflight_valid": False,
             "promotion_ready": False,
             "error": f"{type(exc).__name__}: {exc}",

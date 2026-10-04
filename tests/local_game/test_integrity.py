@@ -28,6 +28,9 @@ class G3PrerequisiteSeparationTests(unittest.TestCase):
             "policy_sha256": sha(ROOT / "qualification/online-hybrid-authority.json"),
             "runtime_config_sha256": sha(ROOT / "config/allfather.online-hybrid.validation.json"),
             "online2_config_sha256": sha(ROOT / "config/allfather.online.cpu-reference.json"),
+            "resource_calibration_sha256": sha(
+                ROOT / "qualification/online-hybrid-v1-resource-calibration.json"
+            ),
             "positive_witness_observed": False,
             "positive_case": None,
             "cases": [
@@ -48,12 +51,21 @@ class G3PrerequisiteSeparationTests(unittest.TestCase):
         verify_local1_g3_prerequisite_report(self.report(), source_identity(ROOT))
 
     def test_local1_mechanism_report_cannot_launder_identity_or_resource_failure(self):
-        for mutation in ("mode", "source", "resource", "deadline", "positive-marker"):
+        for mutation in (
+            "mode",
+            "source",
+            "calibration",
+            "resource",
+            "deadline",
+            "positive-marker",
+        ):
             report = self.report()
             if mutation == "mode":
                 report["qualification_mode"] = "positive-witness"
             elif mutation == "source":
                 report["source_commit"] = "0" * 40
+            elif mutation == "calibration":
+                report["resource_calibration_sha256"] = "0" * 64
             elif mutation == "resource":
                 report["cases"][0]["resource_qualified"] = False
             elif mutation == "deadline":

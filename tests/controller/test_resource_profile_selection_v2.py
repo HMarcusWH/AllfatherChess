@@ -24,6 +24,7 @@ SPEC.loader.exec_module(mod)
 EVIDENCE = ROOT / "qualification/resource-profile-evidence-v2.json"
 SELECTION = ROOT / "qualification/resource-profile-selection-v2.json"
 LAB_SPEC = ROOT / "qualification/resource-lab-v2.json"
+SOURCE_METADATA = ROOT / "qualification/resource-profile-evidence-v2-source.json"
 
 
 def load(path: Path) -> dict:
@@ -41,19 +42,32 @@ class ResourceProfileSelectionV2Tests(unittest.TestCase):
     def setUp(self):
         self.evidence = load(EVIDENCE)
         self.selection = load(SELECTION)
+        self.source_metadata = load(SOURCE_METADATA)
 
-    def _validate(self, *, evidence=None, selection=None, rebind_evidence=True):
+    def _validate(
+        self,
+        *,
+        evidence=None,
+        selection=None,
+        source_metadata=None,
+        rebind_evidence=True,
+    ):
         evidence = copy.deepcopy(self.evidence if evidence is None else evidence)
         selection = copy.deepcopy(self.selection if selection is None else selection)
+        source_metadata = copy.deepcopy(
+            self.source_metadata if source_metadata is None else source_metadata
+        )
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             ep = root / "evidence.json"
             sp = root / "selection.json"
+            mp = root / "source.json"
             dump(ep, evidence)
+            dump(mp, source_metadata)
             if rebind_evidence:
                 selection["evidence_sha256"] = hashlib.sha256(ep.read_bytes()).hexdigest()
             dump(sp, selection)
-            return mod.validate(ep, sp, LAB_SPEC)
+            return mod.validate(ep, sp, LAB_SPEC, mp)
 
     def test_frozen_v2_selection_qualifies(self):
         report = mod.validate(EVIDENCE, SELECTION, LAB_SPEC)
@@ -152,6 +166,18 @@ class ResourceProfileSelectionV2Tests(unittest.TestCase):
         selection["selections"][0]["composition_qualification"] = "qualified"
         with self.assertRaises(mod.SelectionV2Error):
             self._validate(selection=selection)
+
+    def test_source_metadata_identity_tampering_is_rejected(self):
+        source = copy.deepcopy(self.source_metadata)
+        source["artifact_id"] += 1
+        with self.assertRaises(mod.SelectionV2Error):
+            self._validate(source_metadata=source)
+
+    def test_source_metadata_artifact_digest_tampering_is_rejected(self):
+        source = copy.deepcopy(self.source_metadata)
+        source["artifact_sha256"] = "0" * 64
+        with self.assertRaises(mod.SelectionV2Error):
+            self._validate(source_metadata=source)
 
     def test_measured_reference_contract_hash_drift_is_rejected(self):
         evidence = copy.deepcopy(self.evidence)

@@ -43,6 +43,9 @@ jobs:
           python3 -m json.tool qualification/resource-profile-selection-v2.json >/dev/null
           python3 scripts/qualify-resource-profile-selection-v2.py --output build/test-results/resource-profile-selection-v2/report.json
           python3 tests/controller/test_resource_profile_selection_v2.py
+          python3 -m json.tool qualification/online-hybrid-v1-resource-calibration.json >/dev/null
+          python3 scripts/validate-online-hybrid-resource-calibration.py
+          python3 tests/controller/test_online_hybrid_resource_calibration.py
           python3 -m json.tool qualification/adaptive-clock-v1.json >/dev/null
           python3 -m json.tool config/allfather.m14-j-j8.validation.json >/dev/null
           python3 tests/controller/test_move_resource_plan.py

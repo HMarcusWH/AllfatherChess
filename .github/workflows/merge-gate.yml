@@ -38,6 +38,10 @@ jobs:
           python3 -m json.tool qualification/resource-profile-selection-v1.json >/dev/null
           python3 scripts/qualify-resource-profile-selection.py --output build/test-results/resource-profile-selection/report.json
           python3 tests/controller/test_resource_profile_selection.py
+          python3 -m json.tool qualification/resource-profile-evidence-v2.json >/dev/null
+          python3 -m json.tool qualification/resource-profile-selection-v2.json >/dev/null
+          python3 scripts/qualify-resource-profile-selection-v2.py --output build/test-results/resource-profile-selection-v2/report.json
+          python3 tests/controller/test_resource_profile_selection_v2.py
           python3 -m json.tool qualification/adaptive-clock-v1.json >/dev/null
           python3 -m json.tool config/allfather.m14-j-j8.validation.json >/dev/null
           python3 tests/controller/test_move_resource_plan.py

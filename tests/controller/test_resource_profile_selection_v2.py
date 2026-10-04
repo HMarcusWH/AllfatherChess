@@ -173,6 +173,12 @@ class ResourceProfileSelectionV2Tests(unittest.TestCase):
         with self.assertRaises(mod.SelectionV2Error):
             self._validate(source_metadata=source)
 
+    def test_source_metadata_claim_overreach_is_rejected(self):
+        source = copy.deepcopy(self.source_metadata)
+        source["claim_boundary"]["canonical_runtime_authority"] = True
+        with self.assertRaises(mod.SelectionV2Error):
+            self._validate(source_metadata=source)
+
     def test_source_metadata_artifact_digest_tampering_is_rejected(self):
         source = copy.deepcopy(self.source_metadata)
         source["artifact_sha256"] = "0" * 64

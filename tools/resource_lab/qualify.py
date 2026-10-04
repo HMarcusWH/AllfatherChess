@@ -631,9 +631,13 @@ def main() -> int:
     try:
         report = qualify(args.root.resolve(), args.spec.resolve())
     except Exception as exc:
+        try:
+            failed_profile_id = f"{load_lab_spec(args.spec.resolve()).lab_id}-report"
+        except Exception:
+            failed_profile_id = "resource-lab-invalid-report"
         report = {
             "schema_version": 1,
-            "profile_id": "resource-lab-v1-report",
+            "profile_id": failed_profile_id,
             "evidence_valid": False,
             "lab_complete": False,
             "promotion_ready": False,

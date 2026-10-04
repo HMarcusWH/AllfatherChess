@@ -1,0 +1,128 @@
+{
+  "schema_version": 1,
+  "profile_id": "online-hybrid-v1-resource-calibration",
+  "runtime_config": "config/allfather.online-hybrid.validation.json",
+  "authority_policy": "qualification/online-hybrid-authority.json",
+  "claim_boundary": {
+    "legacy_v1_resource_reservation_calibration": true,
+    "canonical_b4_promotion": false,
+    "outer_envelope_increase": false,
+    "resource_authorization": false,
+    "outward_move_authority": false,
+    "strength": false,
+    "elo": false,
+    "equal_compute": false,
+    "deployment": false
+  },
+  "outer_envelope": {
+    "wall_ms": 4000,
+    "cpu_ms": 12000,
+    "gpu_ms": 0,
+    "verification_reserve_fraction": 0.3,
+    "controller_overhead_reserve_ms": 250
+  },
+  "retained_local1_sources": [
+    {
+      "workflow_run": 37206345298,
+      "artifact_id": 11305969004,
+      "artifact_name": "local-full-game-37206345298-1",
+      "artifact_sha256": "8c60c98136e2289573c1209f77b8ccd91da3c87512561f998e08934271e9120c",
+      "source_commit": "b86cbad77776842410bd34118daf08be68e509ee",
+      "campaign_id": "1791121801324344197-3d99d087",
+      "route_count": 736,
+      "observed": {
+        "controller_total_cpu_ms": {
+          "samples": 736,
+          "median": 6.799,
+          "p95": 10.13,
+          "p99": 12.013,
+          "max": 165.46
+        },
+        "lc0_explore_cpu_ms": {
+          "samples": 692,
+          "median": 1010,
+          "p95": 1630,
+          "p99": 1720.9,
+          "max": 1760
+        },
+        "lc0_verify_cpu_ms": {
+          "samples": 97,
+          "median": 240,
+          "p95": 700,
+          "p99": 720.8,
+          "max": 740
+        },
+        "lc0_staged_verify_extension_cpu_ms": {
+          "samples": 34,
+          "median": 580,
+          "p95": 807.5,
+          "p99": 1141.5,
+          "max": 1290
+        }
+      }
+    },
+    {
+      "workflow_run": 37219970974,
+      "artifact_id": 11312163668,
+      "artifact_name": "local-full-game-37219970974-1",
+      "artifact_sha256": "f251c0dad3a0f7760a930b9abaef0b69cf161ce96fc6df219ad00bd17b64aa46",
+      "source_commit": "3061120258208dec4f989341a297c78dcf6bd6b6",
+      "campaign_id": "1791137229537986795-b7d6d18b",
+      "route_count": 669,
+      "observed": {
+        "controller_total_cpu_ms": {
+          "samples": 669,
+          "median": 7.994,
+          "p95": 11.511,
+          "p99": 50.518,
+          "max": 217.362
+        },
+        "lc0_explore_cpu_ms": {
+          "samples": 628,
+          "median": 1155,
+          "p95": 1650,
+          "p99": 1720,
+          "max": 1750
+        },
+        "lc0_verify_cpu_ms": {
+          "samples": 94,
+          "median": 80,
+          "p95": 610,
+          "p99": 703.5,
+          "max": 750
+        },
+        "lc0_staged_verify_extension_cpu_ms": {
+          "samples": 39,
+          "median": 490,
+          "p95": 1130,
+          "p99": 1136.2,
+          "max": 1140
+        }
+      }
+    }
+  ],
+  "selection": {
+    "controller_overhead_reserve_ms": 250,
+    "explore_cpu_ms_by_owner": {
+      "stockfish": 100,
+      "reckless": 100,
+      "lc0": 1800
+    },
+    "verify_cpu_ms_by_owner": {
+      "stockfish": 100,
+      "reckless": 100,
+      "lc0": 1400
+    },
+    "fallback_cpu_ms_per_stage": {
+      "explore": 500,
+      "verify": 750
+    }
+  },
+  "selection_rationale": {
+    "controller": "Retain the pre-existing absolute 250 ms profile reserve; the maximum retained controller-purpose spend is 217.362 ms. Per-move derivation must not scale this fixed work proportionally with clock.",
+    "lc0_explore": "Round the maximum retained LC0 EXPLORE CPU observation (1760 ms) upward to the next 100 ms boundary.",
+    "lc0_verify": "Cover both base VERIFY and same-process staged VERIFY extension; retained maximum is 1290 ms, rounded to 1300 ms plus 100 ms explicit headroom.",
+    "stockfish_reckless": "Retain the existing conservative 100 ms per-owner floor; no attempt is made here to lower their reservation from these failed lifecycle campaigns.",
+    "fallback": "Keep legacy scalar fallbacks 500/750 ms for unknown owners; the three frozen owners must use explicit maps."
+  }
+}

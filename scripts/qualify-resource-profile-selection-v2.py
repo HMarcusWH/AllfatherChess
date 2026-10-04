@@ -40,6 +40,16 @@ SELECTION_CLAIM = {
     "elo": False,
     "equal_compute": False,
 }
+SOURCE_CLAIM = {
+    "evidence_only": True,
+    "canonical_runtime_authority": False,
+    "resource_authorization": False,
+    "outward_move": False,
+    "deployment": False,
+    "strength": False,
+    "elo": False,
+    "equal_compute": False,
+}
 FAMILIES = {"stockfish": (16, 64, 256), "reckless": (16, 64, 256), "lc0": (16, 32, 64)}
 METRICS = ("median_wall_ms", "p95_wall_ms", "median_cpu_ms", "p95_cpu_ms", "p95_vm_hwm_bytes")
 TIE_BREAK = METRICS + ("candidate_id",)
@@ -122,6 +132,11 @@ def validate(
         frozen_source.get("schema_version") == 1
         and frozen_source.get("repository") == "HMarcusWH/AllfatherChess",
         "frozen v2 source metadata schema/repository drift",
+    )
+    require(
+        frozen_source.get("artifact_name") == "resource-lab-v2"
+        and frozen_source.get("claim_boundary") == SOURCE_CLAIM,
+        "frozen v2 source metadata artifact/claim boundary drift",
     )
     require(
         {

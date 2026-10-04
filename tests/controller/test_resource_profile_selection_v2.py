@@ -65,6 +65,23 @@ class ResourceProfileSelectionV2Tests(unittest.TestCase):
         self.assertEqual(report["selections"]["lc0/n64"], "cache2m")
         self.assertEqual(report["selections"]["stockfish/n64"], "t1-h64")
 
+    def test_selection_key_order_is_not_semantic(self):
+        selection = copy.deepcopy(self.selection)
+        target = selection["selections"][0]
+        target["selection_key"] = {
+            name: target["selection_key"][name]
+            for name in reversed(mod.METRICS)
+        }
+        report = self._validate(selection=selection)
+        self.assertTrue(report["qualified"])
+
+    def test_selection_key_missing_metric_is_rejected(self):
+        selection = copy.deepcopy(self.selection)
+        target = selection["selections"][0]
+        target["selection_key"].pop("p95_vm_hwm_bytes")
+        with self.assertRaises(mod.SelectionV2Error):
+            self._validate(selection=selection)
+
     def test_evidence_hash_mismatch_is_rejected(self):
         evidence = copy.deepcopy(self.evidence)
         evidence["stage_a"]["errors"] = 1

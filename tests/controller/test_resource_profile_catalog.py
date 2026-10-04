@@ -24,7 +24,7 @@ CATALOG = ROOT / "qualification/resource-profile-catalog-v1.json"
 RUNTIME = ROOT / "config/allfather.online-hybrid-v2.validation.json"
 SELECTION = ROOT / "qualification/engine-opt-v2-selection.json"
 HOST_BINDING = ROOT / "qualification/engine-opt-v2-host-binding.json"
-CANDIDATE_RUNTIME = ROOT / "config/allfather.online-engine-opt-v2.candidate.json"
+CANDIDATE_RUNTIME = ROOT / "config/allfather.online-hybrid-v2.candidate.validation.json"
 CANDIDATE_SELECTION = ROOT / "qualification/engine-opt-v2-candidate-selection.json"
 
 

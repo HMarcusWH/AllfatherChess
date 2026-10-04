@@ -108,6 +108,11 @@ def verify_local1_g3_prerequisite_report(g3: dict, source: dict) -> None:
         == sha(ROOT / "config/allfather.online.cpu-reference.json"),
         "G3 prerequisite ONLINE-2 identity mismatch",
     )
+    require(
+        g3.get("resource_calibration_sha256")
+        == sha(ROOT / "qualification/online-hybrid-v1-resource-calibration.json"),
+        "G3 prerequisite resource-calibration identity mismatch",
+    )
     cases = g3.get("cases")
     require(isinstance(cases, list) and cases, "G3 prerequisite report has no cases")
     run_ids = [row.get("run_id") for row in cases]

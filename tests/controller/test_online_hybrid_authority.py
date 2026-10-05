@@ -101,6 +101,8 @@ class ProfileTests(unittest.TestCase):
         critical_inputs = (
             "qualification/online-cpu-reference.json",
             "qualification/online-hybrid-v1-resource-calibration.json",
+            "qualification/online-hybrid-v1-resource-observations.json",
+            "qualification/replay-history-sources.json",
             "qualification/lc0-strength.lock.json",
             "qualification/lc0-strength-profile.json",
             "config/allfather.online.cpu-reference.json",

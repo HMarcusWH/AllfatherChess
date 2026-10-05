@@ -167,6 +167,33 @@ def main() -> int:
             require((doc.get("source") or {}).get("commit") == source, f"{label} source is not exact head")
             require(not doc.get("errors"), f"{label} contains execution errors")
 
+        engine_artifacts = (
+            ((details.get("candidate") or {}).get("bundle") or {})
+            .get("artifacts", {})
+            .get("engines", {})
+        )
+        for family, doc, derived_label in (
+            ("lc0", lc0, "allfather-derived"),
+            ("reckless", reckless, "allfather-derived"),
+            ("stockfish", stockfish, "pgo"),
+        ):
+            expected_sha = (engine_artifacts.get(family) or {}).get("sha256")
+            require(
+                isinstance(expected_sha, str)
+                and (doc.get("binaries") or {}).get(derived_label, {}).get("sha256") == expected_sha,
+                f"{family} A/B derived binary differs from candidate bundle",
+            )
+        require(
+            (sf_hash.get("binary") or {}).get("sha256")
+            == (engine_artifacts.get("stockfish") or {}).get("sha256"),
+            "Stockfish hash matrix binary differs from candidate bundle",
+        )
+        require(
+            (rr_hash.get("binary") or {}).get("sha256")
+            == (engine_artifacts.get("reckless") or {}).get("sha256"),
+            "Reckless hash matrix binary differs from candidate bundle",
+        )
+
         def recompute_ab(doc: dict[str, Any]) -> dict[str, Any]:
             rows = doc.get("rows")
             binaries = doc.get("binaries") or {}

@@ -2,7 +2,12 @@
 from __future__ import annotations
 
 import copy
+from pathlib import Path
+import sys
 import unittest
+
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
 
 from tools.engine_opt.constituent_hash import (
     ConstituentHashError,

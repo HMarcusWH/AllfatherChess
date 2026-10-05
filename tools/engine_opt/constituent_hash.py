@@ -157,6 +157,13 @@ def qualify_hash_matrix(
     }, "hash matrix protocol drift")
     require(document.get("nodes") == policy["nodes"][family], "hash matrix work target drift")
     require(selected_hash_mb == policy["selected_hash_mb"], "selected hash differs from frozen protocol")
+    binary = document.get("binary")
+    require(
+        isinstance(binary, dict)
+        and isinstance(binary.get("sha256"), str)
+        and len(binary["sha256"]) == 64,
+        "hash matrix binary identity missing",
+    )
 
     case_ids = load_case_ids(policy)
     expected = schedule(case_ids, repeats=policy["repeats"])
@@ -169,6 +176,7 @@ def qualify_hash_matrix(
         for key, value in slot.items():
             require(row.get(key) == value and type(row.get(key)) is type(value), f"hash row schedule drift: {key}")
         require(row.get("family") == family, "hash row family drift")
+        require(row.get("binary_sha256") == binary["sha256"], "hash row binary identity mismatch")
         require(row.get("hash_mb") == slot["hash_mb"], "hash row hash drift")
         require(row.get("options") == expected_options(family, slot["hash_mb"]), "hash row options drift")
         require(row.get("nodes_requested") == policy["nodes"][family], "hash row nodes drift")

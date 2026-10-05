@@ -5,6 +5,7 @@ on:
   pull_request:
     paths:
       - 'qualification/engine-opt-*.json'
+      - 'qualification/constituent-benchmark-v2.json'
       - 'qualification/resource-profile-catalog-v1.json'
       - 'qualification/adaptive-clock-v1.json'
       - 'qualification/work-grant-scheduler-v1.json'
@@ -135,6 +136,8 @@ jobs:
           python3 tests/engine_opt/test_matrix_qualification.py
           python3 tests/engine_opt/test_matrix_scope.py
           python3 tests/engine_opt/test_g3_witness_extractor.py
+          python3 tests/engine_opt/test_constituent_hash.py
+          python3 -m json.tool qualification/constituent-benchmark-v2.json >/dev/null
           python3 tests/controller/test_engine_opt_runtime.py
           python3 tests/controller/test_move_resource_plan.py
           python3 tests/controller/test_adaptive_time.py
@@ -266,6 +269,30 @@ jobs:
           python3 scripts/engine-opt-ab.py             --family stockfish             --left build/candidate-download/online-engine-opt-v2/bin/stockfish             --left-label pgo             --right build/stockfish-no-pgo             --right-label no-pgo             --nodes 200000             --output build/test-results/engine-opt-ab/stockfish-pgo-vs-no-pgo.json
           python3 scripts/engine-opt-hash-matrix.py             --family stockfish             --binary build/candidate-download/online-engine-opt-v2/bin/stockfish             --nodes 200000             --output build/test-results/engine-opt-ab/stockfish-hash-matrix.json
           python3 scripts/engine-opt-hash-matrix.py             --family reckless             --binary build/candidate-download/online-engine-opt-v2/bin/reckless             --nodes 200000             --output build/test-results/engine-opt-ab/reckless-hash-matrix.json
+      - name: Qualify repeated constituent hash evidence before lifecycle
+        run: |
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          from tools.engine_opt.constituent_hash import load_policy, qualify_hash_matrix
+          policy=load_policy()
+          source=os.environ["ALLFATHER_SOURCE_SHA"]
+          selected={"stockfish":16,"reckless":16}
+          for family in ("stockfish","reckless"):
+              path=Path(f"build/test-results/engine-opt-ab/{family}-hash-matrix.json")
+              doc=json.loads(path.read_text(encoding="utf-8"))
+              result=qualify_hash_matrix(
+                  doc,
+                  expected_source_commit=source,
+                  selected_hash_mb=selected[family],
+                  policy=policy,
+              )
+              print(f"{family}: {json.dumps(result, sort_keys=True)}")
+              if result["qualified"] is not True:
+                  raise SystemExit(
+                      f"{family} repeated hash qualification: {result['disposition']}"
+                  )
+          PY
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
@@ -302,7 +329,7 @@ jobs:
           retention-days: 14
 
   profile-domain-qualification:
-    needs: [impact, build-candidate, fastchess-source-tests-v2]
+    needs: [impact, build-candidate, fastchess-source-tests-v2, constituent-ab]
     if: ${{ needs.impact.outputs.impact != 'control_plane_only' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 360

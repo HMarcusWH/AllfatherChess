@@ -60,10 +60,11 @@ def require(ok: bool, message: str) -> None:
 
 
 def _git(repo_root: Path, *args: str, text: bool = True) -> str | bytes:
-    return subprocess.check_output(
+    result = subprocess.check_output(
         ["git", "-C", str(repo_root), *args],
         text=text,
-    ).strip()
+    )
+    return result.strip() if text else result
 
 
 def compare_canonical_surface(repo_root: Path, base_sha: str) -> dict[str, Any]:

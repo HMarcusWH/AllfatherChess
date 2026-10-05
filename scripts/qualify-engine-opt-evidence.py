@@ -149,6 +149,9 @@ def main() -> int:
 
     def check_ab() -> dict[str, Any]:
         root = artifact_root / "engine-opt-v2-constituent-ab"
+        protocol = load_constituent_policy()
+        from tools.engine_opt.constituent_hash import load_case_ids
+        expected_case_ids = load_case_ids(protocol)
         lc0 = load(find_one(root, "**/lc0-derived-vs-pristine.json"))
         reckless = load(find_one(root, "**/reckless-derived-vs-pristine.json"))
         stockfish = load(find_one(root, "**/stockfish-pgo-vs-no-pgo.json"))
@@ -181,6 +184,17 @@ def main() -> int:
             )
             labels = expected_labels
             by_side: dict[str, dict[str, dict[str, Any]]] = {label: {} for label in labels}
+            require(len(rows) == len(expected_case_ids) * 2, "A/B row count drift")
+            for case_index, case_id in enumerate(expected_case_ids):
+                expected_order = labels if case_index % 2 == 0 else tuple(reversed(labels))
+                pair = rows[case_index * 2 : case_index * 2 + 2]
+                require(
+                    [row.get("case_id") for row in pair] == [case_id, case_id]
+                    and [row.get("side") for row in pair] == list(expected_order)
+                    and [row.get("case_order_index") for row in pair] == [case_index, case_index]
+                    and [row.get("side_order_index") for row in pair] == [0, 1],
+                    "A/B paired execution order drift",
+                )
             expected_options = doc.get("options")
             expected_nodes = doc.get("nodes")
             require(isinstance(expected_options, dict), "A/B options missing")
@@ -256,7 +270,6 @@ def main() -> int:
         ):
             fail("NOT_QUALIFIED_CONSTITUENT_REGRESSION", "PGO Stockfish failed its frozen A/B gate")
 
-        protocol = load_constituent_policy()
         sf_hash_result = qualify_hash_matrix(
             sf_hash,
             expected_source_commit=source,

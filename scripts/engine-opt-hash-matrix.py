@@ -86,7 +86,7 @@ def main() -> int:
         "ordering": policy["ordering"],
         "attempt_policy": policy["attempt_policy"],
         "efficiency_band": policy["efficiency_band"],
-        "repeat_interval": policy["repeat_interval"],
+        "repeat_inference": policy["repeat_inference"],
     }
     payload = {
         "schema_version": 2,

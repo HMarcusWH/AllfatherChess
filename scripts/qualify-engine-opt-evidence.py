@@ -167,15 +167,37 @@ def main() -> int:
         def recompute_ab(doc: dict[str, Any]) -> dict[str, Any]:
             rows = doc.get("rows")
             binaries = doc.get("binaries") or {}
-            labels = list(binaries)
-            require(isinstance(rows, list) and len(labels) == 2, "A/B rows or labels malformed")
+            family = doc.get("family")
+            expected_labels = {
+                "lc0": ("allfather-derived", "pristine-upstream"),
+                "reckless": ("allfather-derived", "pristine-upstream"),
+                "stockfish": ("pgo", "no-pgo"),
+            }.get(family)
+            require(
+                expected_labels is not None
+                and isinstance(rows, list)
+                and set(binaries) == set(expected_labels),
+                "A/B rows or labels malformed",
+            )
+            labels = expected_labels
             by_side: dict[str, dict[str, dict[str, Any]]] = {label: {} for label in labels}
+            expected_options = doc.get("options")
+            expected_nodes = doc.get("nodes")
+            require(isinstance(expected_options, dict), "A/B options missing")
+            require(type(expected_nodes) is int and expected_nodes > 0, "A/B nodes missing")
             for row in rows:
                 require(isinstance(row, dict), "A/B row must be an object")
                 side = row.get("side")
                 case_id = row.get("case_id")
                 require(side in by_side and isinstance(case_id, str) and case_id, "A/B row identity malformed")
                 require(case_id not in by_side[side], "duplicate A/B case")
+                require(row.get("family") == family, "A/B row family drift")
+                require(row.get("options") == expected_options, "A/B row options drift")
+                require(row.get("nodes_requested") == expected_nodes, "A/B row work target drift")
+                require(
+                    row.get("binary_sha256") == (binaries.get(side) or {}).get("sha256"),
+                    "A/B row binary identity mismatch",
+                )
                 metrics = row.get("metrics")
                 require(isinstance(metrics, dict), "A/B metrics missing")
                 wall = metrics.get("wall_ms")

@@ -6,6 +6,8 @@ on:
     paths:
       - qualification/online-hybrid-authority.json
       - qualification/online-hybrid-v1-resource-calibration.json
+      - qualification/online-hybrid-v1-resource-observations.json
+      - qualification/replay-history-sources.json
       - qualification/online-cpu-reference.json
       - qualification/lc0-strength.lock.json
       - qualification/lc0-strength-profile.json
@@ -40,6 +42,8 @@ on:
     paths:
       - qualification/online-hybrid-authority.json
       - qualification/online-hybrid-v1-resource-calibration.json
+      - qualification/online-hybrid-v1-resource-observations.json
+      - qualification/replay-history-sources.json
       - qualification/online-cpu-reference.json
       - qualification/lc0-strength.lock.json
       - qualification/lc0-strength-profile.json
@@ -138,6 +142,8 @@ jobs:
           python3 -m json.tool config/allfather.online-hybrid.validation.json >/dev/null
           python3 -m json.tool qualification/online-hybrid-authority.json >/dev/null
           python3 -m json.tool qualification/online-hybrid-v1-resource-calibration.json >/dev/null
+          python3 -m json.tool qualification/online-hybrid-v1-resource-observations.json >/dev/null
+          python3 -m json.tool qualification/replay-history-sources.json >/dev/null
           python3 scripts/validate-online-hybrid-resource-calibration.py
       - name: Install real-inference dependencies
         run: |

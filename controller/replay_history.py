@@ -126,7 +126,10 @@ def historical_envelope(
         baseline,
         wall_ms=wall,
         cpu_ms=cpu,
-        gpu_ms=0.0,
+        # Historical TimePlan bounded_for_move() serialized integer 0,
+        # while the old adaptive J8 clamp serialized 0.0. plan_id hashes
+        # canonical JSON, so preserve that exact historical representation.
+        gpu_ms=(0.0 if adaptive else 0),
         controller_overhead_reserve_ms=controller,
     )
 

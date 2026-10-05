@@ -6,6 +6,9 @@ on:
     paths:
       - 'qualification/engine-opt-*.json'
       - 'qualification/constituent-benchmark-v2.json'
+      - 'qualification/online-hybrid-v1-resource-calibration.json'
+      - 'qualification/online-hybrid-v1-resource-observations.json'
+      - 'qualification/replay-history-sources.json'
       - 'qualification/resource-profile-catalog-v1.json'
       - 'qualification/adaptive-clock-v1.json'
       - 'qualification/work-grant-scheduler-v1.json'
@@ -137,7 +140,13 @@ jobs:
           python3 tests/engine_opt/test_matrix_scope.py
           python3 tests/engine_opt/test_g3_witness_extractor.py
           python3 tests/engine_opt/test_constituent_hash.py
+          python3 tests/engine_opt/test_legacy_calibration_reconciliation.py
+          python3 tests/controller/test_partition_versions.py
           python3 -m json.tool qualification/constituent-benchmark-v2.json >/dev/null
+          python3 -m json.tool qualification/online-hybrid-v1-resource-calibration.json >/dev/null
+          python3 -m json.tool qualification/online-hybrid-v1-resource-observations.json >/dev/null
+          python3 -m json.tool qualification/replay-history-sources.json >/dev/null
+          python3 scripts/validate-online-hybrid-resource-calibration.py
           python3 tests/controller/test_engine_opt_runtime.py
           python3 tests/controller/test_move_resource_plan.py
           python3 tests/controller/test_adaptive_time.py

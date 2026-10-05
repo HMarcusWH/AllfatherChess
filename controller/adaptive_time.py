@@ -213,20 +213,9 @@ def _scaled_envelope(
     )
     if cpu_ms <= 0:
         raise AdaptiveTimeError("adaptive CPU ceiling collapsed to zero")
-    controller = 0.0
-    if baseline.cpu_ms > 0:
-        controller = (
-            float(baseline.controller_overhead_reserve_ms)
-            * cpu_ms
-            / float(baseline.cpu_ms)
-        )
-    return ResourceEnvelope(
+    return baseline.clamped_cpu_envelope(
         wall_ms=float(baseline.wall_ms),
         cpu_ms=cpu_ms,
-        gpu_ms=0.0,
-        verification_reserve_fraction=baseline.verification_reserve_fraction,
-        refinement_reserve_fraction=baseline.refinement_reserve_fraction,
-        controller_overhead_reserve_ms=controller,
     )
 
 

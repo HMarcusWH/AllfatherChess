@@ -4,12 +4,16 @@ from __future__ import annotations
 
 import copy
 import json
+from pathlib import Path
+import sys
 import tempfile
 import unittest
 import zipfile
 from dataclasses import replace
-from pathlib import Path
 from unittest.mock import patch
+
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
 
 from common.search_request import parse_position_command
 from controller.budget import BudgetLedger, ResourceEnvelope

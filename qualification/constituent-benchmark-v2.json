@@ -3,7 +3,13 @@
   "protocol_id": "constituent-hash-v2",
   "corpus_path": "tests/fixtures/engine_opt/positions.epd",
   "corpus_sha256": "e77c2526bbcb4c4f38842742be1f1c8b399eea4ee6e888b71e398eedce965856",
-  "hash_mb": [16, 32, 64, 128, 256],
+  "hash_mb": [
+    16,
+    32,
+    64,
+    128,
+    256
+  ],
   "selected_hash_mb": 16,
   "repeats": 10,
   "nodes": {
@@ -13,14 +19,9 @@
   "ordering": "position-blocked-five-cyclic-plus-reversed-v1",
   "attempt_policy": "single-pass-no-retry-v1",
   "efficiency_band": 1.03,
-  "repeat_interval": {
-    "lower_quantile": 0.10,
-    "upper_quantile": 0.90,
-    "semantics": "empirical quantiles of ten repeat-block geometric-mean paired wall-time ratios"
-  },
   "decision": {
-    "qualified": "every challenger upper quantile <= efficiency_band",
-    "not_qualified": "any challenger lower quantile > efficiency_band",
+    "qualified": "every challenger upper confidence bound <= efficiency_band",
+    "not_qualified": "any challenger lower confidence bound > efficiency_band",
     "inconclusive": "otherwise"
   },
   "claim_boundary": {
@@ -28,5 +29,16 @@
     "strength": false,
     "elo": false,
     "deployment": false
+  },
+  "repeat_inference": {
+    "unit": "complete_repeat_block",
+    "transform": "log(selected_wall_ms/challenger_wall_ms)",
+    "per_repeat_statistic": "mean_across_8_paired_positions",
+    "center": "mean_log_ratio",
+    "interval": "student_t",
+    "confidence": "90% two-sided; equivalent 95% one-sided bound at each edge",
+    "degrees_of_freedom": 9,
+    "critical_value": 1.833113,
+    "back_transform": "exp"
   }
 }

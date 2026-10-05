@@ -80,6 +80,7 @@ def main()->int:
         (args.right_label,args.right.resolve()),
     )
     by_side: dict[str,list[dict]]={label:[] for label,_ in sides}
+    execution_rows: list[dict] = []
     errors=[]
     # Pair the controls position-by-position and reverse the first mover on
     # alternating cases. Whole-side blocking made host drift indistinguishable
@@ -99,6 +100,7 @@ def main()->int:
                 row["case_order_index"]=case_index
                 row["side_order_index"]=order_index
                 by_side[label].append(row)
+                execution_rows.append(row)
             except Exception as exc:
                 errors.append({
                     "side":label,"case_id":case.case_id,
@@ -157,7 +159,7 @@ def main()->int:
             for label,rows in by_side.items()
         },
         "comparison":comparison,
-        "rows":[row for rows in by_side.values() for row in rows],
+        "rows":execution_rows,
         "errors":errors,
         "claim_boundary":{
             "strength":False,

@@ -31,7 +31,9 @@ def document(mode: str = "qualified") -> dict:
         if mode == "failure":
             wall = 100.0 if hash_mb == 32 else 104.0
         elif mode == "inconclusive":
-            selected_wall = 101.0 if repeat % 2 == 0 else 105.0
+            # Center close to the 3% boundary with enough block variance for
+            # the predeclared Student-t interval to cross it.
+            selected_wall = 100.0 if repeat % 2 == 0 else 106.0
             wall = 100.0 if hash_mb == 32 else selected_wall
         else:
             wall = 100.0
@@ -64,7 +66,7 @@ def document(mode: str = "qualified") -> dict:
             "ordering": policy["ordering"],
             "attempt_policy": policy["attempt_policy"],
             "efficiency_band": policy["efficiency_band"],
-            "repeat_interval": policy["repeat_interval"],
+            "repeat_inference": policy["repeat_inference"],
         },
         "rows": rows,
         "summaries": {},

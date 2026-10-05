@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "claim_boundary": {
+    "historical_reconstruction_only": true,
+    "runtime_authority": false,
+    "resource_authorization": false,
+    "outward_move": false
+  },
+  "sources": [
+    {
+      "artifact_sha256": "932c2d83d5fc3f2dff0a9e341542c8c245cc002c196149e7a805090781318336",
+      "source_commit": "03a5f958691924fa859586f961087d9c9746569f",
+      "campaign_path": "local1/campaign",
+      "source_manifest": "local1/campaign/manifest.json",
+      "partition_policy": "legacy-unversioned-proportional-v1"
+    },
+    {
+      "artifact_sha256": "8c60c98136e2289573c1209f77b8ccd91da3c87512561f998e08934271e9120c",
+      "source_commit": "b86cbad77776842410bd34118daf08be68e509ee",
+      "campaign_path": "test-results/local-full-game/1791121801324344197-3d99d087",
+      "source_manifest": "test-results/local-full-game/1791121801324344197-3d99d087/manifest.json",
+      "partition_policy": "legacy-unversioned-proportional-v1"
+    },
+    {
+      "artifact_sha256": "f251c0dad3a0f7760a930b9abaef0b69cf161ce96fc6df219ad00bd17b64aa46",
+      "source_commit": "3061120258208dec4f989341a297c78dcf6bd6b6",
+      "campaign_path": "test-results/local-full-game/1791137229537986795-b7d6d18b",
+      "source_manifest": "test-results/local-full-game/1791137229537986795-b7d6d18b/manifest.json",
+      "partition_policy": "legacy-unversioned-proportional-v1"
+    }
+  ]
+}

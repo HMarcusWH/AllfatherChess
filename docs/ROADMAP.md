@@ -76,6 +76,20 @@ promotion and J3→J12 requalification.
 
 PR #63 also repairs a legacy ONLINE/G3 resource-accounting defect exposed by fresh LOCAL-1 evidence before any b4 authority is promoted. The declared controller-overhead reserve is now treated as an absolute profile partition during per-move envelope derivation rather than being scaled with the clock. Two retained lifecycle artifacts also freeze owner-specific legacy G3 estimates: EXPLORE 100/100/1800 ms and VERIFY 100/100/1400 ms for Stockfish/Reckless/LC0 respectively, with the original 500/750 ms scalars retained only as unknown-owner fallbacks. The 4000 ms wall / 12000 ms CPU outer envelope remains unchanged and all ordinary fail-closed LOCAL-1 resource gates remain mandatory.
 
+The closure repair applies the same absolute-controller invariant to J8 host-capacity clamps,
+versions new TimePlans with `absolute-controller-v2`, and permits pre-marker replay
+reconstruction only when the exact manifest is admitted by a SHA-bound historical archive
+registry. The retained LOCAL-1 calibration was also independently reconciled: the first failed
+campaign contains 689 completed LC0 EXPLORE measurements (one missing resource artifact is
+explicitly excluded), while the retained maxima and therefore the 1800/1400 ms LC0
+reservations remain unchanged.
+
+ENGINE-OPT constituent qualification is likewise being made repeat-aware without weakening its
+3% efficiency band. The frozen v2 protocol runs ten complete, counterbalanced repetitions of
+the eight-position/five-hash matrix and distinguishes qualified, failed and inconclusive
+evidence. Inconclusive constituent timing blocks promotion rather than being treated as a
+pass. Binary A/B controls are paired by position and alternate execution order.
+
 ## 2. Critical path to the first public canary
 
 ```text

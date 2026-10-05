@@ -57,6 +57,32 @@ The first retained PR #63 LOCAL-1 campaigns exposed two independent stale assump
 
 The same evidence showed that the legacy scalar 500/750 ms specialist estimates materially under-described real BLAS-LC0. Two retained LOCAL-1 artifacts now back a source-controlled calibration: LC0 EXPLORE maxima were 1760/1750 ms, base VERIFY maxima 740/750 ms, and staged VERIFY-extension maxima 1290/1140 ms. The legacy v1 runtime therefore uses explicit owner estimates of Stockfish/Reckless/LC0 = 100/100/1800 ms for EXPLORE and 100/100/1400 ms for VERIFY, while preserving 500/750 ms only as unknown-owner fallbacks. The outer 4000 ms wall / 12000 ms CPU envelope is unchanged. This repair grants no b4 canonical promotion, no new move/resource authority and no strength/Elo/deployment claim.
 
+PR #63 also closes three evidence-quality gaps exposed during requalification. First, J8 now
+uses the same fixed-controller clamp semantics as the baseline TimePlan instead of
+proportionally shrinking controller work a second time on the adaptive-capacity path. Second,
+new TimePlans carry the explicit partition-policy marker `absolute-controller-v2`; pre-marker
+replays can use legacy proportional reconstruction only inside a source-controlled,
+SHA-authenticated historical archive scope. An absent marker by itself never selects legacy
+semantics.
+
+Third, the two retained failed LOCAL-1 campaigns are reduced into independently bound
+calibration observations. The first campaign contains **689** completed LC0 EXPLORE CPU
+observations, not the previously transcribed 692; one missing `resource.json` is retained as
+an exclusion and no measurement is imputed. The maxima remain unchanged, so the selected
+1800/1400 ms LC0 reservations do not change. These observations are calibration evidence from
+failed campaigns, not upgraded lifecycle/authority qualification.
+
+### PR #63 constituent benchmark repair — IMPLEMENTED / REQUALIFYING
+
+The old constituent gate compared one blocked pass of five Hash settings and rejected the
+selected Hash=16 when a single run placed it more than 3% behind that run's fastest setting.
+PR #63 now freezes `constituent-hash-v2`: ten complete repeats of the eight-position,
+five-hash matrix with position-blocked cyclic ordering plus reversed ordering in the second
+half. The **3% efficiency band is unchanged**. Qualification reconstructs the raw rows and
+returns `QUALIFIED`, `NOT_QUALIFIED`, or `INCONCLUSIVE`; an interval crossing the band
+does not pass. Constituent binary A/B measurements are paired position-by-position and
+alternate which side executes first. Producer-written summaries are not authoritative.
+
 ## Current qualification evidence
 
 PR #52 / J6 qualified on exact candidate head

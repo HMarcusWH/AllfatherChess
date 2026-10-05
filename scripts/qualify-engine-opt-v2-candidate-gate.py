@@ -28,13 +28,26 @@ def main() -> int:
     parser.add_argument("--canonical", type=Path, required=True)
     parser.add_argument("--candidate", type=Path, required=True)
     parser.add_argument("--host-binding", type=Path, required=True)
-    parser.add_argument("--base-sha", required=True)
+    parser.add_argument("--base-sha", default="")
     parser.add_argument("--repo-root", type=Path, default=ROOT)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
 
     try:
-        surface = compare_canonical_surface(args.repo_root.resolve(), args.base_sha)
+        if args.base_sha:
+            surface = compare_canonical_surface(args.repo_root.resolve(), args.base_sha)
+        else:
+            # workflow_dispatch has no PR base. That path can still pass when
+            # canonical qualifies normally, but may not use the unmatched-host
+            # diagnostic exception without a comparison anchor.
+            surface = {
+                "base_sha": None,
+                "head_sha": None,
+                "unchanged": False,
+                "changed_files": [],
+                "changed_trees": [],
+                "comparison_available": False,
+            }
         report = evaluate_gate(
             canonical=load(args.canonical),
             candidate=load(args.candidate),

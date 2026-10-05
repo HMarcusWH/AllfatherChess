@@ -40,6 +40,7 @@ def document(mode: str = "qualified") -> dict:
         rows.append({
             **slot,
             "family": "reckless",
+            "binary_sha256": "b" * 64,
             "options": expected_options("reckless", hash_mb),
             "nodes_requested": policy["nodes"]["reckless"],
             "metrics": {
@@ -58,6 +59,7 @@ def document(mode: str = "qualified") -> dict:
         "kind": "engine-opt-hash-matrix-v2",
         "family": "reckless",
         "source": {"commit": SOURCE},
+        "binary": {"path": "bin/reckless", "sha256": "b" * 64},
         "nodes": policy["nodes"]["reckless"],
         "protocol": {
             "protocol_id": policy["protocol_id"],
@@ -132,6 +134,12 @@ class QualificationTests(unittest.TestCase):
         )
         with self.assertRaises(ConstituentHashError):
             self.qualify(reordered)
+
+    def test_binary_identity_drift_is_rejected(self):
+        bad = document()
+        bad["rows"][0]["binary_sha256"] = "c" * 64
+        with self.assertRaises(ConstituentHashError):
+            self.qualify(bad)
 
     def test_option_and_transcript_drift_are_rejected(self):
         bad = document()

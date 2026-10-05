@@ -437,6 +437,12 @@ def main() -> int:
             disposition = "NOT_QUALIFIED_RESOURCE_BOUND"
         elif "NOT_QUALIFIED_AUTHORITY" in codes:
             disposition = "NOT_QUALIFIED_AUTHORITY"
+        elif "INCONCLUSIVE_CONSTITUENT_PERFORMANCE" in codes:
+            disposition = "INCONCLUSIVE_CONSTITUENT_PERFORMANCE"
+        elif "NOT_QUALIFIED_HASH_EFFICIENCY" in codes:
+            disposition = "NOT_QUALIFIED_HASH_EFFICIENCY"
+        elif "NOT_QUALIFIED_CONSTITUENT_BEHAVIOR" in codes:
+            disposition = "NOT_QUALIFIED_CONSTITUENT_BEHAVIOR"
         else:
             disposition = "NOT_QUALIFIED_CONSTITUENT_REGRESSION"
 

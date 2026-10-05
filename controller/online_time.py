@@ -11,11 +11,17 @@ import json
 import math
 import threading
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from typing import Any, Callable
 
 from common.search_request import PositionRequest, parse_go_request, SearchRequestError
 from controller.budget import ResourceEnvelope, BudgetError
+from controller.replay_history import (
+    ABSOLUTE_CONTROLLER_V2,
+    HISTORICAL_POLICIES,
+    historical_envelope,
+    policy_for_manifest,
+)
 
 POLICY = "clock_envelope_v1"
 MAX_UCI_TIME = 2_147_483_647
@@ -120,6 +126,7 @@ class TimePlan:
     declared_envelope: ResourceEnvelope
     settings: OnlineTimeSettings
     policy: str = POLICY
+    resource_partition_policy: str = ABSOLUTE_CONTROLLER_V2
 
     @property
     def soft_deadline(self) -> float:
@@ -131,6 +138,12 @@ class TimePlan:
 
     def as_dict(self) -> dict[str, Any]:
         result = asdict(self)
+        if self.resource_partition_policy in HISTORICAL_POLICIES:
+            # Pre-marker artifacts never serialized this field. Removing it
+            # here is reconstruction-only and preserves their original plan_id.
+            result.pop("resource_partition_policy")
+        elif self.resource_partition_policy != ABSOLUTE_CONTROLLER_V2:
+            raise OnlineTimeError("unsupported resource-partition policy")
         result["schema_version"] = 1
         result["clock_basis"] = "UCI clocks supplied by caller; any bridge adjustment is upstream"
         result["authority"] = {"timing": True, "outward_move": False}
@@ -401,6 +414,7 @@ def verify_time_manifest(manifest: dict[str, Any]) -> list[str]:
     try:
         if not isinstance(raw, dict):
             raise OnlineTimeError("time_plan must be an object")
+        partition_policy = policy_for_manifest(manifest)
 
         position = manifest.get("position")
         if not isinstance(position, dict):
@@ -438,6 +452,17 @@ def verify_time_manifest(manifest: dict[str, Any]) -> list[str]:
             received_monotonic=raw.get("received_monotonic"),
             controller_cpu_started_ns=raw.get("controller_cpu_started_ns"),
         )
+        if partition_policy in HISTORICAL_POLICIES:
+            expected = replace(
+                expected,
+                envelope=historical_envelope(
+                    expected.declared_envelope,
+                    cpu_ms=expected.envelope.cpu_ms,
+                    wall_ms=expected.envelope.wall_ms,
+                    policy=partition_policy,
+                ),
+                resource_partition_policy=partition_policy,
+            )
         if expected.as_dict() != raw:
             raise OnlineTimeError("time_plan identity or reconstructed policy mismatch")
 

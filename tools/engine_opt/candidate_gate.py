@@ -9,7 +9,6 @@ execution-sensitive LC0 diagnostics.
 """
 from __future__ import annotations
 
-import json
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -146,8 +145,6 @@ def evaluate_gate(
     )
     require(bound.get("binding_scope") == "exact_host_observation", "canonical binding scope drift")
     require(bound.get("generic_host_portability_established") is False, "canonical bound qualification claims portability")
-    require(outer_binding.get("generic_host_portability_established") is False, "canonical host binding claims portability")
-    require(outer_binding.get("selection_eligible_on_unmatched_host") is False, "canonical selection is unexpectedly eligible on unmatched hosts")
     bound_digest = bound.get("execution_domain_digest")
     require(isinstance(bound_digest, str) and len(bound_digest) == 64, "canonical bound domain digest missing")
 
@@ -175,6 +172,14 @@ def evaluate_gate(
             "canonical failure includes a non-host-diagnostic code",
         )
         require(not same_bound_host, "canonical failed on its exact bound host")
+        require(
+            outer_binding.get("generic_host_portability_established") is False,
+            "canonical host binding claims portability",
+        )
+        require(
+            outer_binding.get("selection_eligible_on_unmatched_host") is False,
+            "canonical selection is unexpectedly eligible on unmatched hosts",
+        )
         require(canonical_surface.get("unchanged") is True, "canonical engine/profile surface changed in this PR")
         disposition = "QUALIFIED_CANDIDATE_WITH_UNMATCHED_CANONICAL_DIAGNOSTIC"
         canonical_status = "UNMATCHED_HOST_DIAGNOSTIC_NOT_QUALIFIED"

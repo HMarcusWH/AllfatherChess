@@ -1,0 +1,56 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
+from tools.engine_opt.candidate_gate import (  # noqa: E402
+    CandidateGateError,
+    compare_canonical_surface,
+    evaluate_gate,
+)
+
+
+def load(path: Path) -> dict:
+    value = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(value, dict):
+        raise CandidateGateError(f"{path}: JSON root must be object")
+    return value
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--canonical", type=Path, required=True)
+    parser.add_argument("--candidate", type=Path, required=True)
+    parser.add_argument("--host-binding", type=Path, required=True)
+    parser.add_argument("--base-sha", required=True)
+    parser.add_argument("--repo-root", type=Path, default=ROOT)
+    parser.add_argument("--output", type=Path, required=True)
+    args = parser.parse_args()
+
+    try:
+        surface = compare_canonical_surface(args.repo_root.resolve(), args.base_sha)
+        report = evaluate_gate(
+            canonical=load(args.canonical),
+            candidate=load(args.candidate),
+            host_binding=load(args.host_binding),
+            canonical_surface=surface,
+        )
+    except (CandidateGateError, OSError, ValueError, KeyError, json.JSONDecodeError) as exc:
+        print(f"ENGINE-OPT-V2 final candidate gate FAILED: {exc}")
+        return 2
+
+    payload = json.dumps(report, indent=2, sort_keys=True, allow_nan=False) + "\n"
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    args.output.write_text(payload, encoding="utf-8")
+    print(payload, end="")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

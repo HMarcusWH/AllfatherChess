@@ -43,6 +43,22 @@ def load_policy(path: Path = POLICY) -> dict[str, Any]:
     require(raw.get("repeats") == 10, "repeat count drift")
     require(raw.get("efficiency_band") == 1.03, "efficiency band drift")
     require(raw.get("attempt_policy") == "single-pass-no-retry-v1", "retry policy drift")
+    inference = raw.get("repeat_inference")
+    require(
+        inference
+        == {
+            "unit": "complete_repeat_block",
+            "transform": "log(selected_wall_ms/challenger_wall_ms)",
+            "per_repeat_statistic": "mean_across_8_paired_positions",
+            "center": "mean_log_ratio",
+            "interval": "student_t",
+            "confidence": "90% two-sided; equivalent 95% one-sided bound at each edge",
+            "degrees_of_freedom": 9,
+            "critical_value": 1.833113,
+            "back_transform": "exp",
+        },
+        "repeat inference drift",
+    )
     return raw
 
 
@@ -137,7 +153,7 @@ def qualify_hash_matrix(
         "ordering": policy["ordering"],
         "attempt_policy": policy["attempt_policy"],
         "efficiency_band": policy["efficiency_band"],
-        "repeat_interval": policy["repeat_interval"],
+        "repeat_inference": policy["repeat_inference"],
     }, "hash matrix protocol drift")
     require(document.get("nodes") == policy["nodes"][family], "hash matrix work target drift")
     require(selected_hash_mb == policy["selected_hash_mb"], "selected hash differs from frozen protocol")
@@ -191,13 +207,13 @@ def qualify_hash_matrix(
                 behavioral.append(f"{case_id}/hash{hash_mb}: native work not repeatable")
 
     contrasts: dict[str, Any] = {}
-    lower_q = float(policy["repeat_interval"]["lower_quantile"])
-    upper_q = float(policy["repeat_interval"]["upper_quantile"])
+    inference = policy["repeat_inference"]
+    critical = float(inference["critical_value"])
     band = float(policy["efficiency_band"])
     for challenger in policy["hash_mb"]:
         if challenger == selected_hash_mb:
             continue
-        repeat_ratios: list[float] = []
+        repeat_logs: list[float] = []
         for repeat in range(policy["repeats"]):
             log_ratios = [
                 math.log(
@@ -206,10 +222,14 @@ def qualify_hash_matrix(
                 )
                 for case_id in case_ids
             ]
-            repeat_ratios.append(math.exp(statistics.mean(log_ratios)))
-        lower = _quantile(repeat_ratios, lower_q)
-        upper = _quantile(repeat_ratios, upper_q)
-        center = math.exp(statistics.mean(math.log(value) for value in repeat_ratios))
+            repeat_logs.append(statistics.mean(log_ratios))
+        mean_log = statistics.mean(repeat_logs)
+        stdev = statistics.stdev(repeat_logs)
+        stderr = stdev / math.sqrt(len(repeat_logs))
+        lower = math.exp(mean_log - critical * stderr)
+        upper = math.exp(mean_log + critical * stderr)
+        center = math.exp(mean_log)
+        repeat_ratios = [math.exp(value) for value in repeat_logs]
         if upper <= band:
             disposition = "QUALIFIED"
         elif lower > band:

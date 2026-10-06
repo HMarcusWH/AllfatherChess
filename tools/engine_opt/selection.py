@@ -9,11 +9,13 @@ from typing import Any
 def validate_selected_lc0_rows(
     rows: list[dict[str, Any]],
     selected: dict[str, Any],
-    qualification: dict[str, Any],
-    native_work_policy: dict[str, Any] | None,
     require: Callable[[bool, str], None],
+    qualification: dict[str, Any] | None = None,
+    native_work_policy: dict[str, Any] | None = None,
 ) -> None:
+    """Validate selected LC0 rows while preserving the legacy 3-arg contract."""
     require(bool(rows), "selected LC0 profile has no raw rows")
+    qualification = qualification or {}
     warmup_nodes = selected.get("warmup_nodes")
     repeats = qualification.get("confirmation_repeats")
     cases = qualification.get("corpus_cases", 8)
@@ -46,16 +48,17 @@ def validate_selected_lc0_rows(
             require(isinstance(warmup, dict) and warmup.get("nodes") == warmup_nodes,
                     "selected LC0 warmup differs from frozen selection")
 
-        repeat_index = row.get("repeat_index")
-        case_id = row.get("case_id")
-        require(
-            isinstance(repeat_index, int) and not isinstance(repeat_index, bool) and repeat_index >= 0,
-            "selected LC0 raw row has invalid repeat identity",
-        )
-        require(isinstance(case_id, str) and case_id, "selected LC0 raw row has invalid case identity")
-        identity = (repeat_index, case_id)
-        require(identity not in seen, "selected LC0 raw rows contain a duplicate repeat/case identity")
-        seen.add(identity)
+        if qualification:
+            repeat_index = row.get("repeat_index")
+            case_id = row.get("case_id")
+            require(
+                isinstance(repeat_index, int) and not isinstance(repeat_index, bool) and repeat_index >= 0,
+                "selected LC0 raw row has invalid repeat identity",
+            )
+            require(isinstance(case_id, str) and case_id, "selected LC0 raw row has invalid case identity")
+            identity = (repeat_index, case_id)
+            require(identity not in seen, "selected LC0 raw rows contain a duplicate repeat/case identity")
+            seen.add(identity)
 
     if native_work_policy is None:
         return

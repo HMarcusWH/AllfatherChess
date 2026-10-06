@@ -10,6 +10,7 @@ def validate_selected_lc0_rows(
     rows: list[dict[str, Any]],
     selected: dict[str, Any],
     qualification: dict[str, Any],
+    native_work_policy: dict[str, Any] | None,
     require: Callable[[bool, str], None],
 ) -> None:
     require(bool(rows), "selected LC0 profile has no raw rows")
@@ -56,11 +57,10 @@ def validate_selected_lc0_rows(
         require(identity not in seen, "selected LC0 raw rows contain a duplicate repeat/case identity")
         seen.add(identity)
 
-    policy = qualification.get("native_work_policy")
-    if policy is None:
+    if native_work_policy is None:
         return
-    require(isinstance(policy, dict), "qualification native_work_policy must be an object")
-    policy_id = policy.get("id")
+    require(isinstance(native_work_policy, dict), "native-work policy must be an object")
+    policy_id = native_work_policy.get("policy_id")
     require(
         policy_id in {"exact-vector-v1", "lc0-node-stop-contract-v1"},
         f"unsupported LC0 native-work policy: {policy_id!r}",
@@ -68,9 +68,9 @@ def validate_selected_lc0_rows(
     if policy_id == "exact-vector-v1":
         return
 
-    requested_nodes = policy.get("requested_nodes")
-    semantics = policy.get("terminal_counter_semantics")
-    required_options = policy.get("required_options")
+    requested_nodes = native_work_policy.get("requested_nodes")
+    semantics = native_work_policy.get("terminal_counter_semantics")
+    required_options = native_work_policy.get("required_options")
     require(
         isinstance(requested_nodes, int) and not isinstance(requested_nodes, bool) and requested_nodes > 0,
         "lc0-node-stop-contract-v1 requested_nodes must be a positive integer",

@@ -141,14 +141,14 @@
         "Backend": "blas",
         "BackendOptions": "",
         "NNCacheSize": 262144,
-        "MinibatchSize": 7,
+        "MinibatchSize": 4,
         "MaxConcurrentSearchers": 1,
         "TaskWorkers": 0,
         "MultiPV": 1,
         "UCI_Chess960": false,
         "Threads": 1,
         "ScoreType": "WDL_mu",
-        "MaxPrefetch": 8,
+        "MaxPrefetch": 0,
         "AdaptivePrefetch": false,
         "DefectTelemetry": false
       },
@@ -162,12 +162,6 @@
         "STAGED_VERIFY": {
           "MultiPV": 3
         }
-      },
-      "warmup": {
-        "enabled": true,
-        "nodes": 64,
-        "position": "startpos",
-        "reset_after": true
       }
     }
   },

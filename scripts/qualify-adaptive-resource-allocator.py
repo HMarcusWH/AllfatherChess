@@ -39,6 +39,7 @@ SOURCE = ROOT / "qualification/j10-calibration-source-v1.json"
 STAGED_STATUS = ROOT / "qualification/j10-staged-decision-model-v1.json"
 REGIME_STATUS = ROOT / "qualification/j10-regime-support-model-v1.json"
 J7 = ROOT / "qualification/resource-profile-selection-v1.json"
+ENGINE_SELECTION = ROOT / "qualification/engine-opt-v2-selection.json"
 SCHEDULER = ROOT / "qualification/work-grant-scheduler-v1.json"
 
 
@@ -84,6 +85,7 @@ def main() -> int:
     staged = load(STAGED_STATUS)
     regime = load(REGIME_STATUS)
     j7 = load(J7)
+    engine_selection = load(ENGINE_SELECTION)
 
     allocation = load_allocation_policy(POLICY)
     scheduler, _ = load_work_scheduler_catalog(SCHEDULER)
@@ -238,13 +240,30 @@ def main() -> int:
             verify == staged_opts,
             f"{name}: J10 VERIFY/STAGED_VERIFY options differ",
         )
+        selected = engine_selection.get("selected") or {}
         if spec["family"] == "stockfish":
-            require(spec["options"].get("Hash") == 16, f"{name}: J7 Hash32 leaked into J10")
-        if spec["family"] == "lc0":
             require(
-                spec["options"].get("MaxPrefetch") == 8,
-                f"{name}: J7 MaxPrefetch0 leaked into J10",
+                spec["options"].get("Hash") == (selected.get("stockfish") or {}).get("hash_mb"),
+                f"{name}: Stockfish Hash differs from canonical ENGINE-OPT selection",
             )
+        if spec["family"] == "reckless":
+            require(
+                spec["options"].get("Hash") == (selected.get("reckless") or {}).get("hash_mb"),
+                f"{name}: Reckless Hash differs from canonical ENGINE-OPT selection",
+            )
+        if spec["family"] == "lc0":
+            lc0_selected = selected.get("lc0") or {}
+            for option, value in {
+                "NNCacheSize": lc0_selected.get("nn_cache_size"),
+                "MinibatchSize": lc0_selected.get("minibatch_size"),
+                "MaxPrefetch": lc0_selected.get("max_prefetch"),
+                "AdaptivePrefetch": lc0_selected.get("adaptive_prefetch"),
+                "DefectTelemetry": lc0_selected.get("defect_telemetry"),
+            }.items():
+                require(
+                    spec["options"].get(option) == value,
+                    f"{name}: LC0 {option} differs from canonical ENGINE-OPT selection",
+                )
 
     require(
         (j7.get("claim_boundary") or {}).get("runtime_profile_selection")

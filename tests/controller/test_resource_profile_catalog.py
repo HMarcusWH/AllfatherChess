@@ -71,12 +71,12 @@ class ResourceProfileCatalogTests(unittest.TestCase):
         )
         self.assertIsNone(catalog.warmup("lc0/specialist-engine-opt-v2"))
 
-    def test_seed_is_bound_to_pr49_exact_host_qualification(self):
+    def test_promoted_catalog_is_seeded_from_pr63_b4_candidate_qualification(self):
         catalog = load_resource_profile_catalog(CATALOG)
         snapshot = catalog.qualification_snapshot
         self.assertEqual(
             snapshot["qualified_head"],
-            "3de528e5a1a5a3609e0c293a80296ddc4a006875",
+            "56516c34719670054e12218bd3781e9725ae4f65",
         )
         self.assertEqual(
             snapshot["qualification_disposition"],
@@ -98,15 +98,20 @@ class ResourceProfileCatalogTests(unittest.TestCase):
             self.assertEqual(profile.work_chunk_ids, ())
 
         history = load(HOST_BINDING)
-        current = history["current_domain_bound_qualification"]
-        self.assertEqual(current["qualified_head"], snapshot["qualified_head"])
+        seed = history["b4_candidate_promotion_seed"]
+        self.assertEqual(seed["qualified_head"], snapshot["qualified_head"])
         self.assertEqual(
-            current["aggregate_report_sha256"],
+            seed["aggregate_report_sha256"],
             snapshot["aggregate_report_sha256"],
         )
         self.assertEqual(
-            current["execution_domain_digest"],
+            seed["execution_domain_digest"],
             snapshot["execution_domain_digest"],
+        )
+        self.assertFalse(seed["canonical_promotion_complete"])
+        self.assertNotEqual(
+            history["current_domain_bound_qualification"]["qualified_head"],
+            snapshot["qualified_head"],
         )
 
     def test_catalog_records_measured_seed_memory_without_enforcement_claim(self):
@@ -172,7 +177,12 @@ class ResourceProfileCatalogTests(unittest.TestCase):
         mutations.append(profile)
 
         warmup = copy.deepcopy(raw)
-        warmup["profile_runtime"]["lc0/specialist-engine-opt-v2"]["warmup"]["nodes"] = 63
+        warmup["profile_runtime"]["lc0/specialist-engine-opt-v2"]["warmup"] = {
+            "enabled": True,
+            "nodes": 64,
+            "position": "startpos",
+            "reset_after": True,
+        }
         mutations.append(warmup)
 
         reservation = copy.deepcopy(raw)

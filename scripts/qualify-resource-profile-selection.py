@@ -22,6 +22,7 @@ from tools.resource_lab.candidate_matrix import expand_candidates, expand_compos
 EVIDENCE = Path("qualification/resource-profile-evidence-v1.json")
 SELECTION = Path("qualification/resource-profile-selection-v1.json")
 CATALOG = Path("qualification/resource-profile-catalog-v1.json")
+HISTORICAL_CATALOG = Path("qualification/resource-profile-catalog-v1-j7-baseline.json")
 AUTH = {"runtime_authority": False, "resource_authorization": False, "outward_move": False}
 FAMILIES = {"stockfish": (16, 64, 256), "reckless": (16, 64, 256), "lc0": (16, 32, 64)}
 STAGE_B_IDS = {"c0-four-way-v2-current", "c1-anchor2-reckless-lc0", "c2-anchor2-lc0-threads2"}
@@ -76,8 +77,14 @@ def candidate_key(row: dict[str, Any]) -> tuple[Any, ...]:
     return tuple(metric(row, name) for name in METRICS) + (row["id"],)
 
 
-def validate(evidence_path: Path = EVIDENCE, selection_path: Path = SELECTION, catalog_path: Path = CATALOG) -> dict[str, Any]:
+def validate(
+    evidence_path: Path = EVIDENCE,
+    selection_path: Path = SELECTION,
+    catalog_path: Path = CATALOG,
+    historical_catalog_path: Path = HISTORICAL_CATALOG,
+) -> dict[str, Any]:
     ev, sel, catalog = load(evidence_path), load(selection_path), load(catalog_path)
+    historical_catalog = load(historical_catalog_path)
 
     require(ev.get("schema_version") == 1 and ev.get("evidence_id") == "resource-profile-evidence-v1", "wrong evidence schema/id")
     require(sel.get("schema_version") == 1 and sel.get("selection_id") == "resource-profile-selection-v1", "wrong selection schema/id")
@@ -102,10 +109,26 @@ def validate(evidence_path: Path = EVIDENCE, selection_path: Path = SELECTION, c
     clock = sel.get("catalog")
     ref = source.get("reference_contract")
     require(isinstance(clock, dict) and isinstance(ref, dict), "catalog/reference lock missing")
-    require(clock.get("path") == "qualification/resource-profile-catalog-v1.json", "wrong catalog path")
-    require(clock.get("sha256") == ref.get("catalog_sha256") == sha(catalog_path), "J3 catalog hash changed")
-    require(catalog.get("schema_version") == 1 and catalog.get("catalog_version") == "resource-profile-catalog-v1", "J3 catalog schema changed")
-    require(catalog.get("catalog_id") == clock.get("catalog_id") == "resource-profile-catalog-v1", "J3 catalog identity changed")
+    require(clock.get("path") == "qualification/resource-profile-catalog-v1.json", "wrong historical catalog path")
+    historical_sha = sha(historical_catalog_path)
+    require(
+        clock.get("sha256") == ref.get("catalog_sha256") == historical_sha,
+        "J7 historical catalog snapshot hash changed",
+    )
+    require(
+        historical_catalog.get("schema_version") == 1
+        and historical_catalog.get("catalog_version") == "resource-profile-catalog-v1",
+        "J7 historical catalog schema changed",
+    )
+    require(
+        historical_catalog.get("catalog_id") == clock.get("catalog_id") == "resource-profile-catalog-v1",
+        "J7 historical catalog identity changed",
+    )
+    # The canonical catalog is allowed to advance after J7, but J7 still proves its
+    # original source bytes through the immutable snapshot above. Current runtime
+    # authority boundaries remain fail-closed.
+    require(catalog.get("schema_version") == 1 and catalog.get("catalog_version") == "resource-profile-catalog-v1", "current J3 catalog schema changed")
+    require(catalog.get("catalog_id") == "resource-profile-catalog-v1", "current J3 catalog identity changed")
     require(catalog.get("selection_enabled") is False and clock.get("selection_enabled") is False, "runtime profile selection became enabled")
     require(catalog.get("fallback_profile") == clock.get("fallback_profile") == "engine-opt-v2", "fallback profile changed")
     require(catalog.get("authority") == {"resource_profile_catalog": True, "resource_authorization": False, "outward_move": False}, "J3 catalog authority changed")

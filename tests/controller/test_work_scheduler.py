@@ -458,7 +458,7 @@ class J9ConfigTests(unittest.TestCase):
             spec for spec in doc["instances"].values()
             if spec["family"] == "lc0"
         )
-        self.assertEqual(lc0["options"]["MaxPrefetch"], 8)
+        self.assertEqual(lc0["options"]["MaxPrefetch"], 0)
 
 
 if __name__ == "__main__":

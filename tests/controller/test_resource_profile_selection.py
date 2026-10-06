@@ -23,6 +23,7 @@ spec.loader.exec_module(mod)
 EVIDENCE = ROOT / "qualification/resource-profile-evidence-v1.json"
 SELECTION = ROOT / "qualification/resource-profile-selection-v1.json"
 CATALOG = ROOT / "qualification/resource-profile-catalog-v1.json"
+HISTORICAL_CATALOG = ROOT / "qualification/resource-profile-catalog-v1-j7-baseline.json"
 
 
 def load(path: Path) -> dict:
@@ -38,25 +39,40 @@ class J7SelectionTests(unittest.TestCase):
         self.evidence = load(EVIDENCE)
         self.selection = load(SELECTION)
         self.catalog = load(CATALOG)
+        self.historical_catalog = load(HISTORICAL_CATALOG)
 
-    def _validate(self, evidence=None, selection=None, catalog=None, *, rebind_evidence=True, rebind_catalog=True):
+    def _validate(
+        self,
+        evidence=None,
+        selection=None,
+        catalog=None,
+        historical_catalog=None,
+        *,
+        rebind_evidence=True,
+        rebind_historical_catalog=True,
+    ):
         evidence = copy.deepcopy(self.evidence if evidence is None else evidence)
         selection = copy.deepcopy(self.selection if selection is None else selection)
         catalog = copy.deepcopy(self.catalog if catalog is None else catalog)
+        historical_catalog = copy.deepcopy(
+            self.historical_catalog if historical_catalog is None else historical_catalog
+        )
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            ep, sp, cp = root / "evidence.json", root / "selection.json", root / "catalog.json"
+            ep, sp = root / "evidence.json", root / "selection.json"
+            cp, hp = root / "catalog.json", root / "historical-catalog.json"
             dump(ep, evidence)
             dump(cp, catalog)
+            dump(hp, historical_catalog)
             if rebind_evidence:
                 selection["evidence_sha256"] = hashlib.sha256(ep.read_bytes()).hexdigest()
-            if rebind_catalog:
-                selection["catalog"]["sha256"] = hashlib.sha256(cp.read_bytes()).hexdigest()
+            if rebind_historical_catalog:
+                selection["catalog"]["sha256"] = hashlib.sha256(hp.read_bytes()).hexdigest()
             dump(sp, selection)
-            return mod.validate(ep, sp, cp)
+            return mod.validate(ep, sp, cp, hp)
 
     def test_frozen_selection_qualifies(self):
-        report = mod.validate(EVIDENCE, SELECTION, CATALOG)
+        report = mod.validate(EVIDENCE, SELECTION, CATALOG, HISTORICAL_CATALOG)
         self.assertTrue(report["qualified"])
         self.assertEqual(report["groups"], 9)
         self.assertEqual(report["pareto_candidates"], 18)
@@ -136,7 +152,7 @@ class J7SelectionTests(unittest.TestCase):
         catalog = copy.deepcopy(self.catalog)
         catalog["fallback_profile"] = "wrong"
         with self.assertRaises(mod.SelectionQualificationError):
-            self._validate(catalog=catalog, rebind_catalog=False)
+            self._validate(historical_catalog=catalog, rebind_historical_catalog=False)
 
 
 if __name__ == "__main__":

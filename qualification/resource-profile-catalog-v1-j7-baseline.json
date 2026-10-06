@@ -11,7 +11,7 @@
       "profile_id": "stockfish/anchor-engine-opt-v2",
       "family": "stockfish",
       "process_identity": {
-        "binary_sha256": "01b94f31282e5cdc55aa031a7e69c6bfaf0eb4ffabe215a79d8632184f39f956",
+        "binary_sha256": "850a080f7e5325403243a2c010b7843db8f9620f37850fcb73f63556b26640e6",
         "artifacts": [],
         "backend": null,
         "args": [],
@@ -43,11 +43,11 @@
       "accelerator_memory_mib": 0,
       "work_chunk_ids": [],
       "qualification": {
-        "source_commit": "56516c34719670054e12218bd3781e9725ae4f65",
-        "evidence_sha256": "ba12820d8c19556dbe03dbc1ebaca4aeb7427a7b2c8d6ce3c668535a01424b3a",
-        "evidence_id": "engine-opt-v2/pr63-b4-candidate-exact-host",
-        "execution_domain_id": "exec-domain/0bf11e027cd419ae8f8a",
-        "execution_domain_digest": "0bf11e027cd419ae8f8abee52cfa52aef017b525598ca8237acc0a87ae4458ef",
+        "source_commit": "3de528e5a1a5a3609e0c293a80296ddc4a006875",
+        "evidence_sha256": "b4f1de8f4ae338ba19350acdddf570c43b55fa08d7274e791c1a4eeab5bf6943",
+        "evidence_id": "engine-opt-v2/pr49-exact-host",
+        "execution_domain_id": "exec-domain/9284bde03da0ebd1677f",
+        "execution_domain_digest": "9284bde03da0ebd1677fafa4a5078c00cc842f0b3b5ea8079c6f7989189199af",
         "binding_scope": "exact_host_observation"
       },
       "authority": {
@@ -61,7 +61,7 @@
       "profile_id": "stockfish/specialist-engine-opt-v2",
       "family": "stockfish",
       "process_identity": {
-        "binary_sha256": "01b94f31282e5cdc55aa031a7e69c6bfaf0eb4ffabe215a79d8632184f39f956",
+        "binary_sha256": "850a080f7e5325403243a2c010b7843db8f9620f37850fcb73f63556b26640e6",
         "artifacts": [],
         "backend": null,
         "args": [],
@@ -105,11 +105,11 @@
       "accelerator_memory_mib": 0,
       "work_chunk_ids": [],
       "qualification": {
-        "source_commit": "56516c34719670054e12218bd3781e9725ae4f65",
-        "evidence_sha256": "ba12820d8c19556dbe03dbc1ebaca4aeb7427a7b2c8d6ce3c668535a01424b3a",
-        "evidence_id": "engine-opt-v2/pr63-b4-candidate-exact-host",
-        "execution_domain_id": "exec-domain/0bf11e027cd419ae8f8a",
-        "execution_domain_digest": "0bf11e027cd419ae8f8abee52cfa52aef017b525598ca8237acc0a87ae4458ef",
+        "source_commit": "3de528e5a1a5a3609e0c293a80296ddc4a006875",
+        "evidence_sha256": "b4f1de8f4ae338ba19350acdddf570c43b55fa08d7274e791c1a4eeab5bf6943",
+        "evidence_id": "engine-opt-v2/pr49-exact-host",
+        "execution_domain_id": "exec-domain/9284bde03da0ebd1677f",
+        "execution_domain_digest": "9284bde03da0ebd1677fafa4a5078c00cc842f0b3b5ea8079c6f7989189199af",
         "binding_scope": "exact_host_observation"
       },
       "authority": {
@@ -123,7 +123,7 @@
       "profile_id": "reckless/specialist-engine-opt-v2",
       "family": "reckless",
       "process_identity": {
-        "binary_sha256": "a97ee2ce63d5b568780815a2011a169d4c5a6552f114a673a6fe51aa34b27a37",
+        "binary_sha256": "a54a4241dbcd501058a9a1cd06e1e1ca4d0dc08111d9231348eaf32b599c6b1d",
         "artifacts": [],
         "backend": null,
         "args": [],
@@ -167,11 +167,11 @@
       "accelerator_memory_mib": 0,
       "work_chunk_ids": [],
       "qualification": {
-        "source_commit": "56516c34719670054e12218bd3781e9725ae4f65",
-        "evidence_sha256": "ba12820d8c19556dbe03dbc1ebaca4aeb7427a7b2c8d6ce3c668535a01424b3a",
-        "evidence_id": "engine-opt-v2/pr63-b4-candidate-exact-host",
-        "execution_domain_id": "exec-domain/0bf11e027cd419ae8f8a",
-        "execution_domain_digest": "0bf11e027cd419ae8f8abee52cfa52aef017b525598ca8237acc0a87ae4458ef",
+        "source_commit": "3de528e5a1a5a3609e0c293a80296ddc4a006875",
+        "evidence_sha256": "b4f1de8f4ae338ba19350acdddf570c43b55fa08d7274e791c1a4eeab5bf6943",
+        "evidence_id": "engine-opt-v2/pr49-exact-host",
+        "execution_domain_id": "exec-domain/9284bde03da0ebd1677f",
+        "execution_domain_digest": "9284bde03da0ebd1677fafa4a5078c00cc842f0b3b5ea8079c6f7989189199af",
         "binding_scope": "exact_host_observation"
       },
       "authority": {
@@ -185,7 +185,7 @@
       "profile_id": "lc0/specialist-engine-opt-v2",
       "family": "lc0",
       "process_identity": {
-        "binary_sha256": "97ce6e942c1621715a0fae29489d133a9df09e24290575689f13899d942b86ab",
+        "binary_sha256": "10e91df0afa6be3a61d8354d0065246014e99a37192532f61c15f50e10169d90",
         "artifacts": [
           {
             "name": "network",
@@ -229,7 +229,7 @@
         },
         {
           "name": "MinibatchSize",
-          "value": 4,
+          "value": 7,
           "boundary": "game",
           "phase": null
         },
@@ -253,7 +253,7 @@
         },
         {
           "name": "MaxPrefetch",
-          "value": 0,
+          "value": 8,
           "boundary": "game",
           "phase": null
         },
@@ -288,11 +288,11 @@
       "accelerator_memory_mib": 0,
       "work_chunk_ids": [],
       "qualification": {
-        "source_commit": "56516c34719670054e12218bd3781e9725ae4f65",
-        "evidence_sha256": "ba12820d8c19556dbe03dbc1ebaca4aeb7427a7b2c8d6ce3c668535a01424b3a",
-        "evidence_id": "engine-opt-v2/pr63-b4-candidate-exact-host",
-        "execution_domain_id": "exec-domain/0bf11e027cd419ae8f8a",
-        "execution_domain_digest": "0bf11e027cd419ae8f8abee52cfa52aef017b525598ca8237acc0a87ae4458ef",
+        "source_commit": "3de528e5a1a5a3609e0c293a80296ddc4a006875",
+        "evidence_sha256": "b4f1de8f4ae338ba19350acdddf570c43b55fa08d7274e791c1a4eeab5bf6943",
+        "evidence_id": "engine-opt-v2/pr49-exact-host",
+        "execution_domain_id": "exec-domain/9284bde03da0ebd1677f",
+        "execution_domain_digest": "9284bde03da0ebd1677fafa4a5078c00cc842f0b3b5ea8079c6f7989189199af",
         "binding_scope": "exact_host_observation"
       },
       "authority": {
@@ -344,11 +344,11 @@
         }
       ],
       "qualification": {
-        "source_commit": "56516c34719670054e12218bd3781e9725ae4f65",
-        "evidence_sha256": "ba12820d8c19556dbe03dbc1ebaca4aeb7427a7b2c8d6ce3c668535a01424b3a",
-        "evidence_id": "engine-opt-v2/pr63-b4-candidate-exact-host",
-        "execution_domain_id": "exec-domain/0bf11e027cd419ae8f8a",
-        "execution_domain_digest": "0bf11e027cd419ae8f8abee52cfa52aef017b525598ca8237acc0a87ae4458ef",
+        "source_commit": "3de528e5a1a5a3609e0c293a80296ddc4a006875",
+        "evidence_sha256": "b4f1de8f4ae338ba19350acdddf570c43b55fa08d7274e791c1a4eeab5bf6943",
+        "evidence_id": "engine-opt-v2/pr49-exact-host",
+        "execution_domain_id": "exec-domain/9284bde03da0ebd1677f",
+        "execution_domain_digest": "9284bde03da0ebd1677fafa4a5078c00cc842f0b3b5ea8079c6f7989189199af",
         "binding_scope": "exact_host_observation"
       },
       "authority": {
@@ -385,19 +385,24 @@
         "DefectTelemetry": false,
         "UCI_Chess960": false
       },
-      "warmup": null
+      "warmup": {
+        "enabled": true,
+        "nodes": 64,
+        "position": "startpos",
+        "reset_after": true
+      }
     }
   },
   "qualification_snapshot": {
-    "qualified_head": "56516c34719670054e12218bd3781e9725ae4f65",
-    "merge_commit": "cae842801497161f2de37ff43b27d074ac12568a",
-    "workflow_run": 37469940904,
-    "aggregate_artifact_id": 11428968112,
-    "aggregate_artifact_sha256": "15ddaba2c3276eb51c993619c1c11a8f3142bcbcfcd8c5816775ed80a7882f62",
-    "aggregate_report_sha256": "ba12820d8c19556dbe03dbc1ebaca4aeb7427a7b2c8d6ce3c668535a01424b3a",
+    "qualified_head": "3de528e5a1a5a3609e0c293a80296ddc4a006875",
+    "merge_commit": "0ff86cc53d336780fa0d0566fe0ee414a7b70f3b",
+    "workflow_run": 36589207658,
+    "aggregate_artifact_id": 11047727810,
+    "aggregate_artifact_sha256": "efd4f3b0ba3d119ad558d3b81072f3e5f9e81aa1b34d627c6ba890d64303f35b",
+    "aggregate_report_sha256": "b4f1de8f4ae338ba19350acdddf570c43b55fa08d7274e791c1a4eeab5bf6943",
     "qualification_disposition": "QUALIFIED_EXACT_HOST_ONLY",
-    "execution_domain_id": "exec-domain/0bf11e027cd419ae8f8a",
-    "execution_domain_digest": "0bf11e027cd419ae8f8abee52cfa52aef017b525598ca8237acc0a87ae4458ef",
+    "execution_domain_id": "exec-domain/9284bde03da0ebd1677f",
+    "execution_domain_digest": "9284bde03da0ebd1677fafa4a5078c00cc842f0b3b5ea8079c6f7989189199af",
     "binding_scope": "exact_host_observation"
   },
   "legacy_policy": {

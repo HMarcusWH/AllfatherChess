@@ -14,6 +14,9 @@ from tools.engine_opt.domain import (
 from tools.engine_opt.selection import validate_selected_lc0_rows
 
 ROOT = Path(__file__).resolve().parents[2]
+CANONICAL_NATIVE_WORK_POLICY_PATH = (
+    ROOT / "qualification/engine-opt-v2-native-work-policy.json"
+)
 CANDIDATE_NATIVE_WORK_POLICY_PATH = (
     ROOT / "qualification/engine-opt-v2-candidate-native-work-policy.json"
 )
@@ -82,26 +85,34 @@ def repeat_evidence(
     }
 
 
-def _load_candidate_native_work_policy(
+def _load_native_work_policy(
     selection: dict[str, Any],
 ) -> tuple[dict[str, Any] | None, str | None]:
-    if selection.get("status") != "qualification_candidate":
+    status = selection.get("status")
+    matrix_profile = ((selection.get("selected") or {}).get("lc0") or {}).get("matrix_profile")
+    policy_path: Path | None = None
+    label = "LC0 native-work policy"
+    if status == "selected" and matrix_profile == "b4-p0-c256k-cold":
+        policy_path = CANONICAL_NATIVE_WORK_POLICY_PATH
+        label = "canonical LC0 native-work policy"
+    elif status == "qualification_candidate" and matrix_profile == "b4-p0-c256k-cold":
+        policy_path = CANDIDATE_NATIVE_WORK_POLICY_PATH
+        label = "candidate LC0 native-work policy"
+    if policy_path is None:
         return None, None
     try:
-        raw = CANDIDATE_NATIVE_WORK_POLICY_PATH.read_bytes()
+        raw = policy_path.read_bytes()
         policy = json.loads(raw.decode("utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise MatrixQualificationError(
-            f"cannot load candidate native-work policy: {exc}"
-        ) from exc
-    require(isinstance(policy, dict), "candidate native-work policy root must be an object")
+        raise MatrixQualificationError(f"cannot load {label}: {exc}") from exc
+    require(isinstance(policy, dict), f"{label} root must be an object")
     applies = policy.get("applies_to")
     expected = {
         "selection_profile_id": selection.get("profile_id"),
-        "selection_status": selection.get("status"),
-        "matrix_profile": ((selection.get("selected") or {}).get("lc0") or {}).get("matrix_profile"),
+        "selection_status": status,
+        "matrix_profile": matrix_profile,
     }
-    require(applies == expected, "candidate native-work policy applicability drift")
+    require(applies == expected, f"{label} applicability drift")
     return policy, hashlib.sha256(raw).hexdigest()
 
 
@@ -179,7 +190,7 @@ def qualify_lc0_matrix(
 
     policy_sha256: str | None = None
     if native_work_policy is None:
-        native_work_policy, policy_sha256 = _load_candidate_native_work_policy(selection)
+        native_work_policy, policy_sha256 = _load_native_work_policy(selection)
     native_work_policy_id, selected_native_work_exact = _selected_native_work_policy(native_work_policy)
 
     confirmation = matrix.get("confirmation") or {}

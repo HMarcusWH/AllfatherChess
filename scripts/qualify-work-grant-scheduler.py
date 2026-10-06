@@ -22,6 +22,7 @@ from controller.work_scheduler import (
 
 J3 = ROOT / "qualification/resource-profile-catalog-v1.json"
 J7 = ROOT / "qualification/resource-profile-selection-v1.json"
+ENGINE_SELECTION = ROOT / "qualification/engine-opt-v2-selection.json"
 J8 = ROOT / "config/allfather.m14-j-j8.validation.json"
 J9 = ROOT / "config/allfather.m14-j-j9.validation.json"
 J9_CATALOG = ROOT / "qualification/work-grant-scheduler-v1.json"
@@ -52,6 +53,7 @@ def qualify() -> dict:
         resource_catalog=resource_catalog,
     )
     j7 = load(J7)
+    engine_selection = load(ENGINE_SELECTION)
     j8 = load(J8)
     j9 = load(J9)
 
@@ -176,23 +178,31 @@ def qualify() -> dict:
         "J9 must remain fixed conservative compatibility scheduling",
     )
 
-    stockfish = [
-        spec
-        for spec in j9["instances"].values()
-        if spec["family"] == "stockfish"
-    ]
-    require(
-        all(spec["options"].get("Hash") == 16 for spec in stockfish),
-        "J7 Stockfish Hash=32 leaked into J9 runtime",
-    )
-    lc0 = next(
-        spec for spec in j9["instances"].values()
-        if spec["family"] == "lc0"
-    )
-    require(
-        lc0["options"].get("MaxPrefetch") == 8,
-        "J7 LC0 MaxPrefetch=0 leaked into J9 runtime",
-    )
+    selected = engine_selection.get("selected") or {}
+    for spec in j9["instances"].values():
+        if spec["family"] == "stockfish":
+            require(
+                spec["options"].get("Hash") == (selected.get("stockfish") or {}).get("hash_mb"),
+                "J9 Stockfish Hash differs from canonical ENGINE-OPT selection",
+            )
+        elif spec["family"] == "reckless":
+            require(
+                spec["options"].get("Hash") == (selected.get("reckless") or {}).get("hash_mb"),
+                "J9 Reckless Hash differs from canonical ENGINE-OPT selection",
+            )
+        elif spec["family"] == "lc0":
+            lc0_selected = selected.get("lc0") or {}
+            for option, value in {
+                "NNCacheSize": lc0_selected.get("nn_cache_size"),
+                "MinibatchSize": lc0_selected.get("minibatch_size"),
+                "MaxPrefetch": lc0_selected.get("max_prefetch"),
+                "AdaptivePrefetch": lc0_selected.get("adaptive_prefetch"),
+                "DefectTelemetry": lc0_selected.get("defect_telemetry"),
+            }.items():
+                require(
+                    spec["options"].get(option) == value,
+                    f"J9 LC0 {option} differs from canonical ENGINE-OPT selection",
+                )
     require(
         j7.get("authority")
         == {

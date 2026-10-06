@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import copy
+import hashlib
+import json
 from pathlib import Path
 import subprocess
 import sys
@@ -200,6 +202,64 @@ class GateTests(unittest.TestCase):
         self.assertEqual(report["disposition"], "QUALIFIED_CANONICAL_AND_CANDIDATE")
         self.assertTrue(report["canonical"]["qualified"])
         self.assertTrue(report["canonical"]["authority_on_current_host"])
+
+
+class CliArtifactTests(unittest.TestCase):
+    def _run_gate(self, candidate_doc: dict) -> tuple[subprocess.CompletedProcess[str], dict]:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            canonical_path = root / "canonical.json"
+            candidate_path = root / "candidate.json"
+            binding_path = root / "host-binding.json"
+            output_path = root / "report.json"
+            canonical_path.write_text(json.dumps(canonical(qualified=True)), encoding="utf-8")
+            candidate_path.write_text(json.dumps(candidate_doc), encoding="utf-8")
+            binding_path.write_text(json.dumps(host_binding()), encoding="utf-8")
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "scripts/qualify-engine-opt-v2-candidate-gate.py"),
+                    "--canonical",
+                    str(canonical_path),
+                    "--candidate",
+                    str(candidate_path),
+                    "--host-binding",
+                    str(binding_path),
+                    "--output",
+                    str(output_path),
+                ],
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertTrue(output_path.is_file(), result.stderr)
+            report = json.loads(output_path.read_text(encoding="utf-8"))
+            observed = report.pop("content_sha256")
+            encoded = json.dumps(
+                report,
+                sort_keys=True,
+                separators=(",", ":"),
+                allow_nan=False,
+            ).encode("utf-8")
+            self.assertEqual(hashlib.sha256(encoded).hexdigest(), observed)
+            report["content_sha256"] = observed
+            return result, report
+
+    def test_cli_failure_is_fail_closed_but_still_writes_auditable_report(self):
+        doc = candidate()
+        doc["promotion_ready"] = False
+        result, report = self._run_gate(doc)
+        self.assertEqual(result.returncode, 2)
+        self.assertFalse(report["passed"])
+        self.assertEqual(report["disposition"], "BLOCKED_FAIL_CLOSED")
+        self.assertIn("not independently promotion-ready", report["failure"]["message"])
+
+    def test_cli_success_writes_the_same_sealed_artifact_surface(self):
+        result, report = self._run_gate(candidate())
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(report["passed"])
+        self.assertEqual(report["disposition"], "QUALIFIED_CANONICAL_AND_CANDIDATE")
 
 
 class SurfaceTests(unittest.TestCase):

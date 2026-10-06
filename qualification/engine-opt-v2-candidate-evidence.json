@@ -20,7 +20,7 @@
     "candidate": {
       "artifact_id": 10946815944,
       "digest": "sha256:b0be9844d159b2c50cfe08d1e1450abc29338057c20913fc49dfdc3c90057c33",
-      "report_sha256": "dfebe747a15b1a251a4f288a7003e92a8fd1dad8cf1687f4df100d14f3bda175",
+      "report_sha256": "dfebe747a15b1a251a4f288a7003e92a8fd1dad8cf1487f4df100d14f3bda175",
       "build_manifest_sha256": "86bc294d5560bf516022eab426b4230067635e115947f4aba303ba9fe3986cd8"
     },
     "lc0_matrix": {

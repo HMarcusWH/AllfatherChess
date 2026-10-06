@@ -233,7 +233,13 @@ def qualify_lc0_matrix(
         )
 
     raw = [row for row in matrix.get("rows", []) if row.get("profile") == selected_profile]
-    validate_selected_lc0_rows(raw, lc0, q, native_work_policy, require)
+    validate_selected_lc0_rows(
+        raw,
+        lc0,
+        require,
+        qualification=q,
+        native_work_policy=native_work_policy,
+    )
 
     details = {
         "execution_domain": domain,

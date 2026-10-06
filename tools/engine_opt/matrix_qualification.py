@@ -76,6 +76,27 @@ def repeat_evidence(
     }
 
 
+def _selected_native_work_policy(qualification: dict[str, Any]) -> tuple[str, bool]:
+    policy = qualification.get("native_work_policy")
+    if policy is None:
+        return "exact-vector-v1", True
+    require(isinstance(policy, dict), "qualification native_work_policy must be an object")
+    policy_id = policy.get("id")
+    require(
+        policy_id in {"exact-vector-v1", "lc0-node-stop-contract-v1"},
+        f"unsupported LC0 native-work policy: {policy_id!r}",
+    )
+    exact = policy.get("require_exact_terminal_counter_repeatability")
+    if policy_id == "exact-vector-v1":
+        require(exact in {None, True}, "exact-vector-v1 must require exact terminal-counter repeatability")
+        return str(policy_id), True
+    require(
+        exact is False,
+        "lc0-node-stop-contract-v1 must explicitly disable exact terminal-counter repeatability",
+    )
+    return str(policy_id), False
+
+
 def qualify_lc0_matrix(
     *,
     matrix: dict[str, Any],
@@ -125,6 +146,7 @@ def qualify_lc0_matrix(
         isinstance(cases, int) and not isinstance(cases, bool) and cases >= 1,
         "selection corpus_cases is invalid",
     )
+    native_work_policy_id, selected_native_work_exact = _selected_native_work_policy(q)
     confirmation = matrix.get("confirmation") or {}
     require(confirmation.get("selected_profile") == selected_profile, "matrix selected profile drift")
     require(confirmation.get("baseline_profile") == baseline_profile, "matrix baseline profile drift")
@@ -142,10 +164,15 @@ def qualify_lc0_matrix(
             "NOT_QUALIFIED_REPEATABILITY",
             "LC0 bestmove vectors are not repeatable within the bound domain",
         )
-    if not baseline["native_work_stable"] or not selected["native_work_stable"]:
+    if not baseline["native_work_stable"]:
         fail(
             "NOT_QUALIFIED_REPEATABILITY",
-            "LC0 native-work vectors are not repeatable within the bound domain",
+            "LC0 baseline native-work vectors are not repeatable within the bound domain",
+        )
+    if selected_native_work_exact and not selected["native_work_stable"]:
+        fail(
+            "NOT_QUALIFIED_REPEATABILITY",
+            "LC0 selected native-work vectors are not repeatable within the bound domain",
         )
     if selected["bestmove_vector"] != baseline["bestmove_vector"]:
         fail(
@@ -171,13 +198,15 @@ def qualify_lc0_matrix(
         )
 
     raw = [row for row in matrix.get("rows", []) if row.get("profile") == selected_profile]
-    validate_selected_lc0_rows(raw, lc0, require)
+    validate_selected_lc0_rows(raw, lc0, q, require)
 
     details = {
         "execution_domain": domain,
         "baseline_profile": baseline_profile,
         "selected_profile": selected_profile,
         "confirmation_repeats": repeats,
+        "native_work_policy": native_work_policy_id,
+        "selected_native_work_exact_repeatability_required": selected_native_work_exact,
         "baseline": {
             "bestmove_stable": baseline["bestmove_stable"],
             "native_work_stable": baseline["native_work_stable"],

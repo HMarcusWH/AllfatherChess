@@ -1,9 +1,9 @@
 # AllfatherChess roadmap
 
-**Status date:** 3 October 2026  
-**Current main:** `2d7d6f19c18bb5ee101199e4a038b7c420405c50`  
-**Latest merged milestone:** PR #61 / M14-J J13B — immutable META-1 execution qualification  
-**Current execution milestone:** M14-J J13C — isolated b4 candidate qualification before promotion  
+**Status date:** 4 October 2026  
+**Current main:** `ff3d8adc166eb7ef2a9ad57da9d20e1b212df17d`  
+**Latest merged milestone:** PR #62 / M14-J J13C — isolated b4 candidate qualification  
+**Current execution milestone:** PR #63 — b4 resource-substrate requalification before canonical promotion  
 **Current-state authority:** [CURRENT_STATUS.md](CURRENT_STATUS.md)  
 **M14-J implementation plan:** [M14_J_ADAPTIVE_RESOURCE_ORCHESTRATION.md](M14_J_ADAPTIVE_RESOURCE_ORCHESTRATION.md)  
 **Detailed deployment audit:** [ONLINE_RELEASE_PLAN.md](ONLINE_RELEASE_PLAN.md)
@@ -64,6 +64,31 @@ PR #60 subsequently merged the matched-orchestration `ANCHOR_CONTROL` arm and th
 campaign. J13B is the final execution-qualification step before the real campaign: immutable
 attempt IDs, exact merged-main/source/build binding, pre/post host-domain binding, destructive
 evidence mutations, a pinned-Fastchess mini smoke, and a separate independent verifier job.
+
+PR #62 then closed J13C: b4 passed the isolated exact-head matrix, G3/LOCAL-1 and aggregate
+promotion gate without mutating canonical b7/J3/J8-J12 authority. PR #63 is intentionally a
+separate measurement-only step. It freezes a b4-native resource laboratory and deterministic
+isolated profile selections while preserving all historical J6/J7 evidence. Only after that
+measurement evidence is source-controlled does the roadmap permit an atomic canonical b4
+promotion and J3→J12 requalification.
+
+### PR #63 resource-accounting closure
+
+PR #63 also repairs a legacy ONLINE/G3 resource-accounting defect exposed by fresh LOCAL-1 evidence before any b4 authority is promoted. The declared controller-overhead reserve is now treated as an absolute profile partition during per-move envelope derivation rather than being scaled with the clock. Two retained lifecycle artifacts also freeze owner-specific legacy G3 estimates: EXPLORE 100/100/1800 ms and VERIFY 100/100/1400 ms for Stockfish/Reckless/LC0 respectively, with the original 500/750 ms scalars retained only as unknown-owner fallbacks. The 4000 ms wall / 12000 ms CPU outer envelope remains unchanged and all ordinary fail-closed LOCAL-1 resource gates remain mandatory.
+
+The closure repair applies the same absolute-controller invariant to J8 host-capacity clamps,
+versions new TimePlans with `absolute-controller-v2`, and permits pre-marker replay
+reconstruction only when the exact manifest is admitted by a SHA-bound historical archive
+registry. The retained LOCAL-1 calibration was also independently reconciled: the first failed
+campaign contains 689 completed LC0 EXPLORE measurements (one missing resource artifact is
+explicitly excluded), while the retained maxima and therefore the 1800/1400 ms LC0
+reservations remain unchanged.
+
+ENGINE-OPT constituent qualification is likewise being made repeat-aware without weakening its
+3% efficiency band. The frozen v2 protocol runs ten complete, counterbalanced repetitions of
+the eight-position/five-hash matrix and distinguishes qualified, failed and inconclusive
+evidence. Inconclusive constituent timing blocks promotion rather than being treated as a
+pass. Binary A/B controls are paired by position and alternate execution order.
 
 ## 2. Critical path to the first public canary
 
@@ -128,13 +153,18 @@ META-1 / J13B / PR #61
 immutable execution + independent paired verification
         |
         v
-IN PROGRESS
-M14-J J13C
+DONE
+M14-J J13C / PR #62
 b4 candidate qualification; canonical b7/J3/J8-J12 unchanged
         |
         v
+IN PROGRESS
+PR #63
+b4 resource-substrate requalification; evidence only, no authority change
+        |
+        v
 PENDING
-ENGINE-OPT-V2 canonical promotion / substrate requalification
+ENGINE-OPT-V2 b4 canonical promotion + J3-J12 substrate requalification
         |
         v
 META-1 / J13

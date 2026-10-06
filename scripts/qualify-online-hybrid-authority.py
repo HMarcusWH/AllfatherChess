@@ -20,6 +20,7 @@ from tools.engine_opt.report import sha256, source_identity
 POLICY = ROOT / "qualification/online-hybrid-authority.json"
 CONFIG = ROOT / "config/allfather.online-hybrid.validation.json"
 ONLINE2 = ROOT / "config/allfather.online.cpu-reference.json"
+RESOURCE_CALIBRATION = ROOT / "qualification/online-hybrid-v1-resource-calibration.json"
 RESULT = ROOT / "build/test-results/online-hybrid"
 MOVE_RE = re.compile(r"^[a-h][1-8][a-h][1-8][qrbn]?$")
 
@@ -238,6 +239,7 @@ def main(argv: list[str] | None = None) -> int:
         "policy_sha256": sha256(POLICY),
         "runtime_config_sha256": sha256(CONFIG),
         "online2_config_sha256": sha256(ONLINE2),
+        "resource_calibration_sha256": sha256(RESOURCE_CALIBRATION),
         "evidence_valid": True,
         "mechanism_valid": True,
         "positive_witness_observed": winner is not None,

@@ -16,7 +16,12 @@
       "nodes": 32
     },
     "intervention": "same_process_staged_verify_v1",
-    "reservation_cpu_ms_per_stage": 750
+    "reservation_cpu_ms_per_stage": 750,
+    "reservation_cpu_ms_by_owner": {
+      "stockfish": 100,
+      "reckless": 100,
+      "lc0": 1400
+    }
   },
   "claim_boundary": {
     "hybrid_authority": true,
@@ -89,6 +94,16 @@
   },
   "explore": {
     "nodes": 16,
-    "reason": "Measured real-BLAS LC0 256-visit EXPLORE saturated the 3650 ms soft window under concurrent reference load; G3 integration therefore uses a bounded low-visit authority fixture rather than laundering a larger clock."
+    "reason": "Measured real-BLAS LC0 256-visit EXPLORE saturated the 3650 ms soft window under concurrent reference load; G3 integration therefore uses a bounded low-visit authority fixture rather than laundering a larger clock.",
+    "reservation_cpu_ms_per_stage": 500,
+    "reservation_cpu_ms_by_owner": {
+      "stockfish": 100,
+      "reckless": 100,
+      "lc0": 1800
+    }
+  },
+  "resource_calibration": {
+    "path": "qualification/online-hybrid-v1-resource-calibration.json",
+    "profile_id": "online-hybrid-v1-resource-calibration"
   }
 }

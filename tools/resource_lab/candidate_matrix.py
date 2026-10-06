@@ -38,10 +38,17 @@ REFERENCE_PROFILE = {
     "reckless": "reckless/specialist-engine-opt-v2",
     "lc0": "lc0/specialist-engine-opt-v2",
 }
-REFERENCE_CONTRACT_PATHS = {
-    "catalog": "qualification/resource-profile-catalog-v1.json",
-    "runtime": "config/allfather.online-hybrid-v2.validation.json",
-    "build_policy": "qualification/online-engine-opt-v2.json",
+REFERENCE_CONTRACT_PATHS_BY_LAB = {
+    "resource-lab-v1": {
+        "catalog": "qualification/resource-profile-catalog-v1.json",
+        "runtime": "config/allfather.online-hybrid-v2.validation.json",
+        "build_policy": "qualification/online-engine-opt-v2.json",
+    },
+    "resource-lab-v2": {
+        "selection": "qualification/engine-opt-v2-candidate-selection.json",
+        "runtime": "config/allfather.online-engine-opt-v2.candidate.json",
+        "build_policy": "qualification/online-engine-opt-v2.json",
+    },
 }
 
 
@@ -222,11 +229,16 @@ def validate_lab_spec(raw: Mapping[str, Any]) -> None:
             "stage_b",
             "pareto",
             "claim_boundary",
+            "expected_counts",
         },
         "resource lab spec",
     )
     require(raw.get("schema_version") == 1, "unsupported resource lab schema")
-    require(raw.get("lab_id") == "resource-lab-v1", "unexpected lab id")
+    lab_id = raw.get("lab_id")
+    require(
+        lab_id in REFERENCE_CONTRACT_PATHS_BY_LAB,
+        f"unsupported resource lab id: {lab_id!r}",
+    )
     require(
         raw.get("attempt_policy") == "single-pass-no-retry-v1",
         "lab must forbid retry selection",
@@ -264,8 +276,8 @@ def validate_lab_spec(raw: Mapping[str, Any]) -> None:
 
     reference_contract = _object(raw.get("reference_contract"), "reference_contract")
     require(
-        dict(reference_contract) == REFERENCE_CONTRACT_PATHS,
-        "J6 reference contract paths drift",
+        dict(reference_contract) == REFERENCE_CONTRACT_PATHS_BY_LAB[lab_id],
+        f"{lab_id} reference contract paths drift",
     )
 
     families = _object(raw.get("families"), "families")
@@ -356,17 +368,75 @@ def validate_lab_spec(raw: Mapping[str, Any]) -> None:
             _positive_int(nodes, f"{family} nodes")
         total += len(variants) * len(budgets)
 
-    require(
-        total == 57,
-        f"frozen J6 Stage-A matrix must contain 57 candidates, got {total}",
-    )
+    if lab_id == "resource-lab-v1":
+        require(
+            total == 57,
+            f"frozen J6 Stage-A matrix must contain 57 candidates, got {total}",
+        )
+    expected_counts = raw.get("expected_counts")
+    if expected_counts is not None:
+        expected_counts = _object(expected_counts, "expected_counts")
+        _strict(
+            expected_counts,
+            {
+                "stage_a_candidates",
+                "stage_a_measurements",
+                "stage_b_compositions",
+                "stage_b_batches",
+                "preflight_reference_attempts",
+            },
+            "expected_counts",
+        )
+        require(
+            _positive_int(
+                expected_counts.get("stage_a_candidates"),
+                "expected_counts.stage_a_candidates",
+            )
+            == total,
+            "Stage-A candidate count differs from frozen expected_counts",
+        )
+        require(
+            _positive_int(
+                expected_counts.get("stage_a_measurements"),
+                "expected_counts.stage_a_measurements",
+            )
+            == total * int(raw["corpus_cases"]) * int(raw["repeats"]),
+            "Stage-A measurement count differs from frozen expected_counts",
+        )
     stage_b = _object(raw.get("stage_b"), "stage_b")
     _strict(stage_b, {"compositions"}, "stage_b")
     compositions = stage_b.get("compositions")
     require(
-        isinstance(compositions, list) and len(compositions) == 3,
-        "Stage B must freeze three compositions",
+        isinstance(compositions, list) and compositions,
+        "Stage B must freeze at least one composition",
     )
+    if lab_id == "resource-lab-v1":
+        require(len(compositions) == 3, "Stage B must freeze three compositions")
+    if expected_counts is not None:
+        require(
+            _positive_int(
+                expected_counts.get("stage_b_compositions"),
+                "expected_counts.stage_b_compositions",
+            )
+            == len(compositions),
+            "Stage-B composition count differs from frozen expected_counts",
+        )
+        require(
+            _positive_int(
+                expected_counts.get("stage_b_batches"),
+                "expected_counts.stage_b_batches",
+            )
+            == len(compositions) * int(raw["corpus_cases"]) * int(raw["repeats"]),
+            "Stage-B batch count differs from frozen expected_counts",
+        )
+        require(
+            _positive_int(
+                expected_counts.get("preflight_reference_attempts"),
+                "expected_counts.preflight_reference_attempts",
+            )
+            == sum(len(cfg["work_budgets_nodes"]) for cfg in families.values()),
+            "preflight reference-attempt count differs from frozen expected_counts",
+        )
     pareto = _object(raw.get("pareto"), "pareto")
     _strict(
         pareto,
@@ -478,10 +548,6 @@ def expand_candidates(
                         reference=variant_id == reference_variant,
                     )
                 )
-    require(
-        len(rows) == 57,
-        "expanded Stage-A matrix is not frozen 57-candidate set",
-    )
     ids = [row.candidate_id for row in rows]
     require(len(ids) == len(set(ids)), "candidate ids are not unique")
     return tuple(rows)
@@ -562,7 +628,6 @@ def expand_compositions(
                 members=tuple(members),
             )
         )
-    require(len(rows) == 3, "Stage B composition count drift")
     return tuple(rows)
 
 
@@ -590,17 +655,34 @@ def _normalized_reference_options(
 
 
 def validate_reference_contract(spec: LabSpec, root: Path) -> None:
-    """Prove the hand-written J6 reference is exactly current frozen v2 semantics."""
-    from controller.resource_profile_catalog import load_resource_profile_catalog
-
+    """Prove the hand-written laboratory reference matches its declared runtime."""
     ref = _object(spec.raw["reference_contract"], "reference_contract")
-    catalog = load_resource_profile_catalog(root / str(ref["catalog"]))
     runtime = json.loads((root / str(ref["runtime"])).read_text(encoding="utf-8"))
     build_policy = json.loads(
         (root / str(ref["build_policy"])).read_text(encoding="utf-8")
     )
     instances = _object(runtime.get("instances"), "reference runtime instances")
     builds = _object(build_policy.get("builds"), "reference build policy")
+
+    catalog = None
+    if spec.lab_id == "resource-lab-v1":
+        from controller.resource_profile_catalog import load_resource_profile_catalog
+
+        catalog = load_resource_profile_catalog(root / str(ref["catalog"]))
+    elif spec.lab_id == "resource-lab-v2":
+        from controller.engine_opt_profile import validate_reference
+
+        selection = json.loads(
+            (root / str(ref["selection"])).read_text(encoding="utf-8")
+        )
+        validate_reference(
+            build_policy,
+            selection,
+            runtime,
+            require_selected=False,
+        )
+    else:  # guarded by validate_lab_spec; defensive for hand-constructed LabSpec tests
+        raise ResourceLabSpecError(f"unsupported reference contract for {spec.lab_id}")
 
     for family in FAMILIES:
         cfg = _object(spec.raw["families"][family], family)
@@ -640,24 +722,25 @@ def validate_reference_contract(spec: LabSpec, root: Path) -> None:
             f"{family}: J6 warmup differs from frozen runtime",
         )
 
-        profile_id = REFERENCE_PROFILE[family]
-        require(
-            catalog.startup_options(profile_id) == expected_options,
-            f"{family}: J6 v2-current differs from frozen catalog",
-        )
-        require(
-            catalog.warmup(profile_id) == expected_warmup,
-            f"{family}: J6 warmup differs from frozen catalog",
-        )
-        profile = catalog.profile(profile_id)
-        require(
-            list(profile.process_identity.args) == list(cfg["args"]),
-            f"{family}: catalog argv differs from J6 reference",
-        )
-        require(
-            dict(profile.process_identity.environment) == dict(cfg["environment"]),
-            f"{family}: catalog environment differs from J6 reference",
-        )
+        if catalog is not None:
+            profile_id = REFERENCE_PROFILE[family]
+            require(
+                catalog.startup_options(profile_id) == expected_options,
+                f"{family}: J6 v2-current differs from frozen catalog",
+            )
+            require(
+                catalog.warmup(profile_id) == expected_warmup,
+                f"{family}: J6 warmup differs from frozen catalog",
+            )
+            profile = catalog.profile(profile_id)
+            require(
+                list(profile.process_identity.args) == list(cfg["args"]),
+                f"{family}: catalog argv differs from J6 reference",
+            )
+            require(
+                dict(profile.process_identity.environment) == dict(cfg["environment"]),
+                f"{family}: catalog environment differs from J6 reference",
+            )
 
         build = _object(builds.get(family), f"build policy {family}")
         require(

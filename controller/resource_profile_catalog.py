@@ -506,10 +506,17 @@ class ResourceProfileCatalog:
             "catalog LC0 argv differs from selection",
         )
         warmup = self.warmup("lc0/specialist-engine-opt-v2")
-        _require(
-            isinstance(warmup, dict) and warmup.get("nodes") == lc0.get("warmup_nodes"),
-            "catalog LC0 warmup differs from selection",
-        )
+        warmup_nodes = lc0.get("warmup_nodes")
+        if warmup_nodes is None:
+            _require(
+                warmup is None,
+                "catalog LC0 warmup is enabled despite a no-warmup selection",
+            )
+        else:
+            _require(
+                isinstance(warmup, dict) and warmup.get("nodes") == warmup_nodes,
+                "catalog LC0 warmup differs from selection",
+            )
         multipv = {
             phase: values.get("MultiPV")
             for phase, values in self.phase_options("lc0/specialist-engine-opt-v2").items()

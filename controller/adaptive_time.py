@@ -27,6 +27,7 @@ from controller.online_time import (
     OnlineTimeSettings,
     TimePlan,
 )
+from controller.replay_history import policy_for_time_plan
 from controller.resource_profiles import (
     CompositionProfile,
     OrchestrationContractError,
@@ -213,20 +214,9 @@ def _scaled_envelope(
     )
     if cpu_ms <= 0:
         raise AdaptiveTimeError("adaptive CPU ceiling collapsed to zero")
-    controller = 0.0
-    if baseline.cpu_ms > 0:
-        controller = (
-            float(baseline.controller_overhead_reserve_ms)
-            * cpu_ms
-            / float(baseline.cpu_ms)
-        )
-    return ResourceEnvelope(
+    return baseline.clamped_cpu_envelope(
         wall_ms=float(baseline.wall_ms),
         cpu_ms=cpu_ms,
-        gpu_ms=0.0,
-        verification_reserve_fraction=baseline.verification_reserve_fraction,
-        refinement_reserve_fraction=baseline.refinement_reserve_fraction,
-        controller_overhead_reserve_ms=controller,
     )
 
 
@@ -363,6 +353,10 @@ def build_move_resource_plan(
 
 def _time_plan_from_dict(raw: Mapping[str, Any]) -> TimePlan:
     raw = _mapping(raw, "time_plan")
+    try:
+        partition_policy = policy_for_time_plan(raw)
+    except ValueError as exc:
+        raise AdaptiveTimeError(str(exc)) from exc
     settings_raw = _mapping(raw.get("settings"), "time_plan.settings")
     envelope_raw = _mapping(raw.get("envelope"), "time_plan.envelope")
     declared_raw = _mapping(
@@ -390,6 +384,7 @@ def _time_plan_from_dict(raw: Mapping[str, Any]) -> TimePlan:
             declared_envelope=ResourceEnvelope(**dict(declared_raw)),
             settings=OnlineTimeSettings(**dict(settings_raw)),
             policy=raw.get("policy"),
+            resource_partition_policy=partition_policy,
         )
     except (TypeError, ValueError) as exc:
         raise AdaptiveTimeError(f"cannot reconstruct TimePlan: {exc}") from exc

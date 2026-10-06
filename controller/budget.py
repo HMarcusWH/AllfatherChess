@@ -119,20 +119,54 @@ class ResourceEnvelope:
             ),
         )
 
+    def clamped_cpu_envelope(
+        self,
+        *,
+        wall_ms: float,
+        cpu_ms: float,
+    ) -> "ResourceEnvelope":
+        """Clamp a CPU-only envelope without turning fixed controller work fractional.
+
+        VERIFY/REFINE reserves remain fractions of the clamped CPU budget. The
+        controller partition is an absolute profile reservation whenever it fits;
+        if the envelope becomes too small, solver capacity yields first.
+        """
+        for name, value in (("wall_ms", wall_ms), ("cpu_ms", cpu_ms)):
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise BudgetError(f"{name} clamp must be numeric")
+            if not math.isfinite(float(value)) or float(value) <= 0:
+                raise BudgetError(f"{name} clamp must be finite and positive")
+        if self.wall_ms <= 0 or self.cpu_ms <= 0 or self.gpu_ms != 0:
+            raise BudgetError("CPU clamp requires a positive CPU-only envelope")
+        wall = min(float(wall_ms), float(self.wall_ms))
+        cpu = min(float(cpu_ms), float(self.cpu_ms))
+        fractional_reserves = cpu * (
+            self.verification_reserve_fraction
+            + self.refinement_reserve_fraction
+        )
+        controller_capacity = max(0.0, cpu - fractional_reserves)
+        controller_reserve = min(
+            float(self.controller_overhead_reserve_ms),
+            controller_capacity,
+        )
+        return ResourceEnvelope(
+            wall_ms=wall,
+            cpu_ms=cpu,
+            gpu_ms=0.0,
+            verification_reserve_fraction=self.verification_reserve_fraction,
+            refinement_reserve_fraction=self.refinement_reserve_fraction,
+            controller_overhead_reserve_ms=controller_reserve,
+        )
+
     def bounded_for_move(self, *, wall_ms: int, cpu_parallelism: int) -> "ResourceEnvelope":
-        """Shrink this profile cap for one move while preserving reserve ratios."""
+        """Shrink this profile cap for one move while preserving reserve semantics."""
         if isinstance(wall_ms, bool) or not isinstance(wall_ms, int) or wall_ms <= 0:
             raise BudgetError("per-move wall_ms must be a positive integer")
         if isinstance(cpu_parallelism, bool) or not isinstance(cpu_parallelism, int) or cpu_parallelism <= 0:
             raise BudgetError("per-move CPU parallelism must be a positive integer")
-        if self.wall_ms <= 0 or self.cpu_ms <= 0 or self.gpu_ms != 0:
-            raise BudgetError("per-move v1 requires a positive CPU-only envelope")
         wall = min(float(wall_ms), self.wall_ms)
         cpu = min(self.cpu_ms, wall * cpu_parallelism)
-        return ResourceEnvelope(wall_ms=wall, cpu_ms=cpu, gpu_ms=0,
-            verification_reserve_fraction=self.verification_reserve_fraction,
-            refinement_reserve_fraction=self.refinement_reserve_fraction,
-            controller_overhead_reserve_ms=cpu * self.controller_overhead_reserve_ms / self.cpu_ms)
+        return self.clamped_cpu_envelope(wall_ms=wall, cpu_ms=cpu)
 
     @property
     def verification_reserve_ms(self) -> float:

@@ -97,7 +97,21 @@ class TimeTests(unittest.TestCase):
         self.assertEqual(p.envelope.verification_reserve_fraction,.25)
         q = self.plan('go movetime 200', envelope=original)
         self.assertEqual(q.envelope.cpu_ms,800)
-        self.assertEqual(q.envelope.controller_overhead_reserve_ms,40)
+        self.assertEqual(
+            q.envelope.controller_overhead_reserve_ms,
+            100,
+            "fixed controller work must not shrink with the move clock",
+        )
+        tiny = ResourceEnvelope(
+            wall_ms=4000,
+            cpu_ms=12000,
+            verification_reserve_fraction=.3,
+            controller_overhead_reserve_ms=250,
+        ).bounded_for_move(wall_ms=100, cpu_parallelism=1)
+        self.assertEqual(tiny.cpu_ms, 100)
+        self.assertEqual(tiny.verification_reserve_ms, 30)
+        self.assertEqual(tiny.controller_overhead_reserve_ms, 70)
+        self.assertEqual(tiny.solver_cpu_ceiling_ms, 0)
         with self.assertRaises((ValueError, RuntimeError)):
             self.plan(envelope=ResourceEnvelope(wall_ms=2000,cpu_ms=2000,gpu_ms=100))
 

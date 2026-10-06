@@ -10,9 +10,26 @@ def validate_selected_lc0_rows(
     rows: list[dict[str, Any]],
     selected: dict[str, Any],
     require: Callable[[bool, str], None],
+    qualification: dict[str, Any] | None = None,
+    native_work_policy: dict[str, Any] | None = None,
 ) -> None:
+    """Validate selected LC0 rows while preserving the legacy 3-arg contract."""
     require(bool(rows), "selected LC0 profile has no raw rows")
+    qualification = qualification or {}
     warmup_nodes = selected.get("warmup_nodes")
+    repeats = qualification.get("confirmation_repeats")
+    cases = qualification.get("corpus_cases", 8)
+    if isinstance(repeats, int) and not isinstance(repeats, bool) and repeats > 0:
+        require(
+            isinstance(cases, int) and not isinstance(cases, bool) and cases > 0,
+            "selected LC0 corpus case count is invalid",
+        )
+        require(
+            len(rows) == repeats * cases,
+            "selected LC0 raw-row coverage differs from the frozen repeat/corpus contract",
+        )
+
+    seen: set[tuple[int, str]] = set()
     for row in rows:
         opts = row.get("options") or {}
         require(opts.get("NNCacheSize") == selected.get("nn_cache_size"),
@@ -30,3 +47,70 @@ def validate_selected_lc0_rows(
         else:
             require(isinstance(warmup, dict) and warmup.get("nodes") == warmup_nodes,
                     "selected LC0 warmup differs from frozen selection")
+
+        if qualification:
+            repeat_index = row.get("repeat_index")
+            case_id = row.get("case_id")
+            require(
+                isinstance(repeat_index, int) and not isinstance(repeat_index, bool) and repeat_index >= 0,
+                "selected LC0 raw row has invalid repeat identity",
+            )
+            require(isinstance(case_id, str) and case_id, "selected LC0 raw row has invalid case identity")
+            identity = (repeat_index, case_id)
+            require(identity not in seen, "selected LC0 raw rows contain a duplicate repeat/case identity")
+            seen.add(identity)
+
+    if native_work_policy is None:
+        return
+    require(isinstance(native_work_policy, dict), "native-work policy must be an object")
+    policy_id = native_work_policy.get("policy_id")
+    require(
+        policy_id in {"exact-vector-v1", "lc0-node-stop-contract-v1"},
+        f"unsupported LC0 native-work policy: {policy_id!r}",
+    )
+    if policy_id == "exact-vector-v1":
+        return
+
+    requested_nodes = native_work_policy.get("requested_nodes")
+    semantics = native_work_policy.get("terminal_counter_semantics")
+    required_options = native_work_policy.get("required_options")
+    require(
+        isinstance(requested_nodes, int) and not isinstance(requested_nodes, bool) and requested_nodes > 0,
+        "lc0-node-stop-contract-v1 requested_nodes must be a positive integer",
+    )
+    require(
+        semantics == "lc0.uci_nodes",
+        "lc0-node-stop-contract-v1 terminal counter semantics drift",
+    )
+    require(
+        isinstance(required_options, dict) and required_options,
+        "lc0-node-stop-contract-v1 required_options must be a non-empty object",
+    )
+
+    for row in rows:
+        require(row.get("family") == "lc0", "lc0-node-stop-contract-v1 may only qualify LC0 rows")
+        require(
+            row.get("nodes_requested") == requested_nodes,
+            "selected LC0 requested node count differs from the frozen node-stop contract",
+        )
+        opts = row.get("options") or {}
+        for key, value in required_options.items():
+            require(
+                opts.get(key) == value,
+                f"selected LC0 option {key} differs from the frozen node-stop contract",
+            )
+        metrics = row.get("metrics")
+        require(isinstance(metrics, dict), "selected LC0 metrics are missing")
+        require(
+            metrics.get("native_work_semantics") == semantics,
+            "selected LC0 terminal counter semantics differ from the frozen node-stop contract",
+        )
+        native_work = metrics.get("native_work_value")
+        require(
+            isinstance(native_work, int) and not isinstance(native_work, bool) and native_work >= 0,
+            "selected LC0 terminal counter is invalid",
+        )
+        require(
+            metrics.get("completed_before_deadline") is True,
+            "selected LC0 search did not complete inside the frozen deadline",
+        )

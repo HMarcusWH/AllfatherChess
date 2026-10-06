@@ -162,6 +162,10 @@ class AdaptiveTimeTests(unittest.TestCase):
             two.resource_envelope.cpu_ms,
             base.envelope.wall_ms * 2,
         )
+        self.assertEqual(
+            two.resource_envelope.controller_overhead_reserve_ms,
+            base.envelope.controller_overhead_reserve_ms,
+        )
 
         fractional = resource_plan(base, host(4, quota=1.5))
         self.assertEqual(fractional.effective_parallelism, 1.5)
@@ -169,6 +173,17 @@ class AdaptiveTimeTests(unittest.TestCase):
             fractional.resource_envelope.cpu_ms,
             base.envelope.wall_ms * 1.5,
         )
+        self.assertEqual(
+            fractional.resource_envelope.controller_overhead_reserve_ms,
+            base.envelope.controller_overhead_reserve_ms,
+        )
+
+        tiny = resource_plan(base, host(4, quota=0.1))
+        self.assertEqual(tiny.effective_parallelism, 0.1)
+        self.assertAlmostEqual(tiny.resource_envelope.cpu_ms, 120.0)
+        self.assertAlmostEqual(tiny.resource_envelope.verification_reserve_ms, 36.0)
+        self.assertAlmostEqual(tiny.resource_envelope.controller_overhead_reserve_ms, 84.0)
+        self.assertAlmostEqual(tiny.resource_envelope.solver_cpu_ceiling_ms, 0.0)
 
     def test_unknown_quota_and_low_memory_fall_back(self):
         base = time_plan("go movetime 1200")

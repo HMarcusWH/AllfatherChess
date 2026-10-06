@@ -1,12 +1,12 @@
 # AllfatherChess current build and release status
 
-**Status date:** 3 October 2026  
-**Authoritative main commit:** `2d7d6f19c18bb5ee101199e4a038b7c420405c50`  
-**Latest merged milestone:** PR #61 / M14-J J13B — immutable META-1 execution qualification  
+**Status date:** 4 October 2026  
+**Authoritative main commit:** `ff3d8adc166eb7ef2a9ad57da9d20e1b212df17d`  
+**Latest merged milestone:** PR #62 / M14-J J13C — isolated b4 candidate qualification  
 **Qualified J6 PR head:** `6aecd0bae7848ca8a9893377fadffb049d336c3a`  
-**Frozen fallback:** ENGINE-OPT-V2 / PR #44 remains unchanged  
-**Current execution milestone:** M14-J J13C — b4 candidate qualification before canonical substrate promotion  
-**Next milestone after J13:** M14-J J14 / ONLINE-PLAY-1 — production-profile 10+5 experiment  
+**Frozen fallback:** canonical ENGINE-OPT-V2/J3/J8-J12 remain on b7 pending explicit promotion  
+**Current execution milestone:** PR #63 — b4 resource-substrate requalification, evidence only  
+**Next milestone:** ENGINE-OPT-V2 b4 canonical promotion + J3→J12 substrate requalification  
 **Forward roadmap:** [ROADMAP.md](ROADMAP.md)  
 **M14-J rebuild plan:** [M14_J_ADAPTIVE_RESOURCE_ORCHESTRATION.md](M14_J_ADAPTIVE_RESOURCE_ORCHESTRATION.md)  
 **Detailed deployment plan:** [ONLINE_RELEASE_PLAN.md](ONLINE_RELEASE_PLAN.md)
@@ -14,6 +14,74 @@
 This document is the short-form synchronization point for the live repository. Historical
 plans/specifications retain design lineage, but this file and `ROADMAP.md` take precedence
 for current status and forward ordering.
+
+## PR #62 b4 candidate qualification — MERGED / PROMOTION-READY
+
+PR #62 merged as `ff3d8adc166eb7ef2a9ad57da9d20e1b212df17d`. Its exact-head
+ENGINE-OPT-V2 workflow `37158505596` qualified the isolated
+`b4-p0-c256k-cold` LC0 candidate without changing the canonical b7 selection,
+J3 resource catalog, or J8-J12 runtimes. The final aggregate reported valid evidence,
+candidate qualification, `promotion_ready: true`, no qualification failures and
+`QUALIFIED_EXACT_HOST_ONLY`. The same head also closed canonical and candidate matrix
+qualification, fresh G3/LOCAL-1 evidence, constituent A/B, J8-J12 regressions and the
+standalone LOCAL-1 workflow.
+
+PR #62 deliberately did **not** relabel the historical J6/J7 resource evidence as b4
+evidence. That separation is the reason PR #63 exists.
+
+## PR #63 b4 resource-substrate requalification — IN PROGRESS / EVIDENCE FROZEN
+
+PR #63 adds a separate `resource-lab-v2` measurement contract whose LC0 reference is
+the already-qualified b4 candidate: `NNCacheSize=262144`, `MinibatchSize=4`,
+`MaxPrefetch=0`, no startup warmup. Historical `resource-lab-v1`,
+`resource-profile-evidence-v1`, `resource-profile-selection-v1` and the canonical
+runtime catalog remain unchanged.
+
+The retained v2 measurement was produced from exact source
+`85efb74cf3d9cc039e8a205a63709b22b3328d3b` by workflow `37204469303`.
+Artifact `11304204017` has SHA-256
+`5198f0cfc05948eb0d8c314fb4bd76d1f2f0b60a41b251773c38adab16f3e834`.
+Its independent report retained 57 candidates, **1368/1368** Stage-A measurements and
+**72/72** Stage-B batches with zero execution errors; all nine family/work-budget groups
+were promotion-eligible and there were no reference native-work blockers.
+
+The frozen deterministic isolated selections are: LC0 n16 → `cache0`, LC0 n32 →
+`cache0`, LC0 n64 → `cache2m`; Reckless n16/n64/n256 → `v2-current`; Stockfish
+n16/n256 → `v2-current`, Stockfish n64 → `t1-h64`. These are measurement/selection
+evidence only: they grant no runtime profile selection, composition qualification, resource
+authorization, outward move authority, deployment or strength claim.
+
+### PR #63 lifecycle accounting repair — IMPLEMENTED / REQUALIFYING
+
+The first retained PR #63 LOCAL-1 campaigns exposed two independent stale assumptions in the legacy G3 resource model. Per-move envelope derivation was proportionally shrinking the declared 250 ms controller partition even though legal-root qualification and controller finalization are fixed work; retained controller-purpose maxima were 165.460 ms and 217.362 ms. The repair preserves the 250 ms controller reserve whenever the shrunken CPU envelope can contain it, while low-clock envelopes still clamp fail-closed by reducing solver capacity first.
+
+The same evidence showed that the legacy scalar 500/750 ms specialist estimates materially under-described real BLAS-LC0. Two retained LOCAL-1 artifacts now back a source-controlled calibration: LC0 EXPLORE maxima were 1760/1750 ms, base VERIFY maxima 740/750 ms, and staged VERIFY-extension maxima 1290/1140 ms. The legacy v1 runtime therefore uses explicit owner estimates of Stockfish/Reckless/LC0 = 100/100/1800 ms for EXPLORE and 100/100/1400 ms for VERIFY, while preserving 500/750 ms only as unknown-owner fallbacks. The outer 4000 ms wall / 12000 ms CPU envelope is unchanged. This repair grants no b4 canonical promotion, no new move/resource authority and no strength/Elo/deployment claim.
+
+PR #63 also closes three evidence-quality gaps exposed during requalification. First, J8 now
+uses the same fixed-controller clamp semantics as the baseline TimePlan instead of
+proportionally shrinking controller work a second time on the adaptive-capacity path. Second,
+new TimePlans carry the explicit partition-policy marker `absolute-controller-v2`; pre-marker
+replays can use legacy proportional reconstruction only inside a source-controlled,
+SHA-authenticated historical archive scope. An absent marker by itself never selects legacy
+semantics.
+
+Third, the two retained failed LOCAL-1 campaigns are reduced into independently bound
+calibration observations. The first campaign contains **689** completed LC0 EXPLORE CPU
+observations, not the previously transcribed 692; one missing `resource.json` is retained as
+an exclusion and no measurement is imputed. The maxima remain unchanged, so the selected
+1800/1400 ms LC0 reservations do not change. These observations are calibration evidence from
+failed campaigns, not upgraded lifecycle/authority qualification.
+
+### PR #63 constituent benchmark repair — IMPLEMENTED / REQUALIFYING
+
+The old constituent gate compared one blocked pass of five Hash settings and rejected the
+selected Hash=16 when a single run placed it more than 3% behind that run's fastest setting.
+PR #63 now freezes `constituent-hash-v2`: ten complete repeats of the eight-position,
+five-hash matrix with position-blocked cyclic ordering plus reversed ordering in the second
+half. The **3% efficiency band is unchanged**. Qualification reconstructs the raw rows and
+returns `QUALIFIED`, `NOT_QUALIFIED`, or `INCONCLUSIVE`; an interval crossing the band
+does not pass. Constituent binary A/B measurements are paired position-by-position and
+alternate which side executes first. Producer-written summaries are not authoritative.
 
 ## Current qualification evidence
 

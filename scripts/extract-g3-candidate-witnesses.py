@@ -20,6 +20,7 @@ sys.path.insert(0, str(ROOT))
 from controller.counterfactual import verify_counterfactual_integrity
 from controller.final_decision import verify_final_decision_integrity
 from controller.replay import verify_bundle_integrity
+from controller.replay_history import archive_replay_scope
 
 
 class ExtractionError(RuntimeError):
@@ -286,12 +287,13 @@ def extract(artifact_zip: Path, source_metadata: Path, output: Path) -> dict:
 
     campaign_rel = PurePosixPath(source["campaign_path"])
     require(not campaign_rel.is_absolute() and ".." not in campaign_rel.parts, "invalid campaign_path")
-    with tempfile.TemporaryDirectory(prefix="g3-witness-artifact-") as tmp:
-        extracted = Path(tmp) / "artifact"
-        safe_extract_zip(artifact_zip, extracted)
-        campaign = extracted / Path(*campaign_rel.parts)
-        _, _, report_rows = verify_campaign(campaign, source)
-        selected = collect_candidates(campaign, report_rows)
+    with archive_replay_scope(artifact_zip):
+        with tempfile.TemporaryDirectory(prefix="g3-witness-artifact-") as tmp:
+            extracted = Path(tmp) / "artifact"
+            safe_extract_zip(artifact_zip, extracted)
+            campaign = extracted / Path(*campaign_rel.parts)
+            _, _, report_rows = verify_campaign(campaign, source)
+            selected = collect_candidates(campaign, report_rows)
 
     document = {
         "schema_version": 1,

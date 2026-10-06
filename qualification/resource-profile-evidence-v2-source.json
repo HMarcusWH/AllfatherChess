@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "repository": "HMarcusWH/AllfatherChess",
+  "workflow_run": 37204469303,
+  "artifact_id": 11304204017,
+  "artifact_name": "resource-lab-v2",
+  "artifact_sha256": "5198f0cfc05948eb0d8c314fb4bd76d1f2f0b60a41b251773c38adab16f3e834",
+  "source_commit": "85efb74cf3d9cc039e8a205a63709b22b3328d3b",
+  "source_tree": "5fc69e83a092df0c7f37554344ad247d4fbdba10",
+  "lab_spec": {
+    "path": "qualification/resource-lab-v2.json",
+    "sha256": "92cae483fe4afcb6cd8e5a36a21011649103bbe85a2eb014c3b8ee912747346a",
+    "canonical_digest": "6dc8b21e7918588dec3937321c61d44b8946a02607fd20de46c5317cf65d1bcd"
+  },
+  "execution_domain": {
+    "id": "exec-domain/c7ccab45db121a26f744",
+    "digest": "c7ccab45db121a26f74487a74733cec80b49b71cca1054518a804a74aa45f882",
+    "binding_scope": "exact_host_observation"
+  },
+  "candidate_build_manifest_sha256": "38b0bee3307efcb975be45cb7d0fd51b029dcb9b2b7c34af899e6a85c47637e7",
+  "claim_boundary": {
+    "evidence_only": true,
+    "canonical_runtime_authority": false,
+    "resource_authorization": false,
+    "outward_move": false,
+    "deployment": false,
+    "strength": false,
+    "elo": false,
+    "equal_compute": false
+  }
+}

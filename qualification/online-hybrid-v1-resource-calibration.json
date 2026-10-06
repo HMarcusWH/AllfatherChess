@@ -1,0 +1,82 @@
+{
+  "authority_policy": "qualification/online-hybrid-authority.json",
+  "claim_boundary": {
+    "canonical_b4_promotion": false,
+    "deployment": false,
+    "elo": false,
+    "equal_compute": false,
+    "legacy_v1_resource_reservation_calibration": true,
+    "outer_envelope_increase": false,
+    "outward_move_authority": false,
+    "resource_authorization": false,
+    "strength": false
+  },
+  "outer_envelope": {
+    "controller_overhead_reserve_ms": 250,
+    "cpu_ms": 12000,
+    "gpu_ms": 0,
+    "verification_reserve_fraction": 0.3,
+    "wall_ms": 4000
+  },
+  "profile_id": "online-hybrid-v1-resource-calibration",
+  "reconciliation": {
+    "correction": "The first campaign contains 689 completed LC0 EXPLORE CPU observations (not 692). Missing/incomplete evidence is explicitly excluded, not counted or imputed. The maximum and selected reservation remain unchanged.",
+    "path": "qualification/online-hybrid-v1-resource-observations.json",
+    "scope": {
+      "controller": "route.budget.purpose_totals.controller.spent_cpu_ms",
+      "jobs": "base-* and life-* only; exclude fault-cases, rule-probes and prerequisites",
+      "lc0": "complete resource.stages for lc0-shadow with finite cpu_ms, partitioned by phase",
+      "missing_evidence": "retain exclusion records, never impute a sample",
+      "percentiles": "linear interpolation at (n-1)*p; round output to 3 decimals",
+      "version": "legacy-g3-calibration-extraction-v1"
+    },
+    "sha256": "49a5de850f544e1566b0ac9c3d31d40142548fc50f0c6e69fcdcbd31f1bf3f18"
+  },
+  "retained_local1_sources": [
+    {
+      "artifact_id": 11305969004,
+      "artifact_name": "local-full-game-37206345298-1",
+      "artifact_sha256": "8c60c98136e2289573c1209f77b8ccd91da3c87512561f998e08934271e9120c",
+      "campaign_id": "1791121801324344197-3d99d087",
+      "observed": {
+        "controller_total_cpu_ms": {"max": 165.46, "median": 6.799, "p95": 10.13, "p99": 12.013, "samples": 736},
+        "lc0_explore_cpu_ms": {"max": 1760.0, "median": 1020.0, "p95": 1630.0, "p99": 1721.2, "samples": 689},
+        "lc0_staged_verify_extension_cpu_ms": {"max": 1290.0, "median": 580.0, "p95": 807.5, "p99": 1141.5, "samples": 34},
+        "lc0_verify_cpu_ms": {"max": 740.0, "median": 240.0, "p95": 700.0, "p99": 720.8, "samples": 97}
+      },
+      "route_count": 736,
+      "source_commit": "b86cbad77776842410bd34118daf08be68e509ee",
+      "workflow_run": 37206345298
+    },
+    {
+      "artifact_id": 11312163668,
+      "artifact_name": "local-full-game-37219970974-1",
+      "artifact_sha256": "f251c0dad3a0f7760a930b9abaef0b69cf161ce96fc6df219ad00bd17b64aa46",
+      "campaign_id": "1791137229537986795-b7d6d18b",
+      "observed": {
+        "controller_total_cpu_ms": {"max": 217.362, "median": 7.994, "p95": 11.511, "p99": 50.518, "samples": 669},
+        "lc0_explore_cpu_ms": {"max": 1750.0, "median": 1155.0, "p95": 1650.0, "p99": 1720.0, "samples": 628},
+        "lc0_staged_verify_extension_cpu_ms": {"max": 1140.0, "median": 490.0, "p95": 1130.0, "p99": 1136.2, "samples": 39},
+        "lc0_verify_cpu_ms": {"max": 750.0, "median": 80.0, "p95": 610.0, "p99": 703.5, "samples": 94}
+      },
+      "route_count": 669,
+      "source_commit": "3061120258208dec4f989341a297c78dcf6bd6b6",
+      "workflow_run": 37219970974
+    }
+  ],
+  "runtime_config": "config/allfather.online-hybrid.validation.json",
+  "schema_version": 1,
+  "selection": {
+    "controller_overhead_reserve_ms": 250,
+    "explore_cpu_ms_by_owner": {"lc0": 1800, "reckless": 100, "stockfish": 100},
+    "fallback_cpu_ms_per_stage": {"explore": 500, "verify": 750},
+    "verify_cpu_ms_by_owner": {"lc0": 1400, "reckless": 100, "stockfish": 100}
+  },
+  "selection_rationale": {
+    "controller": "Retain the pre-existing absolute 250 ms profile reserve; the maximum retained controller-purpose spend is 217.362 ms. Per-move derivation must not scale this fixed work proportionally with clock.",
+    "fallback": "Keep legacy scalar fallbacks 500/750 ms for unknown owners; the three frozen owners must use explicit maps.",
+    "lc0_explore": "Round the maximum retained LC0 EXPLORE CPU observation (1760 ms) upward to the next 100 ms boundary.",
+    "lc0_verify": "Cover both base VERIFY and same-process staged VERIFY extension; retained maximum is 1290 ms, rounded to 1300 ms plus 100 ms explicit headroom.",
+    "stockfish_reckless": "Retain the existing conservative 100 ms per-owner floor; no attempt is made here to lower their reservation from these failed lifecycle campaigns."
+  }
+}

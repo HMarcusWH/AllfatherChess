@@ -48,7 +48,17 @@
     "verify_stage_gpu_ms_estimate": 0,
     "staged_decision_calibration": null,
     "regime_support_calibration": null,
-    "staged_skip_max_change_probability": 0.1
+    "staged_skip_max_change_probability": 0.1,
+    "stage_cpu_ms_estimate_by_owner": {
+      "stockfish": 100,
+      "reckless": 100,
+      "lc0": 1800
+    },
+    "verify_stage_cpu_ms_estimate_by_owner": {
+      "stockfish": 100,
+      "reckless": 100,
+      "lc0": 1400
+    }
   },
   "instances": {
     "stockfish-anchor": {

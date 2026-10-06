@@ -8,6 +8,7 @@ import hashlib
 import json
 import math
 import subprocess
+import statistics
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +23,7 @@ from tools.engine_opt.domain import (
     validate_execution_domain,
 )
 from tools.engine_opt.matrix_qualification import qualify_lc0_matrix
+from tools.engine_opt.constituent_hash import load_policy as load_constituent_policy, qualify_hash_matrix
 
 
 class QualificationError(RuntimeError):
@@ -147,6 +149,9 @@ def main() -> int:
 
     def check_ab() -> dict[str, Any]:
         root = artifact_root / "engine-opt-v2-constituent-ab"
+        protocol = load_constituent_policy()
+        from tools.engine_opt.constituent_hash import load_case_ids
+        expected_case_ids = load_case_ids(protocol)
         lc0 = load(find_one(root, "**/lc0-derived-vs-pristine.json"))
         reckless = load(find_one(root, "**/reckless-derived-vs-pristine.json"))
         stockfish = load(find_one(root, "**/stockfish-pgo-vs-no-pgo.json"))
@@ -162,39 +167,162 @@ def main() -> int:
             require((doc.get("source") or {}).get("commit") == source, f"{label} source is not exact head")
             require(not doc.get("errors"), f"{label} contains execution errors")
 
-        lc0_agreement = (lc0.get("comparison") or {}).get("bestmove_agreement")
-        lc0_ratio = float(lc0["comparison"]["wall_ratio_right_over_left"])
-        rr_agreement = (reckless.get("comparison") or {}).get("bestmove_agreement")
-        sf_agreement = (stockfish.get("comparison") or {}).get("bestmove_agreement")
-        rr_left = float(reckless["comparison"]["left_median_wall_ms"])
-        rr_right = float(reckless["comparison"]["right_median_wall_ms"])
-        sf_left = float(stockfish["comparison"]["left_median_wall_ms"])
-        sf_right = float(stockfish["comparison"]["right_median_wall_ms"])
-        sf16 = float(sf_hash["summaries"]["16"]["median_wall_ms"])
-        sf_best = min(float(row["median_wall_ms"]) for row in sf_hash["summaries"].values())
-        rr16 = float(rr_hash["summaries"]["16"]["median_wall_ms"])
-        rr_best = min(float(row["median_wall_ms"]) for row in rr_hash["summaries"].values())
+        engine_artifacts = (
+            ((details.get("candidate") or {}).get("bundle") or {})
+            .get("artifacts", {})
+            .get("engines", {})
+        )
+        for family, doc, derived_label in (
+            ("lc0", lc0, "allfather-derived"),
+            ("reckless", reckless, "allfather-derived"),
+            ("stockfish", stockfish, "pgo"),
+        ):
+            expected_sha = (engine_artifacts.get(family) or {}).get("sha256")
+            require(
+                isinstance(expected_sha, str)
+                and (doc.get("binaries") or {}).get(derived_label, {}).get("sha256") == expected_sha,
+                f"{family} A/B derived binary differs from candidate bundle",
+            )
+        require(
+            (sf_hash.get("binary") or {}).get("sha256")
+            == (engine_artifacts.get("stockfish") or {}).get("sha256"),
+            "Stockfish hash matrix binary differs from candidate bundle",
+        )
+        require(
+            (rr_hash.get("binary") or {}).get("sha256")
+            == (engine_artifacts.get("reckless") or {}).get("sha256"),
+            "Reckless hash matrix binary differs from candidate bundle",
+        )
 
-        if lc0_agreement != 1.0:
+        def recompute_ab(doc: dict[str, Any]) -> dict[str, Any]:
+            rows = doc.get("rows")
+            binaries = doc.get("binaries") or {}
+            family = doc.get("family")
+            expected_labels = {
+                "lc0": ("allfather-derived", "pristine-upstream"),
+                "reckless": ("allfather-derived", "pristine-upstream"),
+                "stockfish": ("pgo", "no-pgo"),
+            }.get(family)
+            require(
+                expected_labels is not None
+                and isinstance(rows, list)
+                and set(binaries) == set(expected_labels),
+                "A/B rows or labels malformed",
+            )
+            labels = expected_labels
+            by_side: dict[str, dict[str, dict[str, Any]]] = {label: {} for label in labels}
+            require(len(rows) == len(expected_case_ids) * 2, "A/B row count drift")
+            for case_index, case_id in enumerate(expected_case_ids):
+                expected_order = labels if case_index % 2 == 0 else tuple(reversed(labels))
+                pair = rows[case_index * 2 : case_index * 2 + 2]
+                require(
+                    [row.get("case_id") for row in pair] == [case_id, case_id]
+                    and [row.get("side") for row in pair] == list(expected_order)
+                    and [row.get("case_order_index") for row in pair] == [case_index, case_index]
+                    and [row.get("side_order_index") for row in pair] == [0, 1],
+                    "A/B paired execution order drift",
+                )
+            expected_options = doc.get("options")
+            expected_nodes = doc.get("nodes")
+            require(isinstance(expected_options, dict), "A/B options missing")
+            require(type(expected_nodes) is int and expected_nodes > 0, "A/B nodes missing")
+            for row in rows:
+                require(isinstance(row, dict), "A/B row must be an object")
+                side = row.get("side")
+                case_id = row.get("case_id")
+                require(side in by_side and isinstance(case_id, str) and case_id, "A/B row identity malformed")
+                require(case_id not in by_side[side], "duplicate A/B case")
+                require(row.get("family") == family, "A/B row family drift")
+                require(row.get("options") == expected_options, "A/B row options drift")
+                require(row.get("nodes_requested") == expected_nodes, "A/B row work target drift")
+                require(
+                    row.get("binary_sha256") == (binaries.get(side) or {}).get("sha256"),
+                    "A/B row binary identity mismatch",
+                )
+                metrics = row.get("metrics")
+                require(isinstance(metrics, dict), "A/B metrics missing")
+                wall = metrics.get("wall_ms")
+                cpu = metrics.get("cpu_ms")
+                move = metrics.get("bestmove")
+                require(
+                    not isinstance(wall, bool) and isinstance(wall, (int, float))
+                    and math.isfinite(float(wall)) and float(wall) > 0,
+                    "A/B wall measurement invalid",
+                )
+                require(
+                    not isinstance(cpu, bool) and isinstance(cpu, (int, float))
+                    and math.isfinite(float(cpu)) and float(cpu) >= 0,
+                    "A/B CPU measurement invalid",
+                )
+                require(isinstance(move, str) and move, "A/B bestmove missing")
+                by_side[side][case_id] = {
+                    "wall_ms": float(wall),
+                    "cpu_ms": float(cpu),
+                    "bestmove": move,
+                }
+            left, right = labels
+            require(set(by_side[left]) == set(by_side[right]) and len(by_side[left]) == 8, "A/B case coverage drift")
+            case_ids = sorted(by_side[left])
+            left_wall = statistics.median(by_side[left][case]["wall_ms"] for case in case_ids)
+            right_wall = statistics.median(by_side[right][case]["wall_ms"] for case in case_ids)
+            agreement = sum(
+                by_side[left][case]["bestmove"] == by_side[right][case]["bestmove"]
+                for case in case_ids
+            ) / len(case_ids)
+            return {
+                "left_label": left,
+                "right_label": right,
+                "bestmove_agreement": agreement,
+                "left_median_wall_ms": float(left_wall),
+                "right_median_wall_ms": float(right_wall),
+                "right_over_left_wall_ratio": float(right_wall) / float(left_wall),
+            }
+
+        lc0_ab = recompute_ab(lc0)
+        reckless_ab = recompute_ab(reckless)
+        stockfish_ab = recompute_ab(stockfish)
+
+        if lc0_ab["bestmove_agreement"] != 1.0:
             fail("NOT_QUALIFIED_CONSTITUENT_REGRESSION", "derived LC0 disagrees with pristine control")
-        if not (0.85 <= lc0_ratio <= 1.15):
+        if not (0.85 <= lc0_ab["right_over_left_wall_ratio"] <= 1.15):
             fail("NOT_QUALIFIED_CONSTITUENT_REGRESSION", "derived LC0 left the disabled-feature runtime band")
-        if rr_agreement != 1.0 or rr_left > 1.10 * rr_right:
+        if (
+            reckless_ab["bestmove_agreement"] != 1.0
+            or reckless_ab["left_median_wall_ms"] > 1.10 * reckless_ab["right_median_wall_ms"]
+        ):
             fail("NOT_QUALIFIED_CONSTITUENT_REGRESSION", "derived Reckless failed its frozen A/B gate")
-        if sf_agreement != 1.0 or sf_left > 1.05 * sf_right:
+        if (
+            stockfish_ab["bestmove_agreement"] != 1.0
+            or stockfish_ab["left_median_wall_ms"] > 1.05 * stockfish_ab["right_median_wall_ms"]
+        ):
             fail("NOT_QUALIFIED_CONSTITUENT_REGRESSION", "PGO Stockfish failed its frozen A/B gate")
-        if sf16 > 1.03 * sf_best:
-            fail("NOT_QUALIFIED_CONSTITUENT_REGRESSION", "Stockfish Hash=16 left the 3% efficiency band")
-        if rr16 > 1.03 * rr_best:
-            fail("NOT_QUALIFIED_CONSTITUENT_REGRESSION", "Reckless Hash=16 left the 3% efficiency band")
+
+        sf_hash_result = qualify_hash_matrix(
+            sf_hash,
+            expected_source_commit=source,
+            selected_hash_mb=int((selection.get("selected") or {}).get("stockfish", {}).get("hash_mb")),
+            policy=protocol,
+        )
+        rr_hash_result = qualify_hash_matrix(
+            rr_hash,
+            expected_source_commit=source,
+            selected_hash_mb=int((selection.get("selected") or {}).get("reckless", {}).get("hash_mb")),
+            policy=protocol,
+        )
+        for family, result in (("Stockfish", sf_hash_result), ("Reckless", rr_hash_result)):
+            if result["disposition"] == "NOT_QUALIFIED_BEHAVIOR":
+                fail("NOT_QUALIFIED_CONSTITUENT_BEHAVIOR", f"{family} hash benchmark changed behavioral output")
+            elif result["disposition"] == "NOT_QUALIFIED":
+                fail("NOT_QUALIFIED_HASH_EFFICIENCY", f"{family} Hash=16 is outside the frozen 3% efficiency band")
+            elif result["disposition"] == "INCONCLUSIVE":
+                fail("INCONCLUSIVE_CONSTITUENT_PERFORMANCE", f"{family} Hash=16 efficiency evidence is inconclusive")
 
         return {
-            "lc0_bestmove_agreement": lc0_agreement,
-            "lc0_pristine_over_derived_wall_ratio": lc0_ratio,
-            "reckless_bestmove_agreement": rr_agreement,
-            "stockfish_pgo_bestmove_agreement": sf_agreement,
-            "stockfish_hash16_over_best": sf16 / sf_best,
-            "reckless_hash16_over_best": rr16 / rr_best,
+            "lc0": lc0_ab,
+            "reckless": reckless_ab,
+            "stockfish": stockfish_ab,
+            "stockfish_hash": sf_hash_result,
+            "reckless_hash": rr_hash_result,
         }
 
     def check_lc0() -> dict[str, Any]:
@@ -371,6 +499,12 @@ def main() -> int:
             disposition = "NOT_QUALIFIED_RESOURCE_BOUND"
         elif "NOT_QUALIFIED_AUTHORITY" in codes:
             disposition = "NOT_QUALIFIED_AUTHORITY"
+        elif "INCONCLUSIVE_CONSTITUENT_PERFORMANCE" in codes:
+            disposition = "INCONCLUSIVE_CONSTITUENT_PERFORMANCE"
+        elif "NOT_QUALIFIED_HASH_EFFICIENCY" in codes:
+            disposition = "NOT_QUALIFIED_HASH_EFFICIENCY"
+        elif "NOT_QUALIFIED_CONSTITUENT_BEHAVIOR" in codes:
+            disposition = "NOT_QUALIFIED_CONSTITUENT_BEHAVIOR"
         else:
             disposition = "NOT_QUALIFIED_CONSTITUENT_REGRESSION"
 

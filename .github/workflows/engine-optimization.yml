@@ -5,6 +5,10 @@ on:
   pull_request:
     paths:
       - 'qualification/engine-opt-*.json'
+      - 'qualification/constituent-benchmark-v2.json'
+      - 'qualification/online-hybrid-v1-resource-calibration.json'
+      - 'qualification/online-hybrid-v1-resource-observations.json'
+      - 'qualification/replay-history-sources.json'
       - 'qualification/resource-profile-catalog-v1.json'
       - 'qualification/adaptive-clock-v1.json'
       - 'qualification/work-grant-scheduler-v1.json'
@@ -74,6 +78,7 @@ permissions:
 
 env:
   ALLFATHER_SOURCE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+  ALLFATHER_BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || '' }}
 
 concurrency:
   group: engine-opt-v2-${{ github.workflow }}-${{ github.ref }}
@@ -135,6 +140,15 @@ jobs:
           python3 tests/engine_opt/test_matrix_qualification.py
           python3 tests/engine_opt/test_matrix_scope.py
           python3 tests/engine_opt/test_g3_witness_extractor.py
+          python3 tests/engine_opt/test_constituent_hash.py
+          python3 tests/engine_opt/test_legacy_calibration_reconciliation.py
+          python3 tests/engine_opt/test_candidate_gate.py
+          python3 tests/controller/test_partition_versions.py
+          python3 -m json.tool qualification/constituent-benchmark-v2.json >/dev/null
+          python3 -m json.tool qualification/online-hybrid-v1-resource-calibration.json >/dev/null
+          python3 -m json.tool qualification/online-hybrid-v1-resource-observations.json >/dev/null
+          python3 -m json.tool qualification/replay-history-sources.json >/dev/null
+          python3 scripts/validate-online-hybrid-resource-calibration.py
           python3 tests/controller/test_engine_opt_runtime.py
           python3 tests/controller/test_move_resource_plan.py
           python3 tests/controller/test_adaptive_time.py
@@ -158,10 +172,10 @@ jobs:
           python3 tests/controller/test_runtime_profiles.py
           python3 tests/adapters/test_linux_affinity.py
           python3 tests/controller/test_resource_control.py
-          python3 -m py_compile scripts/qualify-engine-opt-evidence.py scripts/qualify-engine-opt-v2-candidate.py scripts/qualify-engine-opt-matrix.py scripts/qualify-online-hybrid-v2-candidate.py scripts/extract-g3-candidate-witnesses.py tools/engine_opt/matrix_qualification.py
+          python3 -m py_compile scripts/qualify-engine-opt-evidence.py scripts/qualify-engine-opt-v2-candidate.py scripts/qualify-engine-opt-v2-candidate-gate.py scripts/qualify-engine-opt-matrix.py scripts/qualify-online-hybrid-v2-candidate.py scripts/extract-g3-candidate-witnesses.py tools/engine_opt/matrix_qualification.py tools/engine_opt/candidate_gate.py
           python3 scripts/qualify-online-hybrid-v2.py --static
           python3 scripts/qualify-online-hybrid-v2-candidate.py --static
-          for f in qualification/resource-profile-catalog-v1.json qualification/adaptive-clock-v1.json qualification/work-grant-scheduler-v1.json qualification/adaptive-resource-allocation-v1.json qualification/j10-calibration-source-v1.json qualification/j10-calibration-corpus-v1.json qualification/j10-staged-decision-model-v1.json qualification/j10-regime-support-model-v1.json qualification/engine-opt-v2.json qualification/engine-opt-v2-selection.json qualification/engine-opt-v2-evidence.json qualification/engine-opt-v2-host-binding.json qualification/engine-opt-v2-candidate-selection.json qualification/engine-opt-v2-candidate-evidence.json qualification/engine-derived-lock.json qualification/online-engine-opt-v2.json qualification/online-hybrid-v2.json qualification/online-hybrid-v2-candidate.json qualification/online-hybrid-v2-candidate-witnesses.json qualification/g3-candidate-discovery-source.json qualification/local-full-game-v2.json qualification/local-full-game-v2-candidate.json qualification/local-full-game-orchestrated-v1.json config/allfather.online-engine-opt-v2.json config/allfather.online-engine-opt-v2.candidate.json config/allfather.m14-j-j8.validation.json config/allfather.m14-j-j9.validation.json config/allfather.m14-j-j10.validation.json config/allfather.orchestrated-v1.validation.json config/allfather.online-hybrid-v2.validation.json config/allfather.online-hybrid-v2.candidate.validation.json; do python3 -m json.tool "$f" >/dev/null; done
+          for f in qualification/resource-profile-catalog-v1.json qualification/adaptive-clock-v1.json qualification/work-grant-scheduler-v1.json qualification/adaptive-resource-allocation-v1.json qualification/j10-calibration-source-v1.json qualification/j10-calibration-corpus-v1.json qualification/j10-staged-decision-model-v1.json qualification/j10-regime-support-model-v1.json qualification/engine-opt-v2.json qualification/engine-opt-v2-selection.json qualification/engine-opt-v2-evidence.json qualification/engine-opt-v2-host-binding.json qualification/engine-opt-v2-candidate-selection.json qualification/engine-opt-v2-candidate-evidence.json qualification/engine-opt-v2-candidate-native-work-policy.json qualification/engine-derived-lock.json qualification/online-engine-opt-v2.json qualification/online-hybrid-v2.json qualification/online-hybrid-v2-candidate.json qualification/online-hybrid-v2-candidate-witnesses.json qualification/g3-candidate-discovery-source.json qualification/local-full-game-v2.json qualification/local-full-game-v2-candidate.json qualification/local-full-game-orchestrated-v1.json config/allfather.online-engine-opt-v2.json config/allfather.online-engine-opt-v2.candidate.json config/allfather.m14-j-j8.validation.json config/allfather.m14-j-j9.validation.json config/allfather.m14-j-j10.validation.json config/allfather.orchestrated-v1.validation.json config/allfather.online-hybrid-v2.validation.json config/allfather.online-hybrid-v2.candidate.validation.json; do python3 -m json.tool "$f" >/dev/null; done
           bash -n scripts/build-online-engine-opt-v2.sh
 
   build-candidate:
@@ -266,6 +280,30 @@ jobs:
           python3 scripts/engine-opt-ab.py             --family stockfish             --left build/candidate-download/online-engine-opt-v2/bin/stockfish             --left-label pgo             --right build/stockfish-no-pgo             --right-label no-pgo             --nodes 200000             --output build/test-results/engine-opt-ab/stockfish-pgo-vs-no-pgo.json
           python3 scripts/engine-opt-hash-matrix.py             --family stockfish             --binary build/candidate-download/online-engine-opt-v2/bin/stockfish             --nodes 200000             --output build/test-results/engine-opt-ab/stockfish-hash-matrix.json
           python3 scripts/engine-opt-hash-matrix.py             --family reckless             --binary build/candidate-download/online-engine-opt-v2/bin/reckless             --nodes 200000             --output build/test-results/engine-opt-ab/reckless-hash-matrix.json
+      - name: Qualify repeated constituent hash evidence before lifecycle
+        run: |
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          from tools.engine_opt.constituent_hash import load_policy, qualify_hash_matrix
+          policy=load_policy()
+          source=os.environ["ALLFATHER_SOURCE_SHA"]
+          selected={"stockfish":16,"reckless":16}
+          for family in ("stockfish","reckless"):
+              path=Path(f"build/test-results/engine-opt-ab/{family}-hash-matrix.json")
+              doc=json.loads(path.read_text(encoding="utf-8"))
+              result=qualify_hash_matrix(
+                  doc,
+                  expected_source_commit=source,
+                  selected_hash_mb=selected[family],
+                  policy=policy,
+              )
+              print(f"{family}: {json.dumps(result, sort_keys=True)}")
+              if result["qualified"] is not True:
+                  raise SystemExit(
+                      f"{family} repeated hash qualification: {result['disposition']}"
+                  )
+          PY
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
@@ -302,7 +340,7 @@ jobs:
           retention-days: 14
 
   profile-domain-qualification:
-    needs: [impact, build-candidate, fastchess-source-tests-v2]
+    needs: [impact, build-candidate, fastchess-source-tests-v2, constituent-ab]
     if: ${{ needs.impact.outputs.impact != 'control_plane_only' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 360
@@ -448,6 +486,9 @@ jobs:
           ref: ${{ env.ALLFATHER_SOURCE_SHA }}
       - name: Verify exact source checkout
         run: test "$(git rev-parse HEAD)" = "$ALLFATHER_SOURCE_SHA"
+      - name: Fetch PR base for canonical surface guard
+        if: ${{ env.ALLFATHER_BASE_SHA != '' }}
+        run: git fetch --no-tags --depth=1 origin "$ALLFATHER_BASE_SHA"
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           pattern: engine-opt-v2-*
@@ -507,46 +548,38 @@ jobs:
           path: build/test-results/engine-opt-v2-candidate-aggregate
           if-no-files-found: error
           retention-days: 14
-      - name: Require canonical matrix qualification and b4 candidate promotion readiness
+      - name: Evaluate host-aware canonical/candidate gate
         run: |
-          python3 - <<'PY'
+          python3 scripts/qualify-engine-opt-v2-candidate-gate.py \
+            --canonical build/test-results/engine-opt-v2-canonical-matrix/report.json \
+            --candidate build/test-results/engine-opt-v2-candidate-aggregate/report.json \
+            --host-binding qualification/engine-opt-v2-host-binding.json \
+            --base-sha "$ALLFATHER_BASE_SHA" \
+            --output build/test-results/engine-opt-v2-final-gate/report.json
+      - name: Summarize final host-aware gate
+        if: always()
+        run: |
+          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
           import json
           from pathlib import Path
-          canonical=json.loads(Path("build/test-results/engine-opt-v2-canonical-matrix/report.json").read_text(encoding="utf-8"))
-          candidate=json.loads(Path("build/test-results/engine-opt-v2-candidate-aggregate/report.json").read_text(encoding="utf-8"))
-          allowed={"QUALIFIED_EXACT_HOST_ONLY","QUALIFIED_REUSABLE_DOMAIN"}
-          canonical_ok=(
-              canonical.get("evidence_valid") is True
-              and canonical.get("qualified") is True
-              and canonical.get("passed") is True
-          )
-          candidate_ok=(
-              candidate.get("evidence_valid") is True
-              and candidate.get("candidate_qualified") is True
-              and candidate.get("promotion_ready") is True
-              and candidate.get("canonical_profile_changed") is False
-              and candidate.get("passed") is True
-              and candidate.get("qualification_disposition") in allowed
-          )
-          if not canonical_ok or not candidate_ok:
-              raise SystemExit("ENGINE-OPT-V2 qualification gate failed: "+json.dumps({
-                  "canonical":{
-                      "evidence_valid":canonical.get("evidence_valid"),
-                      "qualified":canonical.get("qualified"),
-                      "passed":canonical.get("passed"),
-                      "qualification_failures":canonical.get("qualification_failures"),
-                      "invalid_evidence":canonical.get("invalid_evidence"),
-                  },
-                  "candidate":{
-                      "evidence_valid":candidate.get("evidence_valid"),
-                      "candidate_qualified":candidate.get("candidate_qualified"),
-                      "promotion_ready":candidate.get("promotion_ready"),
-                      "canonical_profile_changed":candidate.get("canonical_profile_changed"),
-                      "passed":candidate.get("passed"),
-                      "qualification_disposition":candidate.get("qualification_disposition"),
-                      "qualification_failures":candidate.get("qualification_failures"),
-                      "invalid_evidence":candidate.get("invalid_evidence"),
-                  },
-              },sort_keys=True))
-          print("canonical matrix qualified and b4 candidate promotion-ready")
+          path=Path("build/test-results/engine-opt-v2-final-gate/report.json")
+          print("\n## ENGINE-OPT-V2 final gate")
+          if not path.is_file():
+              print("\nFinal gate report was not produced.")
+          else:
+              report=json.loads(path.read_text(encoding="utf-8"))
+              print(f"- **Passed:** `{report.get('passed')}`")
+              print(f"- **Disposition:** `{report.get('disposition')}`")
+              canonical=report.get('canonical') or {}
+              print(f"- **Canonical status:** `{canonical.get('status')}`")
+              print(f"- **Canonical authority on current host:** `{canonical.get('authority_on_current_host')}`")
+              candidate=report.get('candidate') or {}
+              print(f"- **Candidate promotion ready:** `{candidate.get('promotion_ready')}`")
           PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: engine-opt-v2-final-gate
+          path: build/test-results/engine-opt-v2-final-gate
+          if-no-files-found: error
+          retention-days: 14

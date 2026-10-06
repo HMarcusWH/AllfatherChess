@@ -68,17 +68,18 @@ def validate_preflight(root: Path, spec_path: Path) -> dict[str, Any]:
     candidates = expand_candidates(spec, build_manifest)
     compositions = expand_compositions(spec, candidates)
     candidate_map = {candidate.candidate_id: candidate for candidate in candidates}
-    c0 = next(
-        composition
-        for composition in compositions
-        if composition.composition_id == "c0-four-way-v2-current"
-    )
+    c0 = compositions[0]
 
     stage_a = load(root / "stage-a/raw/rows.json")
     require(isinstance(stage_a, list), "preflight Stage-A rows must be array")
-    require(len(stage_a) == 9, f"preflight must run nine reference candidates, got {len(stage_a)}")
+    reference_attempts = sum(candidate.reference for candidate in candidates)
     require(
-        [row.get("attempt_ordinal") for row in stage_a] == list(range(9)),
+        len(stage_a) == reference_attempts,
+        f"preflight reference-attempt count drift: {len(stage_a)} != {reference_attempts}",
+    )
+    require(
+        [row.get("attempt_ordinal") for row in stage_a]
+        == list(range(reference_attempts)),
         "preflight Stage-A attempt order is not canonical",
     )
     families: set[str] = set()
@@ -115,11 +116,17 @@ def validate_preflight(root: Path, spec_path: Path) -> dict[str, Any]:
                 positive_by_family.get(candidate.family, 0) + 1
             )
         if candidate.family == "lc0":
-            require(
-                isinstance(row.get("warmup"), dict)
-                and row["warmup"].get("nodes") == candidate.warmup_nodes,
-                "preflight LC0 warmup evidence missing",
-            )
+            if candidate.warmup_nodes is None:
+                require(
+                    row.get("warmup") is None,
+                    "preflight LC0 unexpectedly performed warmup",
+                )
+            else:
+                require(
+                    isinstance(row.get("warmup"), dict)
+                    and row["warmup"].get("nodes") == candidate.warmup_nodes,
+                    "preflight LC0 warmup evidence missing",
+                )
 
     require(families == {"stockfish", "reckless", "lc0"}, "preflight family coverage drift")
     require(
@@ -167,7 +174,7 @@ def validate_preflight(root: Path, spec_path: Path) -> dict[str, Any]:
 
     return {
         "schema_version": 1,
-        "profile_id": "resource-lab-v1-preflight",
+        "profile_id": f"{spec.lab_id}-preflight",
         "source_commit": source["commit"],
         "execution_domain_id": domain["execution_domain_id"],
         "cpu_measurement_method": cpu_policy["required_method"],
@@ -200,9 +207,13 @@ def main() -> int:
     try:
         report = validate_preflight(args.root.resolve(), args.spec.resolve())
     except Exception as exc:
+        try:
+            failed_profile_id = f"{load_lab_spec(args.spec.resolve()).lab_id}-preflight"
+        except Exception:
+            failed_profile_id = "resource-lab-invalid-preflight"
         report = {
             "schema_version": 1,
-            "profile_id": "resource-lab-v1-preflight",
+            "profile_id": failed_profile_id,
             "preflight_valid": False,
             "promotion_ready": False,
             "error": f"{type(exc).__name__}: {exc}",

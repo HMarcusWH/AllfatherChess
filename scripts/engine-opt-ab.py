@@ -79,11 +79,15 @@ def main()->int:
         (args.left_label,args.left.resolve()),
         (args.right_label,args.right.resolve()),
     )
-    by_side: dict[str,list[dict]]={}
+    by_side: dict[str,list[dict]]={label:[] for label,_ in sides}
+    execution_rows: list[dict] = []
     errors=[]
-    for label,binary in sides:
-        rows=[]
-        for case in cases:
+    # Pair the controls position-by-position and reverse the first mover on
+    # alternating cases. Whole-side blocking made host drift indistinguishable
+    # from a binary regression.
+    for case_index,case in enumerate(cases):
+        ordered=sides if case_index%2==0 else tuple(reversed(sides))
+        for order_index,(label,binary) in enumerate(ordered):
             try:
                 row=run_case(
                     binary=binary,cwd=ROOT,family=args.family,case=case,
@@ -93,13 +97,17 @@ def main()->int:
                     warmup_nodes=(args.warmup_nodes if args.family=="lc0" else None),
                 )
                 row["side"]=label
-                rows.append(row)
+                row["case_order_index"]=case_index
+                row["side_order_index"]=order_index
+                by_side[label].append(row)
+                execution_rows.append(row)
             except Exception as exc:
                 errors.append({
                     "side":label,"case_id":case.case_id,
+                    "case_order_index":case_index,
+                    "side_order_index":order_index,
                     "error":f"{type(exc).__name__}: {exc}",
                 })
-        by_side[label]=rows
 
     left_rows=by_side[args.left_label]
     right_rows=by_side[args.right_label]
@@ -151,7 +159,7 @@ def main()->int:
             for label,rows in by_side.items()
         },
         "comparison":comparison,
-        "rows":[row for rows in by_side.values() for row in rows],
+        "rows":execution_rows,
         "errors":errors,
         "claim_boundary":{
             "strength":False,

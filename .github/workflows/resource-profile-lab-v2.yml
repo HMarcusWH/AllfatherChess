@@ -1,0 +1,190 @@
+name: Resource profile laboratory v2 — b4 substrate
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'engines/**'
+      - 'vendor.lock.json'
+      - 'qualification/resource-lab-v2.json'
+      - 'qualification/resource-profile-evidence-v2.json'
+      - 'qualification/resource-profile-evidence-v2-source.json'
+      - 'qualification/resource-profile-selection-v2.json'
+      - 'qualification/engine-opt-v2-candidate-selection.json'
+      - 'qualification/engine-opt-v2-candidate-evidence.json'
+      - 'qualification/online-engine-opt-v2.json'
+      - 'qualification/engine-derived-lock.json'
+      - 'qualification/lc0-strength.lock.json'
+      - 'qualification/lc0-strength-profile.json'
+      - 'config/allfather.online-engine-opt-v2.candidate.json'
+      - 'tools/resource_lab/**'
+      - 'tools/engine_opt/**'
+      - 'controller/engine_opt_profile.py'
+      - 'tests/resource_lab/**'
+      - 'tests/controller/test_resource_profile_catalog.py'
+      - 'tests/fixtures/engine_opt/**'
+      - 'tests/harness/uci_session.py'
+      - 'Makefile'
+      - '.github/workflows/resource-profile-lab-v2.yml'
+      - 'scripts/build-online-engine-opt-v2.sh'
+      - 'scripts/qualify-engine-opt-v2-candidate.py'
+      - 'scripts/freeze-resource-profile-evidence-v2.py'
+      - 'scripts/qualify-resource-profile-selection-v2.py'
+      - 'tests/controller/test_resource_profile_selection_v2.py'
+      - 'scripts/build-lc0-strength.sh'
+      - 'scripts/fetch-stockfish-network.sh'
+      - 'scripts/fetch-reckless-network.sh'
+      - 'scripts/fetch-lc0-network.py'
+      - 'scripts/vendor-lock.py'
+      - 'scripts/verify-vendor.sh'
+      - 'scripts/lc0-hardware-probe.py'
+      - 'adapters/resource/linux_proc.py'
+      - 'adapters/resource/linux_affinity.py'
+      - 'controller/host_capabilities.py'
+      - 'controller/host_pressure.py'
+      - 'controller/runtime_substrate.py'
+
+permissions:
+  contents: read
+
+env:
+  ALLFATHER_SOURCE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+
+concurrency:
+  group: resource-profile-lab-v2-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  static-contracts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.ALLFATHER_SOURCE_SHA }}
+      - name: Verify exact source checkout
+        run: test "$(git rev-parse HEAD)" = "$ALLFATHER_SOURCE_SHA"
+      - name: Resource-lab v1/v2 contract tests
+        run: |
+          python3 -m compileall -q tools/resource_lab tests/resource_lab tests/harness/uci_session.py controller/resource_profile_catalog.py
+          python3 -m json.tool qualification/resource-lab-v1.json >/dev/null
+          python3 -m json.tool qualification/resource-lab-v2.json >/dev/null
+          python3 -m json.tool qualification/resource-profile-evidence-v2.json >/dev/null
+          python3 -m json.tool qualification/resource-profile-evidence-v2-source.json >/dev/null
+          python3 -m json.tool qualification/resource-profile-selection-v2.json >/dev/null
+          python3 -m py_compile scripts/freeze-resource-profile-evidence-v2.py scripts/qualify-resource-profile-selection-v2.py
+          make resource-lab-tests
+          python3 tests/controller/test_resource_profile_catalog.py
+          python3 scripts/qualify-resource-profile-selection-v2.py
+          python3 tests/controller/test_resource_profile_selection_v2.py
+
+  build-candidate:
+    needs: static-contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 70
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.ALLFATHER_SOURCE_SHA }}
+      - name: Verify exact source checkout
+        run: test "$(git rev-parse HEAD)" = "$ALLFATHER_SOURCE_SHA"
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential meson ninja-build pkg-config \
+            libprotobuf-dev protobuf-compiler zlib1g-dev libopenblas-dev
+      - name: Cache networks
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: |
+            build/artifacts/stockfish
+            build/artifacts/reckless
+            build/artifacts/lc0
+          key: resource-lab-v2-networks-${{ runner.os }}-${{ hashFiles('vendor.lock.json','qualification/lc0-strength.lock.json') }}
+      - name: Build exact-head constituent bundle
+        run: make build-online-engine-opt-v2
+      - name: Validate canonical bundle and b4 candidate overlay identities
+        run: |
+          python3 scripts/qualify-engine-opt-v2.py
+          python3 scripts/qualify-engine-opt-v2-candidate.py
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: resource-lab-v2-candidate
+          path: |
+            build/online-engine-opt-v2
+            build/test-results/engine-opt-v2
+            build/test-results/engine-opt-v2-candidate
+          if-no-files-found: error
+          retention-days: 14
+
+  resource-lab:
+    needs: build-candidate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.ALLFATHER_SOURCE_SHA }}
+      - name: Verify exact source checkout and bind runner environment
+        run: |
+          test "$(git rev-parse HEAD)" = "$ALLFATHER_SOURCE_SHA"
+          echo "ALLFATHER_RUNNER_ENVIRONMENT=${{ runner.environment }}" >> "$GITHUB_ENV"
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: resource-lab-v2-candidate
+          path: build/candidate-download
+      - name: Restore exact candidate bundle
+        run: |
+          test -d build/candidate-download/online-engine-opt-v2
+          rm -rf build/online-engine-opt-v2
+          mv build/candidate-download/online-engine-opt-v2 build/online-engine-opt-v2
+          chmod +x build/online-engine-opt-v2/bin/*
+      - name: Install runtime measurement dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libopenblas-dev libprotobuf-dev zlib1g-dev
+      - name: Capture one canonical execution domain
+        run: |
+          mkdir -p build/test-results/resource-lab-v2
+          python3 scripts/lc0-hardware-probe.py \
+            > build/test-results/resource-lab-v2/host-probe.json
+          python3 -m tools.engine_opt.domain capture \
+            --probe build/test-results/resource-lab-v2/host-probe.json \
+            --output build/test-results/resource-lab-v2/execution-domain.json
+          python3 -m tools.engine_opt.domain validate \
+            --input build/test-results/resource-lab-v2/execution-domain.json \
+            --expected-source-commit "$ALLFATHER_SOURCE_SHA"
+      - name: Preflight b4 reference and measurement substrate
+        run: |
+          rm -rf build/test-results/resource-lab-v2-preflight
+          python3 -m tools.resource_lab.runner \
+            --quick \
+            --spec qualification/resource-lab-v2.json \
+            --execution-domain build/test-results/resource-lab-v2/execution-domain.json \
+            --output build/test-results/resource-lab-v2-preflight
+          python3 -m tools.resource_lab.preflight \
+            --spec qualification/resource-lab-v2.json \
+            --root build/test-results/resource-lab-v2-preflight \
+            --output build/test-results/resource-lab-v2-preflight/preflight-report.json
+      - name: Execute one-pass b4 isolated and composition laboratory
+        run: |
+          python3 -m tools.resource_lab.runner \
+            --spec qualification/resource-lab-v2.json \
+            --execution-domain build/test-results/resource-lab-v2/execution-domain.json \
+            --output build/test-results/resource-lab-v2
+      - name: Independently qualify retained b4 evidence
+        run: |
+          python3 -m tools.resource_lab.qualify \
+            --spec qualification/resource-lab-v2.json \
+            --root build/test-results/resource-lab-v2 \
+            --output build/test-results/resource-lab-v2/report.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: resource-lab-v2
+          path: |
+            build/test-results/resource-lab-v2
+            build/test-results/resource-lab-v2-preflight
+          if-no-files-found: error
+          retention-days: 30

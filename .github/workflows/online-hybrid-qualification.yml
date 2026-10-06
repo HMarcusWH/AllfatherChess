@@ -5,6 +5,9 @@ on:
   pull_request:
     paths:
       - qualification/online-hybrid-authority.json
+      - qualification/online-hybrid-v1-resource-calibration.json
+      - qualification/online-hybrid-v1-resource-observations.json
+      - qualification/replay-history-sources.json
       - qualification/online-cpu-reference.json
       - qualification/lc0-strength.lock.json
       - qualification/lc0-strength-profile.json
@@ -25,7 +28,9 @@ on:
       - scripts/fetch-*.sh
       - scripts/lc0-*.py
       - scripts/qualify-online-hybrid-authority.py
+      - scripts/validate-online-hybrid-resource-calibration.py
       - tests/controller/test_online_hybrid_authority.py
+      - tests/controller/test_online_hybrid_resource_calibration.py
       - tests/controller/test_online_profile.py
       - tests/harness/**
       - engines/**
@@ -36,6 +41,9 @@ on:
     branches: [main]
     paths:
       - qualification/online-hybrid-authority.json
+      - qualification/online-hybrid-v1-resource-calibration.json
+      - qualification/online-hybrid-v1-resource-observations.json
+      - qualification/replay-history-sources.json
       - qualification/online-cpu-reference.json
       - qualification/lc0-strength.lock.json
       - qualification/lc0-strength-profile.json
@@ -56,7 +64,9 @@ on:
       - scripts/fetch-*.sh
       - scripts/lc0-*.py
       - scripts/qualify-online-hybrid-authority.py
+      - scripts/validate-online-hybrid-resource-calibration.py
       - tests/controller/test_online_hybrid_authority.py
+      - tests/controller/test_online_hybrid_resource_calibration.py
       - tests/controller/test_online_profile.py
       - tests/harness/**
       - engines/**
@@ -127,9 +137,14 @@ jobs:
       - name: Static G3 contracts
         run: |
           python3 tests/controller/test_online_hybrid_authority.py
-          python3 -m py_compile controller/online_hybrid_profile.py scripts/qualify-online-hybrid-authority.py
+          python3 tests/controller/test_online_hybrid_resource_calibration.py
+          python3 -m py_compile controller/online_hybrid_profile.py scripts/qualify-online-hybrid-authority.py scripts/validate-online-hybrid-resource-calibration.py
           python3 -m json.tool config/allfather.online-hybrid.validation.json >/dev/null
           python3 -m json.tool qualification/online-hybrid-authority.json >/dev/null
+          python3 -m json.tool qualification/online-hybrid-v1-resource-calibration.json >/dev/null
+          python3 -m json.tool qualification/online-hybrid-v1-resource-observations.json >/dev/null
+          python3 -m json.tool qualification/replay-history-sources.json >/dev/null
+          python3 scripts/validate-online-hybrid-resource-calibration.py
       - name: Install real-inference dependencies
         run: |
           sudo apt-get update

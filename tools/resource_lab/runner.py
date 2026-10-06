@@ -260,7 +260,7 @@ def main() -> int:
     parser.add_argument(
         "--output",
         type=Path,
-        default=ROOT / "build/test-results/resource-lab-v1",
+        default=None,
     )
     parser.add_argument(
         "--quick",
@@ -301,7 +301,11 @@ def main() -> int:
             f"resource lab corpus case count drift: {len(cases)} != {spec.corpus_cases}"
         )
 
-    output = args.output.resolve()
+    output = (
+        args.output.resolve()
+        if args.output is not None
+        else (ROOT / "build/test-results" / spec.lab_id).resolve()
+    )
     output.mkdir(parents=True, exist_ok=True)
     manifest = {
         "schema_version": 1,

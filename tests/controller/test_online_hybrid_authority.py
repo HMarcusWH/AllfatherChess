@@ -100,6 +100,9 @@ class ProfileTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
         critical_inputs = (
             "qualification/online-cpu-reference.json",
+            "qualification/online-hybrid-v1-resource-calibration.json",
+            "qualification/online-hybrid-v1-resource-observations.json",
+            "qualification/replay-history-sources.json",
             "qualification/lc0-strength.lock.json",
             "qualification/lc0-strength-profile.json",
             "config/allfather.online.cpu-reference.json",
@@ -111,6 +114,8 @@ class ProfileTests(unittest.TestCase):
             "scripts/fetch-*.py",
             "scripts/fetch-*.sh",
             "scripts/lc0-*.py",
+            "scripts/validate-online-hybrid-resource-calibration.py",
+            "tests/controller/test_online_hybrid_resource_calibration.py",
             "adapters/crossfeed/**",
             "tests/controller/test_online_profile.py",
             "engines/**",
@@ -132,6 +137,26 @@ class ProfileTests(unittest.TestCase):
                     2,
                     f"{path} must be an exact path entry in both PR and main triggers",
                 )
+
+    def test_owner_specific_resource_reservations_are_frozen(self):
+        policy = load_json(POLICY)
+        cfg = load_json(CONFIG)
+        self.assertEqual(
+            cfg["routing"]["stage_cpu_ms_estimate_by_owner"],
+            policy["explore"]["reservation_cpu_ms_by_owner"],
+        )
+        self.assertEqual(
+            cfg["routing"]["verify_stage_cpu_ms_estimate_by_owner"],
+            policy["verification"]["reservation_cpu_ms_by_owner"],
+        )
+        self.assertEqual(cfg["routing"]["stage_cpu_ms_estimate_by_owner"]["lc0"], 1800)
+        self.assertEqual(cfg["routing"]["verify_stage_cpu_ms_estimate_by_owner"]["lc0"], 1400)
+
+    def test_owner_specific_reservation_drift_is_rejected(self):
+        cfg = copy.deepcopy(load_json(CONFIG))
+        cfg["routing"]["stage_cpu_ms_estimate_by_owner"]["lc0"] = 1799
+        with self.assertRaises(OnlineHybridProfileError):
+            validate_online_hybrid_profile(load_json(POLICY), cfg, load_json(ONLINE2))
 
     def test_skip_authority_rejected(self):
         cfg = copy.deepcopy(load_json(CONFIG))

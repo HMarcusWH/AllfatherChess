@@ -7,14 +7,16 @@
     "workflow_runs": [
       36363702414,
       36366449343,
-      37128771497
+      37128771497,
+      37389787715
     ],
     "measurement_source_commits": [
       "72fe32567591804061b0489b1bb73743dc0f3c9d",
       "9bc81f51ba761f80754e010f95b5778dcdb353b3",
-      "4acce20ec427364e51f5ac51204c8d46a32f81d1"
+      "4acce20ec427364e51f5ac51204c8d46a32f81d1",
+      "98104fabfee41841de814078576ad9b28ceadd2e"
     ],
-    "rationale": "Candidate-only overlay chosen from retained PR #61 discovery evidence. b4-p0-c256k-cold matched the frozen 8/8 vector in discovery evidence; the first PR #62 attempt additionally reproduced 3/3 bestmove/native-work stability before an unrelated historical J8 catalog invariant aborted the run. This file grants no runtime or promotion authority."
+    "rationale": "Candidate-only overlay chosen from retained PR #61 discovery evidence. b4-p0-c256k-cold matched the frozen 8/8 vector in discovery evidence; the first PR #62 attempt additionally reproduced 3/3 bestmove/native-work stability before an unrelated historical J8 catalog invariant aborted the run. PR #63 exact-head run 37389787715 then reproduced 3/3 bestmove stability and 8/8 baseline equivalence while exposing that LC0's terminal UCI node counter is not an exact repeatability invariant under the fixed node-stop request. The explicit lc0-node-stop-contract-v1 therefore keeps the request, counter semantics, completion, selected options, decision repeatability and resource bounds frozen while retaining terminal node-count variation as diagnostic evidence. This file grants no runtime or promotion authority."
   },
   "selected": {
     "stockfish": {
@@ -63,7 +65,18 @@
     "corpus_cases": 8,
     "confirmation_repeats": 3,
     "max_median_wall_ratio": 0.4,
-    "max_wall_ms": 600
+    "max_wall_ms": 600,
+    "native_work_policy": {
+      "id": "lc0-node-stop-contract-v1",
+      "requested_nodes": 16,
+      "terminal_counter_semantics": "lc0.uci_nodes",
+      "require_exact_terminal_counter_repeatability": false,
+      "required_options": {
+        "MaxConcurrentSearchers": 1,
+        "TaskWorkers": 0,
+        "Threads": 1
+      }
+    }
   },
   "authority": {
     "runtime_profile_selection": false,

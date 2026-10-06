@@ -38,26 +38,7 @@ def summary(bestmoves, *, wall, native_work=(10, 11)):
 
 
 class MatrixQualificationTests(unittest.TestCase):
-    def selection(self, *, node_stop_policy: bool = False):
-        qualification = {
-            "baseline_profile": "baseline",
-            "confirmation_repeats": 3,
-            "corpus_cases": 2,
-            "max_median_wall_ratio": 0.40,
-            "max_wall_ms": 600,
-        }
-        if node_stop_policy:
-            qualification["native_work_policy"] = {
-                "id": "lc0-node-stop-contract-v1",
-                "requested_nodes": 16,
-                "terminal_counter_semantics": "lc0.uci_nodes",
-                "require_exact_terminal_counter_repeatability": False,
-                "required_options": {
-                    "MaxConcurrentSearchers": 1,
-                    "TaskWorkers": 0,
-                    "Threads": 1,
-                },
-            }
+    def selection(self):
         return {
             "selected": {
                 "lc0": {
@@ -69,7 +50,27 @@ class MatrixQualificationTests(unittest.TestCase):
                     "warmup_nodes": None,
                 }
             },
-            "qualification": qualification,
+            "qualification": {
+                "baseline_profile": "baseline",
+                "confirmation_repeats": 3,
+                "corpus_cases": 2,
+                "max_median_wall_ratio": 0.40,
+                "max_wall_ms": 600,
+            },
+        }
+
+    def node_stop_policy(self):
+        return {
+            "schema_version": 1,
+            "policy_id": "lc0-node-stop-contract-v1",
+            "requested_nodes": 16,
+            "terminal_counter_semantics": "lc0.uci_nodes",
+            "require_exact_terminal_counter_repeatability": False,
+            "required_options": {
+                "MaxConcurrentSearchers": 1,
+                "TaskWorkers": 0,
+                "Threads": 1,
+            },
         }
 
     def matrix(self, *, selected_native_work=None):
@@ -134,7 +135,7 @@ class MatrixQualificationTests(unittest.TestCase):
         ):
             return mq.qualify_lc0_matrix(
                 matrix=matrix or self.matrix(),
-                selection=self.selection(node_stop_policy=node_stop_policy),
+                selection=self.selection(),
                 expected_source_commit=SOURCE,
                 expected_execution_domain={"domain": "same"},
                 candidate_bundle={
@@ -143,6 +144,7 @@ class MatrixQualificationTests(unittest.TestCase):
                         "networks": {"lc0": {"sha256": "network"}},
                     }
                 },
+                native_work_policy=self.node_stop_policy() if node_stop_policy else None,
             )
 
     def test_shared_matrix_contract_qualifies_repeatable_equivalent_profile(self):

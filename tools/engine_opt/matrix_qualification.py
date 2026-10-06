@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+from pathlib import Path
 from typing import Any
 
 from tools.engine_opt.domain import (
@@ -11,6 +12,11 @@ from tools.engine_opt.domain import (
     validate_execution_domain,
 )
 from tools.engine_opt.selection import validate_selected_lc0_rows
+
+ROOT = Path(__file__).resolve().parents[2]
+CANDIDATE_NATIVE_WORK_POLICY_PATH = (
+    ROOT / "qualification/engine-opt-v2-candidate-native-work-policy.json"
+)
 
 
 class MatrixQualificationError(RuntimeError):
@@ -76,12 +82,35 @@ def repeat_evidence(
     }
 
 
-def _selected_native_work_policy(qualification: dict[str, Any]) -> tuple[str, bool]:
-    policy = qualification.get("native_work_policy")
+def _load_candidate_native_work_policy(
+    selection: dict[str, Any],
+) -> tuple[dict[str, Any] | None, str | None]:
+    if selection.get("status") != "qualification_candidate":
+        return None, None
+    try:
+        raw = CANDIDATE_NATIVE_WORK_POLICY_PATH.read_bytes()
+        policy = json.loads(raw.decode("utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise MatrixQualificationError(
+            f"cannot load candidate native-work policy: {exc}"
+        ) from exc
+    require(isinstance(policy, dict), "candidate native-work policy root must be an object")
+    applies = policy.get("applies_to")
+    expected = {
+        "selection_profile_id": selection.get("profile_id"),
+        "selection_status": selection.get("status"),
+        "matrix_profile": ((selection.get("selected") or {}).get("lc0") or {}).get("matrix_profile"),
+    }
+    require(applies == expected, "candidate native-work policy applicability drift")
+    return policy, hashlib.sha256(raw).hexdigest()
+
+
+def _selected_native_work_policy(policy: dict[str, Any] | None) -> tuple[str, bool]:
     if policy is None:
         return "exact-vector-v1", True
-    require(isinstance(policy, dict), "qualification native_work_policy must be an object")
-    policy_id = policy.get("id")
+    require(isinstance(policy, dict), "native-work policy must be an object")
+    require(policy.get("schema_version") == 1, "native-work policy schema drift")
+    policy_id = policy.get("policy_id")
     require(
         policy_id in {"exact-vector-v1", "lc0-node-stop-contract-v1"},
         f"unsupported LC0 native-work policy: {policy_id!r}",
@@ -104,6 +133,7 @@ def qualify_lc0_matrix(
     expected_source_commit: str,
     expected_execution_domain: dict[str, Any],
     candidate_bundle: dict[str, Any],
+    native_work_policy: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     verify_report_seal(matrix)
     require(
@@ -146,7 +176,12 @@ def qualify_lc0_matrix(
         isinstance(cases, int) and not isinstance(cases, bool) and cases >= 1,
         "selection corpus_cases is invalid",
     )
-    native_work_policy_id, selected_native_work_exact = _selected_native_work_policy(q)
+
+    policy_sha256: str | None = None
+    if native_work_policy is None:
+        native_work_policy, policy_sha256 = _load_candidate_native_work_policy(selection)
+    native_work_policy_id, selected_native_work_exact = _selected_native_work_policy(native_work_policy)
+
     confirmation = matrix.get("confirmation") or {}
     require(confirmation.get("selected_profile") == selected_profile, "matrix selected profile drift")
     require(confirmation.get("baseline_profile") == baseline_profile, "matrix baseline profile drift")
@@ -198,7 +233,7 @@ def qualify_lc0_matrix(
         )
 
     raw = [row for row in matrix.get("rows", []) if row.get("profile") == selected_profile]
-    validate_selected_lc0_rows(raw, lc0, q, require)
+    validate_selected_lc0_rows(raw, lc0, q, native_work_policy, require)
 
     details = {
         "execution_domain": domain,
@@ -206,6 +241,7 @@ def qualify_lc0_matrix(
         "selected_profile": selected_profile,
         "confirmation_repeats": repeats,
         "native_work_policy": native_work_policy_id,
+        "native_work_policy_sha256": policy_sha256,
         "selected_native_work_exact_repeatability_required": selected_native_work_exact,
         "baseline": {
             "bestmove_stable": baseline["bestmove_stable"],

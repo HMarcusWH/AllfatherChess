@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "policy_id": "lc0-node-stop-contract-v1",
+  "applies_to": {
+    "selection_profile_id": "engine-opt-v2-selection",
+    "selection_status": "qualification_candidate",
+    "matrix_profile": "b4-p0-c256k-cold"
+  },
+  "requested_nodes": 16,
+  "terminal_counter_semantics": "lc0.uci_nodes",
+  "require_exact_terminal_counter_repeatability": false,
+  "required_options": {
+    "MaxConcurrentSearchers": 1,
+    "TaskWorkers": 0,
+    "Threads": 1
+  },
+  "evidence_basis": {
+    "workflow_run": 37389787715,
+    "source_commit": "98104fabfee41841de814078576ad9b28ceadd2e",
+    "observation": "The candidate preserved the frozen 8/8 bestmove vector in all three confirmation repeats while the queen-endgame terminal UCI node counter was 14 once and 18 twice under the same go nodes 16 request."
+  },
+  "claim_boundary": {
+    "qualification_semantics_only": true,
+    "runtime_profile_selection": false,
+    "resource_authorization": false,
+    "outward_move": false,
+    "canonical_profile_changed": false,
+    "generic_host_portability": false,
+    "strength": false,
+    "elo": false,
+    "equal_compute": false,
+    "deployment": false
+  }
+}

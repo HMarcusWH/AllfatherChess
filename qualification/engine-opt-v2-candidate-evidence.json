@@ -5,20 +5,22 @@
     "workflow_runs": [
       36363702414,
       36366449343,
-      37128771497
+      37128771497,
+      37389787715
     ],
     "source_commits": [
       "72fe32567591804061b0489b1bb73743dc0f3c9d",
       "9bc81f51ba761f80754e010f95b5778dcdb353b3",
-      "4acce20ec427364e51f5ac51204c8d46a32f81d1"
+      "4acce20ec427364e51f5ac51204c8d46a32f81d1",
+      "98104fabfee41841de814078576ad9b28ceadd2e"
     ],
-    "note": "Candidate discovery/provenance only. Historical runs remain context; PR #61 selected b4-p0-c256k-cold for fresh qualification. The first PR #62 attempt observed 3/3 stable bestmove/native-work vectors and 8/8 baseline equivalence before a historical J8 invariant stopped the run. This evidence grants no canonical runtime or promotion authority."
+    "note": "Candidate discovery/provenance only. Historical runs remain context; PR #61 selected b4-p0-c256k-cold for fresh qualification. The first PR #62 attempt observed 3/3 stable bestmove/native-work vectors and 8/8 baseline equivalence before a historical J8 invariant stopped the run. PR #63 exact-head run 37389787715 reproduced stable bestmoves and baseline equivalence but exposed one legal terminal UCI node-counter variation under the same fixed node-stop request. That diagnostic is retained below and grants no canonical runtime or promotion authority."
   },
   "artifacts": {
     "candidate": {
       "artifact_id": 10946815944,
       "digest": "sha256:b0be9844d159b2c50cfe08d1e1450abc29338057c20913fc49dfdc3c90057c33",
-      "report_sha256": "dfebe747a15b1a251a4f288a7003e92a8fd1dad8cf1487f4df100d14f3bda175",
+      "report_sha256": "dfebe747a15b1a251a4f288a7003e92a8fd1dad8cf1687f4df100d14f3bda175",
       "build_manifest_sha256": "86bc294d5560bf516022eab426b4230067635e115947f4aba303ba9fe3986cd8"
     },
     "lc0_matrix": {
@@ -90,6 +92,24 @@
       "case_count": 16,
       "note": "Frozen discovery corpus only. Fresh validation on a later candidate head is required; no discovery result itself grants promotion authority.",
       "source_metadata": "qualification/g3-candidate-discovery-source.json"
+    },
+    "lc0_matrix_pr63_native_work_diagnostic": {
+      "workflow_run": 37389787715,
+      "artifact_id": 11388717018,
+      "digest": "sha256:cf3de33e312a3ae735a530592412d82d5a3a646fc02a2c604e4e3a95fa03bcbd",
+      "report_sha256": "6876c8e33f900796cc97bd2e8df0ae15d98fc236f02cf866591c622d3a01fb0b",
+      "source_commit": "98104fabfee41841de814078576ad9b28ceadd2e",
+      "execution_scope": "exact_host_observation",
+      "observation": "Three b4 confirmation repeats preserved the same 8/8 bestmove vector and all resource bounds. The queen-endgame terminal lc0.uci_nodes value was 14 in repeat 0 and 18 in repeats 1-2 under the same go nodes 16 request."
+    },
+    "candidate_aggregate_pr63_native_work_diagnostic": {
+      "workflow_run": 37389787715,
+      "artifact_id": 11388903188,
+      "digest": "sha256:7f83fcbaf580ca1a8f5370a5268a2bc3fe45c58b0bddc3391aee13db97c4b216",
+      "report_sha256": "c6a2de865421c82a96da1a11a7f545d1dae6eab24460f39005fae5ead7c1e85f",
+      "source_commit": "98104fabfee41841de814078576ad9b28ceadd2e",
+      "qualification_disposition": "NOT_QUALIFIED_REPEATABILITY",
+      "observation": "The aggregate blocked solely because the shared qualifier required byte-for-byte equality of LC0 terminal native-work vectors; constituent A/B, repeated Hash, LOCAL-1/G3, bestmove repeatability, behavioral equivalence and resource bounds otherwise passed."
     }
   },
   "observations": {
@@ -179,6 +199,32 @@
           18
         ],
         "note": "Single-repeat discovery only. Promotion still requires three same-head confirmation repeats on the bound execution domain."
+      },
+      "pr63_native_work_semantics_repair_basis": {
+        "workflow_run": 37389787715,
+        "source_commit": "98104fabfee41841de814078576ad9b28ceadd2e",
+        "requested_nodes": 16,
+        "terminal_counter_semantics": "lc0.uci_nodes",
+        "bestmove_vector": [
+          "e2e4",
+          "g1f3",
+          "e7e6",
+          "g1f3",
+          "f8c5",
+          "b2b3",
+          "f2f3",
+          "f3d5"
+        ],
+        "native_work_vectors": [
+          [15, 15, 16, 15, 19, 17, 17, 14],
+          [15, 15, 16, 15, 19, 17, 17, 18],
+          [15, 15, 16, 15, 19, 17, 17, 18]
+        ],
+        "selected_max_wall_ms": 280.779,
+        "selected_max_cpu_ms": 290,
+        "bestmove_repeatability": true,
+        "behavioral_equivalence_to_baseline": true,
+        "note": "Exact equality of the terminal UCI node counter is not treated as a promotion invariant for the candidate. The fixed go nodes request, lc0.uci_nodes semantics, completed searches, selected UCI options, exact bestmove repeatability, baseline behavioral equivalence and resource ceilings remain blocking qualification contracts."
       }
     },
     "stockfish": {

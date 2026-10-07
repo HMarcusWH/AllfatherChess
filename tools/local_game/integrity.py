@@ -500,6 +500,9 @@ def verify_resource_claim(run: Path, manifest: dict) -> dict:
     """
     from common.search_request import parse_go_request
     from controller.budget import ResourceEnvelope
+    from controller.resource_measurement import (
+        RESOURCE_FAILURE_PREPARATION_BUDGET_EXCEEDED,
+    )
 
     resource_path = run / "resource.json"
     route_path = run / "route.json"
@@ -516,11 +519,29 @@ def verify_resource_claim(run: Path, manifest: dict) -> dict:
 
     stages = resource.get("stages")
     processes = resource.get("processes")
-    require(isinstance(stages, list) and stages, "resource stages are missing")
-    require(isinstance(processes, dict) and processes, "resource process totals are missing")
+    require(isinstance(stages, list), "resource stages are not an array")
+    require(isinstance(processes, dict), "resource process totals are not an object")
+
+    failure = resource.get("failure")
+    preparation_timeout = bool(
+        isinstance(failure, dict)
+        and failure.get("code")
+        == RESOURCE_FAILURE_PREPARATION_BUDGET_EXCEEDED
+    )
+    if preparation_timeout:
+        require(
+            isinstance(failure.get("reason"), str) and failure["reason"],
+            "preparation-timeout resource evidence lacks failure reason",
+        )
+        require(not stages and not processes,
+                "preparation-timeout resource evidence fabricated primitive rows")
+    else:
+        require(stages, "resource stages are missing")
+        require(processes, "resource process totals are missing")
+        require(failure is None, "qualified resource evidence carries unexpected failure")
 
     stage_cpu = 0.0
-    stage_complete = True
+    stage_complete = bool(stages)
     for row in stages:
         require(isinstance(row, dict) and type(row.get("complete")) is bool,
                 "malformed measured stage")
@@ -532,7 +553,7 @@ def verify_resource_claim(run: Path, manifest: dict) -> dict:
             require(row.get("cpu_ms") is None, "incomplete stage carries fabricated CPU")
 
     process_cpu = 0.0
-    process_complete = True
+    process_complete = bool(processes)
     for name, row in processes.items():
         require(isinstance(name, str) and name and isinstance(row, dict) and
                 type(row.get("complete")) is bool, "malformed process total")
@@ -552,6 +573,8 @@ def verify_resource_claim(run: Path, manifest: dict) -> dict:
     cpu_complete = bool(
         resource.get("provider_error") is None
         and resource.get("interval_error") is None
+        and bool(stages)
+        and bool(processes)
         and stage_complete
         and process_complete
     )

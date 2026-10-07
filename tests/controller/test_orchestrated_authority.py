@@ -8,6 +8,7 @@ import sys
 import tempfile
 import unittest
 from dataclasses import replace
+from unittest.mock import patch
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -29,6 +30,7 @@ from controller.decision import (
 from controller.orchestration_integrity import (
     runtime_config_matches_frozen,
 )
+from controller.final_decision import _verify_orchestration_provenance
 from controller.resource_allocator import (
     BUY_BUNDLE,
     FALLBACK,
@@ -206,6 +208,78 @@ def allocation(action: str) -> AllocationDecision:
         gates=(AllocationGate("test", False, "test"),),
         reason="test",
     )
+
+
+class OrchestrationAuditBoundaryTests(unittest.TestCase):
+    def test_denied_fallback_uses_audit_only_resource_reconstruction(self):
+        bound = provenance()
+        snap = snapshot(orchestration_provenance=bound).as_dict()
+        authorization = {
+            "policy": ORCHESTRATED_CLOCKED_AUTHORIZATION_POLICY,
+            "authorized": False,
+        }
+        decision = {
+            "authority": "ANCHOR_FALLBACK",
+            "anchor_move": "d2d4",
+            "emitted_move": "d2d4",
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            run = Path(tmp)
+            (run / "orchestration.json").write_text(
+                json.dumps({"authority_binding": bound.as_dict()}),
+                encoding="utf-8",
+            )
+            problems = []
+            with patch(
+                "controller.orchestration_integrity.verify_orchestrated_composition_integrity",
+                return_value=[],
+            ) as verifier:
+                _verify_orchestration_provenance(
+                    run,
+                    decision,
+                    authorization,
+                    snap,
+                    problems,
+                )
+            self.assertEqual(problems, [])
+            self.assertFalse(
+                verifier.call_args.kwargs["require_resource_qualification"]
+            )
+
+    def test_authorized_hybrid_keeps_strict_resource_reconstruction(self):
+        bound = provenance()
+        snap = snapshot(orchestration_provenance=bound).as_dict()
+        authorization = {
+            "policy": ORCHESTRATED_CLOCKED_AUTHORIZATION_POLICY,
+            "authorized": True,
+        }
+        decision = {
+            "authority": "HYBRID",
+            "anchor_move": "d2d4",
+            "emitted_move": "e2e4",
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            run = Path(tmp)
+            (run / "orchestration.json").write_text(
+                json.dumps({"authority_binding": bound.as_dict()}),
+                encoding="utf-8",
+            )
+            problems = []
+            with patch(
+                "controller.orchestration_integrity.verify_orchestrated_composition_integrity",
+                return_value=[],
+            ) as verifier:
+                _verify_orchestration_provenance(
+                    run,
+                    decision,
+                    authorization,
+                    snap,
+                    problems,
+                )
+            self.assertEqual(problems, [])
+            self.assertTrue(
+                verifier.call_args.kwargs["require_resource_qualification"]
+            )
 
 
 class OrchestratedAuthorityTests(unittest.TestCase):

@@ -32,6 +32,9 @@ from controller.resource_allocator import (
     BUY_BUNDLE,
     load_allocation_policy,
 )
+from controller.resource_measurement import (
+    RESOURCE_FAILURE_PREPARATION_BUDGET_EXCEEDED,
+)
 from controller.verification import verify_verification_integrity
 from controller.staged_verification import verify_staged_verification_integrity
 from controller.work_grant import WorkGrant
@@ -967,8 +970,14 @@ def verify_orchestration_integrity(
     allow_outward_decision: bool = False,
     allow_config_relocation: bool = False,
     expected_outward_mode: str | None = None,
+    require_resource_qualification: bool = True,
 ) -> list[str]:
-    """Independently reconstruct J11 provenance. Empty list means valid."""
+    """Independently reconstruct J11 provenance.
+
+    Audit-only callers may set ``require_resource_qualification=False``. That
+    accepts only a typed pre-anchor setup-timeout certificate and never turns
+    incomplete physical evidence into a resource or move-authority claim.
+    """
 
     run_dir = Path(run_dir)
     problems: list[str] = []
@@ -2436,6 +2445,7 @@ def verify_orchestration_integrity(
             elif (
                 decision is not None
                 and decision.action == BUY_BUNDLE
+                and require_resource_qualification
             ):
                 problems.append(
                     f"J11 BUY_BUNDLE WorkGrant {grant.grant_id} did not settle from physical measurement"
@@ -2516,7 +2526,7 @@ def verify_orchestration_integrity(
             problems.append(
                 "resource CPU coverage does not reconstruct from raw evidence"
             )
-        if not cpu_complete:
+        if not cpu_complete and require_resource_qualification:
             problems.append(
                 "J11 qualification requires complete CPU measurement coverage"
             )
@@ -2538,9 +2548,41 @@ def verify_orchestration_integrity(
         if resource.get("qualified") is not resource_qualified:
             problems.append("resource qualified flag does not reconstruct")
         if not resource_qualified:
-            problems.append(
-                "J11 qualification requires complete physical resource evidence"
-            )
+            if require_resource_qualification:
+                problems.append(
+                    "J11 qualification requires complete physical resource evidence"
+                )
+            else:
+                failure = resource.get("failure")
+                if not isinstance(failure, dict):
+                    problems.append(
+                        "audit-only incomplete resource evidence lacks typed failure"
+                    )
+                else:
+                    if (
+                        failure.get("code")
+                        != RESOURCE_FAILURE_PREPARATION_BUDGET_EXCEEDED
+                    ):
+                        problems.append(
+                            "audit-only incomplete resource evidence uses unsupported failure code"
+                        )
+                    reason = failure.get("reason")
+                    if not isinstance(reason, str) or not reason:
+                        problems.append(
+                            "audit-only incomplete resource evidence lacks failure reason"
+                        )
+                if processes or stages:
+                    problems.append(
+                        "preparation-timeout resource evidence fabricated process/stage rows"
+                    )
+                if not _approx_equal(resource.get("engine_cpu_ms"), 0.0):
+                    problems.append(
+                        "preparation-timeout resource evidence fabricated engine CPU"
+                    )
+                if not _approx_equal(resource.get("stage_engine_cpu_ms"), 0.0):
+                    problems.append(
+                        "preparation-timeout resource evidence fabricated stage CPU"
+                    )
 
         resource_core = {
             key: value
@@ -2769,6 +2811,7 @@ def verify_orchestrated_composition_integrity(
     root: Path | str | None = None,
     expected_source_commit: str | None = None,
     expected_outward_mode: str | None = None,
+    require_resource_qualification: bool = True,
 ) -> list[str]:
     """Reconstruct the J12 composition without weakening the J11 evidence core."""
 
@@ -2782,6 +2825,7 @@ def verify_orchestrated_composition_integrity(
         allow_outward_decision=True,
         allow_config_relocation=True,
         expected_outward_mode=expected_outward_mode,
+        require_resource_qualification=require_resource_qualification,
     )
     run_dir = Path(run_dir)
     try:
@@ -3004,6 +3048,7 @@ def verify_meta1_control_composition_integrity(
     *,
     root: Path | str | None = None,
     expected_source_commit: str | None = None,
+    require_resource_qualification: bool = True,
 ) -> list[str]:
     """J13 control profile: J12 evidence plus exactly one outward control bit."""
 
@@ -3012,6 +3057,7 @@ def verify_meta1_control_composition_integrity(
         root=root,
         expected_source_commit=expected_source_commit,
         expected_outward_mode="anchor_control_v1",
+        require_resource_qualification=require_resource_qualification,
     )
     try:
         manifest = load_manifest(run_dir)

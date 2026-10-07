@@ -77,7 +77,12 @@ from controller.decision import (
 )
 from controller.final_decision import seal_final_decision_artifact
 from controller.replay import ReplayRun, StageRecord, TelemetryStreamWriter, sha256_file
-from controller.resource_measurement import ResourceMeasurementRun, StageResourceMeasurement
+from controller.resource_measurement import (
+    RESOURCE_FAILURE_PREPARATION_BUDGET_EXCEEDED,
+    ResourceMeasurementRun,
+    StageResourceMeasurement,
+    seal_unqualified_resource_report,
+)
 from controller.prefix_shards import PrefixShardLedger, PrefixShardLedgerError
 from controller.refinement import (
     RefinementError,
@@ -439,6 +444,8 @@ class _ActiveRun:
     anchor_stage: StageRecord | None = None
     anchor_stream: TelemetryStreamWriter | None = None
     resources: ResourceMeasurementRun | None = None
+    resource_setup_failure: str | None = None
+    resource_controller_cpu_started_ns: int | None = None
     ledger: RootShardLedger | None = None
     verification: VerificationRun | None = None
     staged_verification: StagedVerificationRun | None = None
@@ -1155,24 +1162,42 @@ class ShadowRunCoordinator:
                 controller_cpu_started_ns=controller_cpu_started_ns,
             )
         )
+        resource_setup_failure = None
         if resources is not None and resources.settings.enabled:
             candidate_resources = resources
-            def register_resources():
-                for instance in sorted(self.runtime.backends):
-                    candidate_resources.register_process(instance=instance, pid=self.runtime.process_pid(instance))
+
+            def start_anchor_measurement():
+                # The first anchor-stage sample is also the run-level process
+                # baseline. Shadow instances establish their baselines lazily
+                # immediately before their first real dispatch.
                 if clock is not None:
-                    candidate_resources.begin_stage(key=anchor_search_id, instance=anchor_name,
-                                                    phase="ANCHOR", pid=self.runtime.process_pid(anchor_name))
+                    candidate_resources.begin_stage(
+                        key=anchor_search_id,
+                        instance=anchor_name,
+                        phase="ANCHOR",
+                        pid=self.runtime.process_pid(anchor_name),
+                    )
                 return candidate_resources
+
             if clock is None:
-                register_resources()
+                # Non-clocked legacy paths begin the anchor measurement at the
+                # actual dispatch boundary in note_anchor_dispatch().
+                pass
             else:
                 measured, resources = self._within_prepare_budget(
-                    f"{run_id}-resource-start", deadline=prepare_deadline, work=register_resources,
+                    f"{run_id}-resource-start",
+                    deadline=prepare_deadline,
+                    work=start_anchor_measurement,
                 )
                 if not measured:
                     resources = None
-                    run.note("clock resource setup missed preparation budget; physical claim unavailable")
+                    resource_setup_failure = (
+                        RESOURCE_FAILURE_PREPARATION_BUDGET_EXCEEDED
+                    )
+                    run.note(
+                        "clock resource setup missed preparation budget; "
+                        "physical claim unavailable"
+                    )
         active = _ActiveRun(
             generation=generation,
             run=run,
@@ -1180,6 +1205,8 @@ class ShadowRunCoordinator:
             anchor_stage=anchor_stage,
             anchor_stream=anchor_stream,
             resources=resources,
+            resource_setup_failure=resource_setup_failure,
+            resource_controller_cpu_started_ns=controller_cpu_started_ns,
             started_monotonic=started,
         )
         # Controller overhead is recorded, never hidden. This is the only work
@@ -1877,10 +1904,39 @@ class ShadowRunCoordinator:
     def _seal_resource_report(self, generation: int) -> dict[str, object] | None:
         with self._lock:
             active = self._run
-            if active is None or active.generation != generation or active.resources is None:
+            if active is None or active.generation != generation:
                 return None
             resources = active.resources
+            failure = active.resource_setup_failure
+            started_ns = active.resource_controller_cpu_started_ns
+            settings = self.runtime.config.resource_measurement
             path = active.run.run_dir / "resource.json"
+
+        if resources is None:
+            if (
+                failure == RESOURCE_FAILURE_PREPARATION_BUDGET_EXCEEDED
+                and settings is not None
+                and started_ns is not None
+            ):
+                try:
+                    return seal_unqualified_resource_report(
+                        path,
+                        run_id=active.run.run_id,
+                        settings=settings,
+                        failure_code=failure,
+                        failure_reason=(
+                            "resource measurement did not complete inside the "
+                            "pre-anchor preparation firewall"
+                        ),
+                        controller_cpu_started_ns=started_ns,
+                    )
+                except Exception as exc:
+                    active.run.note(
+                        "negative resource report could not be sealed: "
+                        f"{type(exc).__name__}: {exc}"
+                    )
+            return None
+
         try:
             clock = active.context.clock
             return resources.seal(path, **({} if clock is None else {

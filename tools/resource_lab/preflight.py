@@ -18,6 +18,7 @@ from .candidate_matrix import (
     expand_candidates,
     expand_compositions,
     load_lab_spec,
+    reference_contract_manifest,
     validate_reference_contract,
 )
 from .qualify import (
@@ -40,6 +41,10 @@ def validate_preflight(root: Path, spec_path: Path) -> dict[str, Any]:
     spec = load_lab_spec(spec_path)
     validate_reference_contract(spec, ROOT)
     manifest = load(root / "manifest.json")
+    require(
+        manifest.get("reference_contract") == reference_contract_manifest(spec, ROOT),
+        "preflight reference contract manifest drift",
+    )
     source = source_identity(ROOT)
     require(manifest.get("source_commit") == source["commit"], "preflight source is not exact head")
     require(manifest.get("cpu_measurement") == spec.raw["cpu_measurement"], "preflight CPU policy drift")

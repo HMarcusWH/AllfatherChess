@@ -103,6 +103,21 @@ class EngineOptContractTests(unittest.TestCase):
         self.assertEqual(policy["terminal_counter_semantics"],"lc0.uci_nodes")
         self.assertFalse(policy["require_exact_terminal_counter_repeatability"])
 
+    def test_canonical_matrix_qualifier_uses_canonical_identity_report(self):
+        workflow=(ROOT/".github/workflows/engine-optimization.yml").read_text()
+        marker="      - name: Qualify canonical LC0 matrix independently"
+        self.assertIn(marker,workflow)
+        segment=workflow.split(marker,1)[1].split("      - uses:",1)[0]
+        self.assertIn("--candidate-report-pattern",segment)
+        self.assertIn(
+            "'engine-opt-v2-profile-domain/**/canonical/report.json'",
+            segment,
+        )
+        self.assertNotIn(
+            "engine-opt-v2-profile-domain/**/candidate/report.json",
+            segment,
+        )
+
     def test_candidate_g3_witness_corpus_preserves_legacy_requirement(self):
         canonical=load_json(ROOT/"qualification/online-hybrid-v2.json")
         candidate=load_json(ROOT/"qualification/online-hybrid-v2-candidate.json")

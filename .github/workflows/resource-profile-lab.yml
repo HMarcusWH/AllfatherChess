@@ -8,12 +8,15 @@ on:
       - 'vendor.lock.json'
       - 'qualification/resource-lab-v1.json'
       - 'qualification/resource-profile-catalog-v1.json'
+      - 'qualification/resource-profile-catalog-v1-j7-baseline.json'
       - 'qualification/online-engine-opt-v2.json'
+      - 'qualification/online-engine-opt-v2-j7-baseline.json'
       - 'qualification/engine-opt-v2-selection.json'
       - 'qualification/engine-derived-lock.json'
       - 'qualification/lc0-strength.lock.json'
       - 'qualification/lc0-strength-profile.json'
       - 'config/allfather.online-hybrid-v2.validation.json'
+      - 'config/allfather.online-hybrid-v2.validation-j7-baseline.json'
       - 'tools/resource_lab/**'
       - 'tools/engine_opt/**'
       - 'tests/resource_lab/**'
@@ -59,6 +62,9 @@ jobs:
         run: |
           python3 -m compileall -q tools/resource_lab tests/resource_lab tests/harness/uci_session.py
           python3 -m json.tool qualification/resource-lab-v1.json >/dev/null
+          python3 -m json.tool qualification/resource-profile-catalog-v1-j7-baseline.json >/dev/null
+          python3 -m json.tool qualification/online-engine-opt-v2-j7-baseline.json >/dev/null
+          python3 -m json.tool config/allfather.online-hybrid-v2.validation-j7-baseline.json >/dev/null
           make resource-lab-tests
 
   build-candidate:

@@ -11,6 +11,8 @@ on:
       - 'qualification/replay-history-sources.json'
       - 'qualification/resource-profile-catalog-v1.json'
       - 'qualification/resource-profile-catalog-v1-j7-baseline.json'
+      - 'qualification/online-engine-opt-v2-j7-baseline.json'
+      - 'config/allfather.online-hybrid-v2.validation-j7-baseline.json'
       - 'qualification/adaptive-clock-v1.json'
       - 'qualification/work-grant-scheduler-v1.json'
       - 'qualification/adaptive-resource-allocation-v1.json'
@@ -178,7 +180,7 @@ jobs:
           python3 -m py_compile scripts/qualify-engine-opt-evidence.py scripts/qualify-engine-opt-v2-candidate.py scripts/qualify-engine-opt-v2-candidate-gate.py scripts/qualify-engine-opt-v2-promotion-gate.py scripts/qualify-engine-opt-matrix.py scripts/qualify-online-hybrid-v2-candidate.py scripts/extract-g3-candidate-witnesses.py tools/engine_opt/matrix_qualification.py tools/engine_opt/candidate_gate.py tools/engine_opt/promotion_gate.py
           python3 scripts/qualify-online-hybrid-v2.py --static
           python3 scripts/qualify-online-hybrid-v2-candidate.py --static
-          for f in qualification/resource-profile-catalog-v1.json qualification/resource-profile-catalog-v1-j7-baseline.json qualification/adaptive-clock-v1.json qualification/work-grant-scheduler-v1.json qualification/adaptive-resource-allocation-v1.json qualification/j10-calibration-source-v1.json qualification/j10-calibration-corpus-v1.json qualification/j10-staged-decision-model-v1.json qualification/j10-regime-support-model-v1.json qualification/engine-opt-v2.json qualification/engine-opt-v2-selection.json qualification/engine-opt-v2-evidence.json qualification/engine-opt-v2-host-binding.json qualification/engine-opt-v2-candidate-selection.json qualification/engine-opt-v2-candidate-evidence.json qualification/engine-opt-v2-candidate-native-work-policy.json qualification/engine-opt-v2-native-work-policy.json qualification/engine-derived-lock.json qualification/online-engine-opt-v2.json qualification/online-hybrid-v2.json qualification/online-hybrid-v2-candidate.json qualification/online-hybrid-v2-candidate-witnesses.json qualification/g3-candidate-discovery-source.json qualification/local-full-game-v2.json qualification/local-full-game-v2-candidate.json qualification/local-full-game-orchestrated-v1.json config/allfather.online-engine-opt-v2.json config/allfather.online-engine-opt-v2.candidate.json config/allfather.m14-j-j8.validation.json config/allfather.m14-j-j9.validation.json config/allfather.m14-j-j10.validation.json config/allfather.orchestrated-v1.validation.json config/allfather.online-hybrid-v2.validation.json config/allfather.online-hybrid-v2.candidate.validation.json; do python3 -m json.tool "$f" >/dev/null; done
+          for f in qualification/resource-profile-catalog-v1.json qualification/resource-profile-catalog-v1-j7-baseline.json qualification/online-engine-opt-v2-j7-baseline.json qualification/adaptive-clock-v1.json qualification/work-grant-scheduler-v1.json qualification/adaptive-resource-allocation-v1.json qualification/j10-calibration-source-v1.json qualification/j10-calibration-corpus-v1.json qualification/j10-staged-decision-model-v1.json qualification/j10-regime-support-model-v1.json qualification/engine-opt-v2.json qualification/engine-opt-v2-selection.json qualification/engine-opt-v2-evidence.json qualification/engine-opt-v2-host-binding.json qualification/engine-opt-v2-candidate-selection.json qualification/engine-opt-v2-candidate-evidence.json qualification/engine-opt-v2-candidate-native-work-policy.json qualification/engine-opt-v2-native-work-policy.json qualification/engine-derived-lock.json qualification/online-engine-opt-v2.json qualification/online-hybrid-v2.json qualification/online-hybrid-v2-candidate.json qualification/online-hybrid-v2-candidate-witnesses.json qualification/g3-candidate-discovery-source.json qualification/local-full-game-v2.json qualification/local-full-game-v2-candidate.json qualification/local-full-game-orchestrated-v1.json config/allfather.online-engine-opt-v2.json config/allfather.online-engine-opt-v2.candidate.json config/allfather.m14-j-j8.validation.json config/allfather.m14-j-j9.validation.json config/allfather.m14-j-j10.validation.json config/allfather.orchestrated-v1.validation.json config/allfather.online-hybrid-v2.validation.json config/allfather.online-hybrid-v2.validation-j7-baseline.json config/allfather.online-hybrid-v2.candidate.validation.json; do python3 -m json.tool "$f" >/dev/null; done
           bash -n scripts/build-online-engine-opt-v2.sh
 
   build-candidate:
@@ -482,6 +484,7 @@ jobs:
           python3 scripts/qualify-engine-opt-matrix.py \
             --root build/engine-opt-artifacts \
             --selection qualification/engine-opt-v2-selection.json \
+            --candidate-report-pattern 'engine-opt-v2-profile-domain/**/canonical/report.json' \
             --output build/test-results/engine-opt-v2-canonical-matrix/report.json
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()

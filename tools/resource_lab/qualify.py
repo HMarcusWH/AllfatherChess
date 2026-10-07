@@ -25,6 +25,7 @@ from .candidate_matrix import (
     expand_candidates,
     expand_compositions,
     load_lab_spec,
+    reference_contract_manifest,
     stage_a_attempt_plan,
     stage_b_attempt_plan,
     validate_reference_contract,
@@ -305,14 +306,10 @@ def qualify(root: Path, spec_path: Path) -> dict[str, Any]:
 
     reference_manifest = manifest.get("reference_contract")
     require(isinstance(reference_manifest, dict), "reference contract manifest missing")
-    for key, path in spec.raw["reference_contract"].items():
-        retained = reference_manifest.get(key)
-        require(isinstance(retained, dict), f"reference contract {key} missing")
-        require(retained.get("path") == path, f"reference contract {key} path drift")
-        require(
-            retained.get("sha256") == sha256(ROOT / path),
-            f"reference contract {key} SHA drift",
-        )
+    require(
+        reference_manifest == reference_contract_manifest(spec, ROOT),
+        "reference contract manifest drift",
+    )
 
     corpus_path = ROOT / spec.corpus
     cases = load_epd(corpus_path)

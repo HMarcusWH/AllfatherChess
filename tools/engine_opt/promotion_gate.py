@@ -48,8 +48,32 @@ def require(ok: bool, message: str) -> None:
 
 
 def _git(repo_root: Path, *args: str, text: bool = True) -> str | bytes:
-    result = subprocess.check_output(["git", "-C", str(repo_root), *args], text=text)
-    return result.strip() if text else result
+    """Require accessible Git objects; never guess missing shallow-history identity."""
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(repo_root), *args],
+            check=True, capture_output=True, text=text,
+        )
+    except (OSError, subprocess.CalledProcessError) as exc:
+        detail = getattr(exc, "stderr", None) or str(exc)
+        if isinstance(detail, bytes):
+            detail = detail.decode("utf-8", "replace")
+        raise PromotionGateError(
+            f"required Git history/object unavailable ({' '.join(args)}): {str(detail).strip()}"
+        ) from exc
+    return result.stdout.strip() if text else result.stdout
+
+
+def verify_promotion_git_history(repo_root: Path, base_sha: str) -> dict[str, str]:
+    """Resolve exact HEAD, its immediate parent and the PR base before checks."""
+    require(isinstance(base_sha, str) and len(base_sha) == 40
+            and all(c in "0123456789abcdef" for c in base_sha.lower()),
+            "PR base SHA missing or malformed")
+    head = str(_git(repo_root, "rev-parse", "--verify", "HEAD^{commit}"))
+    parent = str(_git(repo_root, "rev-parse", "--verify", "HEAD^"))
+    base = str(_git(repo_root, "rev-parse", "--verify", f"{base_sha}^{{commit}}"))
+    require(base == base_sha.lower(), "PR base commit resolution drift")
+    return {"head_sha": head, "parent_sha": parent, "base_sha": base}
 
 
 def _base_json(repo_root: Path, base_sha: str, path: str) -> dict[str, Any]:
@@ -84,9 +108,9 @@ def _assert_b4_runtime(doc: dict[str, Any], label: str) -> None:
 
 
 def compare_promotion_surface(repo_root: Path, base_sha: str) -> dict[str, Any]:
-    require(isinstance(base_sha, str) and len(base_sha) == 40, "PR base SHA missing")
-    head = str(_git(repo_root, "rev-parse", "HEAD"))
-    parent = str(_git(repo_root, "rev-parse", "HEAD^"))
+    identities = verify_promotion_git_history(repo_root, base_sha)
+    head = identities["head_sha"]
+    parent = identities["parent_sha"]
 
     base_selection = _base_json(repo_root, base_sha, "qualification/engine-opt-v2-selection.json")
     current_selection = _load(repo_root / "qualification/engine-opt-v2-selection.json")

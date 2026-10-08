@@ -475,11 +475,21 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           ref: ${{ env.ALLFATHER_SOURCE_SHA }}
+          fetch-depth: 2
       - name: Verify exact source checkout
         run: test "$(git rev-parse HEAD)" = "$ALLFATHER_SOURCE_SHA"
       - name: Fetch PR base for canonical surface guard
         if: ${{ env.ALLFATHER_BASE_SHA != '' }}
         run: git fetch --no-tags --depth=1 origin "$ALLFATHER_BASE_SHA"
+      - name: Observe promotion ancestry; gate seals any missing-object failure
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          git rev-parse --verify 'HEAD^{commit}'
+          git rev-parse --verify 'HEAD^'
+          if [ -n "$ALLFATHER_BASE_SHA" ]; then
+            test "$(git rev-parse --verify "$ALLFATHER_BASE_SHA^{commit}")" = "$ALLFATHER_BASE_SHA"
+          fi
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           pattern: engine-opt-v2-*

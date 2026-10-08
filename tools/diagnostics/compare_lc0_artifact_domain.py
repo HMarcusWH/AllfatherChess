@@ -629,6 +629,73 @@ def command_prove_surface(args: argparse.Namespace) -> int:
     return 0 if proof["equivalent"] else 1
 
 
+def write_execution_error_report(
+    output: Path,
+    matrices: dict[str, dict[str, Any]],
+    matrix_paths: dict[str, Path],
+    binary_hashes: dict[str, str],
+    weights_hash: str,
+    *,
+    expected_a: str,
+    expected_b: str,
+    proof_sha: str,
+) -> bool:
+    """Preserve valid sealed matrix execution errors without pretending equivalence."""
+    errors_by_matrix: dict[str, list[dict[str, Any]]] = {}
+    for key, matrix in matrices.items():
+        issues = matrix.get("errors")
+        require(isinstance(issues, list), f"matrix {key}: errors must be a list")
+        if issues:
+            require(all(isinstance(issue, dict) for issue in issues),
+                    f"matrix {key}: error record is malformed")
+            errors_by_matrix[key] = issues
+    if not errors_by_matrix:
+        return False
+
+    identities: dict[str, Any] = {}
+    for key, matrix in matrices.items():
+        expected_source = expected_a if key == "a" else expected_b
+        require(matrix.get("schema_version") == 1
+                and matrix.get("kind") == "lc0-cpu-runtime-matrix",
+                f"matrix {key}: schema drift on negative path")
+        require((matrix.get("source") or {}).get("commit") == expected_source,
+                f"matrix {key}: source identity drift on negative path")
+        require((matrix.get("binary") or {}).get("sha256") == binary_hashes[key],
+                f"matrix {key}: binary identity drift on negative path")
+        require((matrix.get("weights") or {}).get("sha256") == weights_hash,
+                f"matrix {key}: network identity drift on negative path")
+        require(matrix.get("nodes") == 16
+                and float(matrix.get("deadline_ms")) == 3500.0,
+                f"matrix {key}: frozen workload drift on negative path")
+        identities[key] = {
+            "source_commit": expected_source,
+            "binary_sha256": binary_hashes[key],
+            "matrix_file_sha256": sha256_file(matrix_paths[key]),
+            "matrix_content_sha256": matrix["content_sha256"],
+            "matrix_rows_recorded": len(matrix.get("rows") or []),
+            "errors": matrix.get("errors"),
+        }
+
+    write_sealed_json(output, {
+        "schema_version": 1,
+        "kind": "lc0-artifact-domain-negative-diagnostic",
+        "diagnostic_complete": False,
+        "passed": False,
+        "qualification_disposition": "RETAINED_NEGATIVE_EXECUTION_EVIDENCE",
+        "reason": "one or more historical LC0 matrices contain execution errors",
+        "source_equivalence_proof_sha256": proof_sha,
+        "network_sha256": weights_hash,
+        "matrices": identities,
+        "error_matrices": sorted(errors_by_matrix),
+        "claim_boundary": {
+            "diagnostic_only": True, "profile_promotion": False,
+            "strength": False, "elo": False, "equal_compute": False,
+            "generic_host_portability": False,
+        },
+    })
+    return True
+
+
 def command_compare(args: argparse.Namespace) -> int:
     proof = load_sealed_json(args.surface_proof, label="surface proof")
     validate_surface_proof(
@@ -648,6 +715,16 @@ def command_compare(args: argparse.Namespace) -> int:
     binaries = {"a": args.binary_a, "b": args.binary_b, "c": args.binary_c}
     binary_hashes = {label: sha256_file(path) for label, path in binaries.items()}
     weights_hash = sha256_file(args.weights)
+
+    if write_execution_error_report(
+        args.output, matrices,
+        {"a": args.matrix_a, "b": args.matrix_b, "c": args.matrix_c},
+        binary_hashes, weights_hash,
+        expected_a=args.expected_a, expected_b=args.expected_b,
+        proof_sha=proof["content_sha256"],
+    ):
+        print("diagnostic evidence error: matrix contains execution errors", file=sys.stderr)
+        return 2
 
     validated = {
         "a": validate_matrix_document(

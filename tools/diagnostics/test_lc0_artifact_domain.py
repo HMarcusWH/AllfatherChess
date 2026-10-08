@@ -449,5 +449,68 @@ class ComparatorTests(unittest.TestCase):
         )
 
 
+
+class NegativeDiagnosticReportTests(unittest.TestCase):
+    def test_historical_missing_bestmove_is_sealed_and_remains_negative(self):
+        from tools.diagnostics.compare_lc0_artifact_domain import (
+            write_execution_error_report, sha256_file,
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            inputs = {
+                "a": matrix(source=EXPECTED_A, binary_hash="a" * 64),
+                "b": matrix(source=EXPECTED_B, binary_hash="b" * 64),
+                "c": matrix(source=EXPECTED_B, binary_hash="c" * 64),
+            }
+            failed = {
+                "profile": PROFILES[0], "case_id": CASES[-1], "repeat_index": 0,
+                "error": "UCI response wait expired without bestmove",
+            }
+            inputs["c"]["errors"] = [failed]
+            paths = {}
+            for name, doc in inputs.items():
+                path = root / f"matrix-{name}.json"
+                write_sealed_json(path, doc)
+                paths[name] = path
+                inputs[name] = load_sealed_json(path, label=name)
+            output = root / "negative.json"
+            changed = write_execution_error_report(
+                output, inputs, paths,
+                {"a": "a" * 64, "b": "b" * 64, "c": "c" * 64},
+                inputs["a"]["weights"]["sha256"],
+                expected_a=EXPECTED_A, expected_b=EXPECTED_B,
+                proof_sha="d" * 64,
+            )
+            self.assertTrue(changed)
+            report = load_sealed_json(output, label="negative")
+            self.assertFalse(report["passed"])
+            self.assertFalse(report["diagnostic_complete"])
+            self.assertFalse(report["claim_boundary"]["profile_promotion"])
+            self.assertEqual(report["matrices"]["c"]["errors"], [failed])
+            self.assertEqual(report["matrices"]["c"]["matrix_file_sha256"],
+                             sha256_file(paths["c"]))
+            self.assertEqual(report["error_matrices"], ["c"])
+
+    def test_clean_matrices_do_not_produce_negative_report(self):
+        from tools.diagnostics.compare_lc0_artifact_domain import write_execution_error_report
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            inputs = {
+                "a": matrix(source=EXPECTED_A, binary_hash="a" * 64),
+                "b": matrix(source=EXPECTED_B, binary_hash="b" * 64),
+                "c": matrix(source=EXPECTED_B, binary_hash="c" * 64),
+            }
+            paths = {name: root / f"{name}.json" for name in inputs}
+            output = root / "negative.json"
+            self.assertFalse(write_execution_error_report(
+                output, inputs, paths,
+                {"a": "a" * 64, "b": "b" * 64, "c": "c" * 64},
+                "f" * 64,
+                expected_a=EXPECTED_A, expected_b=EXPECTED_B,
+                proof_sha="d" * 64,
+            ))
+            self.assertFalse(output.exists())
+
+
 if __name__ == "__main__":
     unittest.main()

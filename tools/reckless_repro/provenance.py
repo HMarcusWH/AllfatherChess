@@ -103,10 +103,49 @@ def elf_text(path: Path) -> dict[str, Any]:
         assert_identity(path, original, "during disposable-copy objcopy")
 
 
+def first_pass_mutator_probe(path: Path) -> dict[str, Any]:
+    """Attribute possible first-pass ELF rewriting on a throwaway fresh copy only."""
+    original = binary_identity(path)
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            probe = Path(tmp) / "fresh-probe.elf"
+            section = Path(tmp) / "text.bin"
+            shutil.copy2(path, probe)
+            before = binary_identity(probe)
+            operations = {}
+            for name, command in (
+                ("objcopy", ["objcopy", "--dump-section", f".text={section}", str(probe)]),
+                ("readelf", ["readelf", "-n", str(probe)]),
+            ):
+                try:
+                    result = subprocess.run(
+                        command, capture_output=True, text=True, timeout=20, check=False,
+                    )
+                    status = {"returncode": result.returncode,
+                              "stderr": result.stderr.strip()[:500]}
+                except (OSError, subprocess.TimeoutExpired) as exc:
+                    status = {"error": f"{type(exc).__name__}: {exc}"}
+                after = binary_identity(probe)
+                operations[name] = {
+                    **status, "before": before, "after": after,
+                    "mutated_probe": before != after,
+                }
+                before = after
+            return {"copy_only": True, "operations": operations,
+                    "first_mutator": next(
+                        (name for name in ("objcopy", "readelf")
+                         if operations[name]["mutated_probe"]), None,
+                    )}
+    finally:
+        assert_identity(path, original, "during first-pass disposable attribution probe")
+
+
 def binaries(paths: dict[str, Path]) -> dict[str, Any]:
     result = {}
     for label, file in sorted(paths.items()):
         original = binary_identity(file)
+        probe = first_pass_mutator_probe(file)
+        assert_identity(file, original, "after first-pass probe")
         text = elf_text(file)
         assert_identity(file, original, "after elf_text")
         notes = version(["readelf", "-n", str(file)])
@@ -116,6 +155,7 @@ def binaries(paths: dict[str, Path]) -> dict[str, Any]:
             **original,
             "elf_text": text,
             "elf_notes": notes,
+            "first_pass_mutator_probe": probe,
             "inspection_preserved_original": True,
         }
     return result

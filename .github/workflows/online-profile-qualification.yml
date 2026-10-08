@@ -40,6 +40,8 @@ on:
       - engines/**
       - vendor.lock.json
       - Makefile
+      - scripts/ci-install-apt-deps.sh
+      - tests/ci/test_apt_installer.py
       - .github/workflows/online-profile-qualification.yml
   pull_request:
     paths:
@@ -77,6 +79,8 @@ on:
       - engines/**
       - vendor.lock.json
       - Makefile
+      - scripts/ci-install-apt-deps.sh
+      - tests/ci/test_apt_installer.py
       - .github/workflows/online-profile-qualification.yml
 
 permissions:
@@ -160,9 +164,9 @@ jobs:
           bash -n scripts/build-online-cpu-reference.sh
 
       - name: Install real-inference build dependencies
+        timeout-minutes: 5
         run: |
-          sudo apt-get update
-          sudo apt-get install -y             meson ninja-build pkg-config libprotobuf-dev protobuf-compiler             zlib1g-dev libopenblas-dev
+          bash scripts/ci-install-apt-deps.sh meson ninja-build pkg-config libprotobuf-dev protobuf-compiler zlib1g-dev libopenblas-dev
 
       - name: Cache frozen engine networks
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4

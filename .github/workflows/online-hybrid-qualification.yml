@@ -36,6 +36,8 @@ on:
       - engines/**
       - vendor.lock.json
       - Makefile
+      - scripts/ci-install-apt-deps.sh
+      - tests/ci/test_apt_installer.py
       - .github/workflows/online-hybrid-qualification.yml
   push:
     branches: [main]
@@ -72,6 +74,8 @@ on:
       - engines/**
       - vendor.lock.json
       - Makefile
+      - scripts/ci-install-apt-deps.sh
+      - tests/ci/test_apt_installer.py
       - .github/workflows/online-hybrid-qualification.yml
 permissions:
   contents: read
@@ -146,9 +150,9 @@ jobs:
           python3 -m json.tool qualification/replay-history-sources.json >/dev/null
           python3 scripts/validate-online-hybrid-resource-calibration.py
       - name: Install real-inference dependencies
+        timeout-minutes: 5
         run: |
-          sudo apt-get update
-          sudo apt-get install -y meson ninja-build pkg-config libprotobuf-dev protobuf-compiler zlib1g-dev libopenblas-dev
+          bash scripts/ci-install-apt-deps.sh meson ninja-build pkg-config libprotobuf-dev protobuf-compiler zlib1g-dev libopenblas-dev
       - name: Build frozen ONLINE-2 portable bundle
         env:
           JOBS: "2"

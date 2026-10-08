@@ -28,6 +28,8 @@ on:
       - tests/telemetry/**
       - engines/lc0/**
       - vendor.lock.json
+      - scripts/ci-install-apt-deps.sh
+      - tests/ci/test_apt_installer.py
       - .github/workflows/lc0-strength-qualification.yml
   pull_request:
     paths:
@@ -53,6 +55,8 @@ on:
       - tests/telemetry/**
       - engines/lc0/**
       - vendor.lock.json
+      - scripts/ci-install-apt-deps.sh
+      - tests/ci/test_apt_installer.py
       - .github/workflows/lc0-strength-qualification.yml
 
 permissions:
@@ -131,11 +135,9 @@ jobs:
           python3 -m json.tool config/allfather.strength.validation.json >/dev/null
 
       - name: Install LC0 real-inference dependencies
+        timeout-minutes: 5
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            meson ninja-build pkg-config libprotobuf-dev protobuf-compiler \
-            zlib1g-dev libopenblas-dev
+          bash scripts/ci-install-apt-deps.sh meson ninja-build pkg-config libprotobuf-dev protobuf-compiler zlib1g-dev libopenblas-dev
 
       - name: Toolchain and hardware probe
         run: |

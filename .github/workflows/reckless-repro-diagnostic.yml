@@ -116,6 +116,15 @@ jobs:
           cp build/reckless-repro/target-b/x86_64-unknown-linux-gnu/release/reckless evidence/bin/derived-b
           chmod +x evidence/bin/*
           sha256sum evidence/bin/* | tee evidence/build/binaries.sha256
+      - name: Verify immediately-post-build binaries before expensive experiment
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          from tools.reckless_repro.provenance import preflight_binary_hashes
+          paths = {name: Path("evidence/bin") / name
+                   for name in ("derived-a", "derived-b", "pristine")}
+          preflight_binary_hashes(paths, Path("evidence/build/binaries.sha256"))
+          PY
       - name: Run complete non-promoting ABBA/BAAB experiment on same CPU
         timeout-minutes: 45
         run: |
@@ -123,6 +132,7 @@ jobs:
             --derived-a evidence/bin/derived-a \
             --derived-b evidence/bin/derived-b \
             --pristine evidence/bin/pristine \
+            --build-hashes evidence/build/binaries.sha256 \
             --build-log-derived-a evidence/build/derived-a.log \
             --build-log-derived-b evidence/build/derived-b.log \
             --build-log-pristine evidence/build/pristine.log \

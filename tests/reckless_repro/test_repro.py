@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -19,19 +20,27 @@ from tools.reckless_repro.analysis import (
 
 
 from tools.reckless_repro.provenance import (
-    BinaryMutationError, binary_identity, elf_text, binaries, preflight_binary_hashes,
+    BinaryMutationError, binary_identity, elf_text, binaries, first_pass_mutator_probe,
+    preflight_binary_hashes,
 )
 
 
 class RealElfIntegrityTests(unittest.TestCase):
     def test_disposable_objcopy_and_readelf_leave_real_elf_unchanged(self):
-        source = shutil.which("true")
-        if source is None or shutil.which("objcopy") is None or shutil.which("readelf") is None:
-            self.skipTest("system ELF and binutils required")
+        compiler = shutil.which("cc")
+        if compiler is None or shutil.which("objcopy") is None or shutil.which("readelf") is None:
+            self.skipTest("C compiler and binutils required")
         with tempfile.TemporaryDirectory() as tmp:
-            executable = Path(tmp) / "fixture.elf"
-            shutil.copy2(source, executable)
+            executable = Path(tmp) / "freshly-built.elf"
+            subprocess.run([compiler, "-x", "c", "-o", str(executable), "-"],
+                           input="int main(void) { return 0; }\n",
+                           text=True, check=True, capture_output=True)
             before = binary_identity(executable)
+            attribution = first_pass_mutator_probe(executable)
+            self.assertTrue(attribution["copy_only"])
+            self.assertEqual(set(attribution["operations"]), {"objcopy", "readelf"})
+            self.assertIn(attribution["first_mutator"], (None, "objcopy", "readelf"))
+            self.assertEqual(binary_identity(executable), before)
             section = elf_text(executable)
             self.assertTrue(section["available"], section)
             self.assertEqual(before, binary_identity(executable))

@@ -1,0 +1,158 @@
+name: Reckless same-worker reproducibility diagnostic
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'tools/reckless_repro/**'
+      - 'tests/reckless_repro/**'
+      - 'scripts/reckless-repro.py'
+      - '.github/workflows/reckless-repro-diagnostic.yml'
+
+permissions:
+  contents: read
+
+env:
+  REPRO_HEAD_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+
+concurrency:
+  group: reckless-repro-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  contracts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.REPRO_HEAD_SHA }}
+      - name: Verify exact diagnostic HEAD
+        run: test "$(git rev-parse HEAD)" = "$REPRO_HEAD_SHA"
+      - name: Diagnostic contract tests
+        run: |
+          python3 -m py_compile scripts/reckless-repro.py tools/reckless_repro/*.py tests/reckless_repro/test_repro.py
+          python3 tests/reckless_repro/test_repro.py
+
+  same-worker-experiment:
+    needs: contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.REPRO_HEAD_SHA }}
+      - name: Verify exact HEAD and pinned derived engine tree
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$REPRO_HEAD_SHA"
+          python3 - <<'PY'
+          import json, subprocess
+          policy=json.load(open("qualification/engine-derived-lock.json",encoding="utf-8"))
+          actual=subprocess.check_output(["git","rev-parse","HEAD:engines/reckless"],text=True).strip()
+          assert actual==policy["engines"]["reckless"]["derived_tree"], "derived Reckless tree not locked"
+          PY
+      - name: Install bounded build dependencies
+        timeout-minutes: 5
+        run: bash scripts/ci-install-apt-deps.sh build-essential pkg-config clang binutils
+      - name: Capture bound J2 hardware report
+        run: |
+          set -euo pipefail
+          mkdir -p evidence/build evidence/bin
+          echo "ALLFATHER_RUNNER_ENVIRONMENT=${{ runner.environment }}" >> "$GITHUB_ENV"
+          python3 scripts/lc0-hardware-probe.py > evidence/host.json
+          python3 -m json.tool evidence/host.json >/dev/null
+          rustc --version --verbose | tee evidence/build/rustc-version.txt
+          cargo --version | tee evidence/build/cargo-version.txt
+      - name: Download locked Reckless NNUE
+        timeout-minutes: 10
+        run: |
+          set -euo pipefail
+          NET="$(bash scripts/fetch-reckless-network.sh)"
+          test -f "$NET"
+          echo "REPRO_NET=$(realpath "$NET")" >> "$GITHUB_ENV"
+          python3 - "$NET" <<'PY'
+          import hashlib,json,sys
+          from pathlib import Path
+          path=Path(sys.argv[1])
+          lock=json.loads(Path("vendor.lock.json").read_text())
+          expected=lock["engines"]["reckless"]["artifacts"]["default_nnue"]["sha256"]
+          assert hashlib.sha256(path.read_bytes()).hexdigest()==expected,"locked Reckless NNUE mismatch"
+          PY
+      - name: Checkout pinned pristine Reckless
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: HMarcusWH/Reckless
+          ref: 31d9cd6fd2bea6d9f72eeb35e0bac70daa295fb1
+          path: build/reckless-repro/pristine-source
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Verify pinned pristine commit and source tree
+        run: |
+          set -euo pipefail
+          test "$(git -C build/reckless-repro/pristine-source rev-parse HEAD)" = "31d9cd6fd2bea6d9f72eeb35e0bac70daa295fb1"
+          test "$(git -C build/reckless-repro/pristine-source rev-parse HEAD^{tree})" = "88763d8e81ea45b938403f7f4feee990ad244c2d"
+      - name: Cleanly compile pristine control and derived A and B serially
+        timeout-minutes: 35
+        run: |
+          set -euo pipefail
+          export RUST_BACKTRACE=1
+          ROOT_DIR="$PWD"
+          rm -rf build/reckless-repro/target-pristine build/reckless-repro/target-a build/reckless-repro/target-b
+          (
+            cd build/reckless-repro/pristine-source
+            EVALFILE="$REPRO_NET" CARGO_TARGET_DIR="$ROOT_DIR/build/reckless-repro/target-pristine" CARGO_ENCODED_RUSTFLAGS='-Ctarget-cpu=x86-64' cargo build --verbose --locked --release --no-default-features --target x86_64-unknown-linux-gnu
+          ) 2>&1 | tee evidence/build/pristine.log
+          cp build/reckless-repro/target-pristine/x86_64-unknown-linux-gnu/release/reckless evidence/bin/pristine
+          (
+            cd engines/reckless
+            EVALFILE="$REPRO_NET" CARGO_TARGET_DIR="$ROOT_DIR/build/reckless-repro/target-a" CARGO_ENCODED_RUSTFLAGS='-Ctarget-cpu=x86-64' cargo build --verbose --locked --release --no-default-features --target x86_64-unknown-linux-gnu
+          ) 2>&1 | tee evidence/build/derived-a.log
+          cp build/reckless-repro/target-a/x86_64-unknown-linux-gnu/release/reckless evidence/bin/derived-a
+          (
+            cd engines/reckless
+            EVALFILE="$REPRO_NET" CARGO_TARGET_DIR="$ROOT_DIR/build/reckless-repro/target-b" CARGO_ENCODED_RUSTFLAGS='-Ctarget-cpu=x86-64' cargo build --verbose --locked --release --no-default-features --target x86_64-unknown-linux-gnu
+          ) 2>&1 | tee evidence/build/derived-b.log
+          cp build/reckless-repro/target-b/x86_64-unknown-linux-gnu/release/reckless evidence/bin/derived-b
+          chmod +x evidence/bin/*
+          sha256sum evidence/bin/* | tee evidence/build/binaries.sha256
+      - name: Run complete non-promoting ABBA/BAAB experiment on same CPU
+        timeout-minutes: 45
+        run: |
+          python3 scripts/reckless-repro.py \
+            --derived-a evidence/bin/derived-a \
+            --derived-b evidence/bin/derived-b \
+            --pristine evidence/bin/pristine \
+            --build-log-derived-a evidence/build/derived-a.log \
+            --build-log-derived-b evidence/build/derived-b.log \
+            --build-log-pristine evidence/build/pristine.log \
+            --model "$REPRO_NET" \
+            --host-report evidence/host.json \
+            --expected-head "$REPRO_HEAD_SHA" \
+            --output evidence/reckless-repro-report.json
+      - name: Summarize diagnostic without promotion claims
+        if: always()
+        run: |
+          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          from pathlib import Path
+          p=Path("evidence/reckless-repro-report.json")
+          print("## Reckless reproducibility diagnostic (NOT promotion evidence)")
+          if not p.is_file():
+              print("Diagnostic report absent; experimental evidence incomplete")
+          else:
+              r=json.loads(p.read_text())
+              print(f"Source: `{r.get('source_commit')}`")
+              print(f"Complete: `{r.get('diagnostic_complete')}`")
+              print(f"Disposition: `{r.get('qualification_disposition')}`")
+              for name,data in (r.get("analysis") or {}).get("comparisons",{}).items():
+                  print(f"- {name}: {data.get('per_block_derived_over_pristine')}")
+              print(f"Errors: {len(r.get('errors',[]))}")
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: reckless-repro-exact-head-diagnostic
+          path: evidence
+          if-no-files-found: error
+          retention-days: 14

@@ -5,6 +5,9 @@ import hashlib
 import json
 import os
 import platform
+import re
+import shutil
+import stat
 import subprocess
 import tempfile
 from pathlib import Path
@@ -17,6 +20,52 @@ def sha256(path: Path) -> str:
         for piece in iter(lambda: fh.read(1024 * 1024), b""):
             h.update(piece)
     return h.hexdigest()
+
+
+
+class BinaryMutationError(RuntimeError):
+    """An original executable changed after its immediately-post-build hash."""
+
+
+def binary_identity(path: Path) -> dict[str, Any]:
+    if not path.is_file():
+        raise BinaryMutationError(f"missing executable: {path}")
+    info = path.stat()
+    mode = stat.S_IMODE(info.st_mode)
+    if not (mode & (stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)):
+        raise BinaryMutationError(f"not executable: {path}")
+    return {"sha256": sha256(path), "size_bytes": info.st_size, "mode": mode}
+
+
+def assert_identity(path: Path, original: dict[str, Any], operation: str) -> None:
+    after = binary_identity(path)
+    if after != original:
+        raise BinaryMutationError(
+            f"binary mutated {operation}: {path}; before={original}, after={after}"
+        )
+
+
+def preflight_binary_hashes(paths: dict[str, Path], manifest: Path) -> dict[str, str]:
+    """Verify exact executable bytes against immediately-post-build sha256sum."""
+    if not manifest.is_file():
+        raise BinaryMutationError(f"missing build hash manifest: {manifest}")
+    resolved = {str(p.resolve()): label for label, p in paths.items()}
+    recorded: dict[str, str] = {}
+    for line in manifest.read_text(encoding="utf-8").splitlines():
+        match = re.fullmatch(r"([0-9a-f]{64}) [ *](.+)", line)
+        if match is None:
+            raise BinaryMutationError("malformed build hash manifest")
+        digest, name = match.groups()
+        full = str(Path(name).resolve())
+        if full not in resolved or full in recorded:
+            raise BinaryMutationError(f"unexpected or duplicate build hash path: {name}")
+        recorded[full] = digest
+    if set(recorded) != set(resolved):
+        raise BinaryMutationError("build hash manifest must cover all three executables")
+    for full, label in resolved.items():
+        if binary_identity(paths[label])["sha256"] != recorded[full]:
+            raise BinaryMutationError(f"built executable mutated before run: {label}")
+    return {label: recorded[full] for full, label in resolved.items()}
 
 
 def version(command: list[str]) -> dict[str, Any]:
@@ -33,30 +82,41 @@ def version(command: list[str]) -> dict[str, Any]:
 
 
 def elf_text(path: Path) -> dict[str, Any]:
-    with tempfile.TemporaryDirectory() as tmp:
-        section = Path(tmp) / "text.bin"
-        try:
-            result = subprocess.run(
-                ["objcopy", "--dump-section", f".text={section}", str(path)],
-                capture_output=True, text=True, timeout=20, check=False,
-            )
-            if result.returncode != 0 or not section.is_file():
-                return {"available": False, "reason": result.stderr.strip()[:500]}
-            return {"available": True, "sha256": sha256(section),
-                    "size_bytes": section.stat().st_size}
-        except (OSError, subprocess.TimeoutExpired) as exc:
-            return {"available": False, "reason": str(exc)[:500]}
+    original = binary_identity(path)
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            copy = Path(tmp) / "inspection-elf"
+            section = Path(tmp) / "text.bin"
+            shutil.copy2(path, copy)
+            try:
+                result = subprocess.run(
+                    ["objcopy", "--dump-section", f".text={section}", str(copy)],
+                    capture_output=True, text=True, timeout=20, check=False,
+                )
+                if result.returncode != 0 or not section.is_file():
+                    return {"available": False, "reason": result.stderr.strip()[:500]}
+                return {"available": True, "sha256": sha256(section),
+                        "size_bytes": section.stat().st_size}
+            except (OSError, subprocess.TimeoutExpired) as exc:
+                return {"available": False, "reason": str(exc)[:500]}
+    finally:
+        assert_identity(path, original, "during disposable-copy objcopy")
 
 
 def binaries(paths: dict[str, Path]) -> dict[str, Any]:
     result = {}
     for label, file in sorted(paths.items()):
-        if not file.is_file():
-            raise ValueError(f"missing {label} binary: {file}")
+        original = binary_identity(file)
+        text = elf_text(file)
+        assert_identity(file, original, "after elf_text")
+        notes = version(["readelf", "-n", str(file)])
+        assert_identity(file, original, "after readelf")
         result[label] = {
-            "path": str(file.resolve()), "sha256": sha256(file),
-            "size_bytes": file.stat().st_size, "elf_text": elf_text(file),
-            "elf_notes": version(["readelf", "-n", str(file)]),
+            "path": str(file.resolve()),
+            **original,
+            "elf_text": text,
+            "elf_notes": notes,
+            "inspection_preserved_original": True,
         }
     return result
 

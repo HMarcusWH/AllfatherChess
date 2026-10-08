@@ -16,7 +16,10 @@ from tools.engine_opt.corpus import load_epd
 from tools.engine_opt.runner import run_case
 from tools.engine_opt.report import source_identity, write_report
 from tools.reckless_repro.analysis import DiagnosticError, NODES, PROTOCOL_ID, REPEATS, analyze, schedule
-from tools.reckless_repro.provenance import provenance, sha256
+from tools.reckless_repro.provenance import (
+    BinaryMutationError, assert_identity, binary_identity,
+    preflight_binary_hashes, provenance, sha256,
+)
 
 
 def main() -> int:
@@ -24,6 +27,7 @@ def main() -> int:
     for label in ("derived-a", "derived-b", "pristine"):
         parser.add_argument("--" + label, type=Path, required=True)
         parser.add_argument("--build-log-" + label, type=Path, required=True)
+    parser.add_argument("--build-hashes", type=Path, required=True)
     parser.add_argument("--model", type=Path, required=True)
     parser.add_argument("--host-report", type=Path, required=True)
     parser.add_argument("--expected-head", required=True)
@@ -66,7 +70,9 @@ def main() -> int:
         report["derived_reckless_tree"] = actual_tree
         report["pristine_reckless_commit"] = lock["engines"]["reckless"]["commit"]
         report["pristine_reckless_tree"] = lock["engines"]["reckless"]["tree"]
+        report["immediate_build_hashes"] = preflight_binary_hashes(paths, args.build_hashes)
         report["provenance"] = provenance(paths, args.model, logs, args.host_report)
+        preflight_binary_hashes(paths, args.build_hashes)
         derived_a = report["provenance"]["binaries"]["derived-a"]
         derived_b = report["provenance"]["binaries"]["derived-b"]
         a_text, b_text = derived_a["elf_text"], derived_b["elf_text"]
@@ -104,16 +110,23 @@ def main() -> int:
                           "pairs": [["derived-a", "pristine"], ["derived-b", "pristine"]]}
         options = {"Threads": 1, "Hash": 16, "MultiPV": 1,
                    "Minimal": False, "UCI_Chess960": False}
+        original_identities = {label: binary_identity(path) for label, path in paths.items()}
         for slot in slots:
+            owner = slot["binary"]
+            assert_identity(paths[owner], original_identities[owner], "before search")
             try:
                 row = run_case(binary=paths[slot["binary"]], cwd=ROOT,
                                family="reckless", case=case_map[slot["case_id"]],
                                options=dict(options), nodes=NODES, deadline_ms=10000.0)
-                if row["binary_sha256"] != report["provenance"]["binaries"][slot["binary"]]["sha256"]:
-                    raise DiagnosticError("binary changed during diagnostic run")
+                assert_identity(paths[owner], original_identities[owner], "after search")
+                if row["binary_sha256"] != original_identities[owner]["sha256"]:
+                    raise BinaryMutationError("binary changed during diagnostic run")
                 row.update(slot)
                 report["rows"].append(row)
+            except BinaryMutationError:
+                raise  # never continue with 320 identical executable-integrity failures
             except Exception as exc:
+                assert_identity(paths[owner], original_identities[owner], "after failed search")
                 report["errors"].append({**slot, "error": f"{type(exc).__name__}: {exc}"})
                 # No selective retries or cherry-picked partial pair.
         if report["errors"]:

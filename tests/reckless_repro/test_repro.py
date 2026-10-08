@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import copy
+import hashlib
+import shutil
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -13,6 +16,51 @@ sys.path.insert(0, str(ROOT))
 from tools.reckless_repro.analysis import (
     REPEATS, NODES, PROTOCOL_ID, DiagnosticError, analyze, schedule,
 )
+
+
+from tools.reckless_repro.provenance import (
+    BinaryMutationError, binary_identity, elf_text, binaries, preflight_binary_hashes,
+)
+
+
+class RealElfIntegrityTests(unittest.TestCase):
+    def test_disposable_objcopy_and_readelf_leave_real_elf_unchanged(self):
+        source = shutil.which("true")
+        if source is None or shutil.which("objcopy") is None or shutil.which("readelf") is None:
+            self.skipTest("system ELF and binutils required")
+        with tempfile.TemporaryDirectory() as tmp:
+            executable = Path(tmp) / "fixture.elf"
+            shutil.copy2(source, executable)
+            before = binary_identity(executable)
+            section = elf_text(executable)
+            self.assertTrue(section["available"], section)
+            self.assertEqual(before, binary_identity(executable))
+            info = binaries({"fixture": executable})["fixture"]
+            self.assertTrue(info["inspection_preserved_original"])
+            self.assertEqual(before, binary_identity(executable))
+            self.assertEqual(info["sha256"], before["sha256"])
+            self.assertEqual(info["size_bytes"], before["size_bytes"])
+            self.assertEqual(info["mode"], before["mode"])
+
+    def test_immediate_post_build_hash_manifest_rejects_mutated_elf(self):
+        source = shutil.which("true")
+        if source is None:
+            self.skipTest("system ELF required")
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = {}
+            for label in ("derived-a", "derived-b", "pristine"):
+                executable = Path(tmp) / label
+                shutil.copy2(source, executable)
+                paths[label] = executable
+            manifest = Path(tmp) / "binaries.sha256"
+            manifest.write_text("".join(
+                f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path}\n"
+                for path in paths.values()
+            ), encoding="utf-8")
+            self.assertEqual(len(preflight_binary_hashes(paths, manifest)), 3)
+            paths["pristine"].write_bytes(paths["pristine"].read_bytes() + b"x")
+            with self.assertRaises(BinaryMutationError):
+                preflight_binary_hashes(paths, manifest)
 
 
 CASES = [f"case-{x}" for x in range(8)]

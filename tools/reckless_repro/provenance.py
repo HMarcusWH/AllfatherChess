@@ -111,7 +111,11 @@ def first_pass_mutator_probe(path: Path) -> dict[str, Any]:
             probe = Path(tmp) / "fresh-probe.elf"
             section = Path(tmp) / "text.bin"
             shutil.copy2(path, probe)
-            before = binary_identity(probe)
+            def probe_identity() -> dict[str, Any]:
+                info = probe.stat()
+                return {"sha256": sha256(probe), "size_bytes": info.st_size,
+                        "mode": stat.S_IMODE(info.st_mode)}
+            before = probe_identity()
             operations = {}
             for name, command in (
                 ("objcopy", ["objcopy", "--dump-section", f".text={section}", str(probe)]),
@@ -125,7 +129,7 @@ def first_pass_mutator_probe(path: Path) -> dict[str, Any]:
                               "stderr": result.stderr.strip()[:500]}
                 except (OSError, subprocess.TimeoutExpired) as exc:
                     status = {"error": f"{type(exc).__name__}: {exc}"}
-                after = binary_identity(probe)
+                after = probe_identity()
                 operations[name] = {
                     **status, "before": before, "after": after,
                     "mutated_probe": before != after,

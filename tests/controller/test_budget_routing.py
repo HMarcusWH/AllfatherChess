@@ -626,7 +626,7 @@ class ReviewRegressionRoundTwoTests(unittest.TestCase):
             "qualified": True,
             "physical_cpu_ms": 1624.074,
             "provider": "linux-procfs-v1",
-            "controller": {"cpu_ms": 260.0},
+            "controller_cpu_ms": 260.0,
         }
         with mock.patch("controller.routing.time.process_time_ns", return_value=1_020_000_000):
             router.on_run_start(context)
@@ -642,7 +642,7 @@ class ReviewRegressionRoundTwoTests(unittest.TestCase):
         context.seal_resource_report = lambda: {
             "qualified": True, "physical_cpu_ms": 900.0,
             "provider": "linux-procfs-v1",
-            "controller": {"cpu_ms": 20.0},
+            "controller_cpu_ms": 20.0,
         }
         router.on_run_start(context)
         claim = _end_and_read_claim(router, context)
@@ -657,7 +657,7 @@ class ReviewRegressionRoundTwoTests(unittest.TestCase):
         context.seal_resource_report = lambda: {
             "qualified": True, "physical_cpu_ms": 900.0,
             "provider": "linux-procfs-v1",
-            "controller": {"cpu_ms": 20.0},
+            "controller_cpu_ms": 20.0,
         }
         with mock.patch("controller.routing.time.process_time_ns", return_value=1_020_000_000):
             router.on_run_start(context)

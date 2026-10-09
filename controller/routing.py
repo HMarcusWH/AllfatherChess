@@ -1418,11 +1418,9 @@ class ConservativeRouter:
                 )
             elif resource_required:
                 physical_cpu_within = False
-            controller_report = resource_summary.get("controller")
-            controller_cpu = (
-                controller_report.get("cpu_ms")
-                if isinstance(controller_report, dict) else None
-            )
+            # ResourceMeasurementRun.seal() returns a summary; resource.json
+            # keeps the independently verifiable nested controller field.
+            controller_cpu = resource_summary.get("controller_cpu_ms")
             controller_cpu_within = (
                 not resource_required or bool(
                     type(controller_cpu) in (int, float)

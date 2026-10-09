@@ -1423,11 +1423,13 @@ class ConservativeRouter:
                 controller_report.get("cpu_ms")
                 if isinstance(controller_report, dict) else None
             )
-            controller_cpu_within = bool(
-                type(controller_cpu) in (int, float)
-                and math.isfinite(float(controller_cpu))
-                and 0.0 <= float(controller_cpu)
-                <= self.envelope.controller_overhead_reserve_ms
+            controller_cpu_within = (
+                not resource_required or bool(
+                    type(controller_cpu) in (int, float)
+                    and math.isfinite(float(controller_cpu))
+                    and 0.0 <= float(controller_cpu)
+                    <= self.envelope.controller_overhead_reserve_ms
+                )
             )
             provider = resource_summary.get("provider")
             if resource_summary.get("qualified") and isinstance(provider, str):

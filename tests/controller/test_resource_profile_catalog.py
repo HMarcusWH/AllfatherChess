@@ -71,47 +71,82 @@ class ResourceProfileCatalogTests(unittest.TestCase):
         )
         self.assertIsNone(catalog.warmup("lc0/specialist-engine-opt-v2"))
 
-    def test_promoted_catalog_is_seeded_from_pr63_b4_candidate_qualification(self):
+    def test_promoted_catalog_freezes_pr64_immediate_parent_exact_host_evidence(self):
         catalog = load_resource_profile_catalog(CATALOG)
         snapshot = catalog.qualification_snapshot
+        history = load(HOST_BINDING)
+        bound = history["current_domain_bound_qualification"]
         self.assertEqual(
             snapshot["qualified_head"],
-            "56516c34719670054e12218bd3781e9725ae4f65",
+            "ad067b2a6f97d040da28a52882cd394c433e8a1d",
+        )
+        self.assertEqual(snapshot["qualification_disposition"], "QUALIFIED_EXACT_HOST_ONLY")
+        self.assertEqual(snapshot["binding_scope"], "exact_host_observation")
+        self.assertEqual(snapshot["workflow_run"], 37851015052)
+        self.assertEqual(snapshot["aggregate_artifact_id"], 11588407624)
+        self.assertEqual(
+            snapshot["merge_commit"],
+            "cae842801497161f2de37ff43b27d074ac12568a",
+            "frozen schema retains the actual PR63 mainline merge, not a fictional PR64 merge",
         )
         self.assertEqual(
-            snapshot["qualification_disposition"],
-            "QUALIFIED_EXACT_HOST_ONLY",
+            snapshot["aggregate_artifact_sha256"],
+            "94bda00f2f8d8d21de1d7e685d0f7b2b5add57acc90f96f3bd3a74450859b7ec",
         )
-        self.assertEqual(snapshot["binding_scope"], "exact_host_observation")
+        self.assertEqual(
+            snapshot["aggregate_report_sha256"],
+            "e3121d2467b55619aef6dced40d5dc0e51b17804ee5895240198e66666a12411",
+        )
+        self.assertEqual(
+            snapshot["execution_domain_digest"],
+            "f12f8a6adf956be74dec46c583e2df66b13e16ea67552c105d954dbf964c85ad",
+        )
+        self.assertEqual(snapshot["qualified_head"], bound["qualified_head"])
+        self.assertEqual(snapshot["workflow_run"], bound["aggregate_workflow_run"])
+        for field in (
+            "aggregate_artifact_id",
+            "aggregate_artifact_sha256", "aggregate_report_sha256",
+            "qualification_disposition", "execution_domain_id",
+            "execution_domain_digest", "binding_scope",
+        ):
+            self.assertEqual(snapshot[field], bound[field])
+        self.assertFalse(bound["generic_host_portability_established"])
+        self.assertEqual(catalog.digest, "5ecbe0a31c4e7a3b666b5107bf7e2798d29f6293808a6954cf88c9c9bbdf95bc")
+        scheduler_policy = load(ROOT / "qualification/work-grant-scheduler-v1.json")
+        allocator_policy = load(ROOT / "qualification/adaptive-resource-allocation-v1.json")
+        self.assertEqual(scheduler_policy["resource_catalog"]["catalog_digest"], catalog.digest)
+        self.assertEqual(
+            allocator_policy["work_scheduler_catalog"]["catalog_digest"],
+            "ed165b9ea2f0ce6043aa54b956667c7f13b177fbd4a4434ab0fc4e8dfbfaa1e3",
+        )
         self.assertFalse(catalog.selection_enabled)
         for binding in catalog.default_composition.bindings:
             profile = catalog.profile(binding.profile_id)
-            self.assertEqual(
-                profile.qualification.execution_domain_id,
-                snapshot["execution_domain_id"],
-            )
-            self.assertEqual(
-                profile.qualification.execution_domain_digest,
-                snapshot["execution_domain_digest"],
-            )
+            self.assertEqual(profile.qualification.source_commit, snapshot["qualified_head"])
+            self.assertEqual(profile.qualification.evidence_sha256, snapshot["aggregate_report_sha256"])
+            self.assertEqual(profile.qualification.execution_domain_id, snapshot["execution_domain_id"])
+            self.assertEqual(profile.qualification.execution_domain_digest, snapshot["execution_domain_digest"])
             self.assertEqual(profile.qualification.binding_scope, snapshot["binding_scope"])
             self.assertEqual(profile.work_chunk_ids, ())
+        composition = catalog.default_composition
+        self.assertEqual(composition.qualification.source_commit, snapshot["qualified_head"])
+        self.assertEqual(composition.qualification.evidence_sha256, snapshot["aggregate_report_sha256"])
+        self.assertEqual(composition.qualification.execution_domain_digest, snapshot["execution_domain_digest"])
 
+    def test_pr63_candidate_seed_is_retained_but_no_longer_active_snapshot(self):
         history = load(HOST_BINDING)
         seed = history["b4_candidate_promotion_seed"]
-        self.assertEqual(seed["qualified_head"], snapshot["qualified_head"])
-        self.assertEqual(
-            seed["aggregate_report_sha256"],
-            snapshot["aggregate_report_sha256"],
-        )
-        self.assertEqual(
-            seed["execution_domain_digest"],
-            snapshot["execution_domain_digest"],
-        )
-        self.assertFalse(seed["canonical_promotion_complete"])
+        self.assertEqual(seed["pull_request"], 63)
+        self.assertEqual(seed["qualified_head"], "56516c34719670054e12218bd3781e9725ae4f65")
+        self.assertEqual(seed["qualification_disposition"], "QUALIFIED_EXACT_HOST_ONLY")
+        self.assertTrue(seed["canonical_promotion_complete"])
         self.assertNotEqual(
             history["current_domain_bound_qualification"]["qualified_head"],
-            snapshot["qualified_head"],
+            seed["qualified_head"],
+        )
+        self.assertNotEqual(
+            load_resource_profile_catalog(CATALOG).qualification_snapshot["qualified_head"],
+            seed["qualified_head"],
         )
 
     def test_catalog_records_measured_seed_memory_without_enforcement_claim(self):

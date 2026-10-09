@@ -43,11 +43,11 @@
       "accelerator_memory_mib": 0,
       "work_chunk_ids": [],
       "qualification": {
-        "source_commit": "56516c34719670054e12218bd3781e9725ae4f65",
-        "evidence_sha256": "ba12820d8c19556dbe03dbc1ebaca4aeb7427a7b2c8d6ce3c668535a01424b3a",
-        "evidence_id": "engine-opt-v2/pr63-b4-candidate-exact-host",
-        "execution_domain_id": "exec-domain/0bf11e027cd419ae8f8a",
-        "execution_domain_digest": "0bf11e027cd419ae8f8abee52cfa52aef017b525598ca8237acc0a87ae4458ef",
+        "source_commit": "ad067b2a6f97d040da28a52882cd394c433e8a1d",
+        "evidence_sha256": "e3121d2467b55619aef6dced40d5dc0e51b17804ee5895240198e66666a12411",
+        "evidence_id": "engine-opt-v2/pr64-b4-canonical-exact-host",
+        "execution_domain_id": "exec-domain/f12f8a6adf956be74dec",
+        "execution_domain_digest": "f12f8a6adf956be74dec46c583e2df66b13e16ea67552c105d954dbf964c85ad",
         "binding_scope": "exact_host_observation"
       },
       "authority": {
@@ -105,11 +105,11 @@
       "accelerator_memory_mib": 0,
       "work_chunk_ids": [],
       "qualification": {
-        "source_commit": "56516c34719670054e12218bd3781e9725ae4f65",
-        "evidence_sha256": "ba12820d8c19556dbe03dbc1ebaca4aeb7427a7b2c8d6ce3c668535a01424b3a",
-        "evidence_id": "engine-opt-v2/pr63-b4-candidate-exact-host",
-        "execution_domain_id": "exec-domain/0bf11e027cd419ae8f8a",
-        "execution_domain_digest": "0bf11e027cd419ae8f8abee52cfa52aef017b525598ca8237acc0a87ae4458ef",
+        "source_commit": "ad067b2a6f97d040da28a52882cd394c433e8a1d",
+        "evidence_sha256": "e3121d2467b55619aef6dced40d5dc0e51b17804ee5895240198e66666a12411",
+        "evidence_id": "engine-opt-v2/pr64-b4-canonical-exact-host",
+        "execution_domain_id": "exec-domain/f12f8a6adf956be74dec",
+        "execution_domain_digest": "f12f8a6adf956be74dec46c583e2df66b13e16ea67552c105d954dbf964c85ad",
         "binding_scope": "exact_host_observation"
       },
       "authority": {
@@ -167,11 +167,11 @@
       "accelerator_memory_mib": 0,
       "work_chunk_ids": [],
       "qualification": {
-        "source_commit": "56516c34719670054e12218bd3781e9725ae4f65",
-        "evidence_sha256": "ba12820d8c19556dbe03dbc1ebaca4aeb7427a7b2c8d6ce3c668535a01424b3a",
-        "evidence_id": "engine-opt-v2/pr63-b4-candidate-exact-host",
-        "execution_domain_id": "exec-domain/0bf11e027cd419ae8f8a",
-        "execution_domain_digest": "0bf11e027cd419ae8f8abee52cfa52aef017b525598ca8237acc0a87ae4458ef",
+        "source_commit": "ad067b2a6f97d040da28a52882cd394c433e8a1d",
+        "evidence_sha256": "e3121d2467b55619aef6dced40d5dc0e51b17804ee5895240198e66666a12411",
+        "evidence_id": "engine-opt-v2/pr64-b4-canonical-exact-host",
+        "execution_domain_id": "exec-domain/f12f8a6adf956be74dec",
+        "execution_domain_digest": "f12f8a6adf956be74dec46c583e2df66b13e16ea67552c105d954dbf964c85ad",
         "binding_scope": "exact_host_observation"
       },
       "authority": {
@@ -288,11 +288,11 @@
       "accelerator_memory_mib": 0,
       "work_chunk_ids": [],
       "qualification": {
-        "source_commit": "56516c34719670054e12218bd3781e9725ae4f65",
-        "evidence_sha256": "ba12820d8c19556dbe03dbc1ebaca4aeb7427a7b2c8d6ce3c668535a01424b3a",
-        "evidence_id": "engine-opt-v2/pr63-b4-candidate-exact-host",
-        "execution_domain_id": "exec-domain/0bf11e027cd419ae8f8a",
-        "execution_domain_digest": "0bf11e027cd419ae8f8abee52cfa52aef017b525598ca8237acc0a87ae4458ef",
+        "source_commit": "ad067b2a6f97d040da28a52882cd394c433e8a1d",
+        "evidence_sha256": "e3121d2467b55619aef6dced40d5dc0e51b17804ee5895240198e66666a12411",
+        "evidence_id": "engine-opt-v2/pr64-b4-canonical-exact-host",
+        "execution_domain_id": "exec-domain/f12f8a6adf956be74dec",
+        "execution_domain_digest": "f12f8a6adf956be74dec46c583e2df66b13e16ea67552c105d954dbf964c85ad",
         "binding_scope": "exact_host_observation"
       },
       "authority": {
@@ -344,11 +344,11 @@
         }
       ],
       "qualification": {
-        "source_commit": "56516c34719670054e12218bd3781e9725ae4f65",
-        "evidence_sha256": "ba12820d8c19556dbe03dbc1ebaca4aeb7427a7b2c8d6ce3c668535a01424b3a",
-        "evidence_id": "engine-opt-v2/pr63-b4-candidate-exact-host",
-        "execution_domain_id": "exec-domain/0bf11e027cd419ae8f8a",
-        "execution_domain_digest": "0bf11e027cd419ae8f8abee52cfa52aef017b525598ca8237acc0a87ae4458ef",
+        "source_commit": "ad067b2a6f97d040da28a52882cd394c433e8a1d",
+        "evidence_sha256": "e3121d2467b55619aef6dced40d5dc0e51b17804ee5895240198e66666a12411",
+        "evidence_id": "engine-opt-v2/pr64-b4-canonical-exact-host",
+        "execution_domain_id": "exec-domain/f12f8a6adf956be74dec",
+        "execution_domain_digest": "f12f8a6adf956be74dec46c583e2df66b13e16ea67552c105d954dbf964c85ad",
         "binding_scope": "exact_host_observation"
       },
       "authority": {
@@ -389,15 +389,15 @@
     }
   },
   "qualification_snapshot": {
-    "qualified_head": "56516c34719670054e12218bd3781e9725ae4f65",
+    "qualified_head": "ad067b2a6f97d040da28a52882cd394c433e8a1d",
     "merge_commit": "cae842801497161f2de37ff43b27d074ac12568a",
-    "workflow_run": 37469940904,
-    "aggregate_artifact_id": 11428968112,
-    "aggregate_artifact_sha256": "15ddaba2c3276eb51c993619c1c11a8f3142bcbcfcd8c5816775ed80a7882f62",
-    "aggregate_report_sha256": "ba12820d8c19556dbe03dbc1ebaca4aeb7427a7b2c8d6ce3c668535a01424b3a",
+    "workflow_run": 37851015052,
+    "aggregate_artifact_id": 11588407624,
+    "aggregate_artifact_sha256": "94bda00f2f8d8d21de1d7e685d0f7b2b5add57acc90f96f3bd3a74450859b7ec",
+    "aggregate_report_sha256": "e3121d2467b55619aef6dced40d5dc0e51b17804ee5895240198e66666a12411",
     "qualification_disposition": "QUALIFIED_EXACT_HOST_ONLY",
-    "execution_domain_id": "exec-domain/0bf11e027cd419ae8f8a",
-    "execution_domain_digest": "0bf11e027cd419ae8f8abee52cfa52aef017b525598ca8237acc0a87ae4458ef",
+    "execution_domain_id": "exec-domain/f12f8a6adf956be74dec",
+    "execution_domain_digest": "f12f8a6adf956be74dec46c583e2df66b13e16ea67552c105d954dbf964c85ad",
     "binding_scope": "exact_host_observation"
   },
   "legacy_policy": {

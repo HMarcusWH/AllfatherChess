@@ -5,7 +5,7 @@
   "resource_catalog": {
     "path": "qualification/resource-profile-catalog-v1.json",
     "catalog_id": "resource-profile-catalog-v1",
-    "catalog_digest": "01c4a05f44c6c20ef37a12d26705a9c80bc4a66e0f308e71fc0b419cc1b1e145"
+    "catalog_digest": "5ecbe0a31c4e7a3b666b5107bf7e2798d29f6293808a6954cf88c9c9bbdf95bc"
   },
   "round_count": 3,
   "max_grants_per_round": 3,

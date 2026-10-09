@@ -2648,6 +2648,20 @@ def verify_orchestration_integrity(
             problems.append(
                 "route physical CPU envelope result does not reconstruct"
             )
+        controller_row = resource.get("controller") if isinstance(resource, dict) else None
+        controller_cpu = controller_row.get("cpu_ms") if isinstance(controller_row, dict) else None
+        controller_cap = _finite_nonnegative(
+            route_envelope.get("controller_overhead_reserve_ms"), "controller CPU partition",
+        )
+        controller_cpu_within = bool(
+            type(controller_cpu) in (int, float)
+            and math.isfinite(float(controller_cpu))
+            and 0.0 <= float(controller_cpu) <= controller_cap + 1e-9
+        )
+        if claim.get("controller_cpu_within_partition") is not controller_cpu_within:
+            problems.append("controller physical CPU partition does not reconstruct")
+        if claim.get("controller_cpu_accounting_complete") is not True:
+            problems.append("controller accounting incomplete or unmeasured")
 
         clock_outcome = route.get("clock_outcome")
         if (
@@ -2770,6 +2784,8 @@ def verify_orchestration_integrity(
             "physical_measurement_required": True,
             "physical_measurement_qualified": resource_qualified,
             "physical_cpu_within_envelope": physical_cpu_within,
+            "controller_cpu_within_partition": controller_cpu_within,
+            "controller_cpu_accounting_complete": True,
         }
         for key, expected_value in expected_claim_fields.items():
             if claim.get(key) is not expected_value:
@@ -2789,6 +2805,8 @@ def verify_orchestration_integrity(
             and wall_within
             and resource_qualified
             and physical_cpu_within
+            and controller_cpu_within
+            and claim.get("controller_cpu_accounting_complete") is True
         )
         if claim.get("claimed") is not expected_claim:
             problems.append(

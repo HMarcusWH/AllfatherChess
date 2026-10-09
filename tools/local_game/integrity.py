@@ -717,6 +717,7 @@ def verify_resource_claim(run: Path, manifest: dict) -> dict:
     )
     wall_within = _number(budget.get("elapsed_ms"), "budget elapsed_ms") <= envelope.wall_ms + 1e-6
     physical_within = physical <= envelope.cpu_ms + 1e-6
+    controller_cpu_within = controller_cpu <= envelope.controller_overhead_reserve_ms + 1e-6
     clock_complete = (manifest.get("clock_outcome") or {}).get("output_within_deadline") is True
 
     claim = route.get("envelope_claim") or {}
@@ -731,6 +732,8 @@ def verify_resource_claim(run: Path, manifest: dict) -> dict:
         "physical_measurement_required": bool(settings.get("require_cpu_for_claim") or settings.get("require_gpu_for_claim")),
         "physical_measurement_qualified": expected_qualified,
         "physical_cpu_within_envelope": physical_within,
+        "controller_cpu_within_partition": controller_cpu_within,
+        "controller_cpu_accounting_complete": True,
         "clock_output_complete": clock_complete,
     }
     for key, value in derived.items():
@@ -738,7 +741,8 @@ def verify_resource_claim(run: Path, manifest: dict) -> dict:
     expected_claim = all((
         clock_complete, anchor_bounded, anchor_reserved, gpu_accounted,
         within_envelope, within_partitions, settlement_complete, wall_within,
-        expected_qualified, physical_within,
+        expected_qualified, physical_within, controller_cpu_within,
+        claim.get("controller_cpu_accounting_complete") is True,
     ))
     require(claim.get("claimed") is expected_claim,
             "envelope claimed flag contradicts reconstructed evidence")

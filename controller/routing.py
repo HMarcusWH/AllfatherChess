@@ -792,11 +792,13 @@ class ConservativeRouter:
         if valid_origin:
             now_cpu_ns = time.process_time_ns()
             if now_cpu_ns >= started_cpu_ns:
-                self.ledger.charge_elapsed(
-                    "qualification",
-                    cpu_ms=(now_cpu_ns - started_cpu_ns) / 1_000_000.0,
-                    note="controller.qualification_ms",
-                )
+                measured_cpu_ms = (now_cpu_ns - started_cpu_ns) / 1_000_000.0
+                if measured_cpu_ms > 0.0:
+                    self.ledger.charge_elapsed(
+                        "qualification",
+                        cpu_ms=measured_cpu_ms,
+                        note="controller.qualification_ms",
+                    )
             else:
                 valid_origin = False
         if not valid_origin:
@@ -804,10 +806,11 @@ class ConservativeRouter:
             # non-resource callers keep the conservative historical wall proxy.
             self._controller_cpu_accounting_complete = False
             already_elapsed = max(0.0, float(context.elapsed_ms()))
-            self.ledger.charge_elapsed(
-                "qualification", cpu_ms=already_elapsed,
-                note="controller.qualification_ms",
-            )
+            if already_elapsed > 0.0:
+                self.ledger.charge_elapsed(
+                    "qualification", cpu_ms=already_elapsed,
+                    note="controller.qualification_ms",
+                )
 
         if self.calibration is None:
             self.audit.note(

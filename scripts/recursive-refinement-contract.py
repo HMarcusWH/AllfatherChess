@@ -99,7 +99,16 @@ def main() -> int:
 
         lines = run_shell(
             config,
-            ["go movetime 8000", "await:bestmove "],
+            [
+                "go movetime 8000",
+                "await:bestmove ",
+                # The outward bestmove may precede shadow/VERIFY/REFINE finalization.
+                # A same-position UCI synchronization forces the exact-generation
+                # quiesce barrier before the harness quits the controller.
+                "position startpos",
+                "isready",
+                "await:readyok",
+            ],
             timeout=45.0,
         )
         outward = [line for line in lines if line.startswith("bestmove ")]

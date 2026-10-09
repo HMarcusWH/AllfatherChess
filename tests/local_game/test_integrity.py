@@ -15,7 +15,33 @@ from tools.local_game.integrity import (
     verify_session_commands,
     verify_specialist_settlements,
 )
-from tools.local_game.validate import apply_scope_flags, verify_game_clocks, verify_runner_log
+from tools.local_game.validate import (
+    apply_scope_flags, describe_resource_denial, verify_game_clocks,
+    verify_runner_log,
+)
+
+
+class ResourceDenialDiagnosticsTests(unittest.TestCase):
+    def test_wall_denial_reports_replay_and_exact_false_claim(self):
+        route = {
+            "budget": {"elapsed_ms": 1517.479},
+            "envelope": {"wall_ms": 1446.0},
+            "envelope_claim": {
+                "wall_within_envelope": False,
+                "physical_measurement_qualified": True,
+                "physical_cpu_within_envelope": True,
+                "controller_cpu_within_partition": True,
+            },
+        }
+        details = describe_resource_denial(
+            Path("/replays/20261009T192450382505Z-g000060-408b38c9"),
+            route,
+            {"qualified": True, "claimed": False},
+        )
+        self.assertIn("g000060", details)
+        self.assertIn("false_claims=['wall_within_envelope']", details)
+        self.assertIn("excess_ms=71.479", details)
+        self.assertIn("resource_qualified=True", details)
 
 
 class G3PrerequisiteSeparationTests(unittest.TestCase):

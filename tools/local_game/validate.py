@@ -324,6 +324,37 @@ def session_games(
     return groups, summaries
 
 
+def describe_resource_denial(run: Path, route: dict, derived: dict) -> str:
+    """Explain a LOCAL-1 denial without changing its fail-closed predicate.
+
+    The independent resource verifier has already checked consistency. Report
+    primitive wall values and the specifically denied claim bits, so a rare
+    long-tail event can be traced to its exact retained replay directory.
+    """
+    claim = route.get("envelope_claim") or {}
+    required = (
+        "anchor_request_bounded", "anchor_cost_reserved", "gpu_accounted",
+        "reservations_within_envelope", "specialist_partitions_within_caps",
+        "specialist_settlement_complete", "work_grant_settlement_complete",
+        "wall_within_envelope", "physical_measurement_qualified",
+        "physical_cpu_within_envelope", "controller_cpu_within_partition",
+        "controller_cpu_accounting_complete", "clock_output_complete",
+    )
+    denied = [key for key in required if claim.get(key) is False]
+    budget = route.get("budget") or {}
+    envelope = route.get("envelope") or {}
+    elapsed = float(budget.get("elapsed_ms", 0.0))
+    wall_limit = float(envelope.get("wall_ms", 0.0))
+    excess = max(0.0, elapsed - wall_limit)
+    return (
+        "unexpected physical/envelope failure: "
+        f"replay={run.name}; false_claims={denied}; "
+        f"resource_qualified={derived.get('qualified')}; "
+        f"elapsed_ms={elapsed:.3f}; wall_limit_ms={wall_limit:.3f}; "
+        f"excess_ms={excess:.3f}"
+    )
+
+
 def validate_g3(item: dict, allow_denial: bool) -> dict:
     # Existing integrity verifiers reconstruct sealed evidence, not just file hashes.
     from controller.replay import verify_bundle_integrity
@@ -345,7 +376,7 @@ def validate_g3(item: dict, allow_denial: bool) -> dict:
     claimed = derived["claimed"]
     if not allow_denial:
         require(derived["qualified"] is True and claimed,
-                "unexpected physical/envelope failure")
+                describe_resource_denial(run, load(run / "route.json"), derived))
     authority = final["authority"]
     require(
         authority in ("HYBRID", "ANCHOR_FALLBACK", "ANCHOR_CONTROL"),

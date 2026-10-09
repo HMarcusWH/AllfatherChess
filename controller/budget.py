@@ -785,10 +785,13 @@ class BudgetLedger:
     def snapshot(self) -> dict[str, Any]:
         with self._lock:
             committed_cpu, committed_gpu = self._committed()
+            # One observation for both fields. Separate clock samples could
+            # straddle hard expiry inside the same supposedly atomic snapshot.
+            elapsed = self.elapsed_ms()
             return {
                 "envelope": self.envelope.as_dict(),
-                "elapsed_ms": round(self.elapsed_ms(), 3),
-                "wall_remaining_ms": round(self.wall_remaining_ms(), 3),
+                "elapsed_ms": round(elapsed, 3),
+                "wall_remaining_ms": round(max(0.0, self.envelope.wall_ms - elapsed), 3),
                 "committed_cpu_ms": round(committed_cpu, 3),
                 "committed_gpu_ms": round(committed_gpu, 3),
                 "available_solver_cpu_ms": round(self.available_cpu_ms(), 3),

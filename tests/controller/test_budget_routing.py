@@ -1001,6 +1001,43 @@ class ReviewRegressionRoundFiveTests(unittest.TestCase):
             "a run that outlasted its wall envelope reported itself compliant",
         )
 
+    def test_budget_snapshot_uses_one_terminal_wall_observation(self):
+        clock = _Clock(0.0)
+        ledger = BudgetLedger(envelope(wall_ms=100.0), clock=clock)
+        with mock.patch.object(ledger, "elapsed_ms", side_effect=[99.8, 101.0]) as elapsed:
+            snapshot = ledger.snapshot()
+        self.assertEqual(elapsed.call_count, 1)
+        self.assertEqual(snapshot["elapsed_ms"], 99.8)
+        self.assertEqual(snapshot["wall_remaining_ms"], 0.2)
+
+    def test_route_claim_agrees_with_atomic_budget_timestamp(self):
+        clock = _Clock(0.0)
+        router = ConservativeRouter(
+            envelope=envelope(wall_ms=100.0, cpu_ms=100000.0),
+            policy=policy(anchor_cpu_ms_estimate=10.0),
+            clock=clock,
+        )
+        context = _FakeContext()
+        context.external_go_command = "go movetime 10"
+        router.on_run_start(context)
+        clock.now = 0.09
+        original_snapshot = router.ledger.snapshot
+
+        def snapshot_then_cross_deadline():
+            snapshot = original_snapshot()
+            clock.now = 0.20
+            return snapshot
+
+        with tempfile.TemporaryDirectory() as tmp:
+            context.run_dir = Path(tmp)
+            with mock.patch.object(router.ledger, "snapshot", side_effect=snapshot_then_cross_deadline):
+                router.on_run_end(context)
+            doc = json.loads((Path(tmp) / "route.json").read_text())
+        claim = doc["envelope_claim"]
+        self.assertEqual(doc["budget"]["elapsed_ms"], claim["wall_ms_elapsed"])
+        self.assertTrue(claim["wall_within_envelope"])
+        self.assertTrue(claim["claimed"])
+
     def test_a_run_inside_its_wall_envelope_still_claims(self):
         router = ConservativeRouter(
             envelope=envelope(wall_ms=100000.0, cpu_ms=100000.0),

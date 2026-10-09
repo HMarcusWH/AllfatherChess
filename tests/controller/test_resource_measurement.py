@@ -6,6 +6,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -234,6 +235,38 @@ class ResourceMeasurementRunTests(unittest.TestCase):
 
 
 class IntervalFreezeTests(unittest.TestCase):
+    def test_seal_diagnostics_separate_freeze_from_slow_fsync(self):
+        run = ResourceMeasurementRun(
+            run_id="durable-latency", settings=ResourceMeasurementSettings(
+                enabled=True, provider="linux-procfs-v1",
+                require_cpu_for_claim=True, require_gpu_for_claim=False,
+                record_memory=False,
+            ), provider=_Provider(),
+        )
+        run.begin_stage(key="a", instance="anchor", phase="ANCHOR", pid=7)
+        run.finish_stage("a")
+        origin = time.monotonic()
+        writer = run._atomic_write
+
+        def slow_persistence(path, payload):
+            time.sleep(0.035)
+            return writer(path, payload)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.object(run, "_atomic_write", side_effect=slow_persistence):
+                result = run.seal(Path(tmp) / "resource.json")
+            diag = run.seal_timing_ms(started_monotonic=origin)
+            doc = json.loads((Path(tmp) / "resource.json").read_text())
+        self.assertTrue(result["qualified"])
+        self.assertTrue(doc["qualified"])
+        self.assertIsNotNone(diag)
+        self.assertGreaterEqual(diag["durable_write_ms"], 30.0)
+        self.assertGreaterEqual(
+            diag["persisted_wall_ms"] - diag["freeze_wall_ms"], 30.0,
+        )
+        self.assertNotIn("seal_phase_ns", doc)
+        self.assertEqual(diag, run.seal_timing_ms(started_monotonic=origin))
+
     def test_freeze_interval_stops_controller_and_process_endpoint_growth(self):
         settings = ResourceMeasurementSettings(
             enabled=True,

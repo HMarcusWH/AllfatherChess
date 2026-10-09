@@ -189,6 +189,9 @@ class ResourceMeasurementRun:
         self._process_endpoints_frozen = False
         self._interval_frozen = False
         self._sealed: dict[str, object] | None = None
+        # Diagnostic timestamps do not participate in the physical certificate.
+        # Keep them outside resource.json: evidence hashes/claim semantics are unchanged.
+        self._seal_phase_ns: dict[str, int] | None = None
 
     @property
     def provider_id(self) -> str:
@@ -702,6 +705,25 @@ class ResourceMeasurementRun:
             except FileNotFoundError:
                 pass
 
+    def seal_timing_ms(self, *, started_monotonic: float) -> dict[str, float] | None:
+        """Non-authorizing diagnostic for freeze, serialization, and durable I/O.
+
+        The caller supplies the same external-go origin as its BudgetLedger.
+        This trace must never be used as a substitute for a wall claim or CPU
+        measurement; it is retained only to diagnose post-publication latency.
+        """
+        with self._lock:
+            marks = None if self._seal_phase_ns is None else dict(self._seal_phase_ns)
+        if marks is None:
+            return None
+        origin_ns = int(started_monotonic * 1_000_000_000)
+        return {
+            "freeze_wall_ms": round(max(0, marks["freeze"] - origin_ns) / 1_000_000, 3),
+            "serialization_ms": round(max(0, marks["serialized"] - marks["freeze"]) / 1_000_000, 3),
+            "durable_write_ms": round(max(0, marks["persisted"] - marks["serialized"]) / 1_000_000, 3),
+            "persisted_wall_ms": round(max(0, marks["persisted"] - origin_ns) / 1_000_000, 3),
+        }
+
     def seal(self, path: Path, *, validity_check: Callable[[], bool] | None = None) -> dict[str, object]:
         with self._lock:
             if self._sealed is not None:
@@ -714,6 +736,7 @@ class ResourceMeasurementRun:
                     reason="resource report sealed before a terminal stage sample was observed",
                 )
             self.freeze_interval()
+            frozen_ns = time.monotonic_ns()
             if validity_check is not None and not validity_check():
                 self._interval_error = "measurement interval crossed an online anchor generation"
             payload = self._report_payload()
@@ -722,7 +745,14 @@ class ResourceMeasurementRun:
             digest = hashlib.sha256(self._canonical_bytes(payload)).hexdigest()
             payload["report_id"] = f"resource-{digest[:16]}"
             rendered = json.dumps(payload, indent=2, sort_keys=True) + "\n"
+            serialized_ns = time.monotonic_ns()
             self._atomic_write(Path(path), rendered)
+            persisted_ns = time.monotonic_ns()
+            self._seal_phase_ns = {
+                "freeze": frozen_ns,
+                "serialized": serialized_ns,
+                "persisted": persisted_ns,
+            }
             file_sha = hashlib.sha256(rendered.encode("utf-8")).hexdigest()
             summary = {
                 "path": Path(path).name,

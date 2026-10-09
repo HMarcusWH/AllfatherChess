@@ -1944,9 +1944,20 @@ class ShadowRunCoordinator:
 
         try:
             clock = active.context.clock
-            return resources.seal(path, **({} if clock is None else {
+            summary = resources.seal(path, **({} if clock is None else {
                 "validity_check": lambda: not clock.measurement_superseded.is_set(),
             }))
+            timing = resources.seal_timing_ms(
+                started_monotonic=active.started_monotonic,
+            )
+            if timing is not None:
+                # Manifest note, not a resource/route qualification input.
+                # In particular, a slow fsync cannot fabricate extra engine CPU.
+                active.run.note(
+                    "resource seal phases (non-authorizing): "
+                    + ", ".join(f"{name}={value:.3f}" for name, value in timing.items())
+                )
+            return summary
         except Exception as exc:
             active.run.note(
                 f"resource report could not be sealed: {type(exc).__name__}: {exc}"
@@ -2724,6 +2735,11 @@ class ShadowRunCoordinator:
                         if active.anchor_resource_done.is_set():
                             try:
                                 active.resources.freeze_process_endpoints()
+                                active.run.note(
+                                    "process endpoints frozen at "
+                                    f"{(time.monotonic() - active.started_monotonic) * 1000.0:.3f}ms "
+                                    "from external go (non-authorizing)"
+                                )
                             except Exception as exc:
                                 active.run.note(
                                     "process resource endpoints could not freeze before engine reuse: "

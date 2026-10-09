@@ -1438,6 +1438,12 @@ class ConservativeRouter:
 
         clock = getattr(context, "clock", None)
         clock_complete = clock is None or bool(clock.outcome()["output_within_deadline"])
+        # Sample the terminal wall clock once. Computing budget.elapsed_ms,
+        # wall_ms_elapsed, wall_within_envelope and claimed at separate instants
+        # permitted internally contradictory certificates at hard expiry.
+        terminal_budget = self.ledger.snapshot()
+        terminal_wall_ms = terminal_budget["elapsed_ms"]
+        terminal_wall_within = terminal_wall_ms <= self.envelope.wall_ms
         payload = {
             "schema_version": ROUTE_SCHEMA_VERSION,
             "run_id": audit.run_id,
@@ -1445,7 +1451,7 @@ class ConservativeRouter:
             "thresholds": self.policy.as_dict(),
             "envelope": self.envelope.as_dict(),
             "calibration": self._calibration_provenance(),
-            "budget": self.ledger.snapshot(),
+            "budget": terminal_budget,
             "resource_measurement": resource_summary,
             "envelope_claim": {
                 # Reservation accounting staying inside B is necessary but not
@@ -1464,10 +1470,8 @@ class ConservativeRouter:
                 # wall envelope -- a slow legal-root oracle alone can do it --
                 # and a claim that ignores the clock is not a claim about the
                 # envelope that was declared.
-                "wall_ms_elapsed": round(self.ledger.elapsed_ms(), 3),
-                "wall_within_envelope": (
-                    self.ledger.elapsed_ms() <= self.envelope.wall_ms
-                ),
+                "wall_ms_elapsed": terminal_wall_ms,
+                "wall_within_envelope": terminal_wall_within,
                 "cpu_measurement": cpu_measurement,
                 "physical_measurement_required": resource_required,
                 "physical_measurement_qualified": resource_qualified,
@@ -1485,7 +1489,7 @@ class ConservativeRouter:
                     and self.ledger.within_partition_caps()
                     and not self._specialist_unresolved
                     and not self._work_grant_unresolved
-                    and self.ledger.elapsed_ms() <= self.envelope.wall_ms
+                    and terminal_wall_within
                     and resource_qualified
                     and physical_cpu_within
                     and controller_cpu_within

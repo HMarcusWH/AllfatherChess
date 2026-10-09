@@ -252,6 +252,43 @@ class BudgetLedgerTests(unittest.TestCase):
         self.assertGreater(lane["spent_cpu_ms"], 0.0)
         self.assertIn("controller.unit_ms", lane["native_work"])
 
+    def test_thread_cpu_clock_ignores_wall_scheduler_stall(self):
+        wall = [0.0]
+        cpu = [0.0]
+        ledger = BudgetLedger(
+            envelope(controller_overhead_reserve_ms=25.0),
+            clock=lambda: wall[0], started=0.0,
+            cpu_clock=lambda: cpu[0],
+        )
+        with ledger.controller_overhead("stall"):
+            wall[0] = 0.3
+            cpu[0] = 0.02
+        self.assertAlmostEqual(
+            ledger.snapshot()["lanes"]["controller"]["spent_cpu_ms"], 20.0,
+        )
+        self.assertTrue(ledger.within_partition_caps())
+        self.assertAlmostEqual(ledger.elapsed_ms(), 300.0)
+
+    def test_genuine_controller_thread_cpu_overrun_fails(self):
+        cpu = [0.0]
+        ledger = BudgetLedger(
+            envelope(controller_overhead_reserve_ms=25.0),
+            cpu_clock=lambda: cpu[0],
+        )
+        with ledger.controller_overhead("busy"):
+            cpu[0] = 0.026
+        self.assertFalse(ledger.within_partition_caps())
+
+    def test_invalid_thread_cpu_sample_does_not_charge_zero(self):
+        cpu = [0.0]
+        ledger = BudgetLedger(
+            envelope(controller_overhead_reserve_ms=25.0),
+            cpu_clock=lambda: cpu[0],
+        )
+        with self.assertRaises(BudgetError):
+            with ledger.controller_overhead("bad"):
+                cpu[0] = float("nan")
+
     def test_native_work_is_never_summed_across_engine_semantics(self):
         ledger = BudgetLedger(envelope())
         ledger.record_native_work("shadow:stockfish", value=1000, semantics="stockfish.uci_nodes")
@@ -565,6 +602,71 @@ class ReviewRegressionRoundTwoTests(unittest.TestCase):
         lane = router.ledger.snapshot()["lanes"]["qualification"]
         self.assertEqual(lane["spent_cpu_ms"], 250.0)
         self.assertIn("controller.qualification_ms", lane["native_work"])
+
+    def test_pre_router_process_cpu_is_not_elapsed_wall_time(self):
+        router = ConservativeRouter(envelope=envelope(), policy=policy(), clock=lambda: 0.0)
+        context = _FakeContext()
+        context.controller_cpu_started_ns = 1_000_000_000
+        context.elapsed = 309.682  # scheduler pause before the router opens
+        with mock.patch("controller.routing.time.process_time_ns", return_value=1_020_000_000):
+            router.on_run_start(context)
+        lane = router.ledger.snapshot()["lanes"]["qualification"]
+        self.assertAlmostEqual(lane["spent_cpu_ms"], 20.0)
+        self.assertTrue(router._controller_cpu_accounting_complete)
+        self.assertIn("controller.qualification_ms", lane["native_work"])
+
+    def test_physical_controller_overrun_rejects_even_when_ledger_undercounts(self):
+        router = ConservativeRouter(
+            envelope=envelope(controller_overhead_reserve_ms=250.0), policy=policy(),
+        )
+        context = _FakeContext()
+        context.controller_cpu_started_ns = 1_000_000_000
+        context.resource_measurement_required = lambda: True
+        context.seal_resource_report = lambda: {
+            "qualified": True,
+            "physical_cpu_ms": 1624.074,
+            "provider": "linux-procfs-v1",
+            "controller": {"cpu_ms": 260.0},
+        }
+        with mock.patch("controller.routing.time.process_time_ns", return_value=1_020_000_000):
+            router.on_run_start(context)
+        claim = _end_and_read_claim(router, context)
+        self.assertTrue(claim["physical_cpu_within_envelope"])
+        self.assertFalse(claim["controller_cpu_within_partition"])
+        self.assertFalse(claim["claimed"])
+
+    def test_missing_controller_cpu_origin_rejects_measured_claim(self):
+        router = ConservativeRouter(envelope=envelope(), policy=policy())
+        context = _FakeContext()
+        context.resource_measurement_required = lambda: True
+        context.seal_resource_report = lambda: {
+            "qualified": True, "physical_cpu_ms": 900.0,
+            "provider": "linux-procfs-v1",
+            "controller": {"cpu_ms": 20.0},
+        }
+        router.on_run_start(context)
+        claim = _end_and_read_claim(router, context)
+        self.assertFalse(claim["controller_cpu_accounting_complete"])
+        self.assertFalse(claim["claimed"])
+
+    def test_controller_cpu_charge_error_poisons_qualification(self):
+        router = ConservativeRouter(envelope=envelope(), policy=policy())
+        context = _FakeContext()
+        context.controller_cpu_started_ns = 1_000_000_000
+        context.resource_measurement_required = lambda: True
+        context.seal_resource_report = lambda: {
+            "qualified": True, "physical_cpu_ms": 900.0,
+            "provider": "linux-procfs-v1",
+            "controller": {"cpu_ms": 20.0},
+        }
+        with mock.patch("controller.routing.time.process_time_ns", return_value=1_020_000_000):
+            router.on_run_start(context)
+        with self.assertRaises(BudgetError):
+            router.charge_controller_elapsed("bad", float("nan"))
+        router.invalidate_controller_cpu_accounting("bad CPU sample")
+        claim = _end_and_read_claim(router, context)
+        self.assertFalse(claim["controller_cpu_accounting_complete"])
+        self.assertFalse(claim["claimed"])
 
     def test_a_stage_that_outruns_its_estimate_is_charged_in_full(self):
         router = ConservativeRouter(

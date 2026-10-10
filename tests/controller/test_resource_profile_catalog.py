@@ -78,12 +78,12 @@ class ResourceProfileCatalogTests(unittest.TestCase):
         bound = history["current_domain_bound_qualification"]
         self.assertEqual(
             snapshot["qualified_head"],
-            "71db7bcab0792f2badce8d88f2145ed207dcb193",
+            "b90af9f1760c9611826afc2fd26ad0dc438d4557",
         )
         self.assertEqual(snapshot["qualification_disposition"], "QUALIFIED_EXACT_HOST_ONLY")
         self.assertEqual(snapshot["binding_scope"], "exact_host_observation")
-        self.assertEqual(snapshot["workflow_run"], 37954321786)
-        self.assertEqual(snapshot["aggregate_artifact_id"], 11637396370)
+        self.assertEqual(snapshot["workflow_run"], 38012334421)
+        self.assertEqual(snapshot["aggregate_artifact_id"], 11657944410)
         self.assertEqual(
             snapshot["merge_commit"],
             "cae842801497161f2de37ff43b27d074ac12568a",
@@ -91,15 +91,15 @@ class ResourceProfileCatalogTests(unittest.TestCase):
         )
         self.assertEqual(
             snapshot["aggregate_artifact_sha256"],
-            "4511536d176c68a2be11edc0e0eb63ab577f7c02cd3ea49ca327dea7ddc240a4",
+            "daf8ff2a3bfb2300de02d60a60baacf52c14638ff4d3aa41d3f0394e5205dbbd",
         )
         self.assertEqual(
             snapshot["aggregate_report_sha256"],
-            "57ab7bb0ef5c442da8353f14246de792c225001befd56f240b27793408754ffb",
+            "f1748fea0de0b8712fc47ae216c2111c525f8a3c645d044f670837ee2e81f9e1",
         )
         self.assertEqual(
             snapshot["execution_domain_digest"],
-            "33451ca47b6636d7bc9d2f70e92a2d2f91c0e173534dfb1cdf3c06bbc07d9dd9",
+            "2e9673f5cea55cf86e59f34ae1b4d1dddea1c19c4972ac34b323465ab3bd0e2c",
         )
         self.assertEqual(snapshot["qualified_head"], bound["qualified_head"])
         self.assertEqual(snapshot["workflow_run"], bound["aggregate_workflow_run"])
@@ -111,13 +111,13 @@ class ResourceProfileCatalogTests(unittest.TestCase):
         ):
             self.assertEqual(snapshot[field], bound[field])
         self.assertFalse(bound["generic_host_portability_established"])
-        self.assertEqual(catalog.digest, "f834c3323bc5a3ff1b9f9e7069cbdcc0b18834b82568aee87f2b8be56c1e387b")
+        self.assertEqual(catalog.digest, "dc98b3dff303b0be9d3d195b298cf3c10dbb9635e4446b3e5413a020d96e8f0c")
         scheduler_policy = load(ROOT / "qualification/work-grant-scheduler-v1.json")
         allocator_policy = load(ROOT / "qualification/adaptive-resource-allocation-v1.json")
         self.assertEqual(scheduler_policy["resource_catalog"]["catalog_digest"], catalog.digest)
         self.assertEqual(
             allocator_policy["work_scheduler_catalog"]["catalog_digest"],
-            "9e22edd758a873d8d2fe6f9b29e404cba8b8dad5905cbb0c6f74061611be569c",
+            "b90c892f8d0c4653009b9bbb0e0972c17a1df65d326ac01b8f5f8b0b80386405",
         )
         self.assertFalse(catalog.selection_enabled)
         for binding in catalog.default_composition.bindings:

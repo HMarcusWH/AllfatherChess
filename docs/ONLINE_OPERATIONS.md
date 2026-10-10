@@ -34,7 +34,9 @@ source commit and tree, rejecting dirty tracked source or stale build identity.
 A copy can verify all bytes on another host even without Git.
 
 Repeated archive generation from the same sealed bytes gives identical archive
-SHA256. The packager refuses overwriting an existing archive/stage; remove them
+SHA256. CI retains the archive digest; external recipients must compare it to
+a separately trusted workflow/commit record. An adjacent hash is not a publisher
+signature or proof of authenticated distribution. The packager refuses overwriting an existing archive/stage; remove them
 deliberately before regenerating. Release files are read-only; the application
 is allowed to write only into `build/replays-online-hybrid-v2/`.
 
@@ -50,8 +52,17 @@ executing `python3 -m controller --config <sealed HYBRID runtime>`. Seal errors
 go to stderr and refuse launch, never producing partial UCI stdout. The
 `--check` flag is human-facing and must not be passed by a UCI GUI.
 
-CI extracts the archive to a new directory and repeats the real-engine UCI
-handshake; this is not a public bot game or an Elo test.
+ONLINE mode requires a POSIX pipe/FIFO on stdout. Direct redirect to a regular
+file is rejected by the controller's atomic UCI write contract. For manual
+capture use a pipe and tee (with shell pipefail enabled); never weaken the
+controller to accommodate a test harness.
+
+CI extracts the archive and drives the actual four-process controller through
+a pipe-backed subprocess, waits for handshake and readiness, makes one clocked
+startpos search, validates a non-null legal bestmove using the pinned independent
+chess-rules oracle, checks subsequent readiness and clean shutdown, and verifies
+regular-file stdout rejection. Evidence includes raw stdout, stderr and JSON
+smoke results even on failure. This is not an Elo or public bot test.
 
 ## Host-capacity observation
 
@@ -60,11 +71,13 @@ python3 scripts/online-host-preflight.py --output build/online-release/host.json
 python3 scripts/online-host-preflight.py --require-capacity
 ```
 
-Strict mode requires observed cgroup-v2 CPU quota and memory limit, usable
-quota >= 4 CPUs, memory limit >= 4096 MiB and Linux x86-64. It records
-`j12_authority_qualified=false` even on a passing preflight, because the
-full J12 qualifier, not this script, decides authority. Missing host facts
-are never treated as unlimited capacity or zero usage.
+Strict mode reuses the M14-J LinuxHostProvider and HostCapabilities to examine
+every cgroup-v2 ancestor's limits, effective cpuset and process affinity.
+It requires complete bounded evidence of at least 4 usable CPUs and 4096 MiB
+of memory on Linux x86-64. Unknown ancestor data fails closed and explicit
+unlimited limits are not confused with a finite quota. Even a successful
+observation retains `j12_authority_qualified=false`; the separate J12
+qualifier alone can authorize that runtime.
 
 ## Optional container integration scaffold
 

@@ -25,10 +25,15 @@ def seal_module(root: Path):
 def package(root: Path, stage: Path, archive: Path, manifest: Path) -> dict:
     root = root.resolve()
     dist = root / "dist"
-    if not stage.resolve().is_relative_to(dist.resolve()) or stage == dist:
+    if dist.is_symlink() or not dist.resolve().is_relative_to(root):
+        raise ValueError("dist/ must remain inside the release root")
+    staged, archived = stage.resolve(), archive.resolve()
+    if not staged.is_relative_to(dist.resolve()) or staged == dist.resolve():
         raise ValueError("stage must be inside dist/")
-    if not archive.resolve().is_relative_to(dist.resolve()) or archive == stage:
+    if not archived.is_relative_to(dist.resolve()) or archived == dist.resolve():
         raise ValueError("archive must be inside dist/")
+    if archived.is_relative_to(staged) or staged.is_relative_to(archived):
+        raise ValueError("archive and stage may not contain one another")
     if stage.exists() or stage.is_symlink() or archive.exists() or archive.is_symlink():
         raise ValueError("refusing to overwrite an existing release")
     seal = seal_module(root)

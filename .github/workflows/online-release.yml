@@ -2,6 +2,15 @@ name: ONLINE-3A sealed offline UCI release
 on:
   pull_request:
     paths:
+      - 'controller/**'
+      - 'common/**'
+      - 'adapters/**'
+      - 'config/**'
+      - 'qualification/**'
+      - 'engines/**'
+      - 'vendor.lock.json'
+      - 'LICENSES.md'
+      - 'Makefile*'
       - 'deploy/**'
       - 'scripts/release-manifest.py'
       - 'scripts/package-online.py'
@@ -29,7 +38,7 @@ jobs:
         run: test "$(git rev-parse HEAD)" = "$ALLFATHER_SOURCE_SHA"
       - name: Compile release code and execute offline negative controls
         run: |
-          python3 -m py_compile scripts/release-manifest.py scripts/package-online.py scripts/online-host-preflight.py deploy/bin/allfather-online tests/deploy/test_online3a.py
+          python3 -m py_compile scripts/release-manifest.py scripts/package-online.py scripts/online-host-preflight.py deploy/bin/allfather-online tests/deploy/test_online3a.py tests/deploy/smoke_online3a.py
           python3 tests/deploy/test_online3a.py
           python3 scripts/online-host-preflight.py --output build/test-results/online3a/host-observation.json
           python3 -m json.tool build/test-results/online3a/host-observation.json >/dev/null
@@ -72,17 +81,28 @@ jobs:
           python3 scripts/package-online.py
           test -s dist/allfather-online3a-offline.tar.gz
           python3 deploy/bin/allfather-online --check
-      - name: Extract archive and execute real UCI handshake
+      - name: Install pinned independent rules oracle
+        run: |
+          bash scripts/ci-install-apt-deps.sh python3-pip
+          python3 -m pip install --break-system-packages --no-build-isolation --no-deps --require-hashes -r qualification/local-game-requirements.txt
+      - name: Extract archive and exercise real UCI with pipe stdout
         timeout-minutes: 8
         run: |
           mkdir -p build/online3a-extract
           tar --no-same-owner -xzf dist/allfather-online3a-offline.tar.gz -C build/online3a-extract
           python3 build/online3a-extract/deploy/bin/allfather-online --check
-          cd build/online3a-extract
-          printf 'uci\nisready\nquit\n' | timeout 180 python3 deploy/bin/allfather-online > ../online3a-uci-stdout.txt 2> ../online3a-uci-stderr.txt
-          grep -x 'uciok' ../online3a-uci-stdout.txt
-          grep -x 'readyok' ../online3a-uci-stdout.txt
-          if grep -E -i 'traceback|startup failure|exception' ../online3a-uci-stdout.txt; then exit 1; fi
+          python3 tests/deploy/smoke_online3a.py \
+            --root build/online3a-extract \
+            --stdout build/online3a-uci-stdout.txt \
+            --stderr build/online3a-uci-stderr.txt \
+            --report build/online3a-uci-smoke.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          outcome=json.loads(Path('build/online3a-uci-smoke.json').read_text())
+          assert outcome['passed'] and outcome['legal_startpos_move']
+          assert outcome['regular_file_stdout_refused']
+          PY
       - name: Retain offline evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -94,5 +114,8 @@ jobs:
             build/test-results/engine-opt-v2/report.json
             build/online3a-uci-stdout.txt
             build/online3a-uci-stderr.txt
-          if-no-files-found: warn
+            build/online3a-uci-smoke.json
+            build/online3a-negative-stdout.txt
+            build/test-results/online3a/host-observation.json
+          if-no-files-found: error
           retention-days: 30

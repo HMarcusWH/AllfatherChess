@@ -164,6 +164,54 @@ class SealTests(Fixture):
         packer.package(self.root, self.root / "dist/stage2", second_tar, self.manifest_path)
         self.assertEqual(seal.sha(first_tar), seal.sha(second_tar))
 
+    def test_reject_nested_and_symlinked_package_outputs(self):
+        stage = self.root / "dist/stage"
+        with self.assertRaisesRegex(ValueError, "contain one another"):
+            packer.package(self.root, stage, stage / "bundle.tar.gz", self.manifest_path)
+        outside = self.root / "outside"
+        outside.mkdir()
+        (self.root / "dist").mkdir(exist_ok=True)
+        (self.root / "dist/outside-link").symlink_to(outside, target_is_directory=True)
+        with self.assertRaisesRegex(ValueError, "stage must be inside dist"):
+            packer.package(self.root, self.root / "dist/outside-link/stage",
+                           self.root / "dist/bundle.tar.gz", self.manifest_path)
+
+    def test_parent_cgroup_constraints_and_missing_ancestor_fail_closed(self):
+        from adapters.resource.linux_host import LinuxHostProvider
+        with tempfile.TemporaryDirectory() as directory:
+            top = Path(directory)
+            proc = top / "proc"
+            (proc / "self").mkdir(parents=True)
+            (proc / "self/cgroup").write_text("0::/parent/leaf\n")
+            (proc / "meminfo").write_text("MemTotal: 33554432 kB\n")
+            cg = top / "cgroups"
+            leaf = cg / "parent/leaf"
+            leaf.mkdir(parents=True)
+            for node, cpu, mem in (
+                (cg, "max 100000", "max"),
+                (cg / "parent", "200000 100000", str(2 * 1024**3)),
+                (leaf, "800000 100000", str(16 * 1024**3)),
+            ):
+                (node / "cpu.max").write_text(cpu + "\n")
+                (node / "memory.max").write_text(mem + "\n")
+            (leaf / "cpuset.cpus.effective").write_text("0-7\n")
+            provider = LinuxHostProvider(
+                proc_root=proc, cgroup_root=cg,
+                affinity_reader=lambda: tuple(range(8)),
+                cpu_count_reader=lambda: 8,
+                platform_reader=lambda: ("linux", "x86_64"),
+            )
+            observation = preflight.record(provider=provider)
+            self.assertTrue(observation["capacity_complete"])
+            self.assertEqual(observation["bounded_usable_cpus"], 2)
+            self.assertEqual(observation["memory_limit_bytes"], 2 * 1024**3)
+            self.assertFalse(preflight.operator_minimums(observation, 4, 4096))
+            self.assertFalse(observation["j12_authority_qualified"])
+            (cg / "parent/cpu.max").unlink()
+            incomplete = preflight.record(provider=provider)
+            self.assertFalse(incomplete["capacity_complete"])
+            self.assertIsNone(incomplete["bounded_usable_cpus"])
+
     def test_launcher_preflight_and_tampered_binary(self):
         cmd = [sys.executable, str(self.root / "deploy/bin/allfather-online"), "--check"]
         passed = subprocess.run(cmd, capture_output=True, text=True, check=False)

@@ -38,7 +38,7 @@ jobs:
         run: test "$(git rev-parse HEAD)" = "$ALLFATHER_SOURCE_SHA"
       - name: Compile release code and execute offline negative controls
         run: |
-          python3 -m py_compile scripts/release-manifest.py scripts/package-online.py scripts/online-host-preflight.py deploy/bin/allfather-online tests/deploy/test_online3a.py tests/deploy/smoke_online3a.py
+          python3 -m py_compile scripts/release-manifest.py scripts/package-online.py scripts/online-host-preflight.py deploy/bin/allfather-online tests/deploy/test_online3a.py tests/deploy/smoke_online3a.py tests/deploy/validate_online3a.py
           python3 tests/deploy/test_online3a.py
           python3 scripts/online-host-preflight.py --output build/test-results/online3a/host-observation.json
           python3 -m json.tool build/test-results/online3a/host-observation.json >/dev/null
@@ -96,13 +96,13 @@ jobs:
             --stdout build/online3a-uci-stdout.txt \
             --stderr build/online3a-uci-stderr.txt \
             --report build/online3a-uci-smoke.json
-          python3 - <<'PY'
-          import json
-          from pathlib import Path
-          outcome=json.loads(Path('build/online3a-uci-smoke.json').read_text())
-          assert outcome['passed'] and outcome['legal_startpos_move']
-          assert outcome['regular_file_stdout_refused']
-          PY
+          python3 tests/deploy/validate_online3a.py \
+            --report build/online3a-uci-smoke.json \
+            --stdout build/online3a-uci-stdout.txt \
+            --stderr build/online3a-uci-stderr.txt \
+            --manifest build/online-release/release-manifest.json \
+            --archive dist/allfather-online3a-offline.tar.gz \
+            --result build/online3a-independent-validation.json
       - name: Retain offline evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -115,6 +115,7 @@ jobs:
             build/online3a-uci-stdout.txt
             build/online3a-uci-stderr.txt
             build/online3a-uci-smoke.json
+            build/online3a-independent-validation.json
             build/online3a-negative-stdout.txt
             build/test-results/online3a/host-observation.json
           if-no-files-found: error

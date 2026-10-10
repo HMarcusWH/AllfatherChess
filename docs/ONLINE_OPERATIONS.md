@@ -62,7 +62,9 @@ a pipe-backed subprocess, waits for handshake and readiness, makes one clocked
 startpos search, validates a non-null legal bestmove using the pinned independent
 chess-rules oracle, checks subsequent readiness and clean shutdown, and verifies
 regular-file stdout rejection. Evidence includes raw stdout, stderr and JSON
-smoke results even on failure. This is not an Elo or public bot test.
+smoke results even on failure. A separate validator recomputes the legal move,
+protocol counts, manifest and archive membership/mode checks, and stores the
+archive SHA256. No producer-only passed flag can substitute for validation. This is not an Elo or public bot test.
 
 ## Host-capacity observation
 

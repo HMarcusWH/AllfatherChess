@@ -24,6 +24,10 @@ from tools.engine_opt.domain import (
 )
 from tools.engine_opt.matrix_qualification import qualify_lc0_matrix
 from tools.engine_opt.constituent_hash import load_policy as load_constituent_policy, qualify_hash_matrix
+from tools.engine_opt.g3_b4 import (
+    B4_POLICY, WITNESS_CORPUS, file_hash as b4_file_hash, validate_b4_policy,
+    require_positive_g3,
+)
 
 
 class QualificationError(RuntimeError):
@@ -443,6 +447,15 @@ def main() -> int:
         require(g3.get("evidence_valid") is True, "G3-v2 evidence is invalid")
         require(g3.get("source_commit") == source, "G3-v2 source is not exact head")
         require(g3.get("candidate_bundle") == candidate, "G3-v2 candidate binding mismatch")
+        if not args.candidate_mode:
+            validate_b4_policy(repo)
+            contracts = g3.get("contracts") or {}
+            require(contracts.get("policy_sha256") == b4_file_hash(repo, B4_POLICY)
+                    and contracts.get("selection_sha256") == sha256(selection_path)
+                    and contracts.get("reference_runtime_sha256") == sha256(repo / "config/allfather.online-engine-opt-v2.json")
+                    and contracts.get("hybrid_runtime_sha256") == sha256(repo / "config/allfather.online-hybrid-v2.validation.json")
+                    and contracts.get("witnesses_sha256") == b4_file_hash(repo, WITNESS_CORPUS),
+                    "canonical G3 prerequisite differs from frozen b4 source contracts")
         if args.candidate_mode:
             overlay=(details.get("candidate") or {}).get("candidate_overlay") or {}
             contracts=g3.get("contracts") or {}
@@ -470,13 +483,16 @@ def main() -> int:
         if g3.get("authority_qualified") is not True:
             fail("NOT_QUALIFIED_AUTHORITY", "G3-v2 produced valid evidence but no frozen non-anchor HYBRID witness")
         else:
-            positive = g3.get("positive_case") or {}
-            require(
-                positive.get("authority") == "HYBRID"
-                and positive.get("emitted_move")
-                and positive.get("emitted_move") != positive.get("anchor_move"),
-                "G3-v2 qualified flag lacks a genuine non-anchor witness",
-            )
+            if args.candidate_mode:
+                positive = g3.get("positive_case") or {}
+                require(
+                    positive.get("authority") == "HYBRID"
+                    and positive.get("emitted_move")
+                    and positive.get("emitted_move") != positive.get("anchor_move"),
+                    "G3-v2 qualified flag lacks a genuine non-anchor witness",
+                )
+            else:
+                require_positive_g3(g3, policy_sha256=b4_file_hash(repo, B4_POLICY))
 
         resource_docs = [
             load(path)
@@ -523,6 +539,7 @@ def main() -> int:
             "actual_anchor_overrides": local.get("actual_anchor_overrides"),
             "g3_authority_qualified": g3.get("authority_qualified"),
             "g3_positive_case": g3.get("positive_case"),
+            "g3_policy_sha256": (None if args.candidate_mode else b4_file_hash(repo, B4_POLICY)),
             "lc0_explore_cpu_ms_max": max(explore) if explore else None,
             "lc0_verify_cpu_ms_max": max(verify) if verify else None,
             "lc0_explore_reserved_ms": explore_reserved,

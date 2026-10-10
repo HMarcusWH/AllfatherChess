@@ -225,6 +225,15 @@ def prerequisites(output: Path, p: dict, source_id: dict, execution_domain_path:
                     replay_before,
                     label,
                 )
+                if (label == "g3-v2" and
+                        (p.get("qualification") or {}).get("require_g3_positive_prerequisite") is True):
+                    # Keep negative replays, then stop before the expensive 28-game
+                    # campaign if the exact candidate cannot prove non-anchor G3.
+                    from tools.engine_opt.g3_b4 import (
+                        B4_POLICY, file_hash, require_positive_g3, validate_b4_policy,
+                    )
+                    validate_b4_policy(ROOT)
+                    require_positive_g3(report_doc, policy_sha256=file_hash(ROOT, B4_POLICY))
         return records
 
     online_runtime = load(ROOT / "config/allfather.online.cpu-reference.json")

@@ -18,7 +18,7 @@ def aggregate():
         'details':{
             'execution_domain':{'execution_domain_digest':DOMAIN},
             'lc0':{'selected_profile':'b4-p0-c256k-cold','native_work_policy':'lc0-node-stop-contract-v1'},
-            'local1_g3':{'validated_games':28,'g3_authority_qualified':True},
+            'local1_g3':{'validated_games':28,'g3_authority_qualified':True,'g3_policy_sha256':'1'*64},
         },
     }
 
@@ -35,7 +35,7 @@ def catalog():
 
 class PromotionGateTests(unittest.TestCase):
     def test_prior_head_binding_plus_exact_current_aggregate_closes_promotion(self):
-        report=evaluate_promotion_gate(aggregate=aggregate(),host_binding=binding(),catalog=catalog(),promotion_surface={'authorized_profile_change':True,'parent_sha':PARENT},current_head=HEAD)
+        report=evaluate_promotion_gate(aggregate=aggregate(),host_binding=binding(),catalog=catalog(),promotion_surface={'authorized_profile_change':True,'parent_sha':PARENT,'g3_b4_contract_verified':True,'g3_b4_policy_sha256':'1'*64},current_head=HEAD)
         self.assertTrue(report['passed'])
         self.assertEqual(report['disposition'],'CANONICAL_B4_PROMOTION_QUALIFIED')
         self.assertTrue(report['claim_boundary']['canonical_b4_promotion'])
@@ -44,12 +44,12 @@ class PromotionGateTests(unittest.TestCase):
     def test_unfrozen_promotion_head_fails_closed(self):
         bad=binding(); bad['current_domain_bound_qualification']['qualified_head']='e'*40
         with self.assertRaisesRegex(PromotionGateError,'preceding promotion head'):
-            evaluate_promotion_gate(aggregate=aggregate(),host_binding=bad,catalog=catalog(),promotion_surface={'authorized_profile_change':True,'parent_sha':PARENT},current_head=HEAD)
+            evaluate_promotion_gate(aggregate=aggregate(),host_binding=bad,catalog=catalog(),promotion_surface={'authorized_profile_change':True,'parent_sha':PARENT,'g3_b4_contract_verified':True,'g3_b4_policy_sha256':'1'*64},current_head=HEAD)
 
     def test_non_b4_aggregate_is_rejected(self):
         bad=aggregate(); bad['details']['lc0']['selected_profile']='b7-p8-c256k-warm64'
         with self.assertRaises(PromotionGateError):
-            evaluate_promotion_gate(aggregate=bad,host_binding=binding(),catalog=catalog(),promotion_surface={'authorized_profile_change':True,'parent_sha':PARENT},current_head=HEAD)
+            evaluate_promotion_gate(aggregate=bad,host_binding=binding(),catalog=catalog(),promotion_surface={'authorized_profile_change':True,'parent_sha':PARENT,'g3_b4_contract_verified':True,'g3_b4_policy_sha256':'1'*64},current_head=HEAD)
 
 
 class GitHistoryIntegrationTests(unittest.TestCase):

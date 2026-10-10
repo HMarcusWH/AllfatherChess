@@ -164,6 +164,14 @@ def compare_promotion_surface(repo_root: Path, base_sha: str) -> dict[str, Any]:
     catalog = _load(repo_root / "qualification/resource-profile-catalog-v1.json")
     require(catalog.get("selection_enabled") is False, "promotion enabled runtime profile selection")
     require(catalog.get("fallback_profile") == "engine-opt-v2", "promotion changed fallback profile")
+    # Promotion must recognize source-frozen 23-case qualification, not a
+    # diagnostic-only replay or a loosened witness predicate.
+    from tools.engine_opt.g3_b4 import B4_POLICY, file_hash, validate_b4_policy
+    try:
+        validate_b4_policy(repo_root)
+    except (ValueError, OSError, KeyError) as exc:
+        raise PromotionGateError(f"canonical G3 b4 policy invalid: {exc}") from exc
+    g3_policy_hash = file_hash(repo_root, B4_POLICY)
     lc0_profiles = [row for row in catalog.get("profiles", []) if row.get("profile_id") == "lc0/specialist-engine-opt-v2"]
     require(len(lc0_profiles) == 1, "catalog LC0 canonical profile missing")
     options = {row.get("name"): row.get("value") for row in lc0_profiles[0].get("options", [])}
@@ -191,6 +199,8 @@ def compare_promotion_surface(repo_root: Path, base_sha: str) -> dict[str, Any]:
         "guard_files_unchanged": unchanged_files,
         "engine_trees_unchanged": unchanged_trees,
         "runtime_profile_selection_enabled": False,
+        "g3_b4_contract_verified": True,
+        "g3_b4_policy_sha256": g3_policy_hash,
     }
 
 
@@ -222,6 +232,9 @@ def evaluate_promotion_gate(
     lifecycle = (aggregate.get("details") or {}).get("local1_g3") or {}
     require(lifecycle.get("validated_games") == 28, "canonical b4 LOCAL-1 lifecycle incomplete")
     require(lifecycle.get("g3_authority_qualified") is True, "canonical b4 lacks G3 non-anchor authority qualification")
+    require(promotion_surface.get("g3_b4_contract_verified") is True and
+            lifecycle.get("g3_policy_sha256") == promotion_surface.get("g3_b4_policy_sha256"),
+            "canonical G3 b4 witness policy is not bound to promotion surface")
 
     digest = _domain_digest(aggregate)
     require(isinstance(digest, str) and len(digest) == 64, "canonical aggregate execution-domain digest missing")

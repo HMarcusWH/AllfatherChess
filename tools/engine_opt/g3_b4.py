@@ -57,6 +57,7 @@ def validate_b4_policy(root: Path) -> dict[str, Any]:
     original = [{key: value for key, value in c.items() if key != "source_set"}
                 for c in cases if c.get("source_set") == "legacy_v1"]
     discovered = [c for c in cases if c.get("source_set") == "discovery_local1_v1"]
+    archived_form = [{**c, "moves": " ".join(c["moves"])} for c in discovered]
     require(len(cases) == 23 and len(original) == 7 and len(discovered) == 16,
             "canonical b4 case count or source classification drift")
     require(original == legacy.get("positive_cases"),
@@ -76,7 +77,7 @@ def validate_b4_policy(root: Path) -> dict[str, Any]:
             "G3 corpus identity changed")
     require(meta.get("legacy_case_count") == 7 and meta.get("discovery_case_count") == 16,
             "G3 case count declaration changed")
-    require(discovered == corpus.get("cases"), "G3 witness cases differ from frozen archive")
+    require(archived_form == corpus.get("cases"), "G3 witness cases differ from frozen archive")
     return policy
 
 

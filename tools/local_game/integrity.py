@@ -169,6 +169,12 @@ def verify_prerequisites(output: Path, source: dict, p: dict | None = None) -> N
             if label == "g3-v2":
                 require(report.get("evidence_valid") is True,
                         f"{label}: prerequisite evidence is invalid")
+                if (p.get("qualification") or {}).get("require_g3_positive_prerequisite") is True:
+                    from tools.engine_opt.g3_b4 import (
+                        B4_POLICY, file_hash, require_positive_g3, validate_b4_policy,
+                    )
+                    validate_b4_policy(ROOT)
+                    require_positive_g3(report, policy_sha256=file_hash(ROOT, B4_POLICY))
             elif label == "j12":
                 require(
                     report.get("mechanism_valid") is True

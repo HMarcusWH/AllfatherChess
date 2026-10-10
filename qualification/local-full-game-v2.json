@@ -90,7 +90,7 @@
     },
     {
       "id": "g3-v2",
-      "script": "scripts/qualify-online-hybrid-v2.py",
+      "script": "scripts/qualify-online-hybrid-v2-b4.py",
       "report": "build/test-results/online-hybrid-v2/report.json",
       "replay_root": "build/replays-online-hybrid-v2",
       "retain_case_replays": true

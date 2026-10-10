@@ -185,6 +185,20 @@ class SealTests(Fixture):
             self.assertIsNone(result["bounded_usable_cpus"])
             self.assertFalse(result["j12_authority_qualified"])
 
+    def test_unrecognised_cgroup_hierarchy_must_remain_unknown(self):
+        with tempfile.TemporaryDirectory() as d:
+            proc = Path(d)
+            (proc / "self").mkdir()
+            (proc / "self/cgroup").write_text("2:cpu:/legacy\\n")
+            root_cg = proc / "cgroupfs"
+            root_cg.mkdir()
+            (root_cg / "cpu.max").write_text("800000 100000\\n")
+            (root_cg / "memory.max").write_text(str(16 * 1024**3))
+            result = preflight.record(proc=proc, cgroups=root_cg)
+            self.assertFalse(result["capacity_complete"])
+            self.assertIsNone(result["bounded_usable_cpus"])
+            self.assertIsNone(result["memory_limit_bytes"])
+
 
 if __name__ == "__main__":
     unittest.main()

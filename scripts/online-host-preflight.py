@@ -21,7 +21,8 @@ def record(*, proc=Path("/proc"), cgroups=Path("/sys/fs/cgroup")) -> dict:
     affinity = sorted(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else None
     hierarchy = read(proc / "self/cgroup") or ""
     matches = [s.split("::", 1)[1] for s in hierarchy.splitlines() if s.startswith("0::")]
-    cg = cgroups / (matches[0].lstrip("/") if len(matches) == 1 else "")
+    # A non-v2 or ambiguous hierarchy cannot borrow root cgroup limits.
+    cg = cgroups / (matches[0].lstrip("/") if len(matches) == 1 else "_unavailable")
     # Permit only cgroup paths below the observed controller root.
     if not cg.resolve().is_relative_to(cgroups.resolve()):
         cg = cgroups / "_invalid"

@@ -4,13 +4,17 @@
   "measurement_source": {
     "workflow_runs": [
       36363702414,
-      36366449343
+      36366449343,
+      37128771497,
+      37469940904
     ],
     "source_commits": [
       "72fe32567591804061b0489b1bb73743dc0f3c9d",
-      "9bc81f51ba761f80754e010f95b5778dcdb353b3"
+      "9bc81f51ba761f80754e010f95b5778dcdb353b3",
+      "4acce20ec427364e51f5ac51204c8d46a32f81d1",
+      "56516c34719670054e12218bd3781e9725ae4f65"
     ],
-    "note": "Run 36363702414 was the original selection basis. Exact-head run 36366449343 exposed one host-sensitive frozen-corpus bestmove drift in auto-p0-c256k-cold while b7-p8-c256k-warm64 retained the v1 8/8 vector on both runs. The revised selection promotes the cross-run-stable warm b7/p8 candidate to a fresh exact-head repeatability gate; final qualification still requires a new aggregate pass."
+    "note": "The original b7 selection remains retained as historical evidence. PR #63 head 56516c34719670054e12218bd3781e9725ae4f65 qualified b4-p0-c256k-cold as a promotion-ready exact-host candidate with no engine/network source change. The canonical selection now promotes that candidate and requires a fresh exact-head canonical aggregate."
   },
   "artifacts": {
     "candidate": {
@@ -50,6 +54,20 @@
       "artifact_id": 10946819863,
       "digest": "sha256:7ac2f676e740c28010e3be1c94b31a5b826ca0238669bdd859285757d6c48ab3",
       "report_sha256": "15f9e4c541aa323194fb473db7f39a646d1b4f518f264cc0ceefcc3ce4c1fdf5"
+    },
+    "b4_candidate_pr63": {
+      "workflow_run": 37469940904,
+      "source_commit": "56516c34719670054e12218bd3781e9725ae4f65",
+      "profile_domain_artifact_id": 11429690812,
+      "profile_domain_artifact_sha256": "dfd32a14787cd30a4ff29146c063ee459c8223761c00b26e3a8933445630c9f5",
+      "candidate_aggregate_artifact_id": 11428968112,
+      "candidate_aggregate_artifact_sha256": "15ddaba2c3276eb51c993619c1c11a8f3142bcbcfcd8c5816775ed80a7882f62",
+      "candidate_aggregate_report_sha256": "ba12820d8c19556dbe03dbc1ebaca4aeb7427a7b2c8d6ce3c668535a01424b3a",
+      "final_gate_artifact_id": 11428583715,
+      "final_gate_artifact_sha256": "fc8a3991e510cae91c7b4b3b5004be91b64e9e6d87451bf88d79f611dc62a035",
+      "qualification_disposition": "QUALIFIED_EXACT_HOST_ONLY",
+      "execution_domain_id": "exec-domain/0bf11e027cd419ae8f8a",
+      "execution_domain_digest": "0bf11e027cd419ae8f8abee52cfa52aef017b525598ca8237acc0a87ae4458ef"
     }
   },
   "observations": {
@@ -115,6 +133,20 @@
           440
         ],
         "note": "Cross-run evidence spans two hosted CPU identities; the revised workflow adds three same-head confirmation repeats."
+      },
+      "b4_promotion_basis": {
+        "profile": "b4-p0-c256k-cold",
+        "nn_cache_size": 262144,
+        "minibatch_size": 4,
+        "max_prefetch": 0,
+        "warmup_nodes": null,
+        "workflow_run": 37469940904,
+        "candidate_qualified": true,
+        "promotion_ready": true,
+        "qualification_disposition": "QUALIFIED_EXACT_HOST_ONLY",
+        "bestmove_repeatability": "3/3 complete frozen-corpus vectors stable on the qualified candidate run",
+        "native_work_policy": "lc0-node-stop-contract-v1",
+        "note": "Promotion changes the canonical profile identity only; engine/network source, resource reservations, move authority, STOP promotion, and deployment/strength claims remain unchanged."
       }
     },
     "stockfish": {
@@ -153,7 +185,7 @@
       "prior_selected_reservation_ms": 400,
       "revised_explore_reservation_ms": 600,
       "revised_verify_reservation_ms": 800,
-      "note": "The 600/800 ms reservations are conservative prequalification values for the revised warm b7/p8 profile. Fresh exact-head G3-v2 resource reports must fit inside them before promotion; the aggregate now checks that directly."
+      "note": "The 600/800 ms LC0 reservations remain the conservative canonical reservations after b4 promotion. PR #63 candidate G3/LOCAL-1 measurements fit inside these bounds; a fresh exact-head canonical aggregate must reconfirm them before merge."
     }
   },
   "selected": {
@@ -168,13 +200,12 @@
     "lc0": {
       "backend": "blas",
       "network": "791556",
-      "matrix_profile": "b7-p8-c256k-warm64",
       "nn_cache_size": 262144,
-      "minibatch_size": 7,
-      "max_prefetch": 8,
+      "minibatch_size": 4,
+      "max_prefetch": 0,
       "adaptive_prefetch": false,
       "defect_telemetry": false,
-      "warmup_nodes": 64,
+      "warmup_nodes": null,
       "phase_multipv": {
         "EXPLORE": 1,
         "VERIFY": 3,
@@ -182,7 +213,8 @@
       },
       "uci_args": [
         "--show-hidden"
-      ]
+      ],
+      "matrix_profile": "b4-p0-c256k-cold"
     },
     "resource_estimates_ms": {
       "explore": {

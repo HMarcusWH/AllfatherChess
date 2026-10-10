@@ -27,6 +27,7 @@ from .candidate_matrix import (
     expand_candidates,
     expand_compositions,
     load_lab_spec,
+    reference_contract_manifest,
     stage_a_attempt_plan,
     stage_b_attempt_plan,
     validate_reference_contract,
@@ -237,17 +238,6 @@ def run_isolated(
     return row
 
 
-def _reference_contract_manifest(spec, spec_path: Path) -> dict[str, Any]:
-    root = spec_path.parents[1]
-    return {
-        key: {
-            "path": path,
-            "sha256": sha256(root / path),
-        }
-        for key, path in spec.raw["reference_contract"].items()
-    }
-
-
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -326,7 +316,7 @@ def main() -> int:
             "sha256": sha256(ROOT / spec.corpus),
             "cases": [case.case_id for case in cases],
         },
-        "reference_contract": _reference_contract_manifest(spec, spec_path),
+        "reference_contract": reference_contract_manifest(spec, ROOT),
         "candidate_bundle": candidate_bundle,
         "execution_domain": execution_domain,
         "attempt_policy": spec.raw["attempt_policy"],

@@ -6,10 +6,13 @@ on:
     paths:
       - 'engines/**'
       - 'vendor.lock.json'
+      - 'qualification/resource-lab-v1.json'
       - 'qualification/resource-lab-v2.json'
       - 'qualification/resource-profile-evidence-v2.json'
       - 'qualification/resource-profile-evidence-v2-source.json'
       - 'qualification/resource-profile-selection-v2.json'
+      - 'qualification/resource-profile-catalog-v1-j7-baseline.json'
+      - 'qualification/online-engine-opt-v2-j7-baseline.json'
       - 'qualification/engine-opt-v2-candidate-selection.json'
       - 'qualification/engine-opt-v2-candidate-evidence.json'
       - 'qualification/online-engine-opt-v2.json'
@@ -17,6 +20,7 @@ on:
       - 'qualification/lc0-strength.lock.json'
       - 'qualification/lc0-strength-profile.json'
       - 'config/allfather.online-engine-opt-v2.candidate.json'
+      - 'config/allfather.online-hybrid-v2.validation-j7-baseline.json'
       - 'tools/resource_lab/**'
       - 'tools/engine_opt/**'
       - 'controller/engine_opt_profile.py'
@@ -25,6 +29,8 @@ on:
       - 'tests/fixtures/engine_opt/**'
       - 'tests/harness/uci_session.py'
       - 'Makefile'
+      - 'scripts/ci-install-apt-deps.sh'
+      - 'tests/ci/test_apt_installer.py'
       - '.github/workflows/resource-profile-lab-v2.yml'
       - 'scripts/build-online-engine-opt-v2.sh'
       - 'scripts/qualify-engine-opt-v2-candidate.py'
@@ -69,6 +75,9 @@ jobs:
           python3 -m compileall -q tools/resource_lab tests/resource_lab tests/harness/uci_session.py controller/resource_profile_catalog.py
           python3 -m json.tool qualification/resource-lab-v1.json >/dev/null
           python3 -m json.tool qualification/resource-lab-v2.json >/dev/null
+          python3 -m json.tool qualification/resource-profile-catalog-v1-j7-baseline.json >/dev/null
+          python3 -m json.tool qualification/online-engine-opt-v2-j7-baseline.json >/dev/null
+          python3 -m json.tool config/allfather.online-hybrid-v2.validation-j7-baseline.json >/dev/null
           python3 -m json.tool qualification/resource-profile-evidence-v2.json >/dev/null
           python3 -m json.tool qualification/resource-profile-evidence-v2-source.json >/dev/null
           python3 -m json.tool qualification/resource-profile-selection-v2.json >/dev/null
@@ -87,13 +96,12 @@ jobs:
         with:
           ref: ${{ env.ALLFATHER_SOURCE_SHA }}
       - name: Verify exact source checkout
+        timeout-minutes: 5
         run: test "$(git rev-parse HEAD)" = "$ALLFATHER_SOURCE_SHA"
       - name: Install build dependencies
+        timeout-minutes: 5
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            build-essential meson ninja-build pkg-config \
-            libprotobuf-dev protobuf-compiler zlib1g-dev libopenblas-dev
+          bash scripts/ci-install-apt-deps.sh build-essential meson ninja-build pkg-config libprotobuf-dev protobuf-compiler zlib1g-dev libopenblas-dev
       - name: Cache networks
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
@@ -135,15 +143,16 @@ jobs:
           name: resource-lab-v2-candidate
           path: build/candidate-download
       - name: Restore exact candidate bundle
+        timeout-minutes: 5
         run: |
           test -d build/candidate-download/online-engine-opt-v2
           rm -rf build/online-engine-opt-v2
           mv build/candidate-download/online-engine-opt-v2 build/online-engine-opt-v2
           chmod +x build/online-engine-opt-v2/bin/*
       - name: Install runtime measurement dependencies
+        timeout-minutes: 5
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libopenblas-dev libprotobuf-dev zlib1g-dev
+          bash scripts/ci-install-apt-deps.sh libopenblas-dev libprotobuf-dev zlib1g-dev
       - name: Capture one canonical execution domain
         run: |
           mkdir -p build/test-results/resource-lab-v2

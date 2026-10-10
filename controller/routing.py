@@ -32,6 +32,7 @@ from __future__ import annotations
 import json
 import math
 import threading
+import time
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -768,6 +769,7 @@ class ConservativeRouter:
         self._work_grant_unresolved = False
         self._fallback = False
         self._anchor_reserved = False
+        self._controller_cpu_accounting_complete = True
 
         if self.work_scheduler is not None:
             if not isinstance(resource_plan, MoveResourcePlan):
@@ -780,20 +782,35 @@ class ConservativeRouter:
                     "exact J8 legacy execution remains in force"
                 )
 
-        # Controller work already done for this run -- run preparation and the
-        # legal-root oracle -- happened before any reservation existed. Charging
-        # it now keeps it inside B instead of outside the accounting.
-        already_elapsed = 0.0
-        try:
+        # Measure process CPU from the external-go receipt until router entry.
+        # This interval is before the thread-local charges made later.
+        started_cpu_ns = getattr(context, "controller_cpu_started_ns", None)
+        valid_origin = (
+            type(started_cpu_ns) is int and started_cpu_ns >= 0
+            and (clock is None or started_cpu_ns == clock.plan.controller_cpu_started_ns)
+        )
+        if valid_origin:
+            now_cpu_ns = time.process_time_ns()
+            if now_cpu_ns >= started_cpu_ns:
+                measured_cpu_ms = (now_cpu_ns - started_cpu_ns) / 1_000_000.0
+                if measured_cpu_ms > 0.0:
+                    self.ledger.charge_elapsed(
+                        "qualification",
+                        cpu_ms=measured_cpu_ms,
+                        note="controller.qualification_ms",
+                    )
+            else:
+                valid_origin = False
+        if not valid_origin:
+            # No missing measurement can silently become free work. Synthetic
+            # non-resource callers keep the conservative historical wall proxy.
+            self._controller_cpu_accounting_complete = False
             already_elapsed = max(0.0, float(context.elapsed_ms()))
-        except Exception:  # pragma: no cover - defensive against older contexts
-            already_elapsed = 0.0
-        if already_elapsed > 0.0:
-            self.ledger.charge_elapsed(
-                "qualification",
-                cpu_ms=already_elapsed,
-                note="controller.qualification_ms",
-            )
+            if already_elapsed > 0.0:
+                self.ledger.charge_elapsed(
+                    "qualification", cpu_ms=already_elapsed,
+                    note="controller.qualification_ms",
+                )
 
         if self.calibration is None:
             self.audit.note(
@@ -1392,21 +1409,41 @@ class ConservativeRouter:
 
         resource_qualified = not resource_required
         physical_cpu_within = not resource_required
+        controller_cpu_within = not resource_required
         cpu_measurement = "stage_wall_ms_x_configured_threads"
         if isinstance(resource_summary, dict):
             if resource_required:
                 resource_qualified = bool(resource_summary.get("qualified"))
             physical_cpu = resource_summary.get("physical_cpu_ms")
             if isinstance(physical_cpu, (int, float)) and not isinstance(physical_cpu, bool):
-                physical_cpu_within = float(physical_cpu) <= self.envelope.cpu_ms
+                physical_cpu_within = math.isfinite(float(physical_cpu)) and (
+                    0.0 <= float(physical_cpu) <= self.envelope.cpu_ms
+                )
             elif resource_required:
                 physical_cpu_within = False
+            # ResourceMeasurementRun.seal() returns a summary; resource.json
+            # keeps the independently verifiable nested controller field.
+            controller_cpu = resource_summary.get("controller_cpu_ms")
+            controller_cpu_within = (
+                not resource_required or bool(
+                    type(controller_cpu) in (int, float)
+                    and math.isfinite(float(controller_cpu))
+                    and 0.0 <= float(controller_cpu)
+                    <= self.envelope.controller_overhead_reserve_ms
+                )
+            )
             provider = resource_summary.get("provider")
             if resource_summary.get("qualified") and isinstance(provider, str):
                 cpu_measurement = provider
 
         clock = getattr(context, "clock", None)
         clock_complete = clock is None or bool(clock.outcome()["output_within_deadline"])
+        # Sample the terminal wall clock once. Computing budget.elapsed_ms,
+        # wall_ms_elapsed, wall_within_envelope and claimed at separate instants
+        # permitted internally contradictory certificates at hard expiry.
+        terminal_budget = self.ledger.snapshot()
+        terminal_wall_ms = terminal_budget["elapsed_ms"]
+        terminal_wall_within = terminal_wall_ms <= self.envelope.wall_ms
         payload = {
             "schema_version": ROUTE_SCHEMA_VERSION,
             "run_id": audit.run_id,
@@ -1414,7 +1451,7 @@ class ConservativeRouter:
             "thresholds": self.policy.as_dict(),
             "envelope": self.envelope.as_dict(),
             "calibration": self._calibration_provenance(),
-            "budget": self.ledger.snapshot(),
+            "budget": terminal_budget,
             "resource_measurement": resource_summary,
             "envelope_claim": {
                 # Reservation accounting staying inside B is necessary but not
@@ -1433,14 +1470,16 @@ class ConservativeRouter:
                 # wall envelope -- a slow legal-root oracle alone can do it --
                 # and a claim that ignores the clock is not a claim about the
                 # envelope that was declared.
-                "wall_ms_elapsed": round(self.ledger.elapsed_ms(), 3),
-                "wall_within_envelope": (
-                    self.ledger.elapsed_ms() <= self.envelope.wall_ms
-                ),
+                "wall_ms_elapsed": terminal_wall_ms,
+                "wall_within_envelope": terminal_wall_within,
                 "cpu_measurement": cpu_measurement,
                 "physical_measurement_required": resource_required,
                 "physical_measurement_qualified": resource_qualified,
                 "physical_cpu_within_envelope": physical_cpu_within,
+                "controller_cpu_within_partition": controller_cpu_within,
+                "controller_cpu_accounting_complete": (
+                    self._controller_cpu_accounting_complete or not resource_required
+                ),
                 "claimed": (
                     clock_complete
                     and self._anchor_bound[0]
@@ -1450,9 +1489,11 @@ class ConservativeRouter:
                     and self.ledger.within_partition_caps()
                     and not self._specialist_unresolved
                     and not self._work_grant_unresolved
-                    and self.ledger.elapsed_ms() <= self.envelope.wall_ms
+                    and terminal_wall_within
                     and resource_qualified
                     and physical_cpu_within
+                    and controller_cpu_within
+                    and (self._controller_cpu_accounting_complete or not resource_required)
                 ),
             },
             "decisions": audit.decisions,
@@ -1727,16 +1768,20 @@ class ConservativeRouter:
                 }
             )
 
-    def charge_controller_elapsed(self, label: str, elapsed_ms: float) -> None:
-        """Charge controller-side specialist preparation/restoration work."""
-
-        value = max(0.0, float(elapsed_ms))
+    def charge_controller_elapsed(self, label: str, cpu_ms: float) -> None:
+        """Charge measured controller thread CPU, not wall delay."""
+        value = self.ledger._finite_nonnegative(cpu_ms, "controller thread CPU")
         self.ledger.charge_elapsed(
             f"controller:{label}",
             cpu_ms=value,
             note=f"controller.{label}_ms",
             purpose="controller",
         )
+
+    def invalidate_controller_cpu_accounting(self, reason: str) -> None:
+        self._controller_cpu_accounting_complete = False
+        if self.audit is not None:
+            self.audit.note(f"controller CPU accounting incomplete: {reason}")
 
     def _calibration_provenance(self) -> dict[str, Any] | None:
         if self.calibration is None:

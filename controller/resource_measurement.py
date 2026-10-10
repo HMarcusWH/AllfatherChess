@@ -28,6 +28,7 @@ from adapters.resource import (
 
 RESOURCE_SCHEMA_VERSION = 1
 SUPPORTED_RESOURCE_PROVIDERS = ("linux-procfs-v1",)
+RESOURCE_FAILURE_PREPARATION_BUDGET_EXCEEDED = "PREPARATION_BUDGET_EXCEEDED"
 
 
 class ResourceMeasurementError(RuntimeError):
@@ -188,6 +189,9 @@ class ResourceMeasurementRun:
         self._process_endpoints_frozen = False
         self._interval_frozen = False
         self._sealed: dict[str, object] | None = None
+        # Diagnostic timestamps do not participate in the physical certificate.
+        # Keep them outside resource.json: evidence hashes/claim semantics are unchanged.
+        self._seal_phase_ns: dict[str, int] | None = None
 
     @property
     def provider_id(self) -> str:
@@ -318,7 +322,25 @@ class ResourceMeasurementRun:
                 raise ResourceMeasurementError(
                     f"instance {instance!r} already has active measured stage {other!r}"
                 )
+
+            # The first real stage for an instance is also its run-level process
+            # baseline. This removes a redundant procfs sample from the
+            # pre-anchor path while still charging all subsequent work and gaps.
+            needs_process_baseline = (
+                instance not in self._process_starts
+                and instance not in self._process_totals
+            )
             if self._provider is None:
+                reason = self._provider_error or "resource provider unavailable"
+                if needs_process_baseline:
+                    self._process_totals[instance] = {
+                        "instance": instance,
+                        "pid": pid,
+                        "complete": False,
+                        "cpu_ms": None,
+                        "wall_ms": None,
+                        "reason": reason,
+                    }
                 self._measurements[key] = StageResourceMeasurement(
                     key=key,
                     instance=instance,
@@ -330,10 +352,20 @@ class ResourceMeasurementRun:
                     start_rss_bytes=None,
                     end_rss_bytes=None,
                     vm_hwm_bytes=None,
-                    reason=self._provider_error or "resource provider unavailable",
+                    reason=reason,
                 )
                 return
             if pid is None:
+                reason = "backend pid unavailable at dispatch"
+                if needs_process_baseline:
+                    self._process_totals[instance] = {
+                        "instance": instance,
+                        "pid": None,
+                        "complete": False,
+                        "cpu_ms": None,
+                        "wall_ms": None,
+                        "reason": reason,
+                    }
                 self._measurements[key] = StageResourceMeasurement(
                     key=key,
                     instance=instance,
@@ -345,12 +377,22 @@ class ResourceMeasurementRun:
                     start_rss_bytes=None,
                     end_rss_bytes=None,
                     vm_hwm_bytes=None,
-                    reason="backend pid unavailable at dispatch",
+                    reason=reason,
                 )
                 return
             try:
                 start = self._provider.snapshot(pid)
             except Exception as exc:
+                reason = f"start sample failed: {type(exc).__name__}: {exc}"
+                if needs_process_baseline:
+                    self._process_totals[instance] = {
+                        "instance": instance,
+                        "pid": pid,
+                        "complete": False,
+                        "cpu_ms": None,
+                        "wall_ms": None,
+                        "reason": f"run baseline {reason}",
+                    }
                 self._measurements[key] = StageResourceMeasurement(
                     key=key,
                     instance=instance,
@@ -362,9 +404,11 @@ class ResourceMeasurementRun:
                     start_rss_bytes=None,
                     end_rss_bytes=None,
                     vm_hwm_bytes=None,
-                    reason=f"start sample failed: {type(exc).__name__}: {exc}",
+                    reason=reason,
                 )
                 return
+            if needs_process_baseline:
+                self._process_starts[instance] = start
             self._active[key] = _ActiveStage(
                 key=key,
                 instance=instance,
@@ -661,6 +705,25 @@ class ResourceMeasurementRun:
             except FileNotFoundError:
                 pass
 
+    def seal_timing_ms(self, *, started_monotonic: float) -> dict[str, float] | None:
+        """Non-authorizing diagnostic for freeze, serialization, and durable I/O.
+
+        The caller supplies the same external-go origin as its BudgetLedger.
+        This trace must never be used as a substitute for a wall claim or CPU
+        measurement; it is retained only to diagnose post-publication latency.
+        """
+        with self._lock:
+            marks = None if self._seal_phase_ns is None else dict(self._seal_phase_ns)
+        if marks is None:
+            return None
+        origin_ns = int(started_monotonic * 1_000_000_000)
+        return {
+            "freeze_wall_ms": round(max(0, marks["freeze"] - origin_ns) / 1_000_000, 3),
+            "serialization_ms": round(max(0, marks["serialized"] - marks["freeze"]) / 1_000_000, 3),
+            "durable_write_ms": round(max(0, marks["persisted"] - marks["serialized"]) / 1_000_000, 3),
+            "persisted_wall_ms": round(max(0, marks["persisted"] - origin_ns) / 1_000_000, 3),
+        }
+
     def seal(self, path: Path, *, validity_check: Callable[[], bool] | None = None) -> dict[str, object]:
         with self._lock:
             if self._sealed is not None:
@@ -673,6 +736,7 @@ class ResourceMeasurementRun:
                     reason="resource report sealed before a terminal stage sample was observed",
                 )
             self.freeze_interval()
+            frozen_ns = time.monotonic_ns()
             if validity_check is not None and not validity_check():
                 self._interval_error = "measurement interval crossed an online anchor generation"
             payload = self._report_payload()
@@ -681,7 +745,14 @@ class ResourceMeasurementRun:
             digest = hashlib.sha256(self._canonical_bytes(payload)).hexdigest()
             payload["report_id"] = f"resource-{digest[:16]}"
             rendered = json.dumps(payload, indent=2, sort_keys=True) + "\n"
+            serialized_ns = time.monotonic_ns()
             self._atomic_write(Path(path), rendered)
+            persisted_ns = time.monotonic_ns()
+            self._seal_phase_ns = {
+                "freeze": frozen_ns,
+                "serialized": serialized_ns,
+                "persisted": persisted_ns,
+            }
             file_sha = hashlib.sha256(rendered.encode("utf-8")).hexdigest()
             summary = {
                 "path": Path(path).name,
@@ -696,3 +767,94 @@ class ResourceMeasurementRun:
             }
             self._sealed = summary
             return dict(summary)
+
+
+
+def seal_unqualified_resource_report(
+    path: Path,
+    *,
+    run_id: str,
+    settings: ResourceMeasurementSettings,
+    failure_code: str,
+    failure_reason: str,
+    controller_cpu_started_ns: int,
+) -> dict[str, object]:
+    """Seal explicit negative resource evidence when measurement never started."""
+
+    if not settings.enabled:
+        raise ResourceMeasurementError(
+            "negative resource evidence requires enabled measurement settings"
+        )
+    if failure_code != RESOURCE_FAILURE_PREPARATION_BUDGET_EXCEEDED:
+        raise ResourceMeasurementError(
+            f"unsupported negative resource failure code: {failure_code!r}"
+        )
+    if not isinstance(failure_reason, str) or not failure_reason:
+        raise ResourceMeasurementError("negative resource failure reason is required")
+
+    controller_cpu_ms = max(
+        0.0,
+        (time.process_time_ns() - int(controller_cpu_started_ns)) / 1_000_000.0,
+    )
+    coverage = {
+        "cpu": {
+            "required": settings.require_cpu_for_claim,
+            "complete": False,
+        },
+        "gpu": {
+            "required": settings.require_gpu_for_claim,
+            "complete": False,
+            "provider": None,
+        },
+        "memory": {
+            "recorded": settings.record_memory,
+            "semantics": (
+                "endpoint RSS plus process-lifetime VmHWM; VmHWM is not a stage-local peak"
+                if settings.record_memory
+                else "disabled"
+            ),
+        },
+    }
+    payload: dict[str, object] = {
+        "schema_version": RESOURCE_SCHEMA_VERSION,
+        "run_id": run_id,
+        "provider": settings.provider,
+        "settings": settings.as_dict(),
+        "provider_error": None,
+        "coverage": coverage,
+        "controller": {
+            "source": "time.process_time_ns",
+            "cpu_ms": round(controller_cpu_ms, 3),
+            "scope": (
+                "controller process CPU from replay-run creation through negative "
+                "resource-certificate sealing; backend physical measurement never started"
+            ),
+        },
+        "engine_cpu_ms": 0.0,
+        "stage_engine_cpu_ms": 0.0,
+        "physical_cpu_ms": round(controller_cpu_ms, 3),
+        "processes": {},
+        "stages": [],
+        "qualified": False,
+        "failure": {
+            "code": failure_code,
+            "reason": failure_reason,
+        },
+    }
+    digest = hashlib.sha256(ResourceMeasurementRun._canonical_bytes(payload)).hexdigest()
+    payload["report_id"] = f"resource-{digest[:16]}"
+    rendered = json.dumps(payload, indent=2, sort_keys=True) + "\n"
+    ResourceMeasurementRun._atomic_write(Path(path), rendered)
+    file_sha = hashlib.sha256(rendered.encode("utf-8")).hexdigest()
+    return {
+        "path": Path(path).name,
+        "sha256": file_sha,
+        "report_id": payload["report_id"],
+        "provider": payload["provider"],
+        "coverage": payload["coverage"],
+        "qualified": False,
+        "physical_cpu_ms": payload["physical_cpu_ms"],
+        "engine_cpu_ms": 0.0,
+        "controller_cpu_ms": payload["controller"]["cpu_ms"],
+        "failure": payload["failure"],
+    }

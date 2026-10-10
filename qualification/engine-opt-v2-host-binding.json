@@ -44,18 +44,32 @@
     "deployment": false
   },
   "current_domain_bound_qualification": {
-    "pull_request": 49,
-    "qualified_head": "3de528e5a1a5a3609e0c293a80296ddc4a006875",
-    "merge_commit": "0ff86cc53d336780fa0d0566fe0ee414a7b70f3b",
-    "aggregate_workflow_run": 36589207658,
-    "aggregate_artifact_id": 11047727810,
-    "aggregate_artifact_sha256": "efd4f3b0ba3d119ad558d3b81072f3e5f9e81aa1b34d627c6ba890d64303f35b",
-    "aggregate_report_sha256": "b4f1de8f4ae338ba19350acdddf570c43b55fa08d7274e791c1a4eeab5bf6943",
+    "pull_request": 64,
+    "qualified_head": "b90af9f1760c9611826afc2fd26ad0dc438d4557",
+    "aggregate_workflow_run": 38012334421,
+    "aggregate_artifact_id": 11657944410,
+    "aggregate_artifact_sha256": "daf8ff2a3bfb2300de02d60a60baacf52c14638ff4d3aa41d3f0394e5205dbbd",
+    "aggregate_report_sha256": "f1748fea0de0b8712fc47ae216c2111c525f8a3c645d044f670837ee2e81f9e1",
     "qualification_disposition": "QUALIFIED_EXACT_HOST_ONLY",
     "binding_scope": "exact_host_observation",
-    "execution_domain_id": "exec-domain/9284bde03da0ebd1677f",
-    "execution_domain_digest": "9284bde03da0ebd1677fafa4a5078c00cc842f0b3b5ea8079c6f7989189199af",
+    "execution_domain_id": "exec-domain/2e9673f5cea55cf86e59",
+    "execution_domain_digest": "2e9673f5cea55cf86e59f34ae1b4d1dddea1c19c4972ac34b323465ab3bd0e2c",
     "generic_host_portability_established": false,
-    "note": "This is the first post-J2 qualification whose LC0 matrix, G3-v2 authority evidence, LOCAL-1-v2 lifecycle evidence and candidate artifact identity were all bound to one reconstructed execution domain."
+    "note": "PR #64 canonical b4 source b90af9f1760c9611826afc2fd26ad0dc438d4557 independently qualified at exact unmerged source parent with aggregate workflow 38012334421 and byte-verified aggregate ZIP/report. Frozen for immediate-child promotion only. Catalog merge_commit remains the actual PR #63 mainline merge cae842801497161f2de37ff43b27d074ac12568a; it is NOT a PR #64 merge. No generic-host, deployment, Elo, or strength authority."
+  },
+  "b4_candidate_promotion_seed": {
+    "pull_request": 63,
+    "qualified_head": "56516c34719670054e12218bd3781e9725ae4f65",
+    "merge_commit": "cae842801497161f2de37ff43b27d074ac12568a",
+    "workflow_run": 37469940904,
+    "aggregate_artifact_id": 11428968112,
+    "aggregate_artifact_sha256": "15ddaba2c3276eb51c993619c1c11a8f3142bcbcfcd8c5816775ed80a7882f62",
+    "aggregate_report_sha256": "ba12820d8c19556dbe03dbc1ebaca4aeb7427a7b2c8d6ce3c668535a01424b3a",
+    "qualification_disposition": "QUALIFIED_EXACT_HOST_ONLY",
+    "binding_scope": "exact_host_observation",
+    "execution_domain_id": "exec-domain/0bf11e027cd419ae8f8a",
+    "execution_domain_digest": "0bf11e027cd419ae8f8abee52cfa52aef017b525598ca8237acc0a87ae4458ef",
+    "canonical_promotion_complete": true,
+    "note": "Historical PR #63 candidate b4 seed retained unchanged; PR #64 independently qualified canonical b4 at the immediately preceding promotion head and froze that new evidence separately. No generic-host or deployment grant."
   }
 }

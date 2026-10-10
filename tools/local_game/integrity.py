@@ -169,6 +169,12 @@ def verify_prerequisites(output: Path, source: dict, p: dict | None = None) -> N
             if label == "g3-v2":
                 require(report.get("evidence_valid") is True,
                         f"{label}: prerequisite evidence is invalid")
+                if (p.get("qualification") or {}).get("require_g3_positive_prerequisite") is True:
+                    from tools.engine_opt.g3_b4 import (
+                        B4_POLICY, file_hash, require_positive_g3, validate_b4_policy,
+                    )
+                    validate_b4_policy(ROOT)
+                    require_positive_g3(report, policy_sha256=file_hash(ROOT, B4_POLICY))
             elif label == "j12":
                 require(
                     report.get("mechanism_valid") is True
@@ -500,6 +506,9 @@ def verify_resource_claim(run: Path, manifest: dict) -> dict:
     """
     from common.search_request import parse_go_request
     from controller.budget import ResourceEnvelope
+    from controller.resource_measurement import (
+        RESOURCE_FAILURE_PREPARATION_BUDGET_EXCEEDED,
+    )
 
     resource_path = run / "resource.json"
     route_path = run / "route.json"
@@ -516,11 +525,29 @@ def verify_resource_claim(run: Path, manifest: dict) -> dict:
 
     stages = resource.get("stages")
     processes = resource.get("processes")
-    require(isinstance(stages, list) and stages, "resource stages are missing")
-    require(isinstance(processes, dict) and processes, "resource process totals are missing")
+    require(isinstance(stages, list), "resource stages are not an array")
+    require(isinstance(processes, dict), "resource process totals are not an object")
+
+    failure = resource.get("failure")
+    preparation_timeout = bool(
+        isinstance(failure, dict)
+        and failure.get("code")
+        == RESOURCE_FAILURE_PREPARATION_BUDGET_EXCEEDED
+    )
+    if preparation_timeout:
+        require(
+            isinstance(failure.get("reason"), str) and failure["reason"],
+            "preparation-timeout resource evidence lacks failure reason",
+        )
+        require(not stages and not processes,
+                "preparation-timeout resource evidence fabricated primitive rows")
+    else:
+        require(stages, "resource stages are missing")
+        require(processes, "resource process totals are missing")
+        require(failure is None, "qualified resource evidence carries unexpected failure")
 
     stage_cpu = 0.0
-    stage_complete = True
+    stage_complete = bool(stages)
     for row in stages:
         require(isinstance(row, dict) and type(row.get("complete")) is bool,
                 "malformed measured stage")
@@ -532,7 +559,7 @@ def verify_resource_claim(run: Path, manifest: dict) -> dict:
             require(row.get("cpu_ms") is None, "incomplete stage carries fabricated CPU")
 
     process_cpu = 0.0
-    process_complete = True
+    process_complete = bool(processes)
     for name, row in processes.items():
         require(isinstance(name, str) and name and isinstance(row, dict) and
                 type(row.get("complete")) is bool, "malformed process total")
@@ -552,6 +579,8 @@ def verify_resource_claim(run: Path, manifest: dict) -> dict:
     cpu_complete = bool(
         resource.get("provider_error") is None
         and resource.get("interval_error") is None
+        and bool(stages)
+        and bool(processes)
         and stage_complete
         and process_complete
     )
@@ -694,6 +723,7 @@ def verify_resource_claim(run: Path, manifest: dict) -> dict:
     )
     wall_within = _number(budget.get("elapsed_ms"), "budget elapsed_ms") <= envelope.wall_ms + 1e-6
     physical_within = physical <= envelope.cpu_ms + 1e-6
+    controller_cpu_within = controller_cpu <= envelope.controller_overhead_reserve_ms + 1e-6
     clock_complete = (manifest.get("clock_outcome") or {}).get("output_within_deadline") is True
 
     claim = route.get("envelope_claim") or {}
@@ -708,6 +738,8 @@ def verify_resource_claim(run: Path, manifest: dict) -> dict:
         "physical_measurement_required": bool(settings.get("require_cpu_for_claim") or settings.get("require_gpu_for_claim")),
         "physical_measurement_qualified": expected_qualified,
         "physical_cpu_within_envelope": physical_within,
+        "controller_cpu_within_partition": controller_cpu_within,
+        "controller_cpu_accounting_complete": True,
         "clock_output_complete": clock_complete,
     }
     for key, value in derived.items():
@@ -715,7 +747,8 @@ def verify_resource_claim(run: Path, manifest: dict) -> dict:
     expected_claim = all((
         clock_complete, anchor_bounded, anchor_reserved, gpu_accounted,
         within_envelope, within_partitions, settlement_complete, wall_within,
-        expected_qualified, physical_within,
+        expected_qualified, physical_within, controller_cpu_within,
+        claim.get("controller_cpu_accounting_complete") is True,
     ))
     require(claim.get("claimed") is expected_claim,
             "envelope claimed flag contradicts reconstructed evidence")

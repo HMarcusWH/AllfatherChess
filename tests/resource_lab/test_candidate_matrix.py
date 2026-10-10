@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import sys
 import unittest
@@ -10,12 +11,15 @@ from pathlib import Path
 ROOT=Path(__file__).resolve().parents[2]
 sys.path.insert(0,str(ROOT))
 
+import tools.resource_lab.candidate_matrix as candidate_matrix_mod
 from tools.resource_lab.candidate_matrix import (
     LabSpec,
     ResourceLabSpecError,
     expand_candidates,
     expand_compositions,
     load_lab_spec,
+    reference_contract_manifest,
+    resolve_reference_contract_paths,
     stage_a_attempt_plan,
     stage_b_attempt_plan,
     validate_lab_spec,
@@ -24,6 +28,7 @@ from tools.resource_lab.candidate_matrix import (
 
 SPEC=ROOT/"qualification/resource-lab-v1.json"
 SPEC_V2=ROOT/"qualification/resource-lab-v2.json"
+EVIDENCE_V1=ROOT/"qualification/resource-profile-evidence-v1.json"
 
 
 def fake_manifest():
@@ -103,8 +108,62 @@ class CandidateMatrixTests(unittest.TestCase):
         self.assertNotEqual(first.candidate_id,second.candidate_id)
         self.assertNotEqual(first.digest,second.digest)
 
-    def test_v2_reference_contract_matches_runtime_catalog_and_build_policy(self):
-        validate_reference_contract(load_lab_spec(SPEC),ROOT)
+    def test_v1_reference_contract_matches_frozen_historical_archive(self):
+        spec=load_lab_spec(SPEC)
+        declared=dict(spec.raw["reference_contract"])
+        resolved=resolve_reference_contract_paths(spec)
+        self.assertEqual(
+            declared,
+            {
+                "catalog":"qualification/resource-profile-catalog-v1.json",
+                "runtime":"config/allfather.online-hybrid-v2.validation.json",
+                "build_policy":"qualification/online-engine-opt-v2.json",
+            },
+        )
+        self.assertEqual(
+            resolved,
+            {
+                "catalog":"qualification/resource-profile-catalog-v1-j7-baseline.json",
+                "runtime":"config/allfather.online-hybrid-v2.validation-j7-baseline.json",
+                "build_policy":"qualification/online-engine-opt-v2-j7-baseline.json",
+            },
+        )
+
+        evidence=json.loads(EVIDENCE_V1.read_text())["source"]
+        self.assertEqual(
+            hashlib.sha256(SPEC.read_bytes()).hexdigest(),
+            evidence["lab_spec"]["sha256"],
+        )
+        manifest=reference_contract_manifest(spec,ROOT)
+        for key,row in manifest.items():
+            self.assertEqual(row["path"],evidence["reference_contract"][f"{key}_path"])
+            self.assertEqual(row["sha256"],evidence["reference_contract"][f"{key}_sha256"])
+            self.assertEqual(row["resolved_path"],resolved[key])
+
+        live=json.loads(
+            (ROOT/"config/allfather.online-hybrid-v2.validation.json").read_text()
+        )["instances"]["lc0-shadow"]
+        archived=json.loads(
+            (ROOT/"config/allfather.online-hybrid-v2.validation-j7-baseline.json").read_text()
+        )["instances"]["lc0-shadow"]
+        self.assertEqual(live["options"]["MinibatchSize"],4)
+        self.assertEqual(live["options"]["MaxPrefetch"],0)
+        self.assertNotIn("warmup",live)
+        self.assertEqual(archived["options"]["MinibatchSize"],7)
+        self.assertEqual(archived["options"]["MaxPrefetch"],8)
+        self.assertEqual(archived["warmup"]["nodes"],64)
+        validate_reference_contract(spec,ROOT)
+
+    def test_v1_reference_archive_cannot_fall_back_to_live_b4_runtime(self):
+        spec=load_lab_spec(SPEC)
+        archive=candidate_matrix_mod.REFERENCE_CONTRACT_ARCHIVE_PATHS_BY_LAB["resource-lab-v1"]
+        original=archive["runtime"]
+        try:
+            archive["runtime"]="config/allfather.online-hybrid-v2.validation.json"
+            with self.assertRaisesRegex(ResourceLabSpecError,"archived runtime SHA"):
+                validate_reference_contract(spec,ROOT)
+        finally:
+            archive["runtime"]=original
 
     def test_b4_v2_spec_binds_candidate_runtime_without_mutating_v1_catalog(self):
         spec=load_lab_spec(SPEC_V2)

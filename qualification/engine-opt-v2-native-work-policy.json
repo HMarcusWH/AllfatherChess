@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "policy_id": "lc0-node-stop-contract-v1",
+  "applies_to": {
+    "selection_profile_id": "engine-opt-v2-selection",
+    "selection_status": "selected",
+    "matrix_profile": "b4-p0-c256k-cold"
+  },
+  "requested_nodes": 16,
+  "terminal_counter_semantics": "lc0.uci_nodes",
+  "require_exact_terminal_counter_repeatability": false,
+  "required_options": {
+    "MaxConcurrentSearchers": 1,
+    "TaskWorkers": 0,
+    "Threads": 1
+  },
+  "evidence_basis": {
+    "workflow_run": 37469940904,
+    "source_commit": "56516c34719670054e12218bd3781e9725ae4f65",
+    "observation": "PR #63 established that LC0 terminal UCI node counters are threshold/batch diagnostics, not an exact deterministic work vector, while preserving exact bestmove repeatability, fixed go nodes 16 requests, lc0.uci_nodes semantics, completion and resource bounds."
+  },
+  "claim_boundary": {
+    "qualification_semantics_only": true,
+    "canonical_profile": true,
+    "runtime_profile_selection": false,
+    "resource_authorization": false,
+    "outward_move": false,
+    "generic_host_portability": false,
+    "strength": false,
+    "elo": false,
+    "equal_compute": false,
+    "deployment": false
+  }
+}

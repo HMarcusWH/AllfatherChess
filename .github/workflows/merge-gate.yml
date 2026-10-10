@@ -34,6 +34,9 @@ jobs:
           make telemetry-adapters
           make controller-tests
           make resource-lab-tests
+          python3 tests/engine_opt/test_aggregate_paths.py
+          python3 tests/ci/test_apt_installer.py
+          python3 tests/reckless_repro/test_repro.py
           python3 -m json.tool qualification/resource-profile-evidence-v1.json >/dev/null
           python3 -m json.tool qualification/resource-profile-selection-v1.json >/dev/null
           python3 scripts/qualify-resource-profile-selection.py --output build/test-results/resource-profile-selection/report.json

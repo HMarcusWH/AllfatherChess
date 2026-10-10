@@ -31,6 +31,8 @@ on:
       - 'tests/fixtures/fake_uci_engine.py'
       - 'vendor.lock.json'
       - 'Makefile*'
+      - 'scripts/ci-install-apt-deps.sh'
+      - 'tests/ci/test_apt_installer.py'
       - '.github/workflows/full-game-qualification.yml'
   push:
     branches: [main]
@@ -51,6 +53,8 @@ on:
       - 'tests/fixtures/fake_uci_engine.py'
       - 'vendor.lock.json'
       - 'Makefile*'
+      - 'scripts/ci-install-apt-deps.sh'
+      - 'tests/ci/test_apt_installer.py'
       - '.github/workflows/full-game-qualification.yml'
 
 permissions:
@@ -146,16 +150,18 @@ jobs:
         with:
           ref: ${{ env.ALLFATHER_SOURCE_SHA }}
       - name: Verify checkout identity
+        timeout-minutes: 5
         run: test "$(git rev-parse HEAD)" = "$ALLFATHER_SOURCE_SHA"
       - name: Download source-test attestation
+        timeout-minutes: 5
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: local1-fastchess-source-test
           path: build/fastchess-source-test
       - name: Install build dependencies
+        timeout-minutes: 5
         run: |
-          sudo apt-get update
-          sudo apt-get install -y             build-essential git meson ninja-build pkg-config             libprotobuf-dev protobuf-compiler zlib1g-dev libopenblas-dev
+          bash scripts/ci-install-apt-deps.sh build-essential git meson ninja-build pkg-config libprotobuf-dev protobuf-compiler zlib1g-dev libopenblas-dev
       - name: Build exact qualification binaries
         run: |
           make -f Makefile.local-game build-fastchess
@@ -193,16 +199,17 @@ jobs:
           test "$(git rev-parse HEAD)" = "$ALLFATHER_SOURCE_SHA"
           echo "ALLFATHER_RUNNER_ENVIRONMENT=${{ runner.environment }}" >> "$GITHUB_ENV"
       - name: Download exact qualification build bundle
+        timeout-minutes: 5
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: local1-qualification-build
           path: .
       - name: Restore executable bits and install runtime/test dependencies
+        timeout-minutes: 5
         run: |
           chmod +x build/tools/fastchess/bin/fastchess engines/lc0/build/release/lc0
           find build -path '*/bin/*' -type f -exec chmod +x {} +
-          sudo apt-get update
-          sudo apt-get install -y             meson ninja-build pkg-config libprotobuf-dev protobuf-compiler zlib1g-dev             libopenblas-dev python3-pip python3-setuptools python3-wheel
+          bash scripts/ci-install-apt-deps.sh meson ninja-build pkg-config libprotobuf-dev protobuf-compiler zlib1g-dev libopenblas-dev python3-pip python3-setuptools python3-wheel
           python3 -m pip install --break-system-packages --no-build-isolation --no-deps             --require-hashes -r qualification/local-game-requirements.txt
       - name: Validate legacy G3 resource calibration
         run: |
@@ -247,18 +254,20 @@ jobs:
         with:
           ref: ${{ env.ALLFATHER_SOURCE_SHA }}
       - name: Verify checkout identity
+        timeout-minutes: 5
         run: test "$(git rev-parse HEAD)" = "$ALLFATHER_SOURCE_SHA"
       - name: Download exact qualification build bundle
+        timeout-minutes: 5
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: local1-qualification-build
           path: build
       - name: Restore executable bits and install dependencies
+        timeout-minutes: 5
         run: |
           chmod +x build/tools/fastchess/bin/fastchess engines/lc0/build/release/lc0
           find build -path '*/bin/*' -type f -exec chmod +x {} +
-          sudo apt-get update
-          sudo apt-get install -y             meson ninja-build pkg-config libprotobuf-dev protobuf-compiler zlib1g-dev             libopenblas-dev python3-pip python3-setuptools python3-wheel
+          bash scripts/ci-install-apt-deps.sh meson ninja-build pkg-config libprotobuf-dev protobuf-compiler zlib1g-dev libopenblas-dev python3-pip python3-setuptools python3-wheel
           python3 -m pip install --break-system-packages --no-build-isolation --no-deps             --require-hashes -r qualification/local-game-requirements.txt
       - name: Validate legacy G3 resource calibration
         run: |
@@ -293,16 +302,18 @@ jobs:
         with:
           ref: ${{ env.ALLFATHER_SOURCE_SHA }}
       - name: Verify checkout identity
+        timeout-minutes: 5
         run: test "$(git rev-parse HEAD)" = "$ALLFATHER_SOURCE_SHA"
       - name: Download exact qualification build bundle
+        timeout-minutes: 5
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: local1-qualification-build
           path: build
       - name: Install independent validator dependency
+        timeout-minutes: 5
         run: |
-          sudo apt-get update
-          sudo apt-get install -y python3-pip python3-setuptools python3-wheel
+          bash scripts/ci-install-apt-deps.sh python3-pip python3-setuptools python3-wheel
           python3 -m pip install --break-system-packages --no-build-isolation --no-deps             --require-hashes -r qualification/local-game-requirements.txt
       - name: Download all soak shard artifacts
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093

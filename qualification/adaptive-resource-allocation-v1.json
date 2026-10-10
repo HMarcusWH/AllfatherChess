@@ -4,7 +4,7 @@
   "policy_id": "adaptive_resource_v1",
   "work_scheduler_catalog": {
     "catalog_id": "work-grant-scheduler-v1",
-    "catalog_digest": "c5db1463eeb9355368163059e00c8a74bfa83a3c34ef2653365c96f2ef2931f2"
+    "catalog_digest": "b90c892f8d0c4653009b9bbb0e0972c17a1df65d326ac01b8f5f8b0b80386405"
   },
   "bundle": {
     "bundle_id": "bundle/staged-verify-v1",

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -49,6 +50,19 @@ REFERENCE_CONTRACT_PATHS_BY_LAB = {
         "runtime": "config/allfather.online-engine-opt-v2.candidate.json",
         "build_policy": "qualification/online-engine-opt-v2.json",
     },
+}
+
+# Historical specifications keep their original logical reference paths. Once a
+# live canonical input advances, those paths resolve to immutable snapshots.
+REFERENCE_CONTRACT_ARCHIVE_PATHS_BY_LAB = {
+    "resource-lab-v1": {
+        "catalog": "qualification/resource-profile-catalog-v1-j7-baseline.json",
+        "runtime": "config/allfather.online-hybrid-v2.validation-j7-baseline.json",
+        "build_policy": "qualification/online-engine-opt-v2-j7-baseline.json",
+    },
+}
+HISTORICAL_REFERENCE_EVIDENCE_BY_LAB = {
+    "resource-lab-v1": "qualification/resource-profile-evidence-v1.json",
 }
 
 
@@ -654,12 +668,94 @@ def _normalized_reference_options(
     return options
 
 
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(1 << 20), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def resolve_reference_contract_paths(spec: LabSpec) -> dict[str, str]:
+    """Resolve logical reference paths without mutating historical specifications."""
+    declared = dict(_object(spec.raw["reference_contract"], "reference_contract"))
+    expected = REFERENCE_CONTRACT_PATHS_BY_LAB.get(spec.lab_id)
+    require(expected is not None, f"unsupported reference lab id: {spec.lab_id!r}")
+    require(declared == expected, f"{spec.lab_id} reference contract paths drift")
+    resolved = REFERENCE_CONTRACT_ARCHIVE_PATHS_BY_LAB.get(spec.lab_id, expected)
+    require(
+        set(resolved) == set(declared),
+        f"{spec.lab_id} resolved reference contract keys drift",
+    )
+    return dict(resolved)
+
+
+def reference_contract_manifest(spec: LabSpec, root: Path) -> dict[str, Any]:
+    """Bind logical paths to the exact source-controlled bytes being validated."""
+    declared = dict(_object(spec.raw["reference_contract"], "reference_contract"))
+    resolved = resolve_reference_contract_paths(spec)
+    return {
+        key: {
+            "path": declared[key],
+            "resolved_path": resolved[key],
+            "sha256": _sha256_file(root / resolved[key]),
+        }
+        for key in declared
+    }
+
+
+def _validate_historical_reference_archive(
+    spec: LabSpec,
+    root: Path,
+    resolved: Mapping[str, str],
+) -> None:
+    evidence_rel = HISTORICAL_REFERENCE_EVIDENCE_BY_LAB.get(spec.lab_id)
+    if evidence_rel is None:
+        return
+    try:
+        evidence = json.loads((root / evidence_rel).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ResourceLabSpecError(
+            f"{spec.lab_id}: cannot load frozen historical evidence: {exc}"
+        ) from exc
+
+    source = _object(evidence.get("source"), "historical evidence source")
+    frozen_spec = _object(source.get("lab_spec"), "historical lab spec binding")
+    spec_path = frozen_spec.get("path")
+    spec_sha = frozen_spec.get("sha256")
+    require(
+        isinstance(spec_path, str) and isinstance(spec_sha, str),
+        f"{spec.lab_id}: historical lab spec binding missing",
+    )
+    require(
+        _sha256_file(root / spec_path) == spec_sha,
+        f"{spec.lab_id}: historical lab spec SHA differs from frozen evidence",
+    )
+
+    frozen_ref = _object(
+        source.get("reference_contract"),
+        "historical reference contract binding",
+    )
+    for key, logical_path in spec.raw["reference_contract"].items():
+        require(
+            frozen_ref.get(f"{key}_path") == logical_path,
+            f"{spec.lab_id}: historical {key} logical path differs from frozen evidence",
+        )
+        expected_sha = frozen_ref.get(f"{key}_sha256")
+        require(
+            isinstance(expected_sha, str)
+            and _sha256_file(root / resolved[key]) == expected_sha,
+            f"{spec.lab_id}: archived {key} SHA differs from frozen evidence",
+        )
+
+
 def validate_reference_contract(spec: LabSpec, root: Path) -> None:
-    """Prove the hand-written laboratory reference matches its declared runtime."""
-    ref = _object(spec.raw["reference_contract"], "reference_contract")
-    runtime = json.loads((root / str(ref["runtime"])).read_text(encoding="utf-8"))
+    """Prove the laboratory reference matches the correct frozen runtime."""
+    resolved = resolve_reference_contract_paths(spec)
+    _validate_historical_reference_archive(spec, root, resolved)
+    runtime = json.loads((root / resolved["runtime"]).read_text(encoding="utf-8"))
     build_policy = json.loads(
-        (root / str(ref["build_policy"])).read_text(encoding="utf-8")
+        (root / resolved["build_policy"]).read_text(encoding="utf-8")
     )
     instances = _object(runtime.get("instances"), "reference runtime instances")
     builds = _object(build_policy.get("builds"), "reference build policy")
@@ -668,12 +764,12 @@ def validate_reference_contract(spec: LabSpec, root: Path) -> None:
     if spec.lab_id == "resource-lab-v1":
         from controller.resource_profile_catalog import load_resource_profile_catalog
 
-        catalog = load_resource_profile_catalog(root / str(ref["catalog"]))
+        catalog = load_resource_profile_catalog(root / resolved["catalog"])
     elif spec.lab_id == "resource-lab-v2":
         from controller.engine_opt_profile import validate_reference
 
         selection = json.loads(
-            (root / str(ref["selection"])).read_text(encoding="utf-8")
+            (root / resolved["selection"]).read_text(encoding="utf-8")
         )
         validate_reference(
             build_policy,

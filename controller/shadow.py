@@ -77,7 +77,12 @@ from controller.decision import (
 )
 from controller.final_decision import seal_final_decision_artifact
 from controller.replay import ReplayRun, StageRecord, TelemetryStreamWriter, sha256_file
-from controller.resource_measurement import ResourceMeasurementRun, StageResourceMeasurement
+from controller.resource_measurement import (
+    RESOURCE_FAILURE_PREPARATION_BUDGET_EXCEEDED,
+    ResourceMeasurementRun,
+    StageResourceMeasurement,
+    seal_unqualified_resource_report,
+)
 from controller.prefix_shards import PrefixShardLedger, PrefixShardLedgerError
 from controller.refinement import (
     RefinementError,
@@ -199,7 +204,10 @@ class ShadowRouter(Protocol):
     ) -> None:
         ...
 
-    def charge_controller_elapsed(self, label: str, elapsed_ms: float) -> None:
+    def charge_controller_elapsed(self, label: str, cpu_ms: float) -> None:
+        ...
+
+    def invalidate_controller_cpu_accounting(self, reason: str) -> None:
         ...
 
     @property
@@ -267,6 +275,7 @@ class RunContext:
     _coordinator: "ShadowRunCoordinator"
     clock: ClockSearch | None = None
     move_resource_plan: MoveResourcePlan | None = None
+    controller_cpu_started_ns: int | None = None
 
     def elapsed_ms(self) -> float:
         return (time.monotonic() - self.started_monotonic) * 1000.0
@@ -439,6 +448,8 @@ class _ActiveRun:
     anchor_stage: StageRecord | None = None
     anchor_stream: TelemetryStreamWriter | None = None
     resources: ResourceMeasurementRun | None = None
+    resource_setup_failure: str | None = None
+    resource_controller_cpu_started_ns: int | None = None
     ledger: RootShardLedger | None = None
     verification: VerificationRun | None = None
     staged_verification: StagedVerificationRun | None = None
@@ -1144,6 +1155,7 @@ class ShadowRunCoordinator:
             _coordinator=self,
             clock=clock,
             move_resource_plan=resource_plan,
+            controller_cpu_started_ns=controller_cpu_started_ns,
         )
         resource_settings = self.runtime.config.resource_measurement
         resources = (
@@ -1155,24 +1167,42 @@ class ShadowRunCoordinator:
                 controller_cpu_started_ns=controller_cpu_started_ns,
             )
         )
+        resource_setup_failure = None
         if resources is not None and resources.settings.enabled:
             candidate_resources = resources
-            def register_resources():
-                for instance in sorted(self.runtime.backends):
-                    candidate_resources.register_process(instance=instance, pid=self.runtime.process_pid(instance))
+
+            def start_anchor_measurement():
+                # The first anchor-stage sample is also the run-level process
+                # baseline. Shadow instances establish their baselines lazily
+                # immediately before their first real dispatch.
                 if clock is not None:
-                    candidate_resources.begin_stage(key=anchor_search_id, instance=anchor_name,
-                                                    phase="ANCHOR", pid=self.runtime.process_pid(anchor_name))
+                    candidate_resources.begin_stage(
+                        key=anchor_search_id,
+                        instance=anchor_name,
+                        phase="ANCHOR",
+                        pid=self.runtime.process_pid(anchor_name),
+                    )
                 return candidate_resources
+
             if clock is None:
-                register_resources()
+                # Non-clocked legacy paths begin the anchor measurement at the
+                # actual dispatch boundary in note_anchor_dispatch().
+                pass
             else:
                 measured, resources = self._within_prepare_budget(
-                    f"{run_id}-resource-start", deadline=prepare_deadline, work=register_resources,
+                    f"{run_id}-resource-start",
+                    deadline=prepare_deadline,
+                    work=start_anchor_measurement,
                 )
                 if not measured:
                     resources = None
-                    run.note("clock resource setup missed preparation budget; physical claim unavailable")
+                    resource_setup_failure = (
+                        RESOURCE_FAILURE_PREPARATION_BUDGET_EXCEEDED
+                    )
+                    run.note(
+                        "clock resource setup missed preparation budget; "
+                        "physical claim unavailable"
+                    )
         active = _ActiveRun(
             generation=generation,
             run=run,
@@ -1180,6 +1210,8 @@ class ShadowRunCoordinator:
             anchor_stage=anchor_stage,
             anchor_stream=anchor_stream,
             resources=resources,
+            resource_setup_failure=resource_setup_failure,
+            resource_controller_cpu_started_ns=controller_cpu_started_ns,
             started_monotonic=started,
         )
         # Controller overhead is recorded, never hidden. This is the only work
@@ -1877,15 +1909,55 @@ class ShadowRunCoordinator:
     def _seal_resource_report(self, generation: int) -> dict[str, object] | None:
         with self._lock:
             active = self._run
-            if active is None or active.generation != generation or active.resources is None:
+            if active is None or active.generation != generation:
                 return None
             resources = active.resources
+            failure = active.resource_setup_failure
+            started_ns = active.resource_controller_cpu_started_ns
+            settings = self.runtime.config.resource_measurement
             path = active.run.run_dir / "resource.json"
+
+        if resources is None:
+            if (
+                failure == RESOURCE_FAILURE_PREPARATION_BUDGET_EXCEEDED
+                and settings is not None
+                and started_ns is not None
+            ):
+                try:
+                    return seal_unqualified_resource_report(
+                        path,
+                        run_id=active.run.run_id,
+                        settings=settings,
+                        failure_code=failure,
+                        failure_reason=(
+                            "resource measurement did not complete inside the "
+                            "pre-anchor preparation firewall"
+                        ),
+                        controller_cpu_started_ns=started_ns,
+                    )
+                except Exception as exc:
+                    active.run.note(
+                        "negative resource report could not be sealed: "
+                        f"{type(exc).__name__}: {exc}"
+                    )
+            return None
+
         try:
             clock = active.context.clock
-            return resources.seal(path, **({} if clock is None else {
+            summary = resources.seal(path, **({} if clock is None else {
                 "validity_check": lambda: not clock.measurement_superseded.is_set(),
             }))
+            timing = resources.seal_timing_ms(
+                started_monotonic=active.started_monotonic,
+            )
+            if timing is not None:
+                # Manifest note, not a resource/route qualification input.
+                # In particular, a slow fsync cannot fabricate extra engine CPU.
+                active.run.note(
+                    "resource seal phases (non-authorizing): "
+                    + ", ".join(f"{name}={value:.3f}" for name, value in timing.items())
+                )
+            return summary
         except Exception as exc:
             active.run.note(
                 f"resource report could not be sealed: {type(exc).__name__}: {exc}"
@@ -2663,6 +2735,11 @@ class ShadowRunCoordinator:
                         if active.anchor_resource_done.is_set():
                             try:
                                 active.resources.freeze_process_endpoints()
+                                active.run.note(
+                                    "process endpoints frozen at "
+                                    f"{(time.monotonic() - active.started_monotonic) * 1000.0:.3f}ms "
+                                    "from external go (non-authorizing)"
+                                )
                             except Exception as exc:
                                 active.run.note(
                                     "process resource endpoints could not freeze before engine reuse: "
@@ -3078,6 +3155,7 @@ class ShadowRunCoordinator:
                     f"{active.run.run_id}:verify-extension:{instance}:0"
                 )
                 started = time.monotonic()
+                started_cpu_ns = time.thread_time_ns()
                 expected_options = (
                     self.runtime.expected_shadow_phase_options(
                         instance,
@@ -3091,9 +3169,7 @@ class ShadowRunCoordinator:
                         "j10_bundle_expected_options_"
                         f"{owner}"
                     ),
-                    elapsed_ms=(
-                        time.monotonic() - started
-                    ) * 1000.0,
+                    cpu_ms=(time.thread_time_ns() - started_cpu_ns) / 1_000_000.0,
                 )
                 grant = propose(
                     active.context,
@@ -3142,6 +3218,7 @@ class ShadowRunCoordinator:
             for admission in admissions:
                 instance = admission.grant.instance
                 started = time.monotonic()
+                started_cpu_ns = time.thread_time_ns()
                 try:
                     actual_options = self.runtime.configure_shadow_phase(
                         instance,
@@ -3154,11 +3231,10 @@ class ShadowRunCoordinator:
                             "j10_bundle_phase_config_"
                             f"{admission.grant.owner}"
                         ),
-                        elapsed_ms=(
-                            time.monotonic() - started
-                        ) * 1000.0,
+                        cpu_ms=(time.thread_time_ns() - started_cpu_ns) / 1_000_000.0,
                     )
                 digest_started = time.monotonic()
+                digest_started_cpu_ns = time.thread_time_ns()
                 actual_digest = canonical_digest(
                     dict(sorted(actual_options.items()))
                 )
@@ -3168,9 +3244,7 @@ class ShadowRunCoordinator:
                         "j10_bundle_actual_options_"
                         f"{admission.grant.owner}"
                     ),
-                    elapsed_ms=(
-                        time.monotonic() - digest_started
-                    ) * 1000.0,
+                    cpu_ms=(time.thread_time_ns() - digest_started_cpu_ns) / 1_000_000.0,
                 )
                 if (
                     actual_digest
@@ -3257,6 +3331,7 @@ class ShadowRunCoordinator:
             return None
         try:
             digest_started = time.monotonic()
+            digest_started_cpu_ns = time.thread_time_ns()
             expected_options = self.runtime.expected_shadow_phase_options(
                 instance,
                 phase,
@@ -3265,7 +3340,7 @@ class ShadowRunCoordinator:
             self._charge_controller_elapsed(
                 active,
                 label=f"work_grant_expected_options_{phase.lower()}_{owner}",
-                elapsed_ms=(time.monotonic() - digest_started) * 1000.0,
+                cpu_ms=(time.thread_time_ns() - digest_started_cpu_ns) / 1_000_000.0,
             )
             grant = propose(
                 active.context,
@@ -3308,6 +3383,7 @@ class ShadowRunCoordinator:
         effective_options: dict[str, object],
     ) -> bool:
         started = time.monotonic()
+        started_cpu_ns = time.thread_time_ns()
         actual = canonical_digest(dict(sorted(effective_options.items())))
         self._charge_controller_elapsed(
             active,
@@ -3315,7 +3391,7 @@ class ShadowRunCoordinator:
                 "work_grant_actual_options_"
                 f"{admission.grant.phase.lower()}_{admission.grant.owner}"
             ),
-            elapsed_ms=(time.monotonic() - started) * 1000.0,
+            cpu_ms=(time.thread_time_ns() - started_cpu_ns) / 1_000_000.0,
         )
         if actual == admission.grant.effective_options_digest:
             return True
@@ -3462,20 +3538,26 @@ class ShadowRunCoordinator:
         active: _ActiveRun,
         *,
         label: str,
-        elapsed_ms: float,
+        cpu_ms: float,
     ) -> None:
         if self.router is None:
             return
         charge = getattr(self.router, "charge_controller_elapsed", None)
+        invalidate = getattr(self.router, "invalidate_controller_cpu_accounting", None)
         if charge is None:
+            if callable(invalidate):
+                invalidate(f"missing charge method: {label}")
+            active.run.note(f"controller CPU accounting unavailable for {label}")
             return
         try:
-            charge(label, max(0.0, float(elapsed_ms)))
+            charge(label, cpu_ms)
         except Exception as exc:  # pragma: no cover - router isolation
             active.run.note(
-                f"controller overhead accounting failed for {label}: "
+                f"controller CPU accounting failed for {label}: "
                 f"{type(exc).__name__}: {exc}"
             )
+            if callable(invalidate):
+                invalidate(f"{label}: {type(exc).__name__}")
 
     def _execute(self, active: _ActiveRun) -> tuple[str, str | None]:
         run = active.run
@@ -3681,6 +3763,7 @@ class ShadowRunCoordinator:
             return
 
         started = time.monotonic()
+        started_cpu_ns = time.thread_time_ns()
         try:
             active.crossfeed_view = build_crossfeed_view(
                 run_id=active.run.run_id,
@@ -3696,7 +3779,7 @@ class ShadowRunCoordinator:
             self._charge_controller_elapsed(
                 active,
                 label="crossfeed_build",
-                elapsed_ms=(time.monotonic() - started) * 1000.0,
+                cpu_ms=(time.thread_time_ns() - started_cpu_ns) / 1_000_000.0,
             )
 
     def _build_counterfactual(self, active: _ActiveRun) -> None:
@@ -3707,6 +3790,7 @@ class ShadowRunCoordinator:
             return
 
         started = time.monotonic()
+        started_cpu_ns = time.thread_time_ns()
         charged = False
         try:
             authority = self.runtime.config.hybrid_authority
@@ -3760,7 +3844,7 @@ class ShadowRunCoordinator:
             self._charge_controller_elapsed(
                 active,
                 label="counterfactual_decision_build",
-                elapsed_ms=(time.monotonic() - started) * 1000.0,
+                cpu_ms=(time.thread_time_ns() - started_cpu_ns) / 1_000_000.0,
             )
             charged = True
 
@@ -3791,7 +3875,7 @@ class ShadowRunCoordinator:
                 self._charge_controller_elapsed(
                     active,
                     label="counterfactual_decision_build",
-                    elapsed_ms=(time.monotonic() - started) * 1000.0,
+                    cpu_ms=(time.thread_time_ns() - started_cpu_ns) / 1_000_000.0,
                 )
 
     def _execute_verification(self, active: _ActiveRun) -> None:
@@ -3974,6 +4058,7 @@ class ShadowRunCoordinator:
             return False
 
         phase_config_started = time.monotonic()
+        phase_config_started_cpu_ns = time.thread_time_ns()
         try:
             effective_options = self.runtime.configure_shadow_phase(
                 instance,
@@ -4007,7 +4092,7 @@ class ShadowRunCoordinator:
             self._charge_controller_elapsed(
                 active,
                 label=f"phase_config_verify_{owner}",
-                elapsed_ms=(time.monotonic() - phase_config_started) * 1000.0,
+                cpu_ms=(time.thread_time_ns() - phase_config_started_cpu_ns) / 1_000_000.0,
             )
 
         if admission is not None and not self._assert_grant_effective_options(
@@ -4587,6 +4672,7 @@ class ShadowRunCoordinator:
             return False
 
         phase_config_started = time.monotonic()
+        phase_config_started_cpu_ns = time.thread_time_ns()
         try:
             if self._j10_adaptive(active):
                 effective_options = (
@@ -4630,7 +4716,7 @@ class ShadowRunCoordinator:
             self._charge_controller_elapsed(
                 active,
                 label=f"phase_config_staged_verify_{owner}",
-                elapsed_ms=(time.monotonic() - phase_config_started) * 1000.0,
+                cpu_ms=(time.thread_time_ns() - phase_config_started_cpu_ns) / 1_000_000.0,
             )
 
         if admission is not None and not self._assert_grant_effective_options(
@@ -5285,13 +5371,14 @@ class ShadowRunCoordinator:
                         break
                     try:
                         positioned_started = time.monotonic()
+                        positioned_started_cpu_ns = time.thread_time_ns()
                         self.runtime.set_shadow_position(
                             instance, descendant_position.command()
                         )
                         self._charge_controller_elapsed(
                             active,
                             label="refine_position",
-                            elapsed_ms=(time.monotonic() - positioned_started) * 1000.0,
+                            cpu_ms=(time.thread_time_ns() - positioned_started_cpu_ns) / 1_000_000.0,
                         )
                         prepared_instances.append(instance)
                         with self._lock:
@@ -5753,11 +5840,12 @@ class ShadowRunCoordinator:
                 return None
             try:
                 positioned_started = time.monotonic()
+                positioned_started_cpu_ns = time.thread_time_ns()
                 self.runtime.set_shadow_position(instance, oracle_position.command())
                 self._charge_controller_elapsed(
                     active,
                     label="recursive_refine_position",
-                    elapsed_ms=(time.monotonic() - positioned_started) * 1000.0,
+                    cpu_ms=(time.thread_time_ns() - positioned_started_cpu_ns) / 1_000_000.0,
                 )
                 prepared_instances.append(instance)
                 with self._lock:
@@ -6216,11 +6304,12 @@ class ShadowRunCoordinator:
                     restored = False
                     continue
                 started = time.monotonic()
+                started_cpu_ns = time.thread_time_ns()
                 self.runtime.restore_shadow_position(instance)
                 self._charge_controller_elapsed(
                     active,
                     label="recursive_refine_restore",
-                    elapsed_ms=(time.monotonic() - started) * 1000.0,
+                    cpu_ms=(time.thread_time_ns() - started_cpu_ns) / 1_000_000.0,
                 )
             except ControllerRuntimeError as exc:
                 restored = False
@@ -6598,11 +6687,12 @@ class ShadowRunCoordinator:
                     restored = False
                     continue
                 restore_started = time.monotonic()
+                restore_started_cpu_ns = time.thread_time_ns()
                 self.runtime.restore_shadow_position(instance)
                 self._charge_controller_elapsed(
                     active,
                     label="refine_restore",
-                    elapsed_ms=(time.monotonic() - restore_started) * 1000.0,
+                    cpu_ms=(time.thread_time_ns() - restore_started_cpu_ns) / 1_000_000.0,
                 )
             except ControllerRuntimeError as exc:
                 restored = False
@@ -6631,11 +6721,12 @@ class ShadowRunCoordinator:
                     ok = False
                     continue
                 restore_started = time.monotonic()
+                restore_started_cpu_ns = time.thread_time_ns()
                 self.runtime.restore_shadow_position(instance)
                 self._charge_controller_elapsed(
                     active,
                     label="refine_restore_cleanup",
-                    elapsed_ms=(time.monotonic() - restore_started) * 1000.0,
+                    cpu_ms=(time.thread_time_ns() - restore_started_cpu_ns) / 1_000_000.0,
                 )
             except ControllerRuntimeError as exc:
                 ok = False
@@ -6740,6 +6831,7 @@ class ShadowRunCoordinator:
             return False
 
         phase_config_started = time.monotonic()
+        phase_config_started_cpu_ns = time.thread_time_ns()
         try:
             effective_options = self.runtime.configure_shadow_phase(
                 state.instance,
@@ -6765,7 +6857,7 @@ class ShadowRunCoordinator:
             self._charge_controller_elapsed(
                 active,
                 label=f"phase_config_explore_{state.owner}",
-                elapsed_ms=(time.monotonic() - phase_config_started) * 1000.0,
+                cpu_ms=(time.thread_time_ns() - phase_config_started_cpu_ns) / 1_000_000.0,
             )
 
         if admission is not None and not self._assert_grant_effective_options(

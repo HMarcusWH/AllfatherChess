@@ -99,7 +99,16 @@ def main() -> int:
 
         lines = run_shell(
             config,
-            ["go movetime 8000", "await:bestmove "],
+            [
+                "go movetime 8000",
+                "await:bestmove ",
+                # The outward bestmove may precede shadow/VERIFY/REFINE finalization.
+                # A same-position UCI synchronization forces the exact-generation
+                # quiesce barrier before the harness quits the controller.
+                "position startpos",
+                "isready",
+                "await:readyok",
+            ],
             timeout=45.0,
         )
         outward = [line for line in lines if line.startswith("bestmove ")]
@@ -118,6 +127,37 @@ def main() -> int:
         if parent_problems:
             raise ContractError(f"parent replay integrity failed: {parent_problems}")
         if refine_problems:
+            # Preserve original cause and primitive replay state. The temporary
+            # run root is about to disappear; never manufacture missing evidence.
+            def optional(path: Path):
+                if not path.is_file():
+                    return {"exists": False}
+                try:
+                    return json.loads(path.read_text(encoding="utf-8"))
+                except (OSError, ValueError) as exc:
+                    return {"parse_error": f"{type(exc).__name__}: {exc}"}
+            diagnostic = {
+                "problem": refine_problems,
+                "parent_manifest": optional(run_dir / "manifest.json"),
+                "route": optional(run_dir / "route.json"),
+                "verification_manifest": optional(run_dir / "verification" / "manifest.json"),
+                "refinement_manifest": optional(run_dir / "refinement" / "manifest.json"),
+                "children": sorted(str(p.relative_to(run_dir))
+                                   for p in run_dir.rglob("manifest.json")),
+                "outward": outward,
+            }
+            RESULT_DIR.mkdir(parents=True, exist_ok=True)
+            (RESULT_DIR / "failed-replay.json").write_text(
+                json.dumps(diagnostic, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+            )
+            print("REFINE negative replay diagnostic: " + json.dumps({
+                "error": refine_problems,
+                "parent_status": diagnostic["parent_manifest"].get("status"),
+                "parent_notes": diagnostic["parent_manifest"].get("notes"),
+                "verification_present": diagnostic["verification_manifest"].get("exists", True),
+                "refinement_present": diagnostic["refinement_manifest"].get("exists", True),
+                "children": diagnostic["children"],
+            }, sort_keys=True), file=sys.stderr)
             raise ContractError(f"recursive REFINE integrity failed: {refine_problems}")
 
         manifest = load_refinement_manifest(run_dir)

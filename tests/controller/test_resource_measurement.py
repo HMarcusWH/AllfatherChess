@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import sys
 import tempfile
+import time
 import unittest
+from unittest import mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -11,9 +14,11 @@ sys.path.insert(0, str(ROOT))
 
 from adapters.resource import ProcessSnapshot
 from controller.resource_measurement import (
+    RESOURCE_FAILURE_PREPARATION_BUDGET_EXCEEDED,
     ResourceMeasurementError,
     ResourceMeasurementRun,
     ResourceMeasurementSettings,
+    seal_unqualified_resource_report,
 )
 
 
@@ -70,6 +75,71 @@ class ResourceMeasurementRunTests(unittest.TestCase):
             require_gpu_for_claim=False,
             record_memory=True,
         )
+
+    def test_first_stage_snapshot_is_also_the_lazy_process_baseline(self):
+        provider = _Provider()
+        run = ResourceMeasurementRun(
+            run_id="lazy-baseline",
+            settings=self.settings(),
+            provider=provider,
+        )
+        run.begin_stage(
+            key="anchor",
+            instance="stockfish-anchor",
+            phase="ANCHOR",
+            pid=55,
+        )
+        self.assertEqual(
+            provider.count[55],
+            1,
+            "first-stage process baseline took a redundant procfs sample",
+        )
+        run.finish_stage("anchor")
+        self.assertEqual(provider.count[55], 2)
+        with tempfile.TemporaryDirectory() as tmp:
+            run.seal(Path(tmp) / "resource.json")
+            doc = json.loads((Path(tmp) / "resource.json").read_text())
+        self.assertEqual(provider.count[55], 3)
+        self.assertTrue(doc["qualified"])
+        self.assertIn("stockfish-anchor", doc["processes"])
+
+    def test_negative_setup_certificate_is_hash_bound_and_non_claiming(self):
+        settings = self.settings()
+        started = time.process_time_ns()
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "resource.json"
+            summary = seal_unqualified_resource_report(
+                path,
+                run_id="negative",
+                settings=settings,
+                failure_code=RESOURCE_FAILURE_PREPARATION_BUDGET_EXCEEDED,
+                failure_reason="pre-anchor resource setup timed out",
+                controller_cpu_started_ns=started,
+            )
+            doc = json.loads(path.read_text())
+            self.assertEqual(
+                summary["sha256"],
+                hashlib.sha256(path.read_bytes()).hexdigest(),
+            )
+        self.assertFalse(summary["qualified"])
+        self.assertFalse(doc["qualified"])
+        self.assertEqual(doc["processes"], {})
+        self.assertEqual(doc["stages"], [])
+        self.assertFalse(doc["coverage"]["cpu"]["complete"])
+        self.assertEqual(
+            doc["failure"]["code"],
+            RESOURCE_FAILURE_PREPARATION_BUDGET_EXCEEDED,
+        )
+        core = {key: value for key, value in doc.items() if key != "report_id"}
+        digest = hashlib.sha256(
+            json.dumps(
+                core,
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=True,
+            ).encode("utf-8")
+        ).hexdigest()
+        self.assertEqual(doc["report_id"], f"resource-{digest[:16]}")
 
     def test_stage_and_run_process_cpu_are_separate(self):
         provider = _Provider()
@@ -165,6 +235,38 @@ class ResourceMeasurementRunTests(unittest.TestCase):
 
 
 class IntervalFreezeTests(unittest.TestCase):
+    def test_seal_diagnostics_separate_freeze_from_slow_fsync(self):
+        run = ResourceMeasurementRun(
+            run_id="durable-latency", settings=ResourceMeasurementSettings(
+                enabled=True, provider="linux-procfs-v1",
+                require_cpu_for_claim=True, require_gpu_for_claim=False,
+                record_memory=False,
+            ), provider=_Provider(),
+        )
+        run.begin_stage(key="a", instance="anchor", phase="ANCHOR", pid=7)
+        run.finish_stage("a")
+        origin = time.monotonic()
+        writer = run._atomic_write
+
+        def slow_persistence(path, payload):
+            time.sleep(0.035)
+            return writer(path, payload)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.object(run, "_atomic_write", side_effect=slow_persistence):
+                result = run.seal(Path(tmp) / "resource.json")
+            diag = run.seal_timing_ms(started_monotonic=origin)
+            doc = json.loads((Path(tmp) / "resource.json").read_text())
+        self.assertTrue(result["qualified"])
+        self.assertTrue(doc["qualified"])
+        self.assertIsNotNone(diag)
+        self.assertGreaterEqual(diag["durable_write_ms"], 30.0)
+        self.assertGreaterEqual(
+            diag["persisted_wall_ms"] - diag["freeze_wall_ms"], 30.0,
+        )
+        self.assertNotIn("seal_phase_ns", doc)
+        self.assertEqual(diag, run.seal_timing_ms(started_monotonic=origin))
+
     def test_freeze_interval_stops_controller_and_process_endpoint_growth(self):
         settings = ResourceMeasurementSettings(
             enabled=True,

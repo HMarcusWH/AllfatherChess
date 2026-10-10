@@ -22,13 +22,13 @@ SPEC.loader.exec_module(matrix)
 class MatrixScopeTests(unittest.TestCase):
     def test_qualification_only_runs_exactly_baseline_and_selected(self):
         rows = matrix.profiles_for_run(
-            "b7-p8-c256k-warm64",
+            "b4-p0-c256k-cold",
             "v1-current-cold",
             True,
         )
         self.assertEqual(
             [row[0] for row in rows],
-            ["v1-current-cold", "b7-p8-c256k-warm64"],
+            ["v1-current-cold", "b4-p0-c256k-cold"],
         )
 
     def test_candidate_qualification_only_ignores_unrelated_exploratory_profiles(self):

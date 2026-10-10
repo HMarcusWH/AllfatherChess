@@ -541,9 +541,11 @@ def _verify_orchestration_provenance(
             if decision.get("authority") == ANCHOR_CONTROL
             else verify_orchestrated_composition_integrity
         )
+        require_resource_qualification = authorization.get("authorized") is True
         for problem in verifier(
             run_dir,
             root=repository_root,
+            require_resource_qualification=require_resource_qualification,
         ):
             problems.append(
                 f"final decision orchestration integrity: {problem}"

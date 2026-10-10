@@ -6,13 +6,17 @@
     "path": "qualification/engine-opt-v2-evidence.json",
     "workflow_runs": [
       36363702414,
-      36366449343
+      36366449343,
+      37128771497,
+      37469940904
     ],
     "measurement_source_commits": [
       "72fe32567591804061b0489b1bb73743dc0f3c9d",
-      "9bc81f51ba761f80754e010f95b5778dcdb353b3"
+      "9bc81f51ba761f80754e010f95b5778dcdb353b3",
+      "4acce20ec427364e51f5ac51204c8d46a32f81d1",
+      "56516c34719670054e12218bd3781e9725ae4f65"
     ],
-    "rationale": "The original auto-batch p0 choice was rejected after exact-head cross-host bestmove drift. b7-p8-c256k-warm64 preserved the frozen 8/8 vector on both measured hosts; a fresh exact-head matrix must confirm it repeatedly before promotion."
+    "rationale": "Canonical promotion of the PR #63-qualified b4-p0-c256k-cold LC0 substrate. PR #63 independently qualified the b4 candidate on one bound execution domain through the frozen LC0 matrix, G3-v2 non-anchor authority witness, LOCAL-1 lifecycle, repeated constituent benchmarks, J8-J12 profile-domain qualification and the host-aware final gate. This selection remains subject to a fresh exact-head canonical aggregate before merge."
   },
   "selected": {
     "stockfish": {
@@ -27,11 +31,11 @@
       "backend": "blas",
       "network": "791556",
       "nn_cache_size": 262144,
-      "minibatch_size": 7,
-      "max_prefetch": 8,
+      "minibatch_size": 4,
+      "max_prefetch": 0,
       "adaptive_prefetch": false,
       "defect_telemetry": false,
-      "warmup_nodes": 64,
+      "warmup_nodes": null,
       "phase_multipv": {
         "EXPLORE": 1,
         "VERIFY": 3,
@@ -40,7 +44,7 @@
       "uci_args": [
         "--show-hidden"
       ],
-      "matrix_profile": "b7-p8-c256k-warm64"
+      "matrix_profile": "b4-p0-c256k-cold"
     },
     "resource_estimates_ms": {
       "explore": {
@@ -55,7 +59,7 @@
       }
     }
   },
-  "claim_boundary": "Selected from cross-run frozen ENGINE-OPT measurement evidence and subject to repeatability confirmation on the exact candidate head. This is a profile/build/resource selection, not an Elo, superiority, equal-compute, GPU, or deployment claim.",
+  "claim_boundary": "Canonical b4 profile selection promoted from retained PR #63 candidate evidence and subject to fresh exact-head canonical requalification. This is a profile/build/resource selection, not an Elo, superiority, equal-compute, generic-host-portability, GPU, or deployment claim.",
   "qualification": {
     "baseline_profile": "v1-current-cold",
     "corpus_cases": 8,

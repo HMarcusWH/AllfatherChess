@@ -17,6 +17,8 @@ on:
       - vendor.lock.json
       - qualification/**
       - Makefile
+      - scripts/ci-install-apt-deps.sh
+      - tests/ci/test_apt_installer.py
       - .github/workflows/baseline.yml
   pull_request:
     paths:
@@ -31,6 +33,8 @@ on:
       - vendor.lock.json
       - qualification/**
       - Makefile
+      - scripts/ci-install-apt-deps.sh
+      - tests/ci/test_apt_installer.py
       - .github/workflows/baseline.yml
 
 permissions:
@@ -178,14 +182,15 @@ jobs:
           key: engine-nnue-${{ runner.os }}-${{ hashFiles('vendor.lock.json') }}
 
       - name: Fetch and verify pinned engine NNUE artifacts
+        timeout-minutes: 5
         run: |
           ./scripts/fetch-stockfish-network.sh >/dev/null
           ./scripts/fetch-reckless-network.sh >/dev/null
 
       - name: Install LC0 validation dependencies
+        timeout-minutes: 5
         run: |
-          sudo apt-get update
-          sudo apt-get install -y meson ninja-build pkg-config libprotobuf-dev protobuf-compiler zlib1g-dev
+          bash scripts/ci-install-apt-deps.sh meson ninja-build pkg-config libprotobuf-dev protobuf-compiler zlib1g-dev
 
       - name: Toolchain versions
         run: |

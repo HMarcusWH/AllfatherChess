@@ -85,7 +85,15 @@ class DeadlineTests(unittest.TestCase):
             route=json.loads((run/'route.json').read_text())
             self.assertEqual(route['time_plan']['plan_id'],manifest['time_plan']['plan_id'])
             self.assertTrue(route['envelope_claim']['clock_output_complete'])
-            self.assertTrue(route['envelope_claim']['claimed'])
+            self.assertTrue(
+                route['envelope_claim']['claimed'],
+                {
+                    "claim": route['envelope_claim'],
+                    "controller_resource": (json.loads((run / 'resource.json').read_text())
+                                            .get('controller')),
+                    "controller_ledger": route['budget']['purpose_totals'].get('controller'),
+                },
+            )
 
     def test_quiesce_grace_does_not_shrink_protocol_readiness_timeout(self):
         with shell_fixture(settings={"quiesce_budget_ms": 200}) as (

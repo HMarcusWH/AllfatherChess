@@ -10,6 +10,9 @@ on:
       - 'qualification/online-hybrid-v1-resource-observations.json'
       - 'qualification/replay-history-sources.json'
       - 'qualification/resource-profile-catalog-v1.json'
+      - 'qualification/resource-profile-catalog-v1-j7-baseline.json'
+      - 'qualification/online-engine-opt-v2-j7-baseline.json'
+      - 'config/allfather.online-hybrid-v2.validation-j7-baseline.json'
       - 'qualification/adaptive-clock-v1.json'
       - 'qualification/work-grant-scheduler-v1.json'
       - 'qualification/adaptive-resource-allocation-v1.json'
@@ -17,6 +20,7 @@ on:
       - 'qualification/online-engine-opt-v2.json'
       - 'qualification/online-hybrid-v2.json'
       - 'qualification/online-hybrid-v2-candidate.json'
+      - 'qualification/online-hybrid-v2-b4.json'
       - 'qualification/online-hybrid-v2-candidate-witnesses.json'
       - 'qualification/g3-candidate-discovery-source.json'
       - 'qualification/local-full-game-v2.json'
@@ -38,6 +42,8 @@ on:
       - 'scripts/engine-opt-*.py'
       - 'scripts/build-online-engine-opt-v2.sh'
       - 'scripts/qualify-engine-opt-v2.py'
+      - 'scripts/qualify-engine-opt-evidence.py'
+      - 'scripts/qualify-engine-opt-v2-promotion-gate.py'
       - 'scripts/qualify-adaptive-time.py'
       - 'scripts/adaptive-time-contract.py'
       - 'scripts/qualify-work-grant-scheduler.py'
@@ -50,6 +56,7 @@ on:
       - 'scripts/build-j10-allocation-calibration.py'
       - 'scripts/qualify-online-hybrid-v2.py'
       - 'scripts/qualify-online-hybrid-v2-candidate.py'
+      - 'scripts/qualify-online-hybrid-v2-b4.py'
       - 'scripts/qualify-engine-opt-v2-candidate.py'
       - 'tests/engine_opt/**'
       - 'tests/controller/test_engine_opt_runtime.py'
@@ -71,6 +78,8 @@ on:
       - 'tests/harness/uci_session.py'
       - 'Makefile'
       - 'Makefile.local-game'
+      - 'scripts/ci-install-apt-deps.sh'
+      - 'tests/ci/test_apt_installer.py'
       - '.github/workflows/engine-optimization.yml'
 
 permissions:
@@ -139,10 +148,14 @@ jobs:
           python3 tests/engine_opt/test_execution_domain.py
           python3 tests/engine_opt/test_matrix_qualification.py
           python3 tests/engine_opt/test_matrix_scope.py
+          python3 tests/engine_opt/test_aggregate_paths.py
+          python3 tests/ci/test_apt_installer.py
           python3 tests/engine_opt/test_g3_witness_extractor.py
+          python3 tests/engine_opt/test_g3_b4.py
           python3 tests/engine_opt/test_constituent_hash.py
           python3 tests/engine_opt/test_legacy_calibration_reconciliation.py
           python3 tests/engine_opt/test_candidate_gate.py
+          python3 tests/engine_opt/test_promotion_gate.py
           python3 tests/controller/test_partition_versions.py
           python3 -m json.tool qualification/constituent-benchmark-v2.json >/dev/null
           python3 -m json.tool qualification/online-hybrid-v1-resource-calibration.json >/dev/null
@@ -172,10 +185,11 @@ jobs:
           python3 tests/controller/test_runtime_profiles.py
           python3 tests/adapters/test_linux_affinity.py
           python3 tests/controller/test_resource_control.py
-          python3 -m py_compile scripts/qualify-engine-opt-evidence.py scripts/qualify-engine-opt-v2-candidate.py scripts/qualify-engine-opt-v2-candidate-gate.py scripts/qualify-engine-opt-matrix.py scripts/qualify-online-hybrid-v2-candidate.py scripts/extract-g3-candidate-witnesses.py tools/engine_opt/matrix_qualification.py tools/engine_opt/candidate_gate.py
+          python3 -m py_compile scripts/qualify-engine-opt-evidence.py scripts/qualify-engine-opt-v2-candidate.py scripts/qualify-engine-opt-v2-candidate-gate.py scripts/qualify-engine-opt-v2-promotion-gate.py scripts/qualify-engine-opt-matrix.py scripts/qualify-online-hybrid-v2-candidate.py scripts/extract-g3-candidate-witnesses.py tools/engine_opt/matrix_qualification.py tools/engine_opt/candidate_gate.py tools/engine_opt/promotion_gate.py
           python3 scripts/qualify-online-hybrid-v2.py --static
           python3 scripts/qualify-online-hybrid-v2-candidate.py --static
-          for f in qualification/resource-profile-catalog-v1.json qualification/adaptive-clock-v1.json qualification/work-grant-scheduler-v1.json qualification/adaptive-resource-allocation-v1.json qualification/j10-calibration-source-v1.json qualification/j10-calibration-corpus-v1.json qualification/j10-staged-decision-model-v1.json qualification/j10-regime-support-model-v1.json qualification/engine-opt-v2.json qualification/engine-opt-v2-selection.json qualification/engine-opt-v2-evidence.json qualification/engine-opt-v2-host-binding.json qualification/engine-opt-v2-candidate-selection.json qualification/engine-opt-v2-candidate-evidence.json qualification/engine-opt-v2-candidate-native-work-policy.json qualification/engine-derived-lock.json qualification/online-engine-opt-v2.json qualification/online-hybrid-v2.json qualification/online-hybrid-v2-candidate.json qualification/online-hybrid-v2-candidate-witnesses.json qualification/g3-candidate-discovery-source.json qualification/local-full-game-v2.json qualification/local-full-game-v2-candidate.json qualification/local-full-game-orchestrated-v1.json config/allfather.online-engine-opt-v2.json config/allfather.online-engine-opt-v2.candidate.json config/allfather.m14-j-j8.validation.json config/allfather.m14-j-j9.validation.json config/allfather.m14-j-j10.validation.json config/allfather.orchestrated-v1.validation.json config/allfather.online-hybrid-v2.validation.json config/allfather.online-hybrid-v2.candidate.validation.json; do python3 -m json.tool "$f" >/dev/null; done
+          python3 scripts/qualify-online-hybrid-v2-b4.py --static
+          for f in qualification/resource-profile-catalog-v1.json qualification/resource-profile-catalog-v1-j7-baseline.json qualification/online-engine-opt-v2-j7-baseline.json qualification/adaptive-clock-v1.json qualification/work-grant-scheduler-v1.json qualification/adaptive-resource-allocation-v1.json qualification/j10-calibration-source-v1.json qualification/j10-calibration-corpus-v1.json qualification/j10-staged-decision-model-v1.json qualification/j10-regime-support-model-v1.json qualification/engine-opt-v2.json qualification/engine-opt-v2-selection.json qualification/engine-opt-v2-evidence.json qualification/engine-opt-v2-host-binding.json qualification/engine-opt-v2-candidate-selection.json qualification/engine-opt-v2-candidate-evidence.json qualification/engine-opt-v2-candidate-native-work-policy.json qualification/engine-opt-v2-native-work-policy.json qualification/engine-derived-lock.json qualification/online-engine-opt-v2.json qualification/online-hybrid-v2.json qualification/online-hybrid-v2-candidate.json qualification/online-hybrid-v2-candidate-witnesses.json qualification/g3-candidate-discovery-source.json qualification/local-full-game-v2.json qualification/local-full-game-v2-candidate.json qualification/local-full-game-orchestrated-v1.json config/allfather.online-engine-opt-v2.json config/allfather.online-engine-opt-v2.candidate.json config/allfather.m14-j-j8.validation.json config/allfather.m14-j-j9.validation.json config/allfather.m14-j-j10.validation.json config/allfather.orchestrated-v1.validation.json config/allfather.online-hybrid-v2.validation.json config/allfather.online-hybrid-v2.validation-j7-baseline.json config/allfather.online-hybrid-v2.candidate.validation.json; do python3 -m json.tool "$f" >/dev/null; done
           bash -n scripts/build-online-engine-opt-v2.sh
 
   build-candidate:
@@ -188,11 +202,12 @@ jobs:
         with:
           ref: ${{ env.ALLFATHER_SOURCE_SHA }}
       - name: Verify exact source checkout
+        timeout-minutes: 5
         run: test "$(git rev-parse HEAD)" = "$ALLFATHER_SOURCE_SHA"
       - name: Install build dependencies
+        timeout-minutes: 5
         run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential meson ninja-build pkg-config libprotobuf-dev protobuf-compiler zlib1g-dev libopenblas-dev
+          bash scripts/ci-install-apt-deps.sh build-essential meson ninja-build pkg-config libprotobuf-dev protobuf-compiler zlib1g-dev libopenblas-dev
       - name: Cache networks
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
@@ -223,17 +238,19 @@ jobs:
         with:
           ref: ${{ env.ALLFATHER_SOURCE_SHA }}
       - name: Verify exact source checkout
+        timeout-minutes: 5
         run: test "$(git rev-parse HEAD)" = "$ALLFATHER_SOURCE_SHA"
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: engine-opt-v2-candidate
           path: build/candidate-download
       - name: Restore candidate executable bits
+        timeout-minutes: 5
         run: chmod +x build/candidate-download/online-engine-opt-v2/bin/*
       - name: Install constituent build dependencies
+        timeout-minutes: 5
         run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential meson ninja-build pkg-config libprotobuf-dev protobuf-compiler zlib1g-dev libopenblas-dev
+          bash scripts/ci-install-apt-deps.sh build-essential meson ninja-build pkg-config libprotobuf-dev protobuf-compiler zlib1g-dev libopenblas-dev
       - name: Checkout pristine LC0 control
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -361,18 +378,16 @@ jobs:
           name: engine-opt-v2-fastchess-source-test
           path: build/fastchess-source-test
       - name: Restore exact v2 candidate bundle
+        timeout-minutes: 5
         run: |
           test -d build/candidate-download/online-engine-opt-v2
           rm -rf build/online-engine-opt-v2
           mv build/candidate-download/online-engine-opt-v2 build/online-engine-opt-v2
           chmod +x build/online-engine-opt-v2/bin/*
       - name: Install one shared qualification substrate
+        timeout-minutes: 5
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            build-essential git meson ninja-build pkg-config \
-            libprotobuf-dev protobuf-compiler zlib1g-dev libopenblas-dev \
-            python3-pip python3-setuptools python3-wheel
+          bash scripts/ci-install-apt-deps.sh build-essential git meson ninja-build pkg-config libprotobuf-dev protobuf-compiler zlib1g-dev libopenblas-dev python3-pip python3-setuptools python3-wheel
           python3 -m pip install --break-system-packages --no-build-isolation --no-deps \
             --require-hashes -r qualification/local-game-requirements.txt
       - name: Capture one canonical execution domain
@@ -438,32 +453,12 @@ jobs:
             --policy qualification/local-full-game-orchestrated-v1.json \
             --execution-domain build/test-results/engine-opt-v2-profile-domain/execution-domain.json \
             --output build/test-results/engine-opt-v2-profile-domain/j12-local1/campaign
-      - name: Bind candidate overlay to the exact-head engine bundle
+      - name: Bind promoted canonical profile to the exact-head engine bundle
         run: |
-          python3 scripts/qualify-engine-opt-v2-candidate.py
-          mkdir -p build/test-results/engine-opt-v2-profile-domain/candidate
-          cp build/test-results/engine-opt-v2-candidate/report.json \
-            build/test-results/engine-opt-v2-profile-domain/candidate/report.json
-      - name: Run b4 candidate LC0 matrix on the bound domain
-        run: |
-          python3 scripts/engine-opt-matrix.py \
-            --binary build/online-engine-opt-v2/bin/lc0 \
-            --weights build/online-engine-opt-v2/networks/791556.pb.gz \
-            --selection qualification/engine-opt-v2-candidate-selection.json \
-            --qualification-only \
-            --execution-domain build/test-results/engine-opt-v2-profile-domain/execution-domain.json \
-            --output build/test-results/engine-opt-v2-profile-domain/matrix/candidate-lc0.json
-      - name: Build pinned Fastchess against source-test attestation
-        run: make -f Makefile.local-game build-fastchess
-      - name: Run canonical LOCAL-1 regressions unchanged
-        run: make -f Makefile.local-game test
-      - name: Qualify b4 candidate G3 and LOCAL-1 on the same bound worker
-        run: |
-          python3 -m tools.local_game.runner \
-            --mode required \
-            --policy qualification/local-full-game-v2-candidate.json \
-            --execution-domain build/test-results/engine-opt-v2-profile-domain/execution-domain.json \
-            --output build/test-results/engine-opt-v2-profile-domain/local1/campaign
+          python3 scripts/qualify-engine-opt-v2.py
+          mkdir -p build/test-results/engine-opt-v2-profile-domain/canonical
+          cp build/test-results/engine-opt-v2/report.json \
+            build/test-results/engine-opt-v2-profile-domain/canonical/report.json
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
@@ -484,11 +479,21 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           ref: ${{ env.ALLFATHER_SOURCE_SHA }}
+          fetch-depth: 2
       - name: Verify exact source checkout
         run: test "$(git rev-parse HEAD)" = "$ALLFATHER_SOURCE_SHA"
       - name: Fetch PR base for canonical surface guard
         if: ${{ env.ALLFATHER_BASE_SHA != '' }}
         run: git fetch --no-tags --depth=1 origin "$ALLFATHER_BASE_SHA"
+      - name: Observe promotion ancestry; gate seals any missing-object failure
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          git rev-parse --verify 'HEAD^{commit}'
+          git rev-parse --verify 'HEAD^'
+          if [ -n "$ALLFATHER_BASE_SHA" ]; then
+            test "$(git rev-parse --verify "$ALLFATHER_BASE_SHA^{commit}")" = "$ALLFATHER_BASE_SHA"
+          fi
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           pattern: engine-opt-v2-*
@@ -499,6 +504,7 @@ jobs:
           python3 scripts/qualify-engine-opt-matrix.py \
             --root build/engine-opt-artifacts \
             --selection qualification/engine-opt-v2-selection.json \
+            --candidate-report-pattern 'engine-opt-v2-profile-domain/**/canonical/report.json' \
             --output build/test-results/engine-opt-v2-canonical-matrix/report.json
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
@@ -507,34 +513,37 @@ jobs:
           path: build/test-results/engine-opt-v2-canonical-matrix
           if-no-files-found: error
           retention-days: 14
-      - name: Aggregate exact-head b4 candidate evidence
+      - name: Aggregate exact-head canonical b4 evidence
         run: |
           python3 scripts/qualify-engine-opt-evidence.py \
             --root build/engine-opt-artifacts \
-            --selection qualification/engine-opt-v2-candidate-selection.json \
-            --candidate-report-pattern 'engine-opt-v2-profile-domain/**/candidate/report.json' \
-            --candidate-mode \
-            --output build/test-results/engine-opt-v2-candidate-aggregate/report.json
-      - name: Summarize b4 candidate disposition
+            --selection qualification/engine-opt-v2-selection.json \
+            --candidate-report-pattern 'engine-opt-v2-profile-domain/**/canonical/report.json' \
+            --output build/test-results/engine-opt-v2-aggregate/report.json
+      - name: Summarize canonical b4 disposition
         if: always()
         run: |
           python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
           import json
           from pathlib import Path
-          path=Path("build/test-results/engine-opt-v2-candidate-aggregate/report.json")
-          print("## ENGINE-OPT-V2 b4 candidate aggregate")
+          path=Path("build/test-results/engine-opt-v2-aggregate/report.json")
+          print("## ENGINE-OPT-V2 canonical b4 aggregate")
           if not path.is_file():
-              print("\nCandidate aggregate report was not produced.")
+              print("\nCanonical aggregate report was not produced.")
           else:
               report=json.loads(path.read_text(encoding="utf-8"))
               for label,key in (
                   ("Evidence valid","evidence_valid"),
-                  ("Candidate qualified","candidate_qualified"),
-                  ("Promotion ready","promotion_ready"),
-                  ("Canonical profile changed","canonical_profile_changed"),
+                  ("Profile qualified","profile_qualified"),
+                  ("Passed","passed"),
                   ("Disposition","qualification_disposition"),
               ):
                   print(f"- **{label}:** `{report.get(key)}`")
+              invalid=report.get("invalid_evidence") or []
+              if invalid:
+                  print("\n### Invalid evidence")
+                  for issue in invalid:
+                      print(f"- {issue}")
               failures=report.get("qualification_failures") or []
               if failures:
                   print("\n### Qualification failures")
@@ -544,42 +553,42 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
-          name: engine-opt-v2-candidate-aggregate
-          path: build/test-results/engine-opt-v2-candidate-aggregate
+          name: engine-opt-v2-aggregate
+          path: build/test-results/engine-opt-v2-aggregate
           if-no-files-found: error
           retention-days: 14
-      - name: Evaluate host-aware canonical/candidate gate
+      - name: Evaluate canonical b4 promotion gate
+        id: promotion_gate
         run: |
-          python3 scripts/qualify-engine-opt-v2-candidate-gate.py \
-            --canonical build/test-results/engine-opt-v2-canonical-matrix/report.json \
-            --candidate build/test-results/engine-opt-v2-candidate-aggregate/report.json \
+          python3 scripts/qualify-engine-opt-v2-promotion-gate.py \
+            --aggregate build/test-results/engine-opt-v2-aggregate/report.json \
             --host-binding qualification/engine-opt-v2-host-binding.json \
+            --catalog qualification/resource-profile-catalog-v1.json \
             --base-sha "$ALLFATHER_BASE_SHA" \
-            --output build/test-results/engine-opt-v2-final-gate/report.json
-      - name: Summarize final host-aware gate
+            --output build/test-results/engine-opt-v2-promotion-gate/report.json
+      - name: Summarize canonical b4 promotion gate
         if: always()
         run: |
           python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
           import json
           from pathlib import Path
-          path=Path("build/test-results/engine-opt-v2-final-gate/report.json")
-          print("\n## ENGINE-OPT-V2 final gate")
+          path=Path("build/test-results/engine-opt-v2-promotion-gate/report.json")
+          print("\n## ENGINE-OPT-V2 canonical b4 promotion gate")
           if not path.is_file():
-              print("\nFinal gate report was not produced.")
+              print("\nPromotion gate report was not produced.")
           else:
               report=json.loads(path.read_text(encoding="utf-8"))
               print(f"- **Passed:** `{report.get('passed')}`")
               print(f"- **Disposition:** `{report.get('disposition')}`")
-              canonical=report.get('canonical') or {}
-              print(f"- **Canonical status:** `{canonical.get('status')}`")
-              print(f"- **Canonical authority on current host:** `{canonical.get('authority_on_current_host')}`")
-              candidate=report.get('candidate') or {}
-              print(f"- **Candidate promotion ready:** `{candidate.get('promotion_ready')}`")
+              failure=report.get('failure') or {}
+              if failure:
+                  print(f"- **Blocking reason:** `{failure.get('message')}`")
           PY
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        if: always()
+        if: ${{ always() && (steps.promotion_gate.outcome == 'success' || steps.promotion_gate.outcome == 'failure') }}
         with:
-          name: engine-opt-v2-final-gate
-          path: build/test-results/engine-opt-v2-final-gate
+          name: engine-opt-v2-promotion-gate
+          path: build/test-results/engine-opt-v2-promotion-gate
           if-no-files-found: error
           retention-days: 14
+

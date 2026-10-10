@@ -36,19 +36,20 @@ class EngineOptContractTests(unittest.TestCase):
     def test_selection_state_is_explicit(self):
         s=load_json(ROOT/"qualification/engine-opt-v2-selection.json")
         self.assertIn(s["status"],("provisional","selected"))
-        self.assertEqual(s["selected"]["lc0"]["matrix_profile"],"b7-p8-c256k-warm64")
-        self.assertEqual(s["selected"]["lc0"]["warmup_nodes"],64)
+        self.assertEqual(s["selected"]["lc0"]["matrix_profile"],"b4-p0-c256k-cold")
+        self.assertIsNone(s["selected"]["lc0"]["warmup_nodes"])
         self.assertGreaterEqual(s["qualification"]["confirmation_repeats"],2)
         self.assertEqual(s["qualification"]["baseline_profile"],"v1-current-cold")
         self.assertEqual(s["qualification"]["corpus_cases"],8)
 
-    def test_candidate_overlay_is_non_authoritative_and_distinct(self):
+    def test_candidate_overlay_remains_non_authoritative_after_canonical_promotion(self):
         canonical=load_json(ROOT/"qualification/engine-opt-v2-selection.json")
         candidate=load_json(ROOT/"qualification/engine-opt-v2-candidate-selection.json")
         self.assertEqual(canonical["status"],"selected")
         self.assertEqual(candidate["status"],"qualification_candidate")
-        self.assertEqual(canonical["selected"]["lc0"]["matrix_profile"],"b7-p8-c256k-warm64")
+        self.assertEqual(canonical["selected"]["lc0"]["matrix_profile"],"b4-p0-c256k-cold")
         self.assertEqual(candidate["selected"]["lc0"]["matrix_profile"],"b4-p0-c256k-cold")
+        self.assertEqual(canonical["selected"], candidate["selected"])
         self.assertFalse(candidate["authority"]["runtime_profile_selection"])
         self.assertFalse(candidate["authority"]["promotion_authority"])
         self.assertIsNone(candidate["selected"]["lc0"]["warmup_nodes"])
@@ -59,7 +60,7 @@ class EngineOptContractTests(unittest.TestCase):
         validate_reference(policy,candidate,reference,require_selected=False)
         validate_hybrid(hybrid_policy,reference,hybrid)
 
-    def test_candidate_does_not_mutate_historical_j8_to_j12_configs(self):
+    def test_canonical_b4_is_propagated_through_j8_to_j12_configs(self):
         for relative in (
             "config/allfather.m14-j-j8.validation.json",
             "config/allfather.m14-j-j9.validation.json",
@@ -69,9 +70,9 @@ class EngineOptContractTests(unittest.TestCase):
             with self.subTest(path=relative):
                 doc=load_json(ROOT/relative)
                 lc0=doc["instances"]["lc0-shadow"]
-                self.assertEqual(lc0["options"]["MinibatchSize"],7)
-                self.assertEqual(lc0["options"]["MaxPrefetch"],8)
-                self.assertEqual(lc0["warmup"]["nodes"],64)
+                self.assertEqual(lc0["options"]["MinibatchSize"],4)
+                self.assertEqual(lc0["options"]["MaxPrefetch"],0)
+                self.assertNotIn("warmup",lc0)
 
     def test_candidate_cold_profile_row_contract(self):
         selected=load_json(ROOT/"qualification/engine-opt-v2-candidate-selection.json")["selected"]["lc0"]
@@ -88,6 +89,34 @@ class EngineOptContractTests(unittest.TestCase):
         bad=copy.deepcopy(row); bad["warmup"]={"nodes":64}
         with self.assertRaises(AssertionError):
             validate_selected_lc0_rows([bad],selected,lambda ok,msg:self.assertTrue(ok,msg))
+
+
+    def test_canonical_b4_native_work_policy_is_explicit(self):
+        policy=load_json(ROOT/"qualification/engine-opt-v2-native-work-policy.json")
+        self.assertEqual(policy["policy_id"],"lc0-node-stop-contract-v1")
+        self.assertEqual(policy["applies_to"],{
+            "selection_profile_id":"engine-opt-v2-selection",
+            "selection_status":"selected",
+            "matrix_profile":"b4-p0-c256k-cold",
+        })
+        self.assertEqual(policy["requested_nodes"],16)
+        self.assertEqual(policy["terminal_counter_semantics"],"lc0.uci_nodes")
+        self.assertFalse(policy["require_exact_terminal_counter_repeatability"])
+
+    def test_canonical_matrix_qualifier_uses_canonical_identity_report(self):
+        workflow=(ROOT/".github/workflows/engine-optimization.yml").read_text()
+        marker="      - name: Qualify canonical LC0 matrix independently"
+        self.assertIn(marker,workflow)
+        segment=workflow.split(marker,1)[1].split("      - uses:",1)[0]
+        self.assertIn("--candidate-report-pattern",segment)
+        self.assertIn(
+            "'engine-opt-v2-profile-domain/**/canonical/report.json'",
+            segment,
+        )
+        self.assertNotIn(
+            "engine-opt-v2-profile-domain/**/candidate/report.json",
+            segment,
+        )
 
     def test_candidate_g3_witness_corpus_preserves_legacy_requirement(self):
         canonical=load_json(ROOT/"qualification/online-hybrid-v2.json")

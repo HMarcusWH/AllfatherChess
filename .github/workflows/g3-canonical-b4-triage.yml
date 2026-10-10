@@ -1,0 +1,100 @@
+name: G3 canonical-b4 23-case diagnostic (non-promoting)
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'scripts/diagnose-g3-canonical-b4.py'
+      - 'tests/engine_opt/test_g3_canonical_b4_triage.py'
+      - 'config/allfather.online-hybrid-v2.g3-triage.json'
+      - '.github/workflows/g3-canonical-b4-triage.yml'
+
+permissions:
+  contents: read
+
+env:
+  TRIAGE_HEAD_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+  ALLFATHER_RUNNER_ENVIRONMENT: github-hosted
+
+concurrency:
+  group: g3-b4-triage-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  static-contracts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.TRIAGE_HEAD_SHA }}
+      - name: Verify exact HEAD and frozen policy/config contrasts
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$TRIAGE_HEAD_SHA"
+          python3 -m py_compile scripts/diagnose-g3-canonical-b4.py
+          python3 tests/engine_opt/test_g3_canonical_b4_triage.py
+          python3 scripts/diagnose-g3-canonical-b4.py --static
+
+  canonical-b4-triage:
+    needs: static-contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 105
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.TRIAGE_HEAD_SHA }}
+      - name: Verify exact source checkout
+        run: test "$(git rev-parse HEAD)" = "$TRIAGE_HEAD_SHA"
+      - name: Install pinned CPU inference build dependencies
+        timeout-minutes: 5
+        run: |
+          bash scripts/ci-install-apt-deps.sh build-essential git meson ninja-build pkg-config libprotobuf-dev protobuf-compiler zlib1g-dev libopenblas-dev
+      - name: Build actual canonical-b4 engine bundle
+        timeout-minutes: 70
+        run: make build-online-engine-opt-v2
+      - name: Validate exact-head engine bundle
+        run: python3 scripts/qualify-engine-opt-v2.py
+      - name: Capture exact execution domain on this worker
+        run: |
+          set -euo pipefail
+          mkdir -p build/test-results/g3-canonical-b4-triage
+          python3 scripts/lc0-hardware-probe.py > build/test-results/g3-canonical-b4-triage/host.json
+          python3 -m tools.engine_opt.domain capture \
+            --probe build/test-results/g3-canonical-b4-triage/host.json \
+            --output build/test-results/g3-canonical-b4-triage/execution-domain.json
+          python3 -m tools.engine_opt.domain validate \
+            --input build/test-results/g3-canonical-b4-triage/execution-domain.json \
+            --expected-source-commit "$TRIAGE_HEAD_SHA"
+      - name: Diagnose 23 frozen G3 cases with canonical b4 (no authority promotion)
+        timeout-minutes: 30
+        run: |
+          python3 scripts/diagnose-g3-canonical-b4.py \
+            --expected-head "$TRIAGE_HEAD_SHA" \
+            --execution-domain build/test-results/g3-canonical-b4-triage/execution-domain.json
+      - name: Summarize diagnostic disposition
+        if: always()
+        run: |
+          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          from pathlib import Path
+          p=Path("build/test-results/g3-canonical-b4-triage/report.json")
+          print("## G3 23-case b4 triage: diagnostic only")
+          if p.exists():
+              r=json.loads(p.read_text())
+              for key in ("diagnostic_complete","diagnostic_positive_witness","cases_exercised",
+                          "qualification_disposition","promotion_evidence"):
+                  print(f"- {key}: {r.get(key)}")
+          else:
+              print("- No diagnostic disposition was generated.")
+          PY
+      - name: Upload complete source-bound diagnostic and replays
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: g3-canonical-b4-triage-nonpromoting
+          path: |
+            build/test-results/g3-canonical-b4-triage/**
+            build/replays-g3-canonical-b4-triage/**
+          if-no-files-found: error
+          retention-days: 30

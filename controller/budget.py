@@ -303,9 +303,11 @@ class BudgetLedger:
         *,
         clock: Callable[[], float] | None = None,
         started: float | None = None,
+        cpu_clock: Callable[[], float] | None = None,
     ) -> None:
         self.envelope = envelope
         self._clock = clock or time.monotonic
+        self._cpu_clock = cpu_clock or time.thread_time
         self._lock = threading.RLock()
         self._lanes: dict[str, LaneAccount] = {}
         self._ids = itertools.count(1)
@@ -752,26 +754,29 @@ class BudgetLedger:
 
     @contextmanager
     def controller_overhead(self, label: str = "checkpoint") -> Iterator[None]:
-        """Charge the controller's own metareasoning time to the envelope."""
-        started = self._clock()
+        """Charge this thread's CPU; wall time remains a separate deadline."""
+        started_cpu = self._cpu_clock()
         try:
             yield
         finally:
-            elapsed_ms = (self._clock() - started) * 1000.0
+            cpu_ms = self._finite_nonnegative(
+                (self._cpu_clock() - started_cpu) * 1000.0,
+                "controller thread CPU",
+            )
             with self._lock:
                 account = self._lane(CONTROLLER_LANE)
-                account.spent_cpu_ms += elapsed_ms
+                account.spent_cpu_ms += cpu_ms
                 self._purpose_spent_cpu["controller"] = (
-                    self._purpose_spent_cpu.get("controller", 0.0) + elapsed_ms
+                    self._purpose_spent_cpu.get("controller", 0.0) + cpu_ms
                 )
                 account.native_work[f"controller.{label}_ms"] = (
-                    account.native_work.get(f"controller.{label}_ms", 0.0) + elapsed_ms
+                    account.native_work.get(f"controller.{label}_ms", 0.0) + cpu_ms
                 )
                 self._append_journal(
                     "controller_charge",
                     lane=CONTROLLER_LANE,
                     purpose="controller",
-                    cpu_ms=elapsed_ms,
+                    cpu_ms=cpu_ms,
                     label=label,
                 )
 
@@ -780,10 +785,13 @@ class BudgetLedger:
     def snapshot(self) -> dict[str, Any]:
         with self._lock:
             committed_cpu, committed_gpu = self._committed()
+            # One observation for both fields. Separate clock samples could
+            # straddle hard expiry inside the same supposedly atomic snapshot.
+            elapsed = self.elapsed_ms()
             return {
                 "envelope": self.envelope.as_dict(),
-                "elapsed_ms": round(self.elapsed_ms(), 3),
-                "wall_remaining_ms": round(self.wall_remaining_ms(), 3),
+                "elapsed_ms": round(elapsed, 3),
+                "wall_remaining_ms": round(max(0.0, self.envelope.wall_ms - elapsed), 3),
                 "committed_cpu_ms": round(committed_cpu, 3),
                 "committed_gpu_ms": round(committed_gpu, 3),
                 "available_solver_cpu_ms": round(self.available_cpu_ms(), 3),

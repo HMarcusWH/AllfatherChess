@@ -71,42 +71,82 @@ class ResourceProfileCatalogTests(unittest.TestCase):
         )
         self.assertIsNone(catalog.warmup("lc0/specialist-engine-opt-v2"))
 
-    def test_seed_is_bound_to_pr49_exact_host_qualification(self):
+    def test_promoted_catalog_freezes_pr64_immediate_parent_exact_host_evidence(self):
         catalog = load_resource_profile_catalog(CATALOG)
         snapshot = catalog.qualification_snapshot
+        history = load(HOST_BINDING)
+        bound = history["current_domain_bound_qualification"]
         self.assertEqual(
             snapshot["qualified_head"],
-            "3de528e5a1a5a3609e0c293a80296ddc4a006875",
+            "b90af9f1760c9611826afc2fd26ad0dc438d4557",
+        )
+        self.assertEqual(snapshot["qualification_disposition"], "QUALIFIED_EXACT_HOST_ONLY")
+        self.assertEqual(snapshot["binding_scope"], "exact_host_observation")
+        self.assertEqual(snapshot["workflow_run"], 38012334421)
+        self.assertEqual(snapshot["aggregate_artifact_id"], 11657944410)
+        self.assertEqual(
+            snapshot["merge_commit"],
+            "cae842801497161f2de37ff43b27d074ac12568a",
+            "frozen schema retains the actual PR63 mainline merge, not a fictional PR64 merge",
         )
         self.assertEqual(
-            snapshot["qualification_disposition"],
-            "QUALIFIED_EXACT_HOST_ONLY",
+            snapshot["aggregate_artifact_sha256"],
+            "daf8ff2a3bfb2300de02d60a60baacf52c14638ff4d3aa41d3f0394e5205dbbd",
         )
-        self.assertEqual(snapshot["binding_scope"], "exact_host_observation")
+        self.assertEqual(
+            snapshot["aggregate_report_sha256"],
+            "f1748fea0de0b8712fc47ae216c2111c525f8a3c645d044f670837ee2e81f9e1",
+        )
+        self.assertEqual(
+            snapshot["execution_domain_digest"],
+            "2e9673f5cea55cf86e59f34ae1b4d1dddea1c19c4972ac34b323465ab3bd0e2c",
+        )
+        self.assertEqual(snapshot["qualified_head"], bound["qualified_head"])
+        self.assertEqual(snapshot["workflow_run"], bound["aggregate_workflow_run"])
+        for field in (
+            "aggregate_artifact_id",
+            "aggregate_artifact_sha256", "aggregate_report_sha256",
+            "qualification_disposition", "execution_domain_id",
+            "execution_domain_digest", "binding_scope",
+        ):
+            self.assertEqual(snapshot[field], bound[field])
+        self.assertFalse(bound["generic_host_portability_established"])
+        self.assertEqual(catalog.digest, "dc98b3dff303b0be9d3d195b298cf3c10dbb9635e4446b3e5413a020d96e8f0c")
+        scheduler_policy = load(ROOT / "qualification/work-grant-scheduler-v1.json")
+        allocator_policy = load(ROOT / "qualification/adaptive-resource-allocation-v1.json")
+        self.assertEqual(scheduler_policy["resource_catalog"]["catalog_digest"], catalog.digest)
+        self.assertEqual(
+            allocator_policy["work_scheduler_catalog"]["catalog_digest"],
+            "b90c892f8d0c4653009b9bbb0e0972c17a1df65d326ac01b8f5f8b0b80386405",
+        )
         self.assertFalse(catalog.selection_enabled)
         for binding in catalog.default_composition.bindings:
             profile = catalog.profile(binding.profile_id)
-            self.assertEqual(
-                profile.qualification.execution_domain_id,
-                snapshot["execution_domain_id"],
-            )
-            self.assertEqual(
-                profile.qualification.execution_domain_digest,
-                snapshot["execution_domain_digest"],
-            )
+            self.assertEqual(profile.qualification.source_commit, snapshot["qualified_head"])
+            self.assertEqual(profile.qualification.evidence_sha256, snapshot["aggregate_report_sha256"])
+            self.assertEqual(profile.qualification.execution_domain_id, snapshot["execution_domain_id"])
+            self.assertEqual(profile.qualification.execution_domain_digest, snapshot["execution_domain_digest"])
             self.assertEqual(profile.qualification.binding_scope, snapshot["binding_scope"])
             self.assertEqual(profile.work_chunk_ids, ())
+        composition = catalog.default_composition
+        self.assertEqual(composition.qualification.source_commit, snapshot["qualified_head"])
+        self.assertEqual(composition.qualification.evidence_sha256, snapshot["aggregate_report_sha256"])
+        self.assertEqual(composition.qualification.execution_domain_digest, snapshot["execution_domain_digest"])
 
+    def test_pr63_candidate_seed_is_retained_but_no_longer_active_snapshot(self):
         history = load(HOST_BINDING)
-        current = history["current_domain_bound_qualification"]
-        self.assertEqual(current["qualified_head"], snapshot["qualified_head"])
-        self.assertEqual(
-            current["aggregate_report_sha256"],
-            snapshot["aggregate_report_sha256"],
+        seed = history["b4_candidate_promotion_seed"]
+        self.assertEqual(seed["pull_request"], 63)
+        self.assertEqual(seed["qualified_head"], "56516c34719670054e12218bd3781e9725ae4f65")
+        self.assertEqual(seed["qualification_disposition"], "QUALIFIED_EXACT_HOST_ONLY")
+        self.assertTrue(seed["canonical_promotion_complete"])
+        self.assertNotEqual(
+            history["current_domain_bound_qualification"]["qualified_head"],
+            seed["qualified_head"],
         )
-        self.assertEqual(
-            current["execution_domain_digest"],
-            snapshot["execution_domain_digest"],
+        self.assertNotEqual(
+            load_resource_profile_catalog(CATALOG).qualification_snapshot["qualified_head"],
+            seed["qualified_head"],
         )
 
     def test_catalog_records_measured_seed_memory_without_enforcement_claim(self):
@@ -172,7 +212,12 @@ class ResourceProfileCatalogTests(unittest.TestCase):
         mutations.append(profile)
 
         warmup = copy.deepcopy(raw)
-        warmup["profile_runtime"]["lc0/specialist-engine-opt-v2"]["warmup"]["nodes"] = 63
+        warmup["profile_runtime"]["lc0/specialist-engine-opt-v2"]["warmup"] = {
+            "enabled": True,
+            "nodes": 64,
+            "position": "startpos",
+            "reset_after": True,
+        }
         mutations.append(warmup)
 
         reservation = copy.deepcopy(raw)

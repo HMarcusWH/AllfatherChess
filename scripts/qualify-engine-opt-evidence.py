@@ -24,6 +24,10 @@ from tools.engine_opt.domain import (
 )
 from tools.engine_opt.matrix_qualification import qualify_lc0_matrix
 from tools.engine_opt.constituent_hash import load_policy as load_constituent_policy, qualify_hash_matrix
+from tools.engine_opt.g3_b4 import (
+    B4_POLICY, WITNESS_CORPUS, file_hash as b4_file_hash, validate_b4_policy,
+    require_positive_g3,
+)
 
 
 class QualificationError(RuntimeError):
@@ -48,6 +52,66 @@ def find_one(root: Path, pattern: str) -> Path:
     found = sorted(root.glob(pattern))
     require(len(found) == 1, f"{pattern}: expected one file, found {len(found)}")
     return found[0]
+
+
+def local1_campaign_pattern(*, candidate_mode: bool) -> str:
+    """Select the candidate-era or promoted-canonical campaign explicitly."""
+    directory = "local1" if candidate_mode else "canonical-local1"
+    return f"engine-opt-v2-profile-domain/**/{directory}/campaign/report.json"
+
+
+def j12_campaign_pattern() -> str:
+    return "engine-opt-v2-profile-domain/**/j12-local1/campaign/report.json"
+
+
+def validate_j12_campaign_metadata(
+    local: dict[str, Any],
+    manifest: dict[str, Any],
+    prerequisite: dict[str, Any],
+    *,
+    source: str,
+    candidate_bundle: dict[str, Any],
+    policy_sha256: str,
+) -> None:
+    """Reject inconsistent J12 lifecycle evidence without granting hybrid authority."""
+    require(local.get("passed") is True, f"J12 LOCAL-1 failed: {local.get('errors')}")
+    require(local.get("errors") == [], "J12 lifecycle has retained errors")
+    require(local.get("execution_scope") == "required_local1", "J12 lifecycle scope drift")
+    require(local.get("validated_games") == 28, "J12 lifecycle did not validate 28 games")
+    require(local.get("observed_games") == 28, "J12 lifecycle did not observe 28 games")
+    require(local.get("claim_boundary", {}).get("full_game_lifecycle") is True,
+            "J12 lifecycle lacks full-game evidence")
+    require((manifest.get("source") or {}).get("commit") == source,
+            "J12 lifecycle source is not exact head")
+    require(manifest.get("status") == "completed" and not manifest.get("failures"),
+            "J12 lifecycle manifest is incomplete")
+    require(manifest.get("mode") == "required", "J12 lifecycle mode is not required")
+    require((manifest.get("policy") or {}).get("path")
+            == "qualification/local-full-game-orchestrated-v1.json",
+            "J12 lifecycle policy path drift")
+    require((manifest.get("policy") or {}).get("sha256") == policy_sha256,
+            "J12 lifecycle policy bytes drift")
+    require(local.get("candidate_bundle") == candidate_bundle
+            and manifest.get("candidate_bundle") == candidate_bundle,
+            "J12 lifecycle bundle differs from exact-head candidate")
+    require((manifest.get("prerequisites") or []) and
+            [row.get("id") for row in manifest["prerequisites"]] == ["engine-opt-v2", "j12"]
+            and all(row.get("returncode") == 0 and row.get("timed_out") is False
+                    for row in manifest["prerequisites"]),
+            "J12 lifecycle prerequisites missing, reordered or failed")
+    require(prerequisite.get("schema_version") == 1
+            and prerequisite.get("profile_id") == "allfather.orchestrated-v1"
+            and prerequisite.get("mechanism_valid") is True
+            and prerequisite.get("source_commit") == source
+            and prerequisite.get("candidate_bundle") == candidate_bundle,
+            "J12 prerequisite mechanism identity is invalid")
+    require(prerequisite.get("work_grants_authorized") == 9
+            and prerequisite.get("work_grants_settled") == 9
+            and prerequisite.get("open_reservations") == 0
+            and prerequisite.get("allocation_action") == "BUY_BUNDLE",
+            "J12 prerequisite did not settle its frozen WorkGrant mechanism")
+    # J12 may validly remain ANCHOR_FALLBACK on a host with synthetic capacity.
+    # Its prerequisite's authority_qualified=false is not an invalid lifecycle.
 
 
 def current_source(root: Path) -> str:
@@ -347,7 +411,7 @@ def main() -> int:
     def check_local1_and_g3() -> dict[str, Any]:
         report_path = find_one(
             artifact_root,
-            "engine-opt-v2-profile-domain/**/local1/campaign/report.json",
+            local1_campaign_pattern(candidate_mode=args.candidate_mode),
         )
         local = load(report_path)
         manifest = load(report_path.parent / "manifest.json")
@@ -383,6 +447,15 @@ def main() -> int:
         require(g3.get("evidence_valid") is True, "G3-v2 evidence is invalid")
         require(g3.get("source_commit") == source, "G3-v2 source is not exact head")
         require(g3.get("candidate_bundle") == candidate, "G3-v2 candidate binding mismatch")
+        if not args.candidate_mode:
+            validate_b4_policy(repo)
+            contracts = g3.get("contracts") or {}
+            require(contracts.get("policy_sha256") == b4_file_hash(repo, B4_POLICY)
+                    and contracts.get("selection_sha256") == sha256(selection_path)
+                    and contracts.get("reference_runtime_sha256") == sha256(repo / "config/allfather.online-engine-opt-v2.json")
+                    and contracts.get("hybrid_runtime_sha256") == sha256(repo / "config/allfather.online-hybrid-v2.validation.json")
+                    and contracts.get("witnesses_sha256") == b4_file_hash(repo, WITNESS_CORPUS),
+                    "canonical G3 prerequisite differs from frozen b4 source contracts")
         if args.candidate_mode:
             overlay=(details.get("candidate") or {}).get("candidate_overlay") or {}
             contracts=g3.get("contracts") or {}
@@ -410,13 +483,16 @@ def main() -> int:
         if g3.get("authority_qualified") is not True:
             fail("NOT_QUALIFIED_AUTHORITY", "G3-v2 produced valid evidence but no frozen non-anchor HYBRID witness")
         else:
-            positive = g3.get("positive_case") or {}
-            require(
-                positive.get("authority") == "HYBRID"
-                and positive.get("emitted_move")
-                and positive.get("emitted_move") != positive.get("anchor_move"),
-                "G3-v2 qualified flag lacks a genuine non-anchor witness",
-            )
+            if args.candidate_mode:
+                positive = g3.get("positive_case") or {}
+                require(
+                    positive.get("authority") == "HYBRID"
+                    and positive.get("emitted_move")
+                    and positive.get("emitted_move") != positive.get("anchor_move"),
+                    "G3-v2 qualified flag lacks a genuine non-anchor witness",
+                )
+            else:
+                require_positive_g3(g3, policy_sha256=b4_file_hash(repo, B4_POLICY))
 
         resource_docs = [
             load(path)
@@ -463,10 +539,50 @@ def main() -> int:
             "actual_anchor_overrides": local.get("actual_anchor_overrides"),
             "g3_authority_qualified": g3.get("authority_qualified"),
             "g3_positive_case": g3.get("positive_case"),
+            "g3_policy_sha256": (None if args.candidate_mode else b4_file_hash(repo, B4_POLICY)),
             "lc0_explore_cpu_ms_max": max(explore) if explore else None,
             "lc0_verify_cpu_ms_max": max(verify) if verify else None,
             "lc0_explore_reserved_ms": explore_reserved,
             "lc0_verify_reserved_ms": verify_reserved,
+        }
+
+    def check_j12_lifecycle() -> dict[str, Any]:
+        report_path = find_one(artifact_root, j12_campaign_pattern())
+        local = load(report_path)
+        manifest = load(report_path.parent / "manifest.json")
+        prerequisite = load(report_path.parent / "prerequisites" / "j12.json")
+        candidate = details["candidate"]["bundle"]
+        validate_j12_campaign_metadata(
+            local, manifest, prerequisite,
+            source=source,
+            candidate_bundle=candidate,
+            policy_sha256=sha256(repo / "qualification/local-full-game-orchestrated-v1.json"),
+        )
+        local_domain = validate_execution_domain(
+            local.get("execution_domain"), expected_source_commit=source,
+        )
+        manifest_domain = validate_execution_domain(
+            manifest.get("execution_domain"), expected_source_commit=source,
+        )
+        prerequisite_domain = validate_execution_domain(
+            prerequisite.get("execution_domain"), expected_source_commit=source,
+        )
+        require_same_execution_domain(
+            {
+                "profile_domain": details["execution_domain"],
+                "j12_report": local_domain,
+                "j12_manifest": manifest_domain,
+                "j12_prerequisite": prerequisite_domain,
+            },
+            expected_source_commit=source,
+        )
+        return {
+            "execution_domain": local_domain,
+            "campaign_id": local.get("campaign_id"),
+            "validated_games": local.get("validated_games"),
+            "mechanism_valid": prerequisite.get("mechanism_valid"),
+            "authority_qualified": prerequisite.get("authority_qualified"),
+            "qualification_disposition": prerequisite.get("qualification_disposition"),
         }
 
     invalid_gate("execution_domain", check_domain)
@@ -476,6 +592,8 @@ def main() -> int:
         invalid_gate("lc0", check_lc0)
     if not invalid:
         invalid_gate("local1_g3", check_local1_and_g3)
+    if not invalid and not args.candidate_mode:
+        invalid_gate("j12_lifecycle", check_j12_lifecycle)
 
     evidence_valid = not invalid
     profile_qualified = bool(evidence_valid and not qualification_failures)
@@ -527,7 +645,12 @@ def main() -> int:
             "engine_profile_qualified": False if args.candidate_mode else profile_qualified,
             "candidate_overlay_qualified": profile_qualified if args.candidate_mode else False,
             "full_game_lifecycle": bool(
-                evidence_valid and (details.get("local1_g3") or {}).get("validated_games") == 28
+                evidence_valid
+                and (details.get("local1_g3") or {}).get("validated_games") == 28
+                and (
+                    args.candidate_mode
+                    or (details.get("j12_lifecycle") or {}).get("validated_games") == 28
+                )
             ),
             "generic_host_portability": bool(
                 profile_qualified

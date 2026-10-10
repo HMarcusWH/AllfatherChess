@@ -215,13 +215,37 @@ def qualify() -> dict[str, Any]:
         and (j7.get("claim_boundary") or {}).get("adaptive_allocation") is False,
         "J8 may not consume J7 selections",
     )
+    canonical_selected = engine_selection.get("selected") or {}
+    canonical_lc0 = canonical_selected.get("lc0") or {}
     for name, spec in runtime["instances"].items():
         if spec["family"] == "stockfish":
-            require(spec["options"].get("Hash") == 16, f"{name}: J7 Hash=32 leaked into runtime")
-        if spec["family"] == "lc0":
             require(
-                spec["options"].get("MaxPrefetch") == 8,
-                f"{name}: J7 MaxPrefetch=0 leaked into runtime",
+                spec["options"].get("Hash") == (canonical_selected.get("stockfish") or {}).get("hash_mb"),
+                f"{name}: runtime Stockfish Hash differs from canonical ENGINE-OPT selection",
+            )
+        if spec["family"] == "reckless":
+            require(
+                spec["options"].get("Hash") == (canonical_selected.get("reckless") or {}).get("hash_mb"),
+                f"{name}: runtime Reckless Hash differs from canonical ENGINE-OPT selection",
+            )
+        if spec["family"] == "lc0":
+            expected = {
+                "NNCacheSize": canonical_lc0.get("nn_cache_size"),
+                "MinibatchSize": canonical_lc0.get("minibatch_size"),
+                "MaxPrefetch": canonical_lc0.get("max_prefetch"),
+                "AdaptivePrefetch": canonical_lc0.get("adaptive_prefetch"),
+                "DefectTelemetry": canonical_lc0.get("defect_telemetry"),
+            }
+            for option, value in expected.items():
+                require(
+                    spec["options"].get(option) == value,
+                    f"{name}: runtime {option} differs from canonical ENGINE-OPT selection",
+                )
+            warmup = spec.get("warmup")
+            warmup_nodes = canonical_lc0.get("warmup_nodes")
+            require(
+                (warmup is None if warmup_nodes is None else isinstance(warmup, dict) and warmup.get("nodes") == warmup_nodes),
+                f"{name}: runtime warmup differs from canonical ENGINE-OPT selection",
             )
 
     composition = catalog.default_composition

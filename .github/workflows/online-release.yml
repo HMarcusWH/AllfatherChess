@@ -1,0 +1,98 @@
+name: ONLINE-3A sealed offline UCI release
+on:
+  pull_request:
+    paths:
+      - 'deploy/**'
+      - 'scripts/release-manifest.py'
+      - 'scripts/package-online.py'
+      - 'scripts/online-host-preflight.py'
+      - 'tests/deploy/**'
+      - '.github/workflows/online-release.yml'
+      - 'docs/ONLINE_OPERATIONS.md'
+  workflow_dispatch:
+permissions:
+  contents: read
+env:
+  ALLFATHER_SOURCE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+concurrency:
+  group: online3a-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  contracts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.ALLFATHER_SOURCE_SHA }}
+      - name: Confirm exact source
+        run: test "$(git rev-parse HEAD)" = "$ALLFATHER_SOURCE_SHA"
+      - name: Compile release code and execute offline negative controls
+        run: |
+          python3 -m py_compile scripts/release-manifest.py scripts/package-online.py scripts/online-host-preflight.py deploy/bin/allfather-online tests/deploy/test_online3a.py
+          python3 tests/deploy/test_online3a.py
+          python3 scripts/online-host-preflight.py --output build/test-results/online3a/host-observation.json
+          python3 -m json.tool build/test-results/online3a/host-observation.json >/dev/null
+      - name: Refuse live credentials and public release status
+        run: |
+          test ! -e deploy/lichess/config.yml
+          test ! -e deploy/compose.yml
+          grep -q 'ONLINE-3A-OFFLINE-ONLY' scripts/release-manifest.py
+  sealed-bundle:
+    needs: contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    env:
+      JOBS: '2'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.ALLFATHER_SOURCE_SHA }}
+      - name: Verify exact source checkout
+        run: test "$(git rev-parse HEAD)" = "$ALLFATHER_SOURCE_SHA"
+      - name: Install established engine toolchain
+        run: |
+          bash scripts/ci-install-apt-deps.sh build-essential meson ninja-build pkg-config libprotobuf-dev protobuf-compiler zlib1g-dev libopenblas-dev
+      - name: Cache immutable networks
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: |
+            build/artifacts/stockfish
+            build/artifacts/reckless
+            build/artifacts/lc0
+          key: online3a-networks-${{ runner.os }}-${{ hashFiles('vendor.lock.json','qualification/lc0-strength.lock.json') }}
+      - name: Build exact-source portable ENGINE-OPT bundle
+        run: make build-online-engine-opt-v2
+      - name: Qualify source, network and build identity
+        run: python3 scripts/qualify-engine-opt-v2.py
+      - name: Generate sealed release and deterministic offline archive
+        run: |
+          python3 scripts/release-manifest.py create
+          python3 scripts/release-manifest.py verify
+          python3 scripts/package-online.py
+          test -s dist/allfather-online3a-offline.tar.gz
+          python3 deploy/bin/allfather-online --check
+      - name: Extract archive and execute real UCI handshake
+        timeout-minutes: 8
+        run: |
+          mkdir -p build/online3a-extract
+          tar --no-same-owner -xzf dist/allfather-online3a-offline.tar.gz -C build/online3a-extract
+          python3 build/online3a-extract/deploy/bin/allfather-online --check
+          cd build/online3a-extract
+          printf 'uci\nisready\nquit\n' | timeout 180 python3 deploy/bin/allfather-online > ../online3a-uci-stdout.txt 2> ../online3a-uci-stderr.txt
+          grep -x 'uciok' ../online3a-uci-stdout.txt
+          grep -x 'readyok' ../online3a-uci-stdout.txt
+          if grep -E -i 'traceback|startup failure|exception' ../online3a-uci-stdout.txt; then exit 1; fi
+      - name: Retain offline evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: online3a-offline-evidence
+          path: |
+            dist/allfather-online3a-offline.tar.gz
+            build/online-release/release-manifest.json
+            build/test-results/engine-opt-v2/report.json
+            build/online3a-uci-stdout.txt
+            build/online3a-uci-stderr.txt
+          if-no-files-found: warn
+          retention-days: 30

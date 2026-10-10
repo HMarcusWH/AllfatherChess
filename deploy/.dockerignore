@@ -1,6 +1,0 @@
-# Use docker build -f deploy/Dockerfile -f? Context root, with docker CLI
-# --ignorefile deploy/.dockerignore when supported, or copy to root .dockerignore.
-**
-!dist/
-!dist/online3a-stage/
-!dist/online3a-stage/**

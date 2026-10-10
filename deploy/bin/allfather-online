@@ -1,0 +1,46 @@
+#!/usr/bin/env python3
+"""Offline-only Allfather UCI launcher; never contacts Lichess."""
+from __future__ import annotations
+
+import argparse
+import importlib.util
+import os
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_MANIFEST = ROOT / "build/online-release/release-manifest.json"
+RUNTIME = ROOT / "config/allfather.online-hybrid-v2.validation.json"
+
+
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--check", action="store_true", help="Verify seal without starting UCI")
+    parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
+    args = parser.parse_args(argv)
+    try:
+        location = ROOT / "scripts/release-manifest.py"
+        spec = importlib.util.spec_from_file_location("allfather_release_seal", location)
+        if spec is None or spec.loader is None:
+            raise ValueError("release verifier missing")
+        verifier = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(verifier)
+        manifest = args.manifest if args.manifest.is_absolute() else ROOT / args.manifest
+        record = verifier.verify(ROOT, manifest)
+        if record.get("runtime_config", {}).get("path") != RUNTIME.relative_to(ROOT).as_posix():
+            raise ValueError("launcher profile does not match sealed runtime")
+    except (Exception) as exc:
+        print("Allfather online startup refused: " + str(exc), file=sys.stderr)
+        return 2
+    if args.check:
+        print("ONLINE-3A offline seal verified")
+        return 0
+    # Only UCI data from the controller may reach stdout.
+    os.chdir(ROOT)
+    os.execv(sys.executable, [sys.executable, "-m", "controller",
+                             "--config", str(RUNTIME)])
+    return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

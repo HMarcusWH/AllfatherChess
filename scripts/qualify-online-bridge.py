@@ -58,7 +58,17 @@ def validate_game(path: Path, color: str, bridge: str, source: str) -> dict:
     if any(any(x in p for x in ("/resign", "/abort", "/upgrade", "/chat", "/takeback"))
            for p in successful):
         raise ValueError("forbidden operation accepted")
-    logs = (path / "bridge.log").read_text(errors="replace")
+    log_path = path / "bridge.log"
+    logs = log_path.read_text(errors="replace")
+    logging = v.get("logging") or {}
+    if not (logging.get("capture_complete") is True and
+            logging.get("bridge_process_exited") is True and
+            logging.get("log_capture_method") == "direct_process_file_after_wait" and
+            isinstance(v.get("bridge_exit"), int) and
+            isinstance(logging.get("raw_bytes"), int) and logging["raw_bytes"] > 0 and
+            logging.get("sanitized_bytes") == log_path.stat().st_size and
+            logging.get("sanitized_sha256") == digest(log_path)):
+        raise ValueError("bridge diagnostic capture is incomplete or tampered")
     if "offline-fixture-token" in logs or "bestmove" not in logs.lower():
         raise ValueError("UCI transcript missing or credentials logged")
     return {"color": color, "plies": len(board.move_stack),

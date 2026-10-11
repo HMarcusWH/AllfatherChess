@@ -13,7 +13,6 @@ import signal
 import subprocess
 import sys
 import tempfile
-import threading
 import time
 from pathlib import Path
 
@@ -21,6 +20,7 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 from deploy.lichess import bridge_policy, fetch_bridge
+from deploy.lichess.log_capture import publish_log, shutdown_bridge
 from tests.lichess.fake_lichess_api import FakeLichess
 
 
@@ -39,7 +39,6 @@ def game(*, color: str, release: Path, bridge: Path, output: Path, timeout: int 
     server = FakeLichess(color)
     server.start()
     proc = None
-    log_thread = None
     with tempfile.TemporaryDirectory(prefix="online3b-") as dirname:
         work = Path(dirname)
         # The source artifact is read-only in the container. Each individual
@@ -59,52 +58,52 @@ def game(*, color: str, release: Path, bridge: Path, output: Path, timeout: int 
         env["ONLINE3B_ISOLATED_CONTAINER"] = "1"
         started = time.monotonic()
         log_path = output / "bridge.log"
+        private_log = work / "bridge-private.raw.log"
+        log_info = None
         try:
-            with log_path.open("w", encoding="utf-8") as log:
-                proc = subprocess.Popen(
-                    [sys.executable, str(staged / "lichess-bot.py"), "--config",
-                     str(work / "config.yml"), "-v", "--disable_auto_logging"],
-                    cwd=staged, env=env, stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT, text=True, bufsize=1,
-                    start_new_session=True
-                )
-                def reader():
-                    assert proc is not None and proc.stdout is not None
-                    for line in proc.stdout:
-                        log.write(line.replace(bridge_policy.TOKEN, "[REDACTED]"))
-                        log.flush()
-                log_thread = threading.Thread(target=reader, daemon=True)
-                log_thread.start()
-                if not server.event_stream_open.wait(timeout=90):
-                    raise RuntimeError("bridge never opened Lichess event stream")
-                server.issue_challenge()
-                if not server.game_stream_open.wait(timeout=90):
-                    raise RuntimeError("bridge did not accept challenge and open game stream")
-                if color == "black":
-                    server.opponent_move()
-                deadline = time.monotonic() + timeout
-                while time.monotonic() < deadline and not server.finished.is_set():
-                    if proc.poll() is not None:
-                        raise RuntimeError("bridge exited before natural game end")
-                    time.sleep(0.1)
-                if not server.finished.is_set():
-                    raise RuntimeError("no naturally completed game before timeout")
-                # Give the bridge enough time to consume the terminal gameState.
-                time.sleep(0.8)
-        finally:
-            # Keep HTTP streams up while the bridge is asked to shutdown;
-            # otherwise a premature 500/EOF can activate upstream restart.
-            if proc is not None and proc.poll() is None:
-                os.killpg(proc.pid, signal.SIGINT)
+            with private_log.open("wb") as raw:
                 try:
-                    proc.wait(timeout=15)
-                except subprocess.TimeoutExpired:
-                    os.killpg(proc.pid, signal.SIGKILL)
-                    proc.wait(timeout=10)
-            server.close()
-            if log_thread is not None:
-                log_thread.join(timeout=4)
+                    proc = subprocess.Popen(
+                        [sys.executable, str(staged / "lichess-bot.py"), "--config",
+                         str(work / "config.yml"), "-v", "--disable_auto_logging"],
+                        cwd=staged, env=env, stdout=raw, stderr=subprocess.STDOUT,
+                        start_new_session=True
+                    )
+                    if not server.event_stream_open.wait(timeout=90):
+                        raise RuntimeError("bridge never opened Lichess event stream")
+                    server.issue_challenge()
+                    if not server.game_stream_open.wait(timeout=90):
+                        raise RuntimeError("bridge did not accept challenge and open game stream")
+                    if color == "black":
+                        server.opponent_move()
+                    deadline = time.monotonic() + timeout
+                    while time.monotonic() < deadline and not server.finished.is_set():
+                        if proc.poll() is not None:
+                            raise RuntimeError("bridge exited before natural game end")
+                        time.sleep(0.1)
+                    if not server.finished.is_set():
+                        raise RuntimeError("no naturally completed game before timeout")
+                    # Allow terminal gameState to be consumed before SIGINT.
+                    time.sleep(0.8)
+                finally:
+                    # The log fd is kept OPEN until the bridge has exited.
+                    try:
+                        if proc is not None:
+                            shutdown_bridge(proc)
+                    finally:
+                        server.close()
+        finally:
+            if proc is not None and proc.poll() is not None and private_log.is_file():
+                # Read only after the raw descriptor has closed. A failure
+                # propagates; there is no silent loss of diagnostic evidence.
+                log_info = publish_log(
+                    private_log, log_path, token=bridge_policy.TOKEN,
+                    process_exited=True,
+                )
+        if log_info is None:
+            raise RuntimeError("bridge diagnostic capture was not completed")
         evidence = server.evidence()
+        evidence["logging"] = log_info
         evidence["elapsed_ms"] = round((time.monotonic() - started) * 1000)
         evidence["bridge_exit"] = proc.returncode if proc else None
         evidence["source_commit"] = lock["commit"]

@@ -124,3 +124,15 @@ documented in [ONLINE_3B_BRIDGE_QUALIFICATION.md](ONLINE_3B_BRIDGE_QUALIFICATION
 The bridge's first game search and normal clock searches are tested against the
 unchanged ONLINE-3A controller. No real credentials, BOT account conversion,
 public opponent or network endpoint are authorized.
+
+
+## ONLINE-4A: fault-injection diagnostics (offline only)
+
+A separate diagnostic suite in [ONLINE_4_RECOVERY.md](ONLINE_4_RECOVERY.md)
+uses the real pinned bridge and sealed Allfather release under deterministic
+loopback HTTP and NDJSON failures. A green ONLINE-4A **harness** result proves
+that fault activations and acceptance evidence were captured and independently
+reconstructed. It is not recovery qualification, playing-strength evidence,
+production image certification or permission to contact the real Lichess API.
+The successor ONLINE-4B milestone must fix and qualify unsafe or unresolved
+behavior before any operator-authorized online canary.

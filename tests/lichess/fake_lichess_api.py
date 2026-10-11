@@ -4,9 +4,11 @@ The server is deliberately not an engine. python-chess independently adjudicates
 moves and finishes, while the real bridge transports Allfather's UCI choices.
 """
 from __future__ import annotations
+import copy
 import io
 import json
 import queue
+import socket
 import threading
 import time
 import urllib.parse
@@ -16,15 +18,23 @@ import chess
 import chess.pgn
 
 from tests.lichess.scripted_opponent import choose
+from tests.lichess.fault_plan import FaultScheduler
+from tests.lichess.stream_sessions import StreamSessions
+from tests.lichess.transport_trace import TransportTrace, state_digest
 
 TOKEN = "offline-fixture-token"
 GAME_ID = "off3b001"
 
 class FakeLichess:
-    def __init__(self, color: str):
+    def __init__(self, color: str, scenario: dict | None = None):
         if color not in ("white", "black"):
             raise ValueError("color must be white or black")
         self.color = color
+        self.fault = FaultScheduler(scenario) if scenario is not None else None
+        self.trace = TransportTrace() if self.fault is not None else None
+        self.sessions = StreamSessions() if self.fault is not None else None
+        self.previous_state = None
+        self.state_predecessors: dict[str, dict] = {}
         self.board = chess.Board()
         self.lock = threading.RLock()
         self.events: queue.Queue[dict] = queue.Queue()
@@ -58,8 +68,73 @@ class FakeLichess:
                 self.end_headers()
                 self.wfile.write(data)
                 self.wfile.flush()
+                if server.trace is not None:
+                    server.trace.record("response_write_completed", status=status,
+                                        path=urllib.parse.urlparse(self.path).path)
 
-            def stream(self, channel: queue.Queue, ready: threading.Event, first: dict | None = None):
+            def drop_connection(self):
+                """An intentional server-side close, not proof of what the client read."""
+                server.trace and server.trace.record("connection_close_requested",
+                                                      path=urllib.parse.urlparse(self.path).path)
+                self.close_connection = True
+                try:
+                    self.connection.shutdown(socket.SHUT_RDWR)
+                except OSError:
+                    pass
+                try:
+                    self.connection.close()
+                except OSError:
+                    pass
+
+            def emit_faultable(self, payload: dict, subscriber) -> bool:
+                """Returns False if a deliberate partial chunk ends this connection."""
+                typ = payload.get("type")
+                endpoint = ("terminal_state" if typ == "gameState" and
+                            payload.get("status") not in (None, "started")
+                            else "game_state" if typ == "gameState" else None)
+                action = None
+                if endpoint is not None:
+                    with server.lock:
+                        ply = len(server.board.move_stack)
+                        action = server.fault.hit(endpoint, ply=ply,
+                                                  request_id=f"stream-{subscriber.sid}")
+                        if action:
+                            server.trace.record("fault_activated", action=action,
+                                                endpoint=endpoint, sid=subscriber.sid, ply=ply)
+                if action == "partial_chunk":
+                    # Header deliberately promises more bytes than we send.
+                    self.wfile.write(b"80\r\n{\\\"type\\\":\\\"gameState\\\"")
+                    self.wfile.flush()
+                    server.trace.record("stream_partial_chunk", sid=subscriber.sid)
+                    self.drop_connection()
+                    return False
+                if action == "delay_state":
+                    time.sleep(0.4)  # bounded transport delay; not a virtual game clock
+                if action == "stale_state":
+                    predecessor = server.state_predecessors.get(state_digest(payload))
+                    if predecessor is None:
+                        raise RuntimeError("fault state has no authoritative predecessor")
+                    payload = copy.deepcopy(predecessor)
+                if action == "wrong_game":
+                    payload = dict(payload, gameId="untrusted-other-game")
+                self.chunk(payload)
+                if typ is not None:
+                    server.trace.record("stream_emit", sid=subscriber.sid, kind=subscriber.kind,
+                                        event_type=payload.get("type"),
+                                        moves=payload.get("moves"),
+                                        payload_sha256=state_digest(payload),
+                                        fault_action=action)
+                if action in ("duplicate_state", "duplicate_terminal"):
+                    self.chunk(payload)
+                    server.trace.record("stream_emit", sid=subscriber.sid, kind=subscriber.kind,
+                                        event_type=payload.get("type"),
+                                        moves=payload.get("moves"),
+                                        payload_sha256=state_digest(payload),
+                                        fault_action="duplicate")
+                return True
+
+            def stream(self, channel: queue.Queue | None, ready: threading.Event,
+                       first: dict | None = None, subscriber=None):
                 self.send_response(200)
                 self.send_header("Content-Type", "application/x-ndjson")
                 self.send_header("Transfer-Encoding", "chunked")
@@ -67,16 +142,28 @@ class FakeLichess:
                 self.end_headers()
                 ready.set()
                 try:
-                    if first is not None:
-                        self.chunk(first)
-                    while not server.shutdown.is_set():
-                        try:
-                            payload = channel.get(timeout=0.5)
-                        except queue.Empty:
-                            payload = None
-                        self.chunk(payload)
+                    if subscriber is None:
+                        if first is not None:
+                            self.chunk(first)
+                        while not server.shutdown.is_set():
+                            try:
+                                payload = channel.get(timeout=0.5)
+                            except queue.Empty:
+                                payload = None
+                            self.chunk(payload)
+                    else:
+                        while not server.shutdown.is_set() and not subscriber.ended.is_set():
+                            payload = subscriber.get(timeout=0.5)
+                            if payload is None:
+                                self.chunk(None)
+                                continue
+                            if not self.emit_faultable(payload, subscriber):
+                                break
                 except (BrokenPipeError, ConnectionResetError, OSError):
                     return
+                finally:
+                    if subscriber is not None:
+                        server.sessions.unsubscribe(subscriber)
 
             def chunk(self, payload):
                 data = (json.dumps(payload, separators=(",", ":")) + "\n").encode() if payload is not None else b"\n"
@@ -102,12 +189,25 @@ class FakeLichess:
                 path = urllib.parse.urlparse(self.path).path
                 if path == "/api/stream/event":
                     self.record("GET", path, 200)
+                    if server.sessions is not None:
+                        sub = server.sessions.subscribe("event")
+                        action = server.fault.hit("event_stream",
+                                                  ply=len(server.board.move_stack),
+                                                  request_id=f"stream-{sub.sid}")
+                        if action:
+                            server.trace.record("fault_activated", action=action,
+                                                endpoint="event_stream", sid=sub.sid)
+                        return self.stream(None, server.event_stream_open, subscriber=sub)
                     return self.stream(server.events, server.event_stream_open)
                 if path == "/api/bot/game/stream/" + GAME_ID:
                     with server.lock:
                         full = server.full_state()
+                        sub = (server.sessions.subscribe("game", initial=full)
+                               if server.sessions is not None else None)
                     self.record("GET", path, 200)
-                    self.stream(server.states, server.game_stream_open, first=full)
+                    self.stream(server.states if sub is None else None,
+                                server.game_stream_open, first=full if sub is None else None,
+                                subscriber=sub)
                     return
                 if path == "/api/account":
                     self.record("GET", path, 200)
@@ -162,14 +262,17 @@ class FakeLichess:
                         server.challenge_accepted = True
                         server.started = True
                         server.turn_since = time.monotonic()
-                        server.events.put({"type": "gameStart", "game": {
+                        start_event = {"type": "gameStart", "game": {
                             "id": GAME_ID, "gameId": GAME_ID,
                             "color": server.color,
                             "opponent": {"username": "approved_test_bot"},
                             "speed": "rapid", "rated": False,
                             "variant": {"key": "standard", "name": "Standard"},
                             "status": {"id": 20, "name": "started"}
-                        }})
+                        }}
+                        server.events.put(start_event)
+                        if server.sessions is not None:
+                            server.sessions.publish("event", start_event)
                     self.record("POST", path, 200)
                     return self.respond(200, {"ok": True})
                 if path.startswith("/api/challenge/") and path.endswith("/decline"):
@@ -179,6 +282,24 @@ class FakeLichess:
                 if path.startswith(prefix):
                     move_text = urllib.parse.unquote(path[len(prefix):])
                     with server.lock:
+                        ply = len(server.board.move_stack)
+                        request_id = None
+                        if server.trace is not None:
+                            seq = server.trace.record("move_attempt", path=path, uci=move_text,
+                                                      game_id=GAME_ID, ply_at_receipt=ply)
+                            request_id = f"request-{seq}"
+                        action = (server.fault.hit("move_post", ply=ply, request_id=request_id)
+                                  if server.fault is not None else None)
+                        if action:
+                            server.trace.record("fault_activated", action=action,
+                                                endpoint="move_post", request_id=request_id,
+                                                ply=ply)
+                        if action == "drop_before_commit":
+                            self.record("POST", path, 0)
+                            return self.drop_connection()
+                        if action == "rate_limit_429":
+                            self.record("POST", path, 429)
+                            return self.respond(429, {"error": "fault-injected rate limit"})
                         if not server.started or server.finished.is_set():
                             self.record("POST", path, 409)
                             return self.respond(409, {"error": "game inactive"})
@@ -192,11 +313,21 @@ class FakeLichess:
                         if move is None or move not in server.board.legal_moves:
                             self.record("POST", path, 400)
                             return self.respond(400, {"error": "illegal move"})
-                        server.apply(move, "allfather")
+                        if action == "low_clock_close":
+                            side = "white" if server.board.turn else "black"
+                            server.trace.record("synthetic_clock_override", side=side,
+                                                milliseconds=1500)
+                        server.apply(move, "allfather", request_id=request_id,
+                                     forced_clock_after_ms=(1500 if action == "low_clock_close"
+                                                            else None))
                         server.accepted.append({"ply": len(server.board.move_stack), "uci": move.uci()})
-                        self.record("POST", path, 200)
+                        self.record("POST", path, 200 if action != "commit_then_504" else 504)
                         if not server.finished.is_set():
                             threading.Thread(target=server.opponent_move, daemon=True).start()
+                    if action in ("commit_then_close", "low_clock_close", "terminate_bridge"):
+                        return self.drop_connection()
+                    if action == "commit_then_504":
+                        return self.respond(504, {"error": "fault-injected gateway timeout"})
                     return self.respond(200, {"ok": True})
                 # A prohibited operation must be observed but never accepted.
                 with server.lock:
@@ -217,14 +348,17 @@ class FakeLichess:
                       "rating": 400, "title": "BOT"}
         target = {"id": "allfatherfixture", "name": "allfatherfixture",
                   "title": "BOT", "rating": 1500}
-        self.events.put({"type": "challenge", "challenge": {
+        challenge = {"type": "challenge", "challenge": {
             "id": GAME_ID, "rated": False, "speed": "rapid",
             "variant": {"key": "standard", "name": "Standard"},
             "perf": {"name": "Rapid"}, "challenger": challenger,
             "destUser": target, "initialFen": "startpos",
             "color": "random", "finalColor": self.color,
             "timeControl": {"type": "clock", "limit": 600, "increment": 5}
-        }})
+        }}
+        self.events.put(challenge)
+        if self.sessions is not None:
+            self.sessions.publish("event", challenge)
 
     def full_state(self):
         white = {"id": "allfatherfixture", "name": "allfatherfixture", "title": "BOT", "rating": 1500}
@@ -253,13 +387,24 @@ class FakeLichess:
             result["winner"] = self.outcome["winner"]
         return result
 
-    def apply(self, move: chess.Move, origin: str):
+    def apply(self, move: chess.Move, origin: str, request_id: str | None = None,
+              forced_clock_after_ms: int | None = None):
         assert move in self.board.legal_moves
+        before_fen = self.board.fen()
+        self.previous_state = copy.deepcopy(self.state())
         now = time.monotonic()
         side = "white" if self.board.turn == chess.WHITE else "black"
         self.clock[side] = max(0, self.clock[side] - round((now - self.turn_since) * 1000))
         self.board.push(move)
+        if self.trace is not None:
+            self.trace.record("board_commit", game_id=GAME_ID, origin=origin,
+                              request_id=request_id, uci=move.uci(),
+                              ply_before=len(self.board.move_stack)-1,
+                              ply_after=len(self.board.move_stack),
+                              fen_before=before_fen, fen_after=self.board.fen())
         self.clock[side] += 5000
+        if forced_clock_after_ms is not None:
+            self.clock[side] = forced_clock_after_ms
         self.turn_since = now
         outcome = self.board.outcome(claim_draw=False)
         if outcome:
@@ -268,10 +413,18 @@ class FakeLichess:
                 "winner": ("white" if outcome.winner else "black") if outcome.winner is not None else None,
                 "termination": outcome.termination.name
             }
-        self.states.put(self.state())
+        state = self.state()
+        if self.trace is not None and self.previous_state is not None:
+            self.state_predecessors[state_digest(state)] = copy.deepcopy(self.previous_state)
+        self.states.put(state)
+        if self.sessions is not None:
+            self.sessions.publish("game", state)
         if self.outcome:
             self.finished.set()
-            self.events.put({"type": "gameFinish", "game": {"id": GAME_ID, "gameId": GAME_ID}})
+            event = {"type": "gameFinish", "game": {"id": GAME_ID, "gameId": GAME_ID}}
+            self.events.put(event)
+            if self.sessions is not None:
+                self.sessions.publish("event", event)
 
     def opponent_move(self):
         time.sleep(0.02)
@@ -284,6 +437,8 @@ class FakeLichess:
 
     def close(self):
         self.shutdown.set()
+        if self.sessions is not None:
+            self.sessions.stop()
         self.http.shutdown()
         self.http.server_close()
         self.thread.join(timeout=5)
@@ -300,5 +455,8 @@ class FakeLichess:
                 "accepted": list(self.accepted),
                 "requests": list(self.requests),
                 "forbidden_attempts": list(self.attempted_forbidden),
-                "clock": self.clock,
+                "clock": dict(self.clock),
+                "fault": None if self.fault is None else self.fault.evidence(),
+                "transport_trace": [] if self.trace is None else self.trace.snapshot(),
+                "stream_sessions": [] if self.sessions is None else self.sessions.snapshot(),
             }

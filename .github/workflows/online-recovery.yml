@@ -1,0 +1,185 @@
+name: ONLINE-4A offline Lichess fault experiments
+on:
+  pull_request:
+    paths:
+      - 'deploy/lichess/**'
+      - 'tests/lichess/**'
+      - 'tests/fixtures/lichess/**'
+      - 'scripts/qualify-online-recovery.py'
+      - 'qualification/online-recovery-v1.json'
+      - '.github/workflows/online-recovery.yml'
+      - 'docs/ONLINE_4_RECOVERY.md'
+      - 'controller/**'
+      - 'common/**'
+      - 'adapters/**'
+      - 'config/**'
+      - 'engines/**'
+      - 'vendor.lock.json'
+  workflow_dispatch:
+permissions:
+  contents: read
+env:
+  ALLFATHER_SOURCE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+concurrency:
+  group: online4a-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  recovery-contracts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.ALLFATHER_SOURCE_SHA }}
+      - name: Verify exact source
+        run: test "$(git rev-parse HEAD)" = "$ALLFATHER_SOURCE_SHA"
+      - name: Install test dependencies
+        run: |
+          bash scripts/ci-install-apt-deps.sh python3-pip python3-venv
+          python3 -m pip install --break-system-packages 'chess==1.11.2' 'requests==2.34.2' 'PyYAML==6.0.3'
+      - name: Fetch exact pinned upstream for challenge-policy contracts
+        run: python3 deploy/lichess/fetch_bridge.py
+      - name: Validate source schema and compile fault harness
+        run: |
+          python3 -m py_compile deploy/lichess/*.py tests/lichess/*.py scripts/qualify-online-recovery.py
+          python3 -m json.tool tests/fixtures/lichess/recovery_scenarios.json >/dev/null
+          python3 -m json.tool qualification/online-recovery-v1.json >/dev/null
+      - name: Legacy and new HTTP, stream and validator contracts
+        run: python3 -m unittest discover -s tests/lichess -p 'test_*.py' -v
+
+  offline-fault-integration:
+    needs: recovery-contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 110
+    env:
+      JOBS: '2'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.ALLFATHER_SOURCE_SHA }}
+      - name: Verify exact source
+        run: test "$(git rev-parse HEAD)" = "$ALLFATHER_SOURCE_SHA"
+      - name: Install engine toolchain and offline Python tools
+        run: |
+          bash scripts/ci-install-apt-deps.sh build-essential meson ninja-build pkg-config libprotobuf-dev protobuf-compiler zlib1g-dev libopenblas-dev python3-pip python3-venv
+          python3 -m pip install --break-system-packages 'pip-tools==7.5.2'
+      - name: Cache frozen neural networks
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: |
+            build/artifacts/stockfish
+            build/artifacts/reckless
+            build/artifacts/lc0
+          key: online4a-networks-${{ runner.os }}-${{ hashFiles('vendor.lock.json','qualification/lc0-strength.lock.json') }}
+      - name: Build, verify, seal and relocate exact-head UCI release
+        timeout-minutes: 35
+        run: |
+          make build-online-engine-opt-v2
+          python3 scripts/qualify-engine-opt-v2.py
+          python3 scripts/release-manifest.py create
+          python3 scripts/release-manifest.py verify
+          python3 scripts/package-online.py
+          python3 dist/online3a-stage/deploy/bin/allfather-online --check
+      - name: Fetch pinned upstream and prepare offline-only wheelhouse
+        timeout-minutes: 15
+        run: |
+          python3 deploy/lichess/fetch_bridge.py
+          mkdir -p build/online3b-wheels
+          python3 -m piptools compile --generate-hashes --output-file build/online3b-runtime.lock deploy/lichess/requirements.in
+          cp build/online3b-runtime.lock deploy/lichess/requirements.lock
+          python3 scripts/prepare-online3b-wheels.py --source-lock deploy/lichess/requirements.lock --wheelhouse build/online3b-wheels
+      - name: Build offline experiment image
+        timeout-minutes: 15
+        run: |
+          docker build -f deploy/lichess/Dockerfile.offline -t allfather-online4a-test:offline .
+          docker image inspect allfather-online4a-test:offline --format '{{.Id}}' > build/online4a-image-id.txt
+      - name: Run fault experiments in separately isolated containers
+        timeout-minutes: 42
+        run: |
+          set -euo pipefail
+          mkdir -p build/test-results/online-recovery-v1
+          python3 - <<'PY' > build/online4a-case-matrix.txt
+          import json
+          data=json.load(open("tests/fixtures/lichess/recovery_scenarios.json"))
+          for case in data["scenarios"]:
+              if case["mode"] == "integration":
+                  for color in case["colors"]:
+                      print(case["id"]+" "+color)
+          PY
+          while read -r CASE COLOR; do
+            echo "ONLINE-4A experiment $CASE/$COLOR"
+            docker run --rm --network none --pids-limit 128 --cap-drop ALL \
+              --security-opt no-new-privileges --cpus 4 --memory 6g \
+              --user "$(id -u):$(id -g)" \
+              -e ONLINE4A_ISOLATED_CONTAINER=1 \
+              -v "$PWD:/work:ro" \
+              -v "$PWD/build/test-results/online-recovery-v1:/results:rw" \
+              -w /work allfather-online4a-test:offline \
+              /opt/online3b/bin/python /work/deploy/lichess/run_recovery.py \
+                --scenario "$CASE" --color "$COLOR" \
+                --bridge /work/build/vendor/lichess-bot \
+                --release /work/dist/online3a-stage \
+                --source-sha "$ALLFATHER_SOURCE_SHA" \
+                --timeout 90 --output "/results/$CASE-$COLOR"
+          done < build/online4a-case-matrix.txt
+      - name: Retain raw evidence, including incomplete experiments
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: online4a-raw-evidence
+          path: build/test-results/online-recovery-v1/
+          if-no-files-found: error
+          retention-days: 30
+
+  independent-recovery-evidence:
+    needs: offline-fault-integration
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.ALLFATHER_SOURCE_SHA }}
+      - name: Verify exact source
+        run: test "$(git rev-parse HEAD)" = "$ALLFATHER_SOURCE_SHA"
+      - name: Install independent chess rules oracle
+        run: |
+          bash scripts/ci-install-apt-deps.sh python3-pip python3-venv
+          python3 -m pip install --break-system-packages 'chess==1.11.2'
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: online4a-raw-evidence
+          path: build/test-results/online-recovery-v1
+      - name: Independently reconstruct commits and fault witnesses
+        run: |
+          python3 scripts/qualify-online-recovery.py \
+            --evidence build/test-results/online-recovery-v1 \
+            --source-sha "$ALLFATHER_SOURCE_SHA" \
+            --output build/test-results/online4a-verdict/report.json
+      - name: Publish diagnostic qualification summary
+        if: always()
+        run: |
+          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          from pathlib import Path
+          p=Path("build/test-results/online4a-verdict/report.json")
+          print("## ONLINE-4A fault-harness qualification")
+          if not p.is_file():
+              print("- Harness not qualified: report missing")
+          else:
+              r=json.loads(p.read_text())
+              for field in ("harness_qualified","validated_run_count","required_run_count",
+                            "recovery_behavior_qualified","network_recovery_qualified",
+                            "public_bot_release","release_blocked"):
+                  print(f"- **{field}:** {r.get(field)}")
+              for problem in r.get("harness_failures", []):
+                  print(f"- Failure: {problem}")
+              for item in r.get("scenario_results", []):
+                  print(f"- {item['scenario']}/{item['color']}: {item['behavior']}")
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: online4a-independent-verdict
+          path: build/test-results/online4a-verdict/
+          if-no-files-found: warn
+          retention-days: 30

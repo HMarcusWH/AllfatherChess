@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "profile_id": "online-recovery-v1",
+  "scope": "offline-fault-harness-only",
+  "bridge_lock": "deploy/lichess/bridge.lock.json",
+  "baseline_policy": "qualification/online-bridge-v1.json",
+  "scenario_source": "tests/fixtures/lichess/recovery_scenarios.json",
+  "required_integration_scenarios": [
+    "R00",
+    "R01",
+    "R02",
+    "R03",
+    "R05",
+    "R06",
+    "R07",
+    "R08",
+    "R10",
+    "R12",
+    "R13"
+  ],
+  "required_contract_scenarios": [
+    "R04",
+    "R09",
+    "R11",
+    "R14"
+  ],
+  "min_required_colors": [
+    "white",
+    "black"
+  ],
+  "container_network": "none",
+  "max_scenario_timeout_seconds": 90,
+  "require_actual_pinned_bridge": true,
+  "require_actual_sealed_allfather": true,
+  "require_independent_legal_commit_replay": true,
+  "require_trigger_coverage": true,
+  "require_transport_trace": true,
+  "require_source_manifest": true,
+  "claim_boundary": {
+    "harness_qualification_only": true,
+    "network_recovery_qualified": false,
+    "deployment_host_qualified": false,
+    "public_bot_release": false,
+    "playing_strength_qualified": false,
+    "bot_account_upgrade_authorized": false
+  },
+  "attested_source_paths": [
+    ".github/workflows/online-recovery.yml",
+    "deploy/lichess/Dockerfile.offline",
+    "deploy/lichess/bridge.lock.json",
+    "deploy/lichess/bridge_policy.py",
+    "deploy/lichess/log_capture.py",
+    "deploy/lichess/offline_session.py",
+    "deploy/lichess/run_recovery.py",
+    "docs/ONLINE_4_RECOVERY.md",
+    "qualification/online-recovery-v1.json",
+    "scripts/qualify-online-recovery.py",
+    "tests/fixtures/lichess/recovery_scenarios.json",
+    "tests/lichess/fake_lichess_api.py",
+    "tests/lichess/fault_plan.py",
+    "tests/lichess/stream_sessions.py",
+    "tests/lichess/test_fault_plan.py",
+    "tests/lichess/test_recovery_evidence.py",
+    "tests/lichess/test_recovery_http.py",
+    "tests/lichess/test_stream_sessions.py",
+    "tests/lichess/transport_trace.py"
+  ]
+}

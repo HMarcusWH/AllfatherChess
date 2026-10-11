@@ -5,6 +5,7 @@ on:
       - 'deploy/lichess/**'
       - 'tests/lichess/**'
       - 'scripts/qualify-online-bridge.py'
+      - 'scripts/prepare-online3b-wheels.py'
       - 'qualification/online-bridge-v1.json'
       - '.github/workflows/online-bridge.yml'
       - 'Makefile'
@@ -43,7 +44,7 @@ jobs:
           python3 -m pip install --break-system-packages --require-hashes \
             -r build/online3b/requirements.lock
           mkdir -p build/online3b/wheels
-          python3 -m pip download --no-deps --only-binary=:all: --require-hashes \
+          python3 -m pip download --no-deps --require-hashes \
             -r build/online3b/requirements.lock -d build/online3b/wheels
           sha256sum build/online3b/wheels/* | tee build/online3b/wheel-hashes.txt
       - name: Fetch and verify pinned upstream
@@ -106,7 +107,7 @@ jobs:
           mkdir -p build/online3b-wheels
           python3 -m piptools compile --generate-hashes --output-file build/online3b-runtime.lock deploy/lichess/requirements.in
           cp build/online3b-runtime.lock deploy/lichess/requirements.lock
-          python3 -m pip download --no-deps --only-binary=:all: --require-hashes -r deploy/lichess/requirements.lock -d build/online3b-wheels
+          python3 scripts/prepare-online3b-wheels.py --source-lock deploy/lichess/requirements.lock --wheelhouse build/online3b-wheels
           python3 -m pip install --break-system-packages --require-hashes -r deploy/lichess/requirements.lock
       - name: Build isolated offline-only integration image
         timeout-minutes: 15

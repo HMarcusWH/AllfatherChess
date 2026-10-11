@@ -7,7 +7,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libopenblas0-pthread libprotobuf32t64 libstdc++6 libgomp1 zlib1g \
     && rm -rf /var/lib/apt/lists/*
 COPY build/online3b-wheels/ /tmp/online3b-wheelhouse/
-COPY deploy/lichess/requirements.lock /tmp/requirements.lock
+COPY build/online3b-wheels/runtime-wheels.lock /tmp/requirements.lock
 RUN python3 -m venv /opt/online3b && \
     /opt/online3b/bin/python -m pip install --no-index \
       --find-links=/tmp/online3b-wheelhouse --require-hashes -r /tmp/requirements.lock && \

@@ -159,8 +159,8 @@ class RecoveryV2EvidenceTests(unittest.TestCase):
              [{**guarded[0], "owner_epoch": first}, guarded[1]]),
         )
         for values in mutations:
-            with self.subTest(values=values), self.assertFalse(
-                qual.verify_fresh_epoch_recovery(*values))
+            with self.subTest(values=values):
+                self.assertFalse(qual.verify_fresh_epoch_recovery(*values))
         invalid_phase = [phases[0], {**phases[1], "old_descendants_drained": False}]
         with self.assertRaises(ValueError):
             qual.verify_fresh_epoch_recovery(invalid_phase, journal, trace, guarded)

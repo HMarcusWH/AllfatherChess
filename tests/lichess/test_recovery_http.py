@@ -44,7 +44,16 @@ class RecoveryHTTPTests(unittest.TestCase):
         self.run_fault("R02", 1)
 
     def test_504_is_not_evidence_that_move_was_uncommitted(self):
-        _, result = self.run_fault("R03", 1, expected_status=504)
+        import time
+        fake, result = self.run_fault("R03", 1, expected_status=504)
+        # requests may receive all response bytes before the handler finishes
+        # its post-flush observational trace. Wait for the observation rather
+        # than racing the server thread or inventing a client acknowledgment.
+        until = time.monotonic() + 2
+        while not any(x["event"] == "response_write_completed" and x["status"] == 504
+                      for x in result["transport_trace"]) and time.monotonic() < until:
+            time.sleep(0.01)
+            result = fake.evidence()
         self.assertTrue(any(x["event"] == "response_write_completed" and x["status"] == 504
                             for x in result["transport_trace"]))
 

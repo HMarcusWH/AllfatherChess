@@ -37,6 +37,8 @@ jobs:
         run: |
           bash scripts/ci-install-apt-deps.sh python3-pip python3-venv
           python3 -m pip install --break-system-packages 'chess==1.11.2' 'requests==2.34.2' 'PyYAML==6.0.3'
+      - name: Fetch exact pinned upstream for challenge-policy contracts
+        run: python3 deploy/lichess/fetch_bridge.py
       - name: Validate source schema and compile fault harness
         run: |
           python3 -m py_compile deploy/lichess/*.py tests/lichess/*.py scripts/qualify-online-recovery.py

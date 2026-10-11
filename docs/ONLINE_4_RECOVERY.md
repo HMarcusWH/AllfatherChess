@@ -48,6 +48,7 @@ Each integration scenario produces under build/test-results/online-recovery-v1:
 
 - fault-plan.json and fault-activation.json
 - source-manifest.json with exact source SHA and tracked test-code hashes
+- requests.ndjson (all server-observed HTTP operations)
 - transport-trace.ndjson, http-attempts.ndjson, server-commits.ndjson,
   delivered-events.ndjson
 - authoritative-game.json, stream-sessions.json, game.pgn
@@ -59,7 +60,7 @@ A replay bestmove is not proof of HTTP submission, and an HTTP submission is
 not proof of server acceptance. Missing replay links are explicit and remain
 unqualified until a separate durable correlation protocol is built.
 
-scripts/qualify-online-recovery.py independently checks exact source hashes,
+scripts/qualify-online-recovery.py independently checks exact source hashes and frozen complete harness file set,
 one-shot injection witnesses, chess legality, board FEN changes, chronological
 request/commit correlations, terminal rules when applicable, and retained
 artifact hashes. It does not trust a producer-generated passed flag.

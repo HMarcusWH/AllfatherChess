@@ -43,5 +43,26 @@
     "public_bot_release": false,
     "playing_strength_qualified": false,
     "bot_account_upgrade_authorized": false
-  }
+  },
+  "attested_source_paths": [
+    ".github/workflows/online-recovery.yml",
+    "deploy/lichess/Dockerfile.offline",
+    "deploy/lichess/bridge.lock.json",
+    "deploy/lichess/bridge_policy.py",
+    "deploy/lichess/log_capture.py",
+    "deploy/lichess/offline_session.py",
+    "deploy/lichess/run_recovery.py",
+    "docs/ONLINE_4_RECOVERY.md",
+    "qualification/online-recovery-v1.json",
+    "scripts/qualify-online-recovery.py",
+    "tests/fixtures/lichess/recovery_scenarios.json",
+    "tests/lichess/fake_lichess_api.py",
+    "tests/lichess/fault_plan.py",
+    "tests/lichess/stream_sessions.py",
+    "tests/lichess/test_fault_plan.py",
+    "tests/lichess/test_recovery_evidence.py",
+    "tests/lichess/test_recovery_http.py",
+    "tests/lichess/test_stream_sessions.py",
+    "tests/lichess/transport_trace.py"
+  ]
 }

@@ -53,11 +53,16 @@ def digest(path: Path) -> str:
 def verify_sources(manifest: dict, exact_sha: str):
     ensure(manifest.get("source_commit") == exact_sha, "source manifest SHA mismatch")
     files = manifest.get("files")
-    ensure(isinstance(files, dict) and len(files) >= 10, "source manifest incomplete")
+    expected = read_json(POLICY).get("attested_source_paths")
+    ensure(isinstance(files, dict) and isinstance(expected, list) and
+           set(files) == set(expected) and len(expected) == len(set(expected)),
+           "source manifest does not contain exact frozen harness file set")
     for path, declared in files.items():
         ensure(isinstance(path, str) and path != "" and ".." not in Path(path).parts,
                "unsafe source path")
-        ensure((ROOT / path).is_file(), "missing source attestation file " + path)
+        ensure((ROOT / path).is_file() and not (ROOT / path).is_symlink() and
+               (ROOT / path).resolve().is_relative_to(ROOT.resolve()),
+               "missing, linked or escaped source attestation file " + path)
         ensure(digest(ROOT / path) == declared, "source file identity drift: " + path)
 
 
@@ -204,6 +209,7 @@ def validate_experiment(case_dir: Path, scenario: dict, color: str,
     activation = read_json(case_dir / "fault-activation.json")
     trace = ndjson(case_dir / "transport-trace.ndjson")
     game = read_json(case_dir / "authoritative-game.json")
+    http_requests = ndjson(case_dir / "requests.ndjson")
     ensure(plan == scenario and activation.get("scenario") == scenario,
            "fault scenario provenance drift")
     ensure(result.get("scenario_id") == scenario["id"] and result.get("color") == color,
@@ -215,8 +221,20 @@ def validate_experiment(case_dir: Path, scenario: dict, color: str,
            "missing exact synthetic game identity")
     ensure(game.get("challenge_accepted") is True,
            "fault scenario did not reach accepted game")
-    ensure(game.get("forbidden_attempts") is not None,
+    ensure(isinstance(game.get("forbidden_attempts"), list),
            "forbidden endpoint audit missing")
+    derived_forbidden = [r["method"] + " " + r["path"] for r in http_requests
+                         if r.get("status") == 403]
+    ensure(derived_forbidden == game["forbidden_attempts"],
+           "forbidden endpoint audit differs from server request records")
+    ensure(all(r.get("method") in ("GET", "POST") and
+               isinstance(r.get("path"), str) and
+               type(r.get("status")) is int
+               for r in http_requests), "malformed server HTTP request audit")
+    attempted_paths = [r["path"] for r in http_requests if r["method"] == "POST"]
+    ensure(all(r.get("path") in attempted_paths for r in trace
+               if r.get("event") == "move_attempt"),
+           "HTTP attempt trace has no underlying request audit")
     verify_sources(read_json(case_dir / "source-manifest.json"), source_sha)
     ensure(ndjson(case_dir / "http-attempts.ndjson") ==
            [r for r in trace if r["event"] == "move_attempt"], "HTTP attempt extract drift")
@@ -225,7 +243,14 @@ def validate_experiment(case_dir: Path, scenario: dict, color: str,
     ensure(ndjson(case_dir / "delivered-events.ndjson") ==
            [r for r in trace if r["event"] in ("stream_emit", "stream_partial_chunk")],
            "stream delivery extract drift")
+    ensure(all(type(r.get("monotonic_ns")) is int for r in trace),
+           "transport trace lacks server monotonic observation timestamps")
     history = verify_trace(trace, game)
+    with (case_dir / "game.pgn").open(encoding="utf-8") as stream:
+        parsed = chess.pgn.read_game(stream)
+    ensure(parsed is not None and not parsed.errors and
+           [move.uci() for move in parsed.mainline_moves()] == game["moves"],
+           "authoritative PGN differs from independently reconstructed game")
     verify_scenario_witness(scenario, activation, trace, result)
     replay = validate_replays(case_dir)
     logging = result.get("logging")
@@ -239,11 +264,19 @@ def validate_experiment(case_dir: Path, scenario: dict, color: str,
                "synthetic credentials leaked")
     ensure(isinstance(result.get("bridge_exit"), int),
            "bridge process cleanup was not recorded")
+    early_rate_requests = []
+    if scenario["action"] == "rate_limit_429":
+        responses = [r for r in http_requests if r.get("status") == 429]
+        ensure(len(responses) == 1, "missing or repeated authoritative 429")
+        when = responses[0]["monotonic_ms"]
+        rate_index = http_requests.index(responses[0])
+        early_rate_requests = [r for r in http_requests[rate_index + 1:]
+                               if 0 <= r["monotonic_ms"] - when < 60000]
     if scenario["action"] == "none":
         ensure(history["bot_commits"] > 0 and logging is not None,
                "normal engine baseline did not play")
         status = "SAFE_CONTINUATION"
-    elif game["forbidden_attempts"]:
+    elif game["forbidden_attempts"] or early_rate_requests:
         status = "UNSAFE_WITNESS"
     elif game.get("complete") is True:
         status = "OBSERVED_COMPLETION"
@@ -251,6 +284,7 @@ def validate_experiment(case_dir: Path, scenario: dict, color: str,
         status = "OBSERVED_STOP_OR_UNRESOLVED"
     return {"scenario": scenario["id"], "color": color,
             "harness_integrity": True, "behavior": status,
+            "early_rate_limit_requests": early_rate_requests,
             "fault_activated": scenario["action"] != "none",
             "board": history, "replay": replay,
             "runner_errors": result.get("runner_errors", []),

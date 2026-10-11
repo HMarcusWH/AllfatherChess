@@ -8,6 +8,7 @@ import copy
 import hashlib
 import json
 import threading
+import time
 
 
 def state_digest(payload: dict) -> str:
@@ -24,7 +25,8 @@ class TransportTrace:
     def record(self, event: str, **fields) -> int:
         with self.lock:
             self.serial += 1
-            self.rows.append(copy.deepcopy({"seq": self.serial, "event": event, **fields}))
+            self.rows.append(copy.deepcopy({"seq": self.serial, "event": event,
+                                            "monotonic_ns": time.monotonic_ns(), **fields}))
             return self.serial
 
     def snapshot(self) -> list[dict]:

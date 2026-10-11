@@ -315,10 +315,11 @@ class FakeLichess:
                             return self.respond(400, {"error": "illegal move"})
                         if action == "low_clock_close":
                             side = "white" if server.board.turn else "black"
-                            server.clock[side] = 1500
                             server.trace.record("synthetic_clock_override", side=side,
                                                 milliseconds=1500)
-                        server.apply(move, "allfather", request_id=request_id)
+                        server.apply(move, "allfather", request_id=request_id,
+                                     forced_clock_after_ms=(1500 if action == "low_clock_close"
+                                                            else None))
                         server.accepted.append({"ply": len(server.board.move_stack), "uci": move.uci()})
                         self.record("POST", path, 200 if action != "commit_then_504" else 504)
                         if not server.finished.is_set():
@@ -386,7 +387,8 @@ class FakeLichess:
             result["winner"] = self.outcome["winner"]
         return result
 
-    def apply(self, move: chess.Move, origin: str, request_id: str | None = None):
+    def apply(self, move: chess.Move, origin: str, request_id: str | None = None,
+              forced_clock_after_ms: int | None = None):
         assert move in self.board.legal_moves
         before_fen = self.board.fen()
         self.previous_state = copy.deepcopy(self.state())
@@ -401,6 +403,8 @@ class FakeLichess:
                               ply_after=len(self.board.move_stack),
                               fen_before=before_fen, fen_after=self.board.fen())
         self.clock[side] += 5000
+        if forced_clock_after_ms is not None:
+            self.clock[side] = forced_clock_after_ms
         self.turn_since = now
         outcome = self.board.outcome(claim_draw=False)
         if outcome:

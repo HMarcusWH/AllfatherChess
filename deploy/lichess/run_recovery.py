@@ -28,25 +28,9 @@ from tests.lichess.fault_plan import load_scenarios
 from tests.lichess.fake_lichess_api import FakeLichess
 
 CASES = ROOT / "tests/fixtures/lichess/recovery_scenarios.json"
-SOURCE_PATHS = (
-    "deploy/lichess/bridge.lock.json",
-    "deploy/lichess/bridge_policy.py",
-    "deploy/lichess/log_capture.py",
-    "deploy/lichess/offline_session.py",
-    "deploy/lichess/run_recovery.py",
-    "tests/lichess/fake_lichess_api.py",
-    "tests/lichess/fault_plan.py",
-    "tests/lichess/transport_trace.py",
-    "tests/lichess/stream_sessions.py",
-    "tests/fixtures/lichess/recovery_scenarios.json",
-    "qualification/online-recovery-v1.json",
-    "scripts/qualify-online-recovery.py",
-    ".github/workflows/online-recovery.yml",
-    "tests/lichess/test_fault_plan.py",
-    "tests/lichess/test_stream_sessions.py",
-    "tests/lichess/test_recovery_http.py",
-    "tests/lichess/test_recovery_evidence.py",
-)
+SOURCE_PATHS = tuple(json.loads(
+    (ROOT / "qualification/online-recovery-v1.json").read_text(encoding="utf-8")
+)["attested_source_paths"])
 
 
 def digest(path: Path) -> str:
@@ -236,6 +220,7 @@ def experiment(*, scenario: dict, color: str, bridge: Path, release: Path,
         json_file(output / "stream-sessions.json", evidence.get("stream_sessions", []))
         json_file(output / "replay-index.json", replay_index)
         trace = evidence.get("transport_trace", [])
+        lines_file(output / "requests.ndjson", evidence.get("requests", []))
         lines_file(output / "transport-trace.ndjson", trace)
         lines_file(output / "http-attempts.ndjson",
                    [x for x in trace if x["event"] == "move_attempt"])

@@ -60,6 +60,13 @@ class RecoveryHTTPTests(unittest.TestCase):
     def test_rate_limit_rejects_without_move(self):
         self.run_fault("R10", 0, expected_status=429)
 
+    def test_synthetic_low_clock_is_reflected_in_server_state(self):
+        _, result = self.run_fault("R12", 1)
+        self.assertEqual(result["clock"]["white"], 1500)
+        self.assertTrue(any(row["event"] == "synthetic_clock_override"
+                            for row in result["transport_trace"]))
+
+
     def test_repeat_move_request_cannot_commit_same_ply_twice(self):
         fake = FakeLichess("white", load_scenarios(SCENARIOS)["R04"])
         fake.start()
@@ -110,6 +117,28 @@ class RecoveryHTTPTests(unittest.TestCase):
                 self.assertEqual(state["gameId"], "untrusted-other-game")
                 self.assertEqual(fake.evidence()["fault"]["activations"][0]["action"],
                                  "wrong_game")
+        finally:
+            fake.close()
+
+
+    def test_terminal_event_repetition_is_observable_not_a_second_commit(self):
+        import chess
+        fake = FakeLichess("white", load_scenarios(SCENARIOS)["R14"])
+        fake.start()
+        try:
+            with requests.get(fake.url + f"api/bot/game/stream/{GAME_ID}",
+                              headers=HEADERS, stream=True, timeout=4) as response:
+                lines = (json.loads(row) for row in response.iter_lines(chunk_size=1) if row)
+                self.assertEqual(next(lines)["type"], "gameFull")
+                with fake.lock:
+                    for uci in ("f2f3", "e7e5", "g2g4", "d8h4"):
+                        fake.apply(chess.Move.from_uci(uci), "scripted_opponent")
+                states = [next(lines) for _ in range(5)]
+                self.assertEqual([x["status"] for x in states][-2:], ["mate", "mate"])
+                audit = fake.evidence()
+                commits = [r for r in audit["transport_trace"] if r["event"] == "board_commit"]
+                self.assertEqual(len(commits), 4)
+                self.assertEqual(audit["fault"]["activations"][0]["action"], "duplicate_terminal")
         finally:
             fake.close()
 

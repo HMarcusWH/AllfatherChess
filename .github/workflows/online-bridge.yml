@@ -1,0 +1,58 @@
+name: ONLINE-3B pinned offline bridge (qualification)
+on:
+  pull_request:
+    paths:
+      - 'deploy/lichess/**'
+      - 'tests/lichess/**'
+      - 'scripts/qualify-online-bridge.py'
+      - 'qualification/online-bridge-v1.json'
+      - '.github/workflows/online-bridge.yml'
+      - 'Makefile'
+      - 'docs/ONLINE_3B_BRIDGE_QUALIFICATION.md'
+      - 'controller/**'
+      - 'common/**'
+      - 'adapters/**'
+      - 'config/**'
+      - 'engines/**'
+      - 'vendor.lock.json'
+  workflow_dispatch:
+permissions:
+  contents: read
+env:
+  ALLFATHER_SOURCE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+concurrency:
+  group: online3b-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  bridge-contracts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.ALLFATHER_SOURCE_SHA }}
+      - name: Confirm exact source
+        run: test "$(git rev-parse HEAD)" = "$ALLFATHER_SOURCE_SHA"
+      - name: Prepare dependency hash lock candidate
+        run: |
+          bash scripts/ci-install-apt-deps.sh python3-pip python3-venv
+          python3 -m pip install --break-system-packages 'pip-tools==7.5.2'
+          mkdir -p build/online3b
+          python3 -m piptools compile --generate-hashes \
+            --output-file build/online3b/requirements.lock deploy/lichess/requirements.in
+          python3 -m pip install --break-system-packages --require-hashes \
+            -r build/online3b/requirements.lock
+      - name: Fetch and verify pinned upstream
+        run: python3 deploy/lichess/fetch_bridge.py
+      - name: Contract and HTTP failure tests
+        run: |
+          python3 -m py_compile deploy/lichess/*.py tests/lichess/*.py scripts/qualify-online-bridge.py
+          python3 -m unittest discover -s tests/lichess -p 'test_*.py' -v
+      - name: Retain dependency lock candidate
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: online3b-resolved-lock-candidate
+          path: build/online3b/requirements.lock
+          if-no-files-found: warn
+          retention-days: 7

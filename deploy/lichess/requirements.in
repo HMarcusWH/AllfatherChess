@@ -1,0 +1,7 @@
+# Upstream df7e730de58cc3ef2f1415a0dc2eeda842d39167 compatible constraints.
+# Resolve once to requirements.lock with pip-compile --generate-hashes.
+chess==1.11.2
+PyYAML~=6.0
+requests~=2.34
+backoff~=2.2
+rich~=15.0

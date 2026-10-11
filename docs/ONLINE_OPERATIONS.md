@@ -115,3 +115,12 @@ hardware. Do not publish the image as a bot release at this stage.
 
 **No claim of a released bot, generic-host portability, Elo advantage,
 production adaptive STOP/SKIP or comparative strength follows from ONLINE-3A.**
+
+
+## ONLINE-3B: offline Lichess bridge (separate release boundary)
+
+The pinned upstream bridge, fake API qualification and restrictions are
+documented in [ONLINE_3B_BRIDGE_QUALIFICATION.md](ONLINE_3B_BRIDGE_QUALIFICATION.md).
+The bridge's first game search and normal clock searches are tested against the
+unchanged ONLINE-3A controller. No real credentials, BOT account conversion,
+public opponent or network endpoint are authorized.

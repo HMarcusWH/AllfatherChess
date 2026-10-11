@@ -448,3 +448,16 @@ local-full-game-soak:
 
 local-full-game-v2:
 	$(MAKE) -f Makefile.local-game qualification-v2
+
+
+.PHONY: online-bridge-fetch online-bridge-contracts online-bridge-qualify
+online-bridge-fetch:
+	python3 deploy/lichess/fetch_bridge.py
+
+online-bridge-contracts:
+	python3 -m unittest discover -s tests/lichess -p 'test_*.py' -v
+
+online-bridge-qualify:
+	python3 scripts/qualify-online-bridge.py \
+	  --source-commit "$$(git rev-parse HEAD)" \
+	  --evidence build/test-results/online-bridge-v1

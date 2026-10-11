@@ -1,0 +1,7 @@
+**
+!deploy/
+!deploy/lichess/
+!deploy/lichess/requirements.lock
+!build/
+!build/online3b-wheels/
+!build/online3b-wheels/**

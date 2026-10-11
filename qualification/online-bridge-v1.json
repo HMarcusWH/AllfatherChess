@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "profile_id": "online-bridge-v1",
+  "scope": "offline-simulation-only",
+  "bridge_lock": "deploy/lichess/bridge.lock.json",
+  "allfather_release_kind": "ONLINE-3A-OFFLINE-ONLY",
+  "challenge": {
+    "variant": "standard",
+    "initial_fen": "startpos",
+    "rated": false,
+    "bot_only": true,
+    "allow_list": ["approved_test_bot"],
+    "base_seconds": 600,
+    "increment_seconds": 5,
+    "concurrency": 1
+  },
+  "required_colors": ["white", "black"],
+  "natural_rules_termination": true,
+  "no_move_cap_adjudication": true,
+  "require_actual_http_and_uci": true,
+  "require_independent_legality": true,
+  "require_no_accepted_unauthorized_operations": true,
+  "network_recovery_qualified": false,
+  "deployment_host_qualified": false,
+  "public_bot_release": false,
+  "bot_account_upgrade_authorized": false
+}

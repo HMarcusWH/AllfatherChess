@@ -34,6 +34,7 @@ class FakeLichess:
         self.trace = TransportTrace() if self.fault is not None else None
         self.sessions = StreamSessions() if self.fault is not None else None
         self.previous_state = None
+        self.state_predecessors: dict[str, dict] = {}
         self.board = chess.Board()
         self.lock = threading.RLock()
         self.events: queue.Queue[dict] = queue.Queue()
@@ -109,8 +110,11 @@ class FakeLichess:
                     return False
                 if action == "delay_state":
                     time.sleep(0.4)  # bounded transport delay; not a virtual game clock
-                if action == "stale_state" and server.previous_state is not None:
-                    payload = copy.deepcopy(server.previous_state)
+                if action == "stale_state":
+                    predecessor = server.state_predecessors.get(state_digest(payload))
+                    if predecessor is None:
+                        raise RuntimeError("fault state has no authoritative predecessor")
+                    payload = copy.deepcopy(predecessor)
                 if action == "wrong_game":
                     payload = dict(payload, gameId="untrusted-other-game")
                 self.chunk(payload)
@@ -406,6 +410,8 @@ class FakeLichess:
                 "termination": outcome.termination.name
             }
         state = self.state()
+        if self.trace is not None and self.previous_state is not None:
+            self.state_predecessors[state_digest(state)] = copy.deepcopy(self.previous_state)
         self.states.put(state)
         if self.sessions is not None:
             self.sessions.publish("game", state)

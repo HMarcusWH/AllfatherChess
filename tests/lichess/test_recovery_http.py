@@ -67,5 +67,43 @@ class RecoveryHTTPTests(unittest.TestCase):
             fake.close()
 
 
+    def test_replacing_global_stream_fences_old_subscriber(self):
+        fake = FakeLichess("white", load_scenarios(SCENARIOS)["R09"])
+        fake.start()
+        try:
+            url = fake.url + "api/stream/event"
+            with requests.get(url, headers=HEADERS, stream=True, timeout=4) as first:
+                self.assertEqual(first.status_code, 200)
+                with requests.get(url, headers=HEADERS, stream=True, timeout=4) as second:
+                    self.assertEqual(second.status_code, 200)
+                    fake.issue_challenge()
+                    row = json.loads(next(x for x in second.iter_lines(chunk_size=1) if x))
+                    self.assertEqual(row["type"], "challenge")
+                    self.assertEqual(len(fake.evidence()["fault"]["activations"]), 1)
+                    ev = [x for x in fake.evidence()["stream_sessions"] if x["event"] == "subscribe"]
+                    self.assertEqual(len(ev), 2)
+                    self.assertTrue(fake.sessions.next_sid >= 2)
+        finally:
+            fake.close()
+
+    def test_wrong_game_payload_is_labeled_fault(self):
+        import chess
+        fake = FakeLichess("white", load_scenarios(SCENARIOS)["R11"])
+        fake.start()
+        try:
+            with requests.get(fake.url + f"api/bot/game/stream/{GAME_ID}",
+                              headers=HEADERS, stream=True, timeout=4) as response:
+                lines = (json.loads(line) for line in response.iter_lines(chunk_size=1) if line)
+                self.assertEqual(next(lines)["type"], "gameFull")
+                with fake.lock:
+                    fake.apply(chess.Move.from_uci("e2e4"), "allfather")
+                state = next(lines)
+                self.assertEqual(state["gameId"], "untrusted-other-game")
+                self.assertEqual(fake.evidence()["fault"]["activations"][0]["action"],
+                                 "wrong_game")
+        finally:
+            fake.close()
+
+
 if __name__ == "__main__":
     unittest.main()

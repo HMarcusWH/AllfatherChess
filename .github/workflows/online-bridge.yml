@@ -62,3 +62,85 @@ jobs:
             build/online3b/wheel-hashes.txt
           if-no-files-found: warn
           retention-days: 7
+
+  offline-full-games:
+    name: offline-full-games
+    needs: bridge-contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      JOBS: '2'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.ALLFATHER_SOURCE_SHA }}
+      - name: Verify exact source
+        run: test "$(git rev-parse HEAD)" = "$ALLFATHER_SOURCE_SHA"
+      - name: Install exact engine toolchain and Python tools
+        run: |
+          bash scripts/ci-install-apt-deps.sh build-essential meson ninja-build pkg-config libprotobuf-dev protobuf-compiler zlib1g-dev libopenblas-dev python3-pip python3-venv
+          python3 -m pip install --break-system-packages 'pip-tools==7.5.2'
+      - name: Cache immutable engine networks
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: |
+            build/artifacts/stockfish
+            build/artifacts/reckless
+            build/artifacts/lc0
+          key: online3b-networks-${{ runner.os }}-${{ hashFiles('vendor.lock.json','qualification/lc0-strength.lock.json') }}
+      - name: Build, qualify, seal and relocate exact-source Allfather
+        timeout-minutes: 35
+        run: |
+          make build-online-engine-opt-v2
+          python3 scripts/qualify-engine-opt-v2.py
+          python3 scripts/release-manifest.py create
+          python3 scripts/release-manifest.py verify
+          python3 scripts/package-online.py
+          mkdir -p build/online3b-extract
+          tar --no-same-owner -xzf dist/allfather-online3a-offline.tar.gz -C build/online3b-extract
+          python3 build/online3b-extract/deploy/bin/allfather-online --check
+      - name: Prepare exact wheelhouse and pinned upstream checkout
+        timeout-minutes: 15
+        run: |
+          python3 deploy/lichess/fetch_bridge.py
+          mkdir -p build/online3b-wheels
+          python3 -m piptools compile --generate-hashes --output-file build/online3b-runtime.lock deploy/lichess/requirements.in
+          cp build/online3b-runtime.lock deploy/lichess/requirements.lock
+          python3 -m pip download --no-deps --only-binary=:all: --require-hashes -r deploy/lichess/requirements.lock -d build/online3b-wheels
+          python3 -m pip install --break-system-packages --require-hashes -r deploy/lichess/requirements.lock
+      - name: Build isolated offline-only integration image
+        timeout-minutes: 15
+        run: |
+          docker build -f deploy/lichess/Dockerfile.offline --tag allfather-online3b-test:offline .
+          docker image inspect allfather-online3b-test:offline --format '{{"{{"}}.Id{{"}}"}}' > build/online3b-image-id.txt
+      - name: Execute genuine bridge and Allfather games as both colors
+        timeout-minutes: 24
+        run: |
+          mkdir -p build/test-results/online-bridge-v1
+          for COLOR in white black; do
+            docker run --rm --network none --pids-limit 128 --cap-drop ALL --security-opt no-new-privileges --cpus 4 --memory 6g \
+              -e ONLINE3B_ISOLATED_CONTAINER=1 \
+              -v "$PWD:/work:ro" \
+              -v "$PWD/build/test-results/online-bridge-v1:/results" \
+              -w /work \
+              allfather-online3b-test:offline \
+              /opt/online3b/bin/python /work/deploy/lichess/run_offline.py \
+              --bridge /work/build/vendor/lichess-bot \
+              --release /work/dist/online3a-stage \
+              --color "$COLOR" --timeout 540 --output "/results/$COLOR"
+          done
+      - name: Independently qualify offline games
+        run: |
+          python3 scripts/qualify-online-bridge.py --evidence build/test-results/online-bridge-v1 --source-commit "$ALLFATHER_SOURCE_SHA"
+      - name: Always retain offline API/game evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: online3b-offline-game-evidence
+          path: |
+            build/test-results/online-bridge-v1/
+            build/online3b-image-id.txt
+            build/online3b-runtime.lock
+            build/test-results/engine-opt-v2/report.json
+          if-no-files-found: warn
+          retention-days: 30

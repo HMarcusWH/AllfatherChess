@@ -114,15 +114,29 @@ jobs:
         run: |
           docker build -f deploy/lichess/Dockerfile.offline --tag allfather-online3b-test:offline .
           docker image inspect allfather-online3b-test:offline --format '{{.Id}}' > build/online3b-image-id.txt
+      - name: Prove container output mount is writable as the runner user
+        run: |
+          set -euo pipefail
+          mkdir -p build/test-results/online-bridge-v1
+          docker run --rm --network none --pids-limit 16 --cap-drop ALL --security-opt no-new-privileges \
+            --user "$(id -u):$(id -g)" \
+            -v "$PWD:/work:ro" \
+            -v "$PWD/build/test-results/online-bridge-v1:/results:rw" \
+            -w /work \
+            allfather-online3b-test:offline \
+            /opt/online3b/bin/python -c 'from pathlib import Path; p = Path("/results/.online3b-write-preflight"); p.write_text("ok\n", encoding="utf-8"); assert p.read_text(encoding="utf-8") == "ok\n"; p.unlink()'
+          test ! -e build/test-results/online-bridge-v1/.online3b-write-preflight
       - name: Execute genuine bridge and Allfather games as both colors
         timeout-minutes: 24
         run: |
+          set -euo pipefail
           mkdir -p build/test-results/online-bridge-v1
           for COLOR in white black; do
             docker run --rm --network none --pids-limit 128 --cap-drop ALL --security-opt no-new-privileges --cpus 4 --memory 6g \
+              --user "$(id -u):$(id -g)" \
               -e ONLINE3B_ISOLATED_CONTAINER=1 \
               -v "$PWD:/work:ro" \
-              -v "$PWD/build/test-results/online-bridge-v1:/results" \
+              -v "$PWD/build/test-results/online-bridge-v1:/results:rw" \
               -w /work \
               allfather-online3b-test:offline \
               /opt/online3b/bin/python /work/deploy/lichess/run_offline.py \

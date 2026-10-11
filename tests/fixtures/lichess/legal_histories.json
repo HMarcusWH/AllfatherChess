@@ -1,0 +1,5 @@
+{
+  "startpos_castle": ["g1f3","g8f6","g2g3","g7g6","f1g2","f8g7","e1g1"],
+  "startpos_en_passant": ["e2e4","a7a6","e4e5","d7d5","e5d6"],
+  "startpos_double_promotion": ["a2a4","h7h5","a4a5","h5h4","a5a6","h4h3","a6b7","h3g2","b7a8q","g2h1q"]
+}

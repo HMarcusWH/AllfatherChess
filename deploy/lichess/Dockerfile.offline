@@ -1,0 +1,16 @@
+# CI-only offline fixture, NOT a locked/qualified production OCI image.
+# Apt fetches occur at build time only; execution uses --network none.
+FROM ubuntu:24.04
+ENV DEBIAN_FRONTEND=noninteractive PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 python3-venv python3-pip ca-certificates procps \
+    libopenblas0-pthread libprotobuf32t64 libstdc++6 libgomp1 zlib1g \
+    && rm -rf /var/lib/apt/lists/*
+COPY build/online3b-wheels/ /tmp/online3b-wheelhouse/
+COPY deploy/lichess/requirements.lock /tmp/requirements.lock
+RUN python3 -m venv /opt/online3b && \
+    /opt/online3b/bin/python -m pip install --no-index \
+      --find-links=/tmp/online3b-wheelhouse --require-hashes -r /tmp/requirements.lock && \
+    rm -rf /tmp/online3b-wheelhouse
+ENV PATH="/opt/online3b/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+WORKDIR /work

@@ -42,6 +42,12 @@ def game(*, color: str, release: Path, bridge: Path, output: Path, timeout: int 
     log_thread = None
     with tempfile.TemporaryDirectory(prefix="online3b-") as dirname:
         work = Path(dirname)
+        # The source artifact is read-only in the container. Each individual
+        # game gets a writable relocated *copy* so replay writes remain inside
+        # this game's lifetime and never mutate the original release.
+        copied_release = work / "release"
+        shutil.copytree(release, copied_release)
+        release = copied_release
         staged = work / "bridge"
         shutil.copytree(bridge, staged, ignore=shutil.ignore_patterns(".git", "__pycache__", "*.pyc"))
         shutil.copy2(ROOT / "deploy/lichess/extra_game_handlers.py",
@@ -86,7 +92,8 @@ def game(*, color: str, release: Path, bridge: Path, output: Path, timeout: int 
                 # Give the bridge enough time to consume the terminal gameState.
                 time.sleep(0.8)
         finally:
-            server.close()
+            # Keep HTTP streams up while the bridge is asked to shutdown;
+            # otherwise a premature 500/EOF can activate upstream restart.
             if proc is not None and proc.poll() is None:
                 os.killpg(proc.pid, signal.SIGINT)
                 try:
@@ -94,6 +101,7 @@ def game(*, color: str, release: Path, bridge: Path, output: Path, timeout: int 
                 except subprocess.TimeoutExpired:
                     os.killpg(proc.pid, signal.SIGKILL)
                     proc.wait(timeout=10)
+            server.close()
             if log_thread is not None:
                 log_thread.join(timeout=4)
         evidence = server.evidence()

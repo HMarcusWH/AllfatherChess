@@ -112,7 +112,7 @@ jobs:
         timeout-minutes: 15
         run: |
           docker build -f deploy/lichess/Dockerfile.offline --tag allfather-online3b-test:offline .
-          docker image inspect allfather-online3b-test:offline --format '{{"{{"}}.Id{{"}}"}}' > build/online3b-image-id.txt
+          docker image inspect allfather-online3b-test:offline --format '{{.Id}}' > build/online3b-image-id.txt
       - name: Execute genuine bridge and Allfather games as both colors
         timeout-minutes: 24
         run: |

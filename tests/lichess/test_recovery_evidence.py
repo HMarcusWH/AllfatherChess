@@ -89,6 +89,16 @@ class IndependentEvidenceTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 QUALIFIER.validate_replays(root)
 
+    def test_null_move_submission_is_unsafe_but_valid_retry_is_not_misclassified(self):
+        attempts = [
+            {"method": "POST", "path": "/api/bot/game/off3b001/move/0000", "status": 400},
+            {"method": "POST", "path": "/api/bot/game/off3b001/move/e2e4", "status": 409},
+            {"method": "POST", "path": "/api/bot/game/off3b001/move/garbage", "status": 400},
+        ]
+        bad = QUALIFIER.invalid_move_submissions(attempts)
+        self.assertEqual([r["uci"] for r in bad], ["0000", "garbage"])
+        self.assertEqual(QUALIFIER.invalid_move_submissions([attempts[1]]), [])
+
     def test_sha256_of_stream_payload_is_stable(self):
         x = {"type": "gameState", "moves": "e2e4", "wtime": 1000}
         self.assertEqual(state_digest(x), state_digest(dict(reversed(list(x.items())))))

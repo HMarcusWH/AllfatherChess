@@ -108,3 +108,15 @@ ONLINE-4B must implement durable uncertain-move state, authoritative history
 reconciliation, bounded restarts and single active-owner fencing, then qualify
 these mechanisms independently before any real Lichess account or challenge
 is authorized.
+
+## Verified ONLINE-4A defects feeding ONLINE-4B
+
+The exact-source offline R10 run triggered global HTTP 429 followed by repeated
+forbidden /abort requests; the independent qualifier records it as UNSAFE_WITNESS.
+R12 used a **synthetic** low-clock override. The sealed Allfather UCI returned
+`bestmove 0000` because its clock preparation exhausted the search window; the
+pinned upstream attempted `/move/0000` and received 400. The independent
+qualifier now reports malformed/null UCI submissions as UNSAFE_WITNESS without
+confusing valid-move retries rejected after a lost acknowledgement with
+invalid engine choices. R08 leaves an active game unresolved after truncated
+NDJSON. These observations do not authorize live traffic or recovery claims.

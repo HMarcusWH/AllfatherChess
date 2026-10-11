@@ -12,6 +12,7 @@ import argparse
 import hashlib
 import json
 import subprocess
+from urllib.parse import unquote
 import sys
 from pathlib import Path
 
@@ -202,6 +203,28 @@ def validate_replays(case_dir: Path) -> dict:
             "game_to_replay_link_qualified": False}
 
 
+def invalid_move_submissions(http_requests: list[dict]) -> list[dict]:
+    """Only malformed/null UCI syntax—not a stale valid-move retry—is unsafe.
+
+    A once-legal move repeated after a lost acknowledgment may receive 400/409;
+    that is not evidence the engine itself chose an invalid move.
+    """
+    prefix = "/api/bot/game/off3b001/move/"
+    invalid = []
+    for request in http_requests:
+        path = request.get("path")
+        if request.get("method") != "POST" or not isinstance(path, str) or not path.startswith(prefix):
+            continue
+        uci = unquote(path[len(prefix):])
+        try:
+            move = chess.Move.from_uci(uci)
+        except ValueError:
+            move = None
+        if move is None or move == chess.Move.null():
+            invalid.append({"path": path, "uci": uci, "status": request.get("status")})
+    return invalid
+
+
 def validate_experiment(case_dir: Path, scenario: dict, color: str,
                         source_sha: str, bridge_sha: str) -> dict:
     result = read_json(case_dir / "result.json")
@@ -272,11 +295,13 @@ def validate_experiment(case_dir: Path, scenario: dict, color: str,
         rate_index = http_requests.index(responses[0])
         early_rate_requests = [r for r in http_requests[rate_index + 1:]
                                if 0 <= r["monotonic_ms"] - when < 60000]
+    unusable_moves = invalid_move_submissions(http_requests)
     if scenario["action"] == "none":
         ensure(history["bot_commits"] > 0 and logging is not None,
                "normal engine baseline did not play")
+        ensure(not unusable_moves, "normal game submitted invalid/null engine move")
         status = "SAFE_CONTINUATION"
-    elif game["forbidden_attempts"] or early_rate_requests:
+    elif game["forbidden_attempts"] or early_rate_requests or unusable_moves:
         status = "UNSAFE_WITNESS"
     elif game.get("complete") is True:
         status = "OBSERVED_COMPLETION"
@@ -285,6 +310,7 @@ def validate_experiment(case_dir: Path, scenario: dict, color: str,
     return {"scenario": scenario["id"], "color": color,
             "harness_integrity": True, "behavior": status,
             "early_rate_limit_requests": early_rate_requests,
+            "unusable_move_submissions": unusable_moves,
             "fault_activated": scenario["action"] != "none",
             "board": history, "replay": replay,
             "runner_errors": result.get("runner_errors", []),

@@ -2,6 +2,11 @@ name: Engine optimization v2
 
 on:
   workflow_dispatch:
+    inputs:
+      canonical_base_sha:
+        description: 'Approved b4 baseline full SHA (PR #64 merge commit)'
+        required: true
+        type: string
   pull_request:
     paths:
       - 'qualification/engine-opt-*.json'
@@ -44,6 +49,7 @@ on:
       - 'scripts/qualify-engine-opt-v2.py'
       - 'scripts/qualify-engine-opt-evidence.py'
       - 'scripts/qualify-engine-opt-v2-promotion-gate.py'
+      - 'scripts/qualify-engine-opt-v2-canonical-gate.py'
       - 'scripts/qualify-adaptive-time.py'
       - 'scripts/adaptive-time-contract.py'
       - 'scripts/qualify-work-grant-scheduler.py'
@@ -87,7 +93,7 @@ permissions:
 
 env:
   ALLFATHER_SOURCE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
-  ALLFATHER_BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || '' }}
+  ALLFATHER_BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || inputs.canonical_base_sha || '' }}
 
 concurrency:
   group: engine-opt-v2-${{ github.workflow }}-${{ github.ref }}
@@ -156,6 +162,7 @@ jobs:
           python3 tests/engine_opt/test_legacy_calibration_reconciliation.py
           python3 tests/engine_opt/test_candidate_gate.py
           python3 tests/engine_opt/test_promotion_gate.py
+          python3 tests/engine_opt/test_continuity_gate.py
           python3 tests/controller/test_partition_versions.py
           python3 -m json.tool qualification/constituent-benchmark-v2.json >/dev/null
           python3 -m json.tool qualification/online-hybrid-v1-resource-calibration.json >/dev/null
@@ -185,7 +192,7 @@ jobs:
           python3 tests/controller/test_runtime_profiles.py
           python3 tests/adapters/test_linux_affinity.py
           python3 tests/controller/test_resource_control.py
-          python3 -m py_compile scripts/qualify-engine-opt-evidence.py scripts/qualify-engine-opt-v2-candidate.py scripts/qualify-engine-opt-v2-candidate-gate.py scripts/qualify-engine-opt-v2-promotion-gate.py scripts/qualify-engine-opt-matrix.py scripts/qualify-online-hybrid-v2-candidate.py scripts/extract-g3-candidate-witnesses.py tools/engine_opt/matrix_qualification.py tools/engine_opt/candidate_gate.py tools/engine_opt/promotion_gate.py
+          python3 -m py_compile scripts/qualify-engine-opt-v2-canonical-gate.py tools/engine_opt/continuity_gate.py scripts/qualify-engine-opt-evidence.py scripts/qualify-engine-opt-v2-candidate.py scripts/qualify-engine-opt-v2-candidate-gate.py scripts/qualify-engine-opt-v2-promotion-gate.py scripts/qualify-engine-opt-matrix.py scripts/qualify-online-hybrid-v2-candidate.py scripts/extract-g3-candidate-witnesses.py tools/engine_opt/matrix_qualification.py tools/engine_opt/candidate_gate.py tools/engine_opt/promotion_gate.py
           python3 scripts/qualify-online-hybrid-v2.py --static
           python3 scripts/qualify-online-hybrid-v2-candidate.py --static
           python3 scripts/qualify-online-hybrid-v2-b4.py --static
@@ -557,16 +564,17 @@ jobs:
           path: build/test-results/engine-opt-v2-aggregate
           if-no-files-found: error
           retention-days: 14
-      - name: Evaluate canonical b4 promotion gate
+      - name: Evaluate historical promotion or canonical b4 continuity
         id: promotion_gate
         run: |
-          python3 scripts/qualify-engine-opt-v2-promotion-gate.py \
+          python3 scripts/qualify-engine-opt-v2-canonical-gate.py \
             --aggregate build/test-results/engine-opt-v2-aggregate/report.json \
             --host-binding qualification/engine-opt-v2-host-binding.json \
             --catalog qualification/resource-profile-catalog-v1.json \
             --base-sha "$ALLFATHER_BASE_SHA" \
+            --event-name "$GITHUB_EVENT_NAME" \
             --output build/test-results/engine-opt-v2-promotion-gate/report.json
-      - name: Summarize canonical b4 promotion gate
+      - name: Summarize canonical b4 admission
         if: always()
         run: |
           python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"

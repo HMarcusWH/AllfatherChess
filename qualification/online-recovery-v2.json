@@ -1,0 +1,81 @@
+{
+  "schema_version": 1,
+  "profile_id": "online-recovery-v2",
+  "scope": "offline-guarded-bridge-only",
+  "base_qualification": "qualification/online-recovery-v1.json",
+  "bridge_lock": "deploy/lichess/bridge.lock.json",
+  "scenario_source": "tests/fixtures/lichess/recovery_scenarios.json",
+  "required": {
+    "R00": [
+      "white",
+      "black"
+    ],
+    "R01": [
+      "white"
+    ],
+    "R02": [
+      "white",
+      "black"
+    ],
+    "R03": [
+      "white"
+    ],
+    "R08": [
+      "black"
+    ],
+    "R10": [
+      "white"
+    ],
+    "R12": [
+      "white"
+    ],
+    "R13": [
+      "white"
+    ]
+  },
+  "require_recovery_for": [
+    "R02",
+    "R03",
+    "R08",
+    "R13"
+  ],
+  "require_containment_for": [
+    "R01",
+    "R02",
+    "R03",
+    "R08",
+    "R10",
+    "R12",
+    "R13"
+  ],
+  "durability": "sqlite-wal-full-sync",
+  "max_scenario_seconds": 95,
+  "require_server_confirmed_moves": true,
+  "require_epoch_fencing": true,
+  "require_account_cooldown_seconds": 60,
+  "network_recovery_qualified": false,
+  "deployment_host_qualified": false,
+  "public_bot_release": false,
+  "bot_account_upgrade_authorized": false,
+  "playing_strength_qualified": false,
+  "attested_paths": [
+    ".github/workflows/online-recovery-v2.yml",
+    "deploy/lichess/bridge.lock.json",
+    "deploy/lichess/guarded_transport.py",
+    "deploy/lichess/move_journal.py",
+    "deploy/lichess/offline_session.py",
+    "deploy/lichess/reconcile.py",
+    "deploy/lichess/recovery_overlay.py",
+    "deploy/lichess/run_recovery_v2.py",
+    "deploy/lichess/session_owner.py",
+    "docs/ONLINE_4B_RECOVERY.md",
+    "qualification/online-recovery-v2.json",
+    "scripts/qualify-online-recovery-v2.py",
+    "tests/fixtures/lichess/recovery_scenarios.json",
+    "tests/lichess/fake_lichess_api.py",
+    "tests/lichess/test_guarded_transport.py",
+    "tests/lichess/test_recovery_journal.py",
+    "tests/lichess/test_recovery_overlay.py",
+    "tests/lichess/test_recovery_v2_evidence.py"
+  ]
+}

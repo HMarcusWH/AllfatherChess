@@ -77,5 +77,9 @@
     "tests/lichess/test_recovery_journal.py",
     "tests/lichess/test_recovery_overlay.py",
     "tests/lichess/test_recovery_v2_evidence.py"
-  ]
+  ],
+  "require_terminal_state_confirmation": true,
+  "require_new_epoch_confirmed_move": true,
+  "require_sigkill_evidence": true,
+  "require_explicit_safe_suspension_evidence": true
 }

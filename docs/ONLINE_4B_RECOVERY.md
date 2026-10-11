@@ -112,3 +112,48 @@ See qualification/online-recovery-v2.json and
 .github/workflows/online-recovery-v2.yml for the frozen matrix. The next
 milestones remain a production image/host/licensing audit and an expressly
 authorized live canary; neither occurs here.
+
+## Exact-head diagnostic repairs and acceptance rules
+
+The first ONLINE-4B full integration run exposed two verifier defects:
+R12 was incorrectly required to produce `bestmove 0000` under a
+synthetic low clock, even when Allfather instead produced legal moves.
+R13's actual `-9` bridge exit was omitted from the earlier
+ONLINE-4A witness adapter. The corrected verifier accepts whichever
+legal outcome R12 actually produces while independently prohibiting
+all malformed/null UCI HTTP move submissions. A deterministic guard
+unit test rejects null/illegal moves with zero network requests.
+
+R13 now records the actual SIGKILL delivery to the bridge process
+group, its process-exit return code, and verified descendant-process
+drain before activating a different durable owner epoch. A label alone,
+a forged exit code, or a second stream without new moves cannot
+qualify recovery.
+
+An observed server checkmate is not enough to certify that the client
+processed the final state. After the server records a terminal position,
+the offline supervisor performs a bounded, post-game *observational*
+journal barrier. Its report contains the authoritative final ply,
+durable journal ply, terminal flag, and any server-accepted moves still
+unconfirmed. A missing or timed-out barrier makes the completed-game
+qualification fail closed. This barrier does not change chess clocks,
+search budgets, or the move selection policy.
+
+The independent verifier certifies `RECOVERED` only if the second
+owner epoch actually prepared and submitted a new move, received
+a matching server commit, and persisted its authoritative
+confirmation. Reconciling only an earlier epoch's accepted move
+is insufficient. Required restart scenarios must pass for **every**
+required color, rather than just one successful representative.
+
+Verdicts are deliberately distinct: `NORMAL_COMPLETION` for
+the no-fault baseline, `SAFE_CONTINUATION` for a faulted but
+successfully continued single session, `RECOVERED` for genuinely
+new post-restart play, `SAFE_SUSPENSION` when explicit guard evidence
+shows bounded containment, `INCONCLUSIVE` when evidence is
+insufficient, and `UNSAFE` on an invariant violation.
+An inconclusive result is not qualified containment.
+
+The synthetic low-clock override remains a diagnostic fixture,
+not evidence about production clock rates. No offline result here
+grants public-play, deployment or BOT account authority.

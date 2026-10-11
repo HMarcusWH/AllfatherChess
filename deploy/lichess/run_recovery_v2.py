@@ -98,6 +98,53 @@ def _active_game_subscribers(server) -> int:
                if row["event"] == "subscribe" and row["kind"] == "game")
 
 
+def terminal_snapshot(journal, authoritative: dict) -> dict:
+    """Independently compare the latest durable journal with a terminal server game.
+
+    This observes evidence only; it never submits a move or mutates chess state.
+    """
+    snapshot = journal.snapshot()
+    game_id = authoritative.get("game_id")
+    moves = authoritative.get("moves")
+    records = [r for r in snapshot["games"] if r["game_id"] == game_id]
+    recorded = records[0] if len(records) == 1 else None
+    stored_moves = json.loads(recorded["history_json"]) if recorded else None
+    accepted = authoritative.get("accepted") or []
+    intents = snapshot["intents"]
+    unconfirmed = []
+    for row in accepted:
+        matched = [i for i in intents if i["game_id"] == game_id
+                   and i["ply_before"] == row["ply"] - 1
+                   and i["move"] == row["uci"] and i["status"] == "CONFIRMED"]
+        if len(matched) != 1:
+            unconfirmed.append({"ply": row["ply"], "uci": row["uci"]})
+    terminal = recorded is not None and recorded["terminal"] == 1
+    history_matches = (isinstance(moves, list) and
+                       stored_moves == moves)
+    complete = (authoritative.get("complete") is True and terminal
+                and history_matches and not unconfirmed)
+    return {"complete": complete,
+            "server_final_ply": len(moves) if isinstance(moves, list) else None,
+            "journal_ply": len(stored_moves) if isinstance(stored_moves, list) else None,
+            "journal_terminal": terminal,
+            "history_matches": history_matches,
+            "unconfirmed_accepted_moves": unconfirmed}
+
+
+def wait_for_terminal_sync(journal, server, *, timeout_s: float = 7.0) -> dict:
+    """Bound a post-game observational barrier, outside all engine clocks."""
+    if timeout_s <= 0:
+        raise ValueError("terminal synchronization deadline must be positive")
+    started = time.monotonic()
+    deadline = started + timeout_s
+    while True:
+        snapshot = terminal_snapshot(journal, server.evidence())
+        snapshot["wait_ms"] = round((time.monotonic() - started) * 1000)
+        if snapshot["complete"] or time.monotonic() >= deadline:
+            return snapshot
+        time.sleep(0.05)
+
+
 def experiment(*, scenario: dict, color: str, bridge: Path, release: Path,
                output: Path, source_sha: str, timeout: float):
     output.mkdir(parents=True, exist_ok=True)
@@ -141,14 +188,18 @@ def experiment(*, scenario: dict, color: str, bridge: Path, release: Path,
             with SessionOwner(output / "state") as owner:
                 phases = 2 if scenario["id"] in RESTART_CASES else 1
                 for phase in range(phases):
+                    old_descendants_drained = False
                     if phase > 0:
                         terminate_isolated_children()
+                        old_descendants_drained = True
                         owner.new_epoch()
                     before_subscribers = _active_game_subscribers(server)
                     phase_data = {
                         "phase": phase + 1, "epoch": owner.epoch,
                         "bridge_exit": None, "observation": "launching",
                         "game_subscriptions_before": before_subscribers,
+                        "old_descendants_drained": old_descendants_drained,
+                        "kill_issued": False, "kill_signal": None,
                     }
                     state["phases"].append(phase_data)
                     proc = None
@@ -188,10 +239,22 @@ def experiment(*, scenario: dict, color: str, bridge: Path, release: Path,
                             if scenario["id"] == "R13" and fired and phase == 0:
                                 if proc.poll() is None:
                                     os.killpg(proc.pid, signal.SIGKILL)
-                                phase_data["observation"] = "injected_bridge_kill"
+                                    phase_data["kill_issued"] = True
+                                    phase_data["kill_signal"] = int(signal.SIGKILL)
+                                    phase_data["kill_monotonic_ns"] = time.monotonic_ns()
+                                    phase_data["observation"] = "injected_bridge_kill"
+                                else:
+                                    phase_data["observation"] = "bridge_exited_before_kill"
                                 break
                             if server.finished.is_set():
-                                phase_data["observation"] = "server_game_complete"
+                                phase_data["terminal_sync"] = wait_for_terminal_sync(
+                                    owner.journal, server
+                                )
+                                phase_data["observation"] = (
+                                    "server_game_complete"
+                                    if phase_data["terminal_sync"]["complete"]
+                                    else "terminal_reconciliation_timeout"
+                                )
                                 break
                             if phase == 0 and scenario["id"] in RESTART_CASES and fired:
                                 if time.monotonic() - activated_at > 1.4:

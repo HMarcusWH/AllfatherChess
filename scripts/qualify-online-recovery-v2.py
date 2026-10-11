@@ -141,6 +141,11 @@ def r13_witness(phases: list[dict]) -> dict:
     require(isinstance(phases, list) and bool(phases) and
             phases[0].get("observation") == "injected_bridge_kill",
             "R13 phase-one kill observation missing")
+    require(phases[0].get("kill_issued") is True and
+            phases[0].get("kill_signal") == 9 and
+            type(phases[0].get("kill_monotonic_ns")) is int and
+            phases[0]["kill_monotonic_ns"] > 0,
+            "R13 SIGKILL was not actually issued to the first bridge group")
     require(type(phases[0].get("bridge_exit")) is int and
             phases[0]["bridge_exit"] == -9,
             "R13 phase-one process was not actually terminated by SIGKILL")
@@ -163,6 +168,102 @@ def classify_disposition(*, scenario_id: str, game_complete: bool,
     if game_complete:
         return "SAFE_CONTINUATION"
     return "SAFE_SUSPENSION" if explicit_suspension else "INCONCLUSIVE"
+
+
+def verify_terminal_confirmation(game: dict, journal: dict,
+                                 phases: list[dict]) -> bool:
+    """A server-side checkmate does not certify the client's terminal state."""
+    if game.get("complete") is not True:
+        return False
+    require(bool(phases), "completed game missing process phases")
+    final = phases[-1]
+    recorded = final.get("terminal_sync")
+    require(isinstance(recorded, dict) and recorded.get("complete") is True
+            and final.get("observation") == "server_game_complete",
+            "game ended on server but terminal journal barrier did not complete")
+    moves = game.get("moves")
+    require(isinstance(moves, list) and recorded.get("server_final_ply") == len(moves)
+            and recorded.get("journal_ply") == len(moves)
+            and recorded.get("journal_terminal") is True
+            and recorded.get("history_matches") is True
+            and recorded.get("unconfirmed_accepted_moves") == [],
+            "terminal barrier does not match independently recorded game")
+    entries = [x for x in journal.get("games", [])
+               if x.get("game_id") == game.get("game_id")]
+    require(len(entries) == 1 and entries[0]["terminal"] == 1
+            and json.loads(entries[0]["history_json"]) == moves,
+            "durable terminal history missing or shorter than server")
+    intents = [i for i in journal.get("intents", [])
+               if i.get("game_id") == game.get("game_id")]
+    require(all(i["status"] == "CONFIRMED" for i in intents),
+            "terminal game retains an unconfirmed move intent")
+    for accepted in game.get("accepted") or []:
+        matching = [i for i in intents
+                    if i["ply_before"] == accepted["ply"] - 1
+                    and i["move"] == accepted["uci"] and i["status"] == "CONFIRMED"]
+        require(len(matching) == 1,
+                "server-accepted terminal move lacks durable confirmation")
+    return True
+
+
+def verify_fresh_epoch_recovery(phases: list[dict], journal: dict,
+                                trace: list[dict], guarded: list[dict]) -> bool:
+    """Certify new play after restart, not merely reconciling the old move."""
+    require(len(phases) == 2 and phases[1].get("old_descendants_drained") is True,
+            "restart missing independently observed descendant drain")
+    first, second = phases[0].get("epoch"), phases[1].get("epoch")
+    require(isinstance(first, str) and isinstance(second, str)
+            and first != second and journal.get("owner_epoch") == second,
+            "restart did not fence and replace the former session epoch")
+    events = journal.get("events") or []
+    require(any(e.get("event") == "owner_fenced_and_activated"
+                and e.get("epoch") == second for e in events),
+            "new bridge epoch has no durable ownership event")
+    commits = [r for r in trace if r.get("event") == "board_commit"
+               and r.get("origin") == "allfather"]
+    attempts = {f"request-{r['seq']}": r for r in trace
+                if r.get("event") == "move_attempt"}
+    for intent in journal.get("intents") or []:
+        if intent.get("epoch") != second or intent.get("status") != "CONFIRMED":
+            continue
+        gid, ply, uci = intent["game_id"], intent["ply_before"], intent["move"]
+        related_events = []
+        for event in events:
+            if event.get("epoch") != second or event.get("game_id") != gid:
+                continue
+            try:
+                details = json.loads(event["details"])
+            except (ValueError, TypeError, KeyError):
+                continue
+            if details.get("ply_before") == ply and details.get("move") == uci:
+                related_events.append(event)
+        def event_ids(event_name):
+            return [e["event_id"] for e in related_events
+                    if e.get("event") == event_name]
+        prepared, submitting, confirmed = (event_ids("move_prepared"),
+                                           event_ids("intent_submitting"),
+                                           event_ids("server_confirmed"))
+        if not (prepared and submitting and confirmed and
+                min(prepared) < min(submitting) < min(confirmed)):
+            continue
+        if not any(e.get("event") == "http_move_submission_attempt" and
+                   e.get("owner_epoch") == second and e.get("game_id") == gid and
+                   e.get("ply") == ply and e.get("uci") == uci
+                   for e in guarded):
+            continue
+        if not any(e.get("event") == "authoritative_snapshot_observed" and
+                   e.get("owner_epoch") == second and e.get("game_id") == gid and
+                   isinstance(e.get("ply"), int) and e["ply"] <= ply
+                   for e in guarded):
+            continue
+        matching = [r for r in commits if
+                    r.get("game_id") == gid and r.get("ply_before") == ply
+                    and r.get("uci") == uci and r.get("request_id") in attempts
+                    and attempts[r["request_id"]].get("uci") == uci
+                    and attempts[r["request_id"]].get("seq") < r["seq"]]
+        if len(matching) == 1:
+            return True
+    return False
 
 
 def verify_one(folder: Path, *, scenario: dict, color: str,
@@ -236,6 +337,7 @@ def verify_one(folder: Path, *, scenario: dict, color: str,
     journal = result.get("journal")
     verify_persisted_sqlite(folder, journal)
     details = verify_journal(journal, trace, game, result, guarded)
+    terminal_confirmed = verify_terminal_confirmation(game, journal, phases)
     epochs = {p["epoch"] for p in phases}
     require(all(e.get("owner_epoch") in epochs for e in guarded),
             "unfenced owner epoch appears in guard audit")
@@ -262,13 +364,12 @@ def verify_one(folder: Path, *, scenario: dict, color: str,
         require(phases[1]["game_subscriptions_before"] <
                 len(game_subscriptions),
                 "restart did not increase observed game subscriptions")
-        require(phases[1]["observation"] not in ("phase_error", "launching"),
-                "restart did not pass through guarded worker")
-        if scenario["id"] in ("R02", "R03", "R13"):
-            # Pending move from previous epoch must be positively confirmed.
-            recovered = details["confirmed_intents"] > 0 and len(game["accepted"]) >= 1
-        elif scenario["id"] == "R08":
-            recovered = len(game["accepted"]) >= 1
+        require(phases[1]["observation"] not in ("phase_error", "launching",
+                "bridge_exited", "bounded_experiment_timeout"),
+                "restart did not produce a verified live game worker")
+        recovered = verify_fresh_epoch_recovery(phases, journal, trace, guarded)
+        require(not game.get("complete") or terminal_confirmed,
+                "completed restart failed terminal reconciliation")
     guard_suspension = any(e.get("event") in (
         "http_unknown_ack", "global_rate_limit_block",
         "position_suspended", "move_prepare_refused",
@@ -282,14 +383,19 @@ def verify_one(folder: Path, *, scenario: dict, color: str,
     return {"scenario": scenario["id"], "color": color, "status": status,
             "harness_valid": True, "fault_activated": scenario["action"] != "none",
             "board": history, "journal": details,
+            "terminal_confirmed": terminal_confirmed,
             "restart_count": len(phases)-1, "recovered": recovered}
 
 
 def qualify(evidence: Path, source_sha: str):
     policy = read(POLICY)
     require(policy["scope"] == "offline-guarded-bridge-only"
-            and policy["public_bot_release"] is False,
-            "policy permits live deployment")
+            and policy["public_bot_release"] is False
+            and policy.get("require_terminal_state_confirmation") is True
+            and policy.get("require_new_epoch_confirmed_move") is True
+            and policy.get("require_sigkill_evidence") is True
+            and policy.get("require_explicit_safe_suspension_evidence") is True,
+            "recovery qualification policy permits weakened evidence")
     require(subprocess.check_output(["git", "-C", str(ROOT), "rev-parse", "HEAD"],
                                     text=True).strip() == source_sha,
             "not executing verifier on exact CI source head")
@@ -314,7 +420,9 @@ def qualify(evidence: Path, source_sha: str):
         "NORMAL_COMPLETION", "SAFE_CONTINUATION", "RECOVERED", "SAFE_SUSPENSION",
     ) for r in results)
     recovery = containment and all(
-        any(r["scenario"] == case and r["recovered"] for r in results)
+        all(r["recovered"] and r["status"] == "RECOVERED"
+            for r in results if r["scenario"] == case)
+        and any(r["scenario"] == case for r in results)
         for case in policy["require_recovery_for"])
     return {
         "schema_version": 1, "source_commit": source_sha,

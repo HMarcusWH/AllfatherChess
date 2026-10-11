@@ -3,7 +3,7 @@
 FROM ubuntu:24.04
 ENV DEBIAN_FRONTEND=noninteractive PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3 python3-venv python3-pip ca-certificates procps \
+    python3 python3-venv python3-pip ca-certificates procps git \
     libopenblas0-pthread libprotobuf32t64 libstdc++6 libgomp1 zlib1g \
     && rm -rf /var/lib/apt/lists/*
 COPY build/online3b-wheels/ /tmp/online3b-wheelhouse/

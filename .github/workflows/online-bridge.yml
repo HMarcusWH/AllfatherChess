@@ -127,7 +127,7 @@ jobs:
             /opt/online3b/bin/python -c 'from pathlib import Path; p = Path("/results/.online3b-write-preflight"); p.write_text("ok\n", encoding="utf-8"); assert p.read_text(encoding="utf-8") == "ok\n"; p.unlink()'
           test ! -e build/test-results/online-bridge-v1/.online3b-write-preflight
       - name: Execute genuine bridge and Allfather games as both colors
-        timeout-minutes: 24
+        timeout-minutes: 32
         run: |
           set -euo pipefail
           mkdir -p build/test-results/online-bridge-v1

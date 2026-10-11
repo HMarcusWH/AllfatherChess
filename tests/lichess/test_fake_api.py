@@ -26,6 +26,19 @@ class FakeAPITests(unittest.TestCase):
         self.assertEqual(self.call("POST", f"/api/challenge/{GAME_ID}/accept"), 200)
         self.assertEqual(self.call("POST", f"/api/bot/game/{GAME_ID}/move/e2e5"), 400)
         self.assertEqual(self.fake.accepted, [])
+    def test_post_body_and_session_reuse(self):
+        import requests
+        session = requests.Session()
+        session.headers.update({"Authorization": "Bearer " + TOKEN})
+        with session:
+            r = session.post(self.fake.url + "api/token/test",
+                             data=TOKEN, timeout=5)
+            self.assertEqual(r.status_code, 200)
+            self.assertIn(TOKEN, r.json())
+            p = session.get(self.fake.url + "api/account", timeout=5)
+            self.assertEqual(p.status_code, 200)
+            self.assertEqual(p.json()["title"], "BOT")
+
     def test_duplicate_accept_rejected(self):
         path = f"/api/challenge/{GAME_ID}/accept"
         self.assertEqual(self.call("POST", path), 200)

@@ -140,6 +140,16 @@ class FakeLichess:
             def do_POST(self):
                 if not self.auth():
                     return
+                # requests.Session reuses HTTP/1.1 connections. POST bodies
+                # must be consumed or the next request line is corrupted.
+                try:
+                    length = int(self.headers.get("Content-Length", "0"))
+                except ValueError:
+                    return self.respond(400, {"error": "bad content length"})
+                if length < 0 or length > 65536:
+                    return self.respond(413, {"error": "body too large"})
+                if length:
+                    self.rfile.read(length)
                 path = urllib.parse.urlparse(self.path).path
                 if path == "/api/token/test":
                     self.record("POST", path, 200)

@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "scope": "ONLINE-3B-OFFLINE-ONLY",
+  "origin": "https://github.com/lichess-bot-devs/lichess-bot.git",
+  "commit": "df7e730de58cc3ef2f1415a0dc2eeda842d39167",
+  "tracked_blobs": {
+    "lib/engine_wrapper.py": "38c13f993bb4e4bf9d052f2f58e019f97030b2b0",
+    "lib/lichess_bot.py": "63ab211eb433db73d1fecc47074232699dba0e94",
+    "lib/config.py": "32e31c6ab0c1d157b07b1e0c14d90f8b63fc7393",
+    "requirements.txt": "f3d16453b85f6fe19678d14c95844919e95f21dc",
+    "config.yml.default": "0a0dd0b666fe1abf9712a8e8d7c8a6b19feec3da"
+  },
+  "license_review_required": true,
+  "live_api_permitted": false
+}

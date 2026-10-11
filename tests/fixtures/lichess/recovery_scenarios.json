@@ -1,0 +1,187 @@
+{
+  "schema_version": 1,
+  "scenarios": [
+    {
+      "id": "R00",
+      "mode": "integration",
+      "colors": [
+        "white",
+        "black"
+      ],
+      "action": "none",
+      "target": {
+        "endpoint": "none",
+        "ordinal": 1
+      }
+    },
+    {
+      "id": "R01",
+      "mode": "integration",
+      "colors": [
+        "white"
+      ],
+      "action": "drop_before_commit",
+      "target": {
+        "endpoint": "move_post",
+        "ordinal": 1
+      }
+    },
+    {
+      "id": "R02",
+      "mode": "integration",
+      "colors": [
+        "white",
+        "black"
+      ],
+      "action": "commit_then_close",
+      "target": {
+        "endpoint": "move_post",
+        "ordinal": 1
+      }
+    },
+    {
+      "id": "R03",
+      "mode": "integration",
+      "colors": [
+        "white"
+      ],
+      "action": "commit_then_504",
+      "target": {
+        "endpoint": "move_post",
+        "ordinal": 1
+      }
+    },
+    {
+      "id": "R04",
+      "mode": "contract",
+      "colors": [
+        "white"
+      ],
+      "action": "duplicate_move",
+      "target": {
+        "endpoint": "move_post",
+        "ordinal": 1
+      }
+    },
+    {
+      "id": "R05",
+      "mode": "integration",
+      "colors": [
+        "white"
+      ],
+      "action": "delay_state",
+      "target": {
+        "endpoint": "game_state",
+        "ordinal": 1
+      }
+    },
+    {
+      "id": "R06",
+      "mode": "integration",
+      "colors": [
+        "black"
+      ],
+      "action": "duplicate_state",
+      "target": {
+        "endpoint": "game_state",
+        "ordinal": 1
+      }
+    },
+    {
+      "id": "R07",
+      "mode": "integration",
+      "colors": [
+        "white"
+      ],
+      "action": "stale_state",
+      "target": {
+        "endpoint": "game_state",
+        "ordinal": 1
+      }
+    },
+    {
+      "id": "R08",
+      "mode": "integration",
+      "colors": [
+        "black"
+      ],
+      "action": "partial_chunk",
+      "target": {
+        "endpoint": "game_state",
+        "ordinal": 1
+      }
+    },
+    {
+      "id": "R09",
+      "mode": "contract",
+      "colors": [
+        "white"
+      ],
+      "action": "replace_event_stream",
+      "target": {
+        "endpoint": "event_stream",
+        "ordinal": 2
+      }
+    },
+    {
+      "id": "R10",
+      "mode": "integration",
+      "colors": [
+        "white"
+      ],
+      "action": "rate_limit_429",
+      "target": {
+        "endpoint": "move_post",
+        "ordinal": 1
+      }
+    },
+    {
+      "id": "R11",
+      "mode": "contract",
+      "colors": [
+        "white"
+      ],
+      "action": "wrong_game",
+      "target": {
+        "endpoint": "game_state",
+        "ordinal": 1
+      }
+    },
+    {
+      "id": "R12",
+      "mode": "integration",
+      "colors": [
+        "white"
+      ],
+      "action": "low_clock_close",
+      "target": {
+        "endpoint": "move_post",
+        "ordinal": 1
+      }
+    },
+    {
+      "id": "R13",
+      "mode": "integration",
+      "colors": [
+        "white"
+      ],
+      "action": "terminate_bridge",
+      "target": {
+        "endpoint": "move_post",
+        "ordinal": 1
+      }
+    },
+    {
+      "id": "R14",
+      "mode": "contract",
+      "colors": [
+        "white"
+      ],
+      "action": "duplicate_terminal",
+      "target": {
+        "endpoint": "terminal_state",
+        "ordinal": 1
+      }
+    }
+  ]
+}

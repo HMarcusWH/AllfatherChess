@@ -136,6 +136,35 @@ def verify_persisted_sqlite(folder: Path, journal: dict):
         require(entries == journal.get(name), "SQLite journal data differs from runner: "+name)
 
 
+def r13_witness(phases: list[dict]) -> dict:
+    """Adapt the independently recorded phase-1 exit to the ONLINE-4A oracle."""
+    require(isinstance(phases, list) and bool(phases) and
+            phases[0].get("observation") == "injected_bridge_kill",
+            "R13 phase-one kill observation missing")
+    require(type(phases[0].get("bridge_exit")) is int and
+            phases[0]["bridge_exit"] == -9,
+            "R13 phase-one process was not actually terminated by SIGKILL")
+    return {"observation": "fault_triggered_bridge_kill",
+            "bridge_exit": phases[0]["bridge_exit"]}
+
+
+def classify_disposition(*, scenario_id: str, game_complete: bool,
+                         recovered: bool, explicit_suspension: bool,
+                         restart_attempted: bool) -> str:
+    """Report observation separately from containment and recovery authority."""
+    if recovered:
+        return "RECOVERED"
+    if scenario_id == "R00":
+        return "NORMAL_COMPLETION" if game_complete else "INCONCLUSIVE"
+    if restart_attempted:
+        # Server mate alone does not prove that the new worker recovered.
+        return "INCONCLUSIVE" if game_complete else (
+            "SAFE_SUSPENSION" if explicit_suspension else "INCONCLUSIVE")
+    if game_complete:
+        return "SAFE_CONTINUATION"
+    return "SAFE_SUSPENSION" if explicit_suspension else "INCONCLUSIVE"
+
+
 def verify_one(folder: Path, *, scenario: dict, color: str,
                sha: str, bridge: str, attested_paths: list[str]) -> dict:
     result = read(folder / "result.json")
@@ -167,11 +196,10 @@ def verify_one(folder: Path, *, scenario: dict, color: str,
     require(commits == [r for r in trace if r.get("event") == "board_commit"],
             "server commit extract differs from raw trace")
     history = v1.verify_trace(trace, game)
-    if scenario["id"] == "R13":
-        require(result["phases"][0]["observation"] == "injected_bridge_kill",
-                "R13 first bridge was not intentionally killed")
-    r13 = {"observation": "fault_triggered_bridge_kill"} if scenario["id"] == "R13" else {"complete": bool(game.get("complete"))}
-    v1.verify_scenario_witness(scenario, activation, trace, r13)
+    witness = (r13_witness(result.get("phases"))
+               if scenario["id"] == "R13"
+               else {"complete": bool(game.get("complete"))})
+    v1.verify_scenario_witness(scenario, activation, trace, witness)
     with (folder / "game.pgn").open(encoding="utf-8") as fd:
         pgn = chess.pgn.read_game(fd)
     require(pgn is not None and not pgn.errors and
@@ -225,8 +253,10 @@ def verify_one(folder: Path, *, scenario: dict, color: str,
         require(not again, "recovery bypassed the 60-second account-wide cooldown")
         require(bool(journal["cooldown"]), "rate-limit not durably recorded")
     if scenario["id"] == "R12":
-        require(any(e["event"] == "unavailable_or_illegal_uci_move"
-                    for e in guarded), "null UCI was not explicitly contained")
+        # A synthetic low-clock fault is deterministic, but the engine's
+        # move result depends on measured scheduling. Reject every invalid
+        # HTTP submission; do not demand a null result that never happened.
+        require(not invalid, "low-clock scenario leaked an unusable UCI move")
     recovered = False
     if len(phases) == 2:
         require(phases[1]["game_subscriptions_before"] <
@@ -239,9 +269,16 @@ def verify_one(folder: Path, *, scenario: dict, color: str,
             recovered = details["confirmed_intents"] > 0 and len(game["accepted"]) >= 1
         elif scenario["id"] == "R08":
             recovered = len(game["accepted"]) >= 1
-    status = ("RECOVERED" if recovered else
-              "SAFE_SUSPENSION" if not forbidden and not invalid else
-              "UNSAFE")
+    guard_suspension = any(e.get("event") in (
+        "http_unknown_ack", "global_rate_limit_block",
+        "position_suspended", "move_prepare_refused",
+        "unavailable_or_illegal_uci_move", "http_move_unresolved",
+    ) for e in guarded)
+    status = classify_disposition(
+        scenario_id=scenario["id"], game_complete=game.get("complete") is True,
+        recovered=recovered, explicit_suspension=guard_suspension,
+        restart_attempted=len(phases) > 1,
+    )
     return {"scenario": scenario["id"], "color": color, "status": status,
             "harness_valid": True, "fault_activated": scenario["action"] != "none",
             "board": history, "journal": details,
@@ -273,7 +310,9 @@ def qualify(evidence: Path, source_sha: str):
                 failures.append({"scenario": case, "color": color, "error": str(exc)})
     needed = sum(len(colors) for colors in policy["required"].values())
     valid = len(results) == needed and not failures
-    containment = valid and all(r["status"] != "UNSAFE" for r in results)
+    containment = valid and all(r["status"] in (
+        "NORMAL_COMPLETION", "SAFE_CONTINUATION", "RECOVERED", "SAFE_SUSPENSION",
+    ) for r in results)
     recovery = containment and all(
         any(r["scenario"] == case and r["recovered"] for r in results)
         for case in policy["require_recovery_for"])

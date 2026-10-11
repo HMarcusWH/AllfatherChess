@@ -39,6 +39,41 @@ class RecoveryV2EvidenceTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "absent"):
                 qual.verify_persisted_sqlite(Path(d), {"owner_epoch": "fake"})
 
+    def test_r13_uses_real_process_exit_not_an_assumed_success(self):
+        valid = {"observation": "injected_bridge_kill", "bridge_exit": -9}
+        self.assertEqual(qual.r13_witness([valid])["bridge_exit"], -9)
+        for forged in (
+            {"observation": "injected_bridge_kill", "bridge_exit": None},
+            {"observation": "injected_bridge_kill", "bridge_exit": 0},
+            {"observation": "not_killed", "bridge_exit": -9},
+            {},
+        ):
+            with self.subTest(forged=forged), self.assertRaises(ValueError):
+                qual.r13_witness([forged])
+
+    def test_normal_completion_is_never_called_suspension(self):
+        got = qual.classify_disposition(
+            scenario_id="R00", game_complete=True, recovered=False,
+            explicit_suspension=False, restart_attempted=False,
+        )
+        self.assertEqual(got, "NORMAL_COMPLETION")
+        self.assertEqual(qual.classify_disposition(
+            scenario_id="R00", game_complete=False, recovered=False,
+            explicit_suspension=False, restart_attempted=False,
+        ), "INCONCLUSIVE")
+        self.assertEqual(qual.classify_disposition(
+            scenario_id="R02", game_complete=True, recovered=False,
+            explicit_suspension=False, restart_attempted=True,
+        ), "INCONCLUSIVE")
+        self.assertEqual(qual.classify_disposition(
+            scenario_id="R10", game_complete=False, recovered=False,
+            explicit_suspension=True, restart_attempted=False,
+        ), "SAFE_SUSPENSION")
+        self.assertEqual(qual.classify_disposition(
+            scenario_id="R08", game_complete=False, recovered=False,
+            explicit_suspension=False, restart_attempted=True,
+        ), "INCONCLUSIVE")
+
     def test_valid_diagnostic_claims_do_not_authorize_online_release(self):
         value = qual.read(qual.POLICY)
         self.assertEqual(value["scope"], "offline-guarded-bridge-only")

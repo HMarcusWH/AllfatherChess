@@ -66,6 +66,13 @@ class GuardedTransportTests(unittest.TestCase):
                 guard.stage_move(chess.Board(), SimpleNamespace(move=value, resigned=False),
                                  "g001")
         self.assertIsNone(self.journal.intent(self.epoch, "g001"))
+        fake = FakeHTTP(response(200))
+        with self.assertRaises(guard.RecoverySuspended):
+            guard.guarded_post(
+                fake, "move", ("g001", "0000"),
+                "http://127.0.0.1:8765/api/bot/game/g001/move/0000",
+            )
+        self.assertEqual(fake.calls, 0)
 
     def test_successful_http_ack_alone_does_not_confirm_move(self):
         self._stage()

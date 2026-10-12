@@ -1,0 +1,8 @@
+# Explicit release-stage-only Docker build context, not the entire monorepo.
+**
+!deploy/
+!deploy/release/
+!deploy/release/ubuntu.sources
+!build/
+!build/release1-stage/
+!build/release1-stage/**

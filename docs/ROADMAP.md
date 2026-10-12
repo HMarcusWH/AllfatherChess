@@ -1,3 +1,5 @@
+> **Current RELEASE-1 entry point (2026-10-12):** PR #68 / ONLINE-4B merged at `f5eab35`, with exact-source offline recovery qualified. PR #69 adds immutable OCI candidate image/evidence only; destination host, licensing, live API and public game authorization remain blocked. [RELEASE-1 operations](RELEASE_1_OPERATIONS.md). Historical roadmap rows below are preserved.
+
 # AllfatherChess roadmap
 
 **Status date:** 4 October 2026  

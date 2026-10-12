@@ -1,0 +1,202 @@
+name: RELEASE-1 immutable offline OCI candidate
+on:
+  pull_request:
+    paths:
+      - 'deploy/release/**'
+      - 'deploy/lichess/**'
+      - 'scripts/build-release-candidate.py'
+      - 'scripts/verify-release-candidate.py'
+      - 'scripts/verify-release-oci.py'
+      - 'scripts/qualify-release-host.py'
+      - 'scripts/qualify-release-aggregate.py'
+      - 'scripts/prepare-online3b-wheels.py'
+      - 'qualification/release-*.json'
+      - 'qualification/license-compliance-v1.json'
+      - 'tests/release/**'
+      - '.github/workflows/release-candidate.yml'
+      - 'controller/**'
+      - 'common/**'
+      - 'adapters/**'
+      - 'engines/**'
+      - 'config/**'
+      - 'vendor.lock.json'
+  workflow_dispatch:
+permissions:
+  contents: read
+env:
+  SOURCE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+concurrency:
+  group: release1-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  release-contracts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+      - name: Verify exact source
+        run: test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+      - name: Install minimal release-policy dependencies
+        run: |
+          bash scripts/ci-install-apt-deps.sh python3-pip python3-venv
+          python3 -m pip install --break-system-packages 'PyYAML==6.0.3' 'requests==2.34.2' 'chess==1.11.2'
+      - name: Compile and test all negative contracts
+        run: |
+          python3 -m compileall -q scripts deploy/release tests/release
+          python3 -m unittest discover -s tests/release -p 'test_*.py' -v
+          python3 scripts/release-promotion-policy.py --output build/test-results/release1/promotion-policy.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: release1-fast-contract-evidence
+          path: build/test-results/release1/promotion-policy.json
+          if-no-files-found: warn
+          retention-days: 30
+  release-oci-integration:
+    needs: release-contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 115
+    env:
+      JOBS: '2'
+      SOURCE_DATE_EPOCH: '1720000000'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+      - name: Verify exact source and policy
+        run: |
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          python3 - <<'PY'
+          import json,re
+          from pathlib import Path
+          p=json.load(open('qualification/release-image-v1.json'))
+          assert p['scope']=='offline-image-candidate-only'
+          assert p['allow_real_credentials'] is False and p['public_bot_release'] is False
+          assert re.fullmatch(r'docker.io/library/ubuntu@sha256:[0-9a-f]{64}',p['base_image'])
+          assert p['apt_snapshot'] in Path('deploy/release/ubuntu.sources').read_text()
+          PY
+      - name: Install exact engine and wheel preparation toolchain
+        run: |
+          bash scripts/ci-install-apt-deps.sh build-essential meson ninja-build pkg-config libprotobuf-dev protobuf-compiler zlib1g-dev libopenblas-dev python3-pip python3-venv
+          python3 -m pip install --break-system-packages 'pip-tools==7.5.2'
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: |
+            build/artifacts/stockfish
+            build/artifacts/reckless
+            build/artifacts/lc0
+          key: release1-networks-${{ runner.os }}-${{ hashFiles('vendor.lock.json','qualification/lc0-strength.lock.json') }}
+      - name: Build and verify sealed exact-head Allfather
+        timeout-minutes: 35
+        run: |
+          make build-online-engine-opt-v2
+          python3 scripts/qualify-engine-opt-v2.py
+          python3 scripts/release-manifest.py create
+          python3 scripts/release-manifest.py verify
+          python3 scripts/package-online.py
+          python3 dist/online3a-stage/deploy/bin/allfather-online --check
+      - name: Pin and verify upstream bridge and runtime wheels
+        timeout-minutes: 15
+        run: |
+          python3 deploy/lichess/fetch_bridge.py
+          mkdir -p build/online3b-wheels
+          python3 -m piptools compile --generate-hashes \
+            --output-file build/online3b-runtime.lock deploy/lichess/requirements.in
+          cp build/online3b-runtime.lock deploy/lichess/requirements.lock
+          python3 scripts/prepare-online3b-wheels.py \
+            --source-lock deploy/lichess/requirements.lock --wheelhouse build/online3b-wheels
+      - name: Assemble and independently verify immutable staging tree
+        run: |
+          python3 scripts/build-release-candidate.py
+          python3 scripts/verify-release-candidate.py \
+            --stage build/release1-stage \
+            --output build/test-results/release1/stage-report.json
+      - name: Build and independently test actual offline Docker image
+        timeout-minutes: 20
+        run: |
+          set -euo pipefail
+          IMAGE_BASE="$(python3 -c 'import json; print(json.load(open("qualification/release-image-v1.json"))["base_image"])')"
+          mkdir -p build/test-results/release1
+          docker buildx create --driver docker-container --name release1-builder --use
+          docker buildx inspect --bootstrap
+          docker buildx build --builder release1-builder --platform linux/amd64 \
+            --file deploy/release/Dockerfile --build-arg "BASE_IMAGE=$IMAGE_BASE" \
+            --metadata-file build/test-results/release1/docker-build-metadata.json \
+            --provenance=false --sbom=false --tag allfather/release1:offline --load .
+          docker image inspect allfather/release1:offline \
+            > build/test-results/release1/docker-inspect.json
+          docker run --rm --network none --read-only \
+            --pids-limit 128 --cap-drop ALL --security-opt no-new-privileges \
+            --cpus 4 --memory 6g --user 10001:10001 \
+            allfather/release1:offline verify \
+            > build/test-results/release1/verify-output.json
+          docker run --rm --network none --read-only --user 10001:10001 \
+            --entrypoint /bin/cat allfather/release1:offline \
+            /opt/allfather-release/os-packages.txt \
+            > build/test-results/release1/os-packages.txt
+          docker run --rm --network none --read-only --user 10001:10001 \
+            --entrypoint /bin/cat allfather/release1:offline \
+            /opt/allfather-release/python-packages.txt \
+            > build/test-results/release1/python-packages.txt
+      - name: Run genuine packaged bridge/engine games with read-only root and durable SQLite
+        timeout-minutes: 18
+        run: |
+          set -euo pipefail
+          mkdir -p build/test-results/release1-volume
+          sudo chown 10001:10001 build/test-results/release1-volume
+          for CASE in r00-white r00-black r02-white r10-white; do
+            SCENARIO="$(printf '%s' "$CASE" | cut -d- -f1 | tr '[:lower:]' '[:upper:]')"
+            COLOR="$(printf '%s' "$CASE" | cut -d- -f2)"
+            docker run --rm --network none --read-only \
+              --pids-limit 128 --cap-drop ALL --security-opt no-new-privileges \
+              --cpus 4 --memory 6g --user 10001:10001 \
+              --tmpfs /run/allfather:rw,nosuid,size=64m,uid=10001,gid=10001 \
+              --tmpfs /tmp:rw,nosuid,size=128m,uid=10001,gid=10001 \
+              --volume "$PWD/build/test-results/release1-volume:/var/lib/allfather:rw" \
+              -e ONLINE_RELEASEx_ISOLATED=1 -e ONLINE4B_ISOLATED_CONTAINER=1 \
+              allfather/release1:offline offline-smoke \
+                --scenario "$SCENARIO" --color "$COLOR" --run-id "$CASE" \
+              | tee "build/test-results/release1/$CASE.log"
+          done
+          sudo chmod -R a+rX build/test-results/release1-volume
+      - name: Export standalone OCI archive with SBOM/provenance attestations
+        timeout-minutes: 20
+        run: |
+          IMAGE_BASE="$(python3 -c 'import json; print(json.load(open("qualification/release-image-v1.json"))["base_image"])')"
+          docker buildx build --builder release1-builder --platform linux/amd64 \
+            --file deploy/release/Dockerfile --build-arg "BASE_IMAGE=$IMAGE_BASE" \
+            --metadata-file build/test-results/release1/oci-build-metadata.json \
+            --provenance=mode=min --sbom=true \
+            --output type=oci,dest=build/release1-offline.oci.tar .
+          python3 scripts/verify-release-oci.py \
+            --archive build/release1-offline.oci.tar \
+            --metadata build/test-results/release1/oci-build-metadata.json \
+            --docker-inspect build/test-results/release1/docker-inspect.json \
+            --output build/test-results/release1/oci-report.json
+      - name: Observe test-runner capacity and aggregate evidence without promoting release
+        run: |
+          python3 scripts/qualify-release-host.py \
+            --root . --persistent build/test-results/release1-volume \
+            --runtime /tmp --output build/test-results/release1/host-report.json
+          python3 scripts/qualify-release-aggregate.py \
+            --stage build/release1-stage \
+            --oci build/test-results/release1/oci-report.json \
+            --host build/test-results/release1/host-report.json \
+            --smoke-dir build/test-results/release1-volume \
+            --os-inventory build/test-results/release1/os-packages.txt \
+            --wheel-inventory build/release1-stage/wheels/wheel-attestation.json \
+            --source-sha "$SOURCE_SHA" \
+            --output build/test-results/release1/aggregate.json
+      - name: Do not publish combined image; retain only non-binary evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: release1-offline-evidence
+          path: |
+            build/test-results/release1/*.json
+            build/test-results/release1/*.txt
+            build/test-results/release1/*.log
+          if-no-files-found: warn
+          retention-days: 30

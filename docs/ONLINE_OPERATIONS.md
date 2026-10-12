@@ -136,3 +136,10 @@ reconstructed. It is not recovery qualification, playing-strength evidence,
 production image certification or permission to contact the real Lichess API.
 The successor ONLINE-4B milestone must fix and qualify unsafe or unresolved
 behavior before any operator-authorized online canary.
+
+
+## RELEASE-1 offline combined image (PR #69)
+
+The sealed UCI bundle and source-locked ONLINE-4B bridge are packaged for an **offline-only OCI candidate**. The new image verifier inspects every staged source/binary/network/wheel identity, OCI descriptor/config/layer hashes, SBOM/provenance evidence and isolated read-only runtime. Offline simulation does not grant a production API endpoint or bot account authority.
+
+See [RELEASE_1_OPERATIONS.md](RELEASE_1_OPERATIONS.md). The combined image and native/Wheel lock qualification are separate from the old ONLINE-3A Docker scaffold. Host, legal-distribution, authenticated publication and live play remain blocked.

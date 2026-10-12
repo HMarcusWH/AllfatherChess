@@ -1,3 +1,5 @@
+> **Implementation update (2026-10-12):** ONLINE-4B merged as PR #68. RELEASE-1 candidate implementation is PR #69 (offline OCI only). The historical sequencing and citations in this plan predate the merged recovery results; deployment, licensing and first live canary gates remain outstanding. [RELEASE-1 operations](RELEASE_1_OPERATIONS.md).
+
 > Repository integration: originally frozen as the 25 September 2026 post-#35 deployment audit;
 > synchronized on 28 September 2026 after merged PR #44 / ENGINE-OPT-V2.
 > ONLINE-1, ONLINE-2, M14-G3, LOCAL-1 and ENGINE-OPT-V2 are complete. M14-J Adaptive Resource

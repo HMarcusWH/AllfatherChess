@@ -1,5 +1,8 @@
 # AllfatherChess current build and release status
 
+> **Release update, 2026-10-12:** PR #68 / ONLINE-4B was merged as `f5eab35cf1682d79d939d4b1f5e63f8e96833a1b`. The pinned Lichess bridge has **10/10 offline recovery scenarios qualified**, including terminal confirmation and second-epoch move proof. RELEASE-1 (PR #69) now prepares an immutable, audited, **offline-only** image. Destination host, combined-distribution license and live transport remain **unqualified**. Earlier milestone tables below retain their historical context; consult [RELEASE_1_OPERATIONS.md](RELEASE_1_OPERATIONS.md) for present release boundaries.
+
+
 **Status date:** 4 October 2026  
 **Authoritative main commit:** `ff3d8adc166eb7ef2a9ad57da9d20e1b212df17d`  
 **Latest merged milestone:** PR #62 / M14-J J13C — isolated b4 candidate qualification  

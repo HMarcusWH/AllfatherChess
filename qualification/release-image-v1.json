@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "profile_id": "release-image-v1",
+  "scope": "offline-oci-candidate-only",
+  "platform": "linux/amd64",
+  "base_image": "docker.io/library/ubuntu:24.04@sha256:cd1dba651b3080c3686ecf4e3c4220f026b521fb76978881737d24f200828b2b",
+  "base_image_provenance": "https://github.com/openclaw/openclaw/commit/8ae2d5110f6ceadef73822aa3db194fb60d2ba68",
+  "ubuntu_snapshot": "20261001T000000Z",
+  "ubuntu_source_pockets": [
+    "noble",
+    "noble-updates",
+    "noble-security"
+  ],
+  "ubuntu_packages": [
+    "python3",
+    "python3-venv",
+    "python3-pip",
+    "ca-certificates",
+    "procps",
+    "git",
+    "libopenblas0-pthread",
+    "libprotobuf32t64",
+    "libstdc++6",
+    "libgomp1",
+    "zlib1g"
+  ],
+  "python_source_input": "deploy/lichess/requirements.in",
+  "pinned_bridge": "deploy/lichess/bridge.lock.json",
+  "engine_release": "build/online-release/release-manifest.json",
+  "image_evidence_output": "local-only; never upload OCI bytes while license decision pending",
+  "execution_modes": [
+    "verify",
+    "uci-check",
+    "inventory",
+    "offline-case"
+  ],
+  "runtime_api_allowlist": [
+    "http://127.0.0.1:<ephemeral-test-port>/"
+  ],
+  "docker_network": "none",
+  "container_user": "10001:10001",
+  "exact_host_operator_capacity_cpus": 4,
+  "exact_host_operator_memory_mib": 6144,
+  "package_version_reviewed": false,
+  "controller_license_approved": false,
+  "destination_host_qualified": false,
+  "live_transport_qualified": false,
+  "public_distribution_authorized": false,
+  "public_bot_release": false
+}

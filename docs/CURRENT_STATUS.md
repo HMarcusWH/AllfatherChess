@@ -1,5 +1,8 @@
 # AllfatherChess current build and release status
 
+> **RELEASE-1 checkpoint (2026-10-12):** PR #68 / ONLINE-4B merged at `f5eab35cf1682d79d939d4b1f5e63f8e96833a1b` with 10/10 independently qualified *offline* recovery experiments. PR #69 implements source-bound combined OCI packaging and test-host evidence; publication, legal approval, destination-host qualification and live Lichess remain blocked. See [RELEASE-1 operations](RELEASE_1_OPERATIONS.md).
+
+
 **Status date:** 4 October 2026  
 **Authoritative main commit:** `ff3d8adc166eb7ef2a9ad57da9d20e1b212df17d`  
 **Latest merged milestone:** PR #62 / M14-J J13C — isolated b4 candidate qualification  

@@ -1,0 +1,14 @@
+name: RELEASE-1 exact-head offline candidate qualification
+on:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: release1-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  required-release-candidate:
+    uses: ./.github/workflows/release-candidate.yml
+    permissions:
+      contents: read

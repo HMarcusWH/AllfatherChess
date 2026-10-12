@@ -136,3 +136,13 @@ reconstructed. It is not recovery qualification, playing-strength evidence,
 production image certification or permission to contact the real Lichess API.
 The successor ONLINE-4B milestone must fix and qualify unsafe or unresolved
 behavior before any operator-authorized online canary.
+
+
+## RELEASE-1: non-distributable offline OCI candidate
+
+PR #68 / ONLINE-4B is merged and independently qualified offline. The
+subsequent [RELEASE-1 operations](RELEASE_1_OPERATIONS.md) milestone
+assembles the unchanged sealed engine and pinned guarded bridge into an
+OCI candidate that can run **only offline validation**. It retains
+full source/OCI evidence, but does not qualify a deployment host,
+satisfy combined GPL/AGPL licensing review, or authorize public play.

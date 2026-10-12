@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "scope": "component-provenance-inventory; not legal approval",
+  "status": "REVIEW_REQUIRED",
+  "components": [
+    {
+      "id": "stockfish",
+      "source": "engines/stockfish",
+      "license": "GPL-3.0-only",
+      "notice": "engines/stockfish/Copying.txt",
+      "review": "pending"
+    },
+    {
+      "id": "lc0",
+      "source": "engines/lc0",
+      "license": "GPL-3.0-or-later",
+      "notice": "engines/lc0/COPYING",
+      "review": "pending"
+    },
+    {
+      "id": "reckless",
+      "source": "engines/reckless",
+      "license": "AGPL-3.0-only",
+      "notice": "engines/reckless/LICENSE",
+      "review": "pending"
+    },
+    {
+      "id": "lichess-bot",
+      "source": "upstream:df7e730de58cc3ef2f1415a0dc2eeda842d39167",
+      "license": "AGPL-3.0",
+      "notice": "upstream LICENSE",
+      "review": "pending"
+    },
+    {
+      "id": "allfather-controller",
+      "source": "controller/",
+      "license": "UNDECIDED",
+      "notice": "LICENSES.md",
+      "review": "pending"
+    }
+  ],
+  "must_resolve": [
+    "controller licensing",
+    "combined/aggregate distribution classification",
+    "AGPL modified bridge source-offer obligation",
+    "model weight terms",
+    "corresponding source plus notices and build scripts"
+  ],
+  "publication_allowed": false,
+  "legal_approval": false,
+  "ghcr_push_authorized": false,
+  "oci_artifact_upload_allowed": false
+}

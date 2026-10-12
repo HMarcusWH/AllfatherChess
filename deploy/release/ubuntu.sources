@@ -1,0 +1,14 @@
+# Frozen, signed Ubuntu 24.04 snapshot used only for RELEASE-1 offline candidate.
+Types: deb
+URIs: https://archive.ubuntu.com/ubuntu
+Suites: noble noble-updates
+Components: main universe
+Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+Snapshot: 20261001T000000Z
+
+Types: deb
+URIs: https://security.ubuntu.com/ubuntu
+Suites: noble-security
+Components: main universe
+Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+Snapshot: 20261001T000000Z

@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "profile_id": "release-qualification-v1",
+  "exact_git_commit_required": true,
+  "offline_image_required": true,
+  "image_binary_lock_required": true,
+  "runtime_readonly_required": true,
+  "integration_scenarios": [
+    "R00-white",
+    "R00-black",
+    "R02-white",
+    "R08-black",
+    "R10-white",
+    "R13-white"
+  ],
+  "required_proofs": [
+    "engine-seal",
+    "patched-bridge-identity",
+    "wheel-attestation",
+    "apt-snapshot",
+    "oci-index",
+    "container-readonly",
+    "actual-image-full-game",
+    "actual-image-restart"
+  ],
+  "local_candidate_gate": true,
+  "public_release_gate": false,
+  "security_sensitive_path_review_required": true,
+  "mutable_paths": [
+    "/var/lib/allfather",
+    "/run/allfather",
+    "/tmp"
+  ],
+  "no_live_api_or_tokens": true,
+  "distribution_license_approved": false,
+  "destination_host_qualified": false,
+  "public_bot_release": false
+}

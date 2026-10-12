@@ -1,0 +1,12 @@
+# Image context is an allowlist: credentials, Git objects and source trees never enter build.
+**
+!build/
+!build/release1-stage/
+!build/release1-stage/**
+!deploy/
+!deploy/release/
+!deploy/release/Dockerfile
+!deploy/release/ubuntu.sources
+!deploy/release/entrypoint.py
+!scripts/
+!scripts/verify-release-candidate.py

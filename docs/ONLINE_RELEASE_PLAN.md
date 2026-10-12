@@ -1,4 +1,7 @@
 > Repository integration: originally frozen as the 25 September 2026 post-#35 deployment audit;
+
+> **RELEASE-1 checkpoint (2026-10-12):** PR #68 / ONLINE-4B merged at `f5eab35cf1682d79d939d4b1f5e63f8e96833a1b` with 10/10 independently qualified *offline* recovery experiments. PR #69 implements source-bound combined OCI packaging and test-host evidence; publication, legal approval, destination-host qualification and live Lichess remain blocked. See [RELEASE-1 operations](RELEASE_1_OPERATIONS.md).
+
 > synchronized on 28 September 2026 after merged PR #44 / ENGINE-OPT-V2.
 > ONLINE-1, ONLINE-2, M14-G3, LOCAL-1 and ENGINE-OPT-V2 are complete. M14-J Adaptive Resource
 > Orchestration is next, followed by META-1, ONLINE-PLAY-1 and the existing ONLINE-3/4 release path.

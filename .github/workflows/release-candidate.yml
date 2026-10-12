@@ -1,0 +1,268 @@
+name: RELEASE-1 offline OCI candidate (reusable)
+on:
+  workflow_call:
+permissions:
+  contents: read
+env:
+  SOURCE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+concurrency:
+  group: release1-worker-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contracts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+      - name: Verify exact Git source
+        run: test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+      - name: Run source-bound release contracts and negative controls
+        run: |
+          python3 -m compileall -q scripts deploy/release tests/release
+          python3 -m unittest discover -s tests/release -p 'test_*.py' -v
+          python3 -m json.tool qualification/release-image-v1.json >/dev/null
+          python3 -m json.tool qualification/release-qualification-v1.json >/dev/null
+          python3 -m json.tool qualification/license-compliance-v1.json >/dev/null
+      - name: Enforce absence of public authority
+        run: |
+          test ! -e deploy/compose.yml
+          test ! -e deploy/lichess/config.yml
+          python3 - <<'PY'
+          import json
+          p=json.load(open("qualification/release-image-v1.json"))
+          q=json.load(open("qualification/license-compliance-v1.json"))
+          assert all(p[x] is False for x in (
+              "public_distribution_authorized","public_bot_release",
+              "controller_license_approved","destination_host_qualified",
+              "live_transport_qualified"))
+          assert q["publication_allowed"] is False
+          assert q["legal_approval"] is False
+          PY
+
+  build-and-offline-integrate:
+    needs: contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      JOBS: '2'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+      - name: Verify exact checkout
+        run: test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+      - name: Install established engine/toolchain and Python build dependencies
+        run: |
+          bash scripts/ci-install-apt-deps.sh build-essential meson ninja-build \
+            pkg-config libprotobuf-dev protobuf-compiler zlib1g-dev \
+            libopenblas-dev python3-pip python3-venv
+          python3 -m pip install --break-system-packages 'pip-tools==7.5.2'
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: |
+            build/artifacts/stockfish
+            build/artifacts/reckless
+            build/artifacts/lc0
+          key: release1-networks-${{ runner.os }}-${{ hashFiles('vendor.lock.json','qualification/lc0-strength.lock.json') }}
+      - name: Build and seal canonical b4 HYBRID engine
+        timeout-minutes: 38
+        run: |
+          make build-online-engine-opt-v2
+          python3 scripts/qualify-engine-opt-v2.py
+          python3 scripts/release-manifest.py create
+          python3 scripts/release-manifest.py verify
+          python3 scripts/package-online.py
+          python3 dist/online3a-stage/deploy/bin/allfather-online --check
+      - name: Fetch byte-locked lichess-bot and prepare exact wheelhouse
+        timeout-minutes: 15
+        run: |
+          python3 deploy/lichess/fetch_bridge.py
+          mkdir -p build/online3b-wheels
+          python3 -m piptools compile --generate-hashes \
+            --output-file build/online3b-runtime.lock deploy/lichess/requirements.in
+          cp build/online3b-runtime.lock deploy/lichess/requirements.lock
+          python3 scripts/prepare-online3b-wheels.py \
+            --source-lock deploy/lichess/requirements.lock \
+            --wheelhouse build/online3b-wheels
+          python3 -m pip install --break-system-packages --require-hashes \
+            -r deploy/lichess/requirements.lock
+      - name: Assemble and independently verify exact-source combined stage
+        run: |
+          mkdir -p build/test-results/release1
+          python3 scripts/build-release-candidate.py
+          python3 scripts/verify-release-candidate.py \
+            --stage build/release1-stage \
+            --report build/test-results/release1/stage-verdict.json
+          python3 scripts/qualify-release-host.py \
+            --output build/test-results/release1/host-observation.json
+      - name: Build local-only OCI archive retaining BuildKit SBOM and provenance
+        timeout-minutes: 20
+        run: |
+          set -euo pipefail
+          BASE="$(python3 -c 'import json;print(json.load(open("qualification/release-image-v1.json"))["base_image"])')"
+          docker buildx create --driver docker-container --name release1ci --use
+          docker buildx build --platform linux/amd64 \
+            -f deploy/release/Dockerfile \
+            --build-arg BASE_IMAGE="$BASE" --build-arg SOURCE_SHA="$SOURCE_SHA" \
+            --provenance=mode=min --sbom=true \
+            --output type=oci,dest=build/release1-offline.oci.tar \
+            --metadata-file build/release1-oci-metadata.json .
+          python3 scripts/verify-release-oci.py \
+            --archive build/release1-offline.oci.tar --source-sha "$SOURCE_SHA" \
+            --output build/test-results/release1/oci-verdict.json
+          # No registry push, image tar upload or publication: licensing pending.
+      - name: Load identical offline Dockerfile candidate for actual runtime qualification
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+          BASE="$(python3 -c 'import json;print(json.load(open("qualification/release-image-v1.json"))["base_image"])')"
+          docker buildx build --platform linux/amd64 -f deploy/release/Dockerfile \
+            --build-arg BASE_IMAGE="$BASE" --build-arg SOURCE_SHA="$SOURCE_SHA" \
+            --provenance=false --sbom=false --load \
+            -t allfather/release1:offline .
+          docker image inspect allfather/release1:offline \
+            > build/test-results/release1/loaded-image-inspect.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          root=Path("build/test-results/release1")
+          image=json.loads((root/"loaded-image-inspect.json").read_text())[0]
+          oci=json.loads((root/"oci-verdict.json").read_text())
+          assert image["Id"] == oci["oci_config_digest"], (
+              "load-mode image config does not match attested offline OCI candidate")
+          assert image["Config"]["Labels"]["org.opencontainers.image.revision"] == \
+              oci["source_commit"]
+          (root/"image-identity.json").write_text(json.dumps(
+              {"loaded_config_digest":image["Id"],
+               "oci_config_digest":oci["oci_config_digest"],
+               "exact_source":oci["source_commit"],
+               "identical_image_config":True},indent=2)+"\n")
+          PY
+      - name: Verify installed image and runtime software inventory without network
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          docker run --rm --network none --read-only --user 10001:10001 \
+            --cap-drop ALL --security-opt no-new-privileges --pids-limit 128 \
+            --tmpfs /tmp:rw,nosuid,size=512m,uid=10001,gid=10001 \
+            allfather/release1:offline verify \
+            > build/test-results/release1/installed-image-verdict.json
+          docker run --rm --network none --read-only --user 10001:10001 \
+            --cap-drop ALL --security-opt no-new-privileges --pids-limit 128 \
+            --tmpfs /tmp:rw,nosuid,size=512m,uid=10001,gid=10001 \
+            allfather/release1:offline uci-check \
+            > build/test-results/release1/uci-seal-result.json
+          docker run --rm --network none --read-only --user 10001:10001 \
+            --cap-drop ALL --security-opt no-new-privileges --pids-limit 128 \
+            --tmpfs /tmp:rw,nosuid,size=512m,uid=10001,gid=10001 \
+            allfather/release1:offline inventory \
+            > build/test-results/release1/runtime-package-inventory.json
+      - name: Execute ten real-bridge scenarios inside the installed read-only image
+        timeout-minutes: 39
+        run: |
+          set -euo pipefail
+          BASE="$PWD/build/test-results/release1"
+          mkdir -p "$BASE/image-evidence" "$BASE/image-replays" "$BASE/runtime"
+          python3 - <<'PY' > build/release1-case-matrix.txt
+          import json
+          policy=json.load(open("qualification/online-recovery-v2.json"))
+          for case,colors in policy["required"].items():
+              for color in colors: print(case,color)
+          PY
+          while read -r CASE COLOR; do
+            CASE_ID="$CASE-$COLOR"
+            OUT="$BASE/image-evidence/$CASE_ID"
+            REPLAY="$BASE/image-replays/$CASE_ID"
+            mkdir -p "$OUT" "$REPLAY"
+            sudo chown -R 10001:10001 "$OUT" "$REPLAY"
+            echo "RELEASE-1 actual OCI image $CASE_ID"
+            CID="$(docker create --network none --read-only \
+              --user 10001:10001 --cap-drop ALL --security-opt no-new-privileges \
+              --pids-limit 128 --cpus 4 --memory 6g \
+              --tmpfs /tmp:rw,nosuid,size=512m,uid=10001,gid=10001 \
+              --tmpfs /run/allfather:rw,nosuid,size=32m,uid=10001,gid=10001 \
+              --mount "type=bind,source=$PWD,target=/work,readonly" \
+              --mount "type=bind,source=$OUT,target=/var/lib/allfather" \
+              --mount "type=bind,source=$REPLAY,target=/opt/allfather/build/replays-online-hybrid-v2" \
+              -e ONLINE4B_ISOLATED_CONTAINER=1 -e RELEASE1_OFFLINE_ISOLATED=1 \
+              allfather/release1:offline offline-case \
+              --scenario "$CASE" --color "$COLOR" \
+              --output /var/lib/allfather --timeout 90)"
+            docker inspect "$CID" > "$BASE/runtime/$CASE_ID-inspect.json"
+            python3 scripts/qualify-release-runtime.py \
+              --docker-inspect "$BASE/runtime/$CASE_ID-inspect.json" \
+              --source-sha "$SOURCE_SHA" --case "$CASE_ID" \
+              --output "$BASE/runtime/$CASE_ID.json"
+            docker start -a "$CID" | tee "$BASE/runtime/$CASE_ID-console.log"
+            docker rm -f "$CID" >/dev/null
+          done < build/release1-case-matrix.txt
+          sudo chown -R "$(id -u):$(id -g)" "$BASE/image-evidence" "$BASE/image-replays"
+      - name: Independently verify actual-image ten-scenario recovery
+        timeout-minutes: 5
+        run: |
+          python3 scripts/qualify-online-recovery-v2.py \
+            --evidence build/test-results/release1/image-evidence \
+            --source-sha "$SOURCE_SHA" \
+            --output build/test-results/release1/online-recovery-v2.json
+      - name: Never upload image bytes while license approval is pending
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: release1-offline-evidence
+          path: |
+            build/test-results/release1/
+            !build/test-results/release1/image-replays/
+            !build/test-results/release1/loaded-image-inspect.json
+          if-no-files-found: warn
+          retention-days: 14
+
+  independent-offline-aggregate:
+    needs: build-and-offline-integrate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+      - name: Verify exact source
+        run: test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: release1-offline-evidence
+          path: build/test-results/release1
+      - name: Independently combine source-bound candidate evidence and promotion blockers
+        run: |
+          python3 scripts/qualify-release-aggregate.py \
+            --source-sha "$SOURCE_SHA" \
+            --evidence build/test-results/release1 \
+            --output build/test-results/release1-aggregate.json
+      - name: Publish separate offline and promotion dispositions
+        if: always()
+        run: |
+          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          from pathlib import Path
+          p=Path("build/test-results/release1-aggregate.json")
+          print("## RELEASE-1 offline candidate")
+          if not p.is_file():
+              print("- Offline verification missing: NOT QUALIFIED")
+          else:
+              doc=json.loads(p.read_text())
+              for field in ("offline_candidate_verified","qualified_image_scenarios",
+                            "destination_host_qualified","controller_license_approved",
+                            "public_distribution_authorized","public_bot_release",
+                            "promotion_authorized","release_blocked"):
+                  print(f"- **{field}**: {doc.get(field)}")
+              for item in doc.get("outstanding_requirements",[]):
+                  print(f"- Blocker: {item}")
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: release1-independent-verdict
+          path: build/test-results/release1-aggregate.json
+          if-no-files-found: warn
+          retention-days: 30

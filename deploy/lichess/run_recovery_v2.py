@@ -146,7 +146,8 @@ def wait_for_terminal_sync(journal, server, *, timeout_s: float = 7.0) -> dict:
 
 
 def experiment(*, scenario: dict, color: str, bridge: Path, release: Path,
-               output: Path, source_sha: str, timeout: float):
+               output: Path, source_sha: str, timeout: float,
+               prepatched_image: bool = False):
     output.mkdir(parents=True, exist_ok=True)
     policy = json.loads(POLICY.read_text(encoding="utf-8"))
     state = {
@@ -174,12 +175,36 @@ def experiment(*, scenario: dict, color: str, bridge: Path, release: Path,
         server = FakeLichess(color, scenario)
         with tempfile.TemporaryDirectory(prefix="online4b-") as tmp:
             workroot = Path(tmp)
-            stage_info = stage(release=release, bridge=bridge, workspace=workroot,
-                               server_url=server.url)
-            if stage_info["release_source"] != source_sha:
-                raise RuntimeError("sealed engine source does not match CI exact HEAD")
+            if prepatched_image:
+                # RELEASE-1 tests ACTUAL installed image bytes. No rewrite,
+                # second patch, sealed config mutation or cloned execution tree.
+                if release != Path("/opt/allfather") or bridge != Path("/opt/bridge"):
+                    raise RuntimeError("prepatched image mode requires canonical installed paths")
+                combined = json.loads(
+                    Path("/opt/release/combined-manifest.json").read_text(encoding="utf-8"))
+                if (combined.get("source_commit") != source_sha or
+                    combined.get("claim_boundary", {}).get("public_bot_release") is not False):
+                    raise RuntimeError("release image source/authority mismatch")
+                from deploy.lichess import bridge_policy as policy_compiler
+                config = workroot / "config.yml"
+                policy_compiler.generate(bridge, release, server.url, config)
+                stage_info = {
+                    "bridge": bridge, "release": release, "config": config,
+                    "release_source": combined["source_commit"],
+                    "bridge_commit": combined["bridge_commit"],
+                }
+                overlay = combined["overlay"]
+                actual_manifest = json.loads(
+                    (bridge / "recovery-overlay-manifest.json").read_text(encoding="utf-8"))
+                if overlay != actual_manifest:
+                    raise RuntimeError("installed recovery overlay manifest drift")
+            else:
+                stage_info = stage(release=release, bridge=bridge, workspace=workroot,
+                                   server_url=server.url)
+                if stage_info["release_source"] != source_sha:
+                    raise RuntimeError("sealed engine source does not match CI exact HEAD")
+                overlay = recovery_overlay.apply(stage_info["bridge"])
             state["bridge_commit"] = stage_info["bridge_commit"]
-            overlay = recovery_overlay.apply(stage_info["bridge"])
             json_file(output / "overlay-manifest.json", overlay)
             if overlay["upstream_commit"] != state["bridge_commit"]:
                 raise RuntimeError("recovery overlay source lock identity mismatch")
@@ -363,6 +388,7 @@ def experiment(*, scenario: dict, color: str, bridge: Path, release: Path,
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--scenario", required=True)
+    p.add_argument("--prepatched-image", action="store_true")
     p.add_argument("--color", choices=("white", "black"), required=True)
     p.add_argument("--bridge", type=Path, required=True)
     p.add_argument("--release", type=Path, required=True)
@@ -373,7 +399,8 @@ def main():
     scenario = load_scenarios(CASES)[a.scenario]
     experiment(scenario=scenario, color=a.color, bridge=a.bridge.resolve(),
                release=a.release.resolve(), output=a.output.resolve(),
-               source_sha=a.source_sha, timeout=a.timeout)
+               source_sha=a.source_sha, timeout=a.timeout,
+               prepatched_image=a.prepatched_image)
     return 0
 
 

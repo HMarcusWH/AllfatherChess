@@ -1,6 +1,6 @@
 # AllfatherChess
 
-> **Current synchronized build state:** PR #56 / M14-J J9 is merged; main is synchronized at `ddb63157749ebdd8c10120d25b9c4b2e1d3b2649`. J0-J9 are implemented, ENGINE-OPT-V2 remains the fail-closed fallback, and **PR #57 / J10** adds deterministic round-2 allocation nomination while keeping adaptive STOP unpromoted until leakage-free independent calibration exists.  
+> **RELEASE-1 checkpoint (2026-10-12):** PR #68 / ONLINE-4B merged at `f5eab35cf1682d79d939d4b1f5e63f8e96833a1b` with 10/10 independently qualified *offline* recovery experiments. PR #69 implements source-bound combined OCI packaging and test-host evidence; publication, legal approval, destination-host qualification and live Lichess remain blocked. See [RELEASE-1 operations](docs/RELEASE_1_OPERATIONS.md).
 > See [docs/CURRENT_STATUS.md](docs/CURRENT_STATUS.md) for the exact implemented surface and
 > [docs/ROADMAP.md](docs/ROADMAP.md) for the canonical forward execution order.
 

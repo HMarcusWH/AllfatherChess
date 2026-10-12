@@ -14,7 +14,18 @@ import subprocess
 from pathlib import Path
 
 ROOT=Path(__file__).resolve().parents[1]
-HEX=re.compile(r"^[0-9a-f]{64}$")
+GIT_SHA1_HEX=re.compile(r"^[0-9a-f]{40}$")
+SHA256_HEX=re.compile(r"^[0-9a-f]{64}$")
+
+
+def is_sha256_hex(value, *, prefixed=False):
+    if not isinstance(value,str):
+        return False
+    if prefixed:
+        if not value.startswith("sha256:"):
+            return False
+        value=value[len("sha256:"):]
+    return SHA256_HEX.fullmatch(value) is not None
 
 
 def load(path):
@@ -38,7 +49,7 @@ def qualify(*, stage:Path, oci:Path, host:Path, smoke_dir:Path,
             os_inventory:Path, wheel_inventory:Path, source_sha:str, root:Path=ROOT):
     source= subprocess.check_output(["git","-C",str(root),"rev-parse","HEAD"],
                                     text=True).strip()
-    require(source == source_sha and HEX.fullmatch(source) is not None,
+    require(source == source_sha and GIT_SHA1_HEX.fullmatch(source) is not None,
             "incorrect release source revision")
     image_policy=load(root/"qualification/release-image-v1.json")
     qualification=load(root/"qualification/release-qualification-v1.json")
@@ -58,6 +69,11 @@ def qualify(*, stage:Path, oci:Path, host:Path, smoke_dir:Path,
             oci_report.get("public_bot_release") is False and
             oci_report.get("publisher_signature_verified") is False,
             "OCI attestation invalid or makes an unsupported publisher claim")
+    for key in ("oci_image_manifest_digest","oci_config_digest"):
+        require(is_sha256_hex(oci_report.get(key),prefixed=True),
+                "invalid OCI "+key)
+    require(is_sha256_hex(oci_report.get("oci_archive_sha256")),
+            "invalid OCI archive SHA-256 digest")
     require(host_report["destination_host_qualified"] is False and
             host_report["test_host_observed"] is True,
             "host admission attempted to promote CI runner")

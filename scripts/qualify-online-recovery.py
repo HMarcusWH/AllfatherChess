@@ -107,6 +107,46 @@ def verify_trace(trace: list[dict], game: dict) -> dict:
             "http_attempts": len(attempts), "game_complete": game.get("complete") is True}
 
 
+def verify_state_fault(action: str, witnessed: dict, sends: list[dict],
+                       trace: list[dict]) -> None:
+    """Verify the delivered state or elapsed delay, not only producer labels."""
+    matching = [r for r in trace if r.get("event") == "stream_fault_source"
+                and r.get("sid") == witnessed.get("sid")
+                and r.get("action") == action
+                and witnessed["seq"] < r.get("seq", -1)]
+    ensure(len(matching) == 1 and len(sends) == 1,
+           "faulted state missing unique before/after witness")
+    source, delivery = matching[0], sends[0]
+    ensure(source["seq"] < delivery["seq"] and
+           source.get("original_sha256") and
+           type(source.get("monotonic_ns")) is int and
+           type(delivery.get("monotonic_ns")) is int,
+           "state fault timing or source identity absent")
+    if action == "delay_state":
+        ensure(delivery["monotonic_ns"] - source["monotonic_ns"] >= 390_000_000,
+               "state delay did not actually occur")
+        ensure(delivery.get("payload_sha256") == source["original_sha256"]
+               and delivery.get("moves") == source.get("original_moves"),
+               "delayed delivery does not preserve original state")
+    if action == "stale_state":
+        old_moves = source.get("predecessor_moves")
+        new_moves = source.get("original_moves")
+        ensure(isinstance(new_moves, str) and isinstance(old_moves, str),
+               "stale-state original/predecessor history absent")
+        old = old_moves.split() if old_moves else []
+        new = new_moves.split() if new_moves else []
+        commits = [r["uci"] for r in trace if
+                   r.get("event") == "board_commit" and
+                   r.get("seq", 0) < source["seq"]]
+        ensure(len(new) == len(old) + 1 and new[:-1] == old
+               and new == commits[:len(new)]
+               and source["predecessor_sha256"] != source["original_sha256"],
+               "stale-state predecessor is not the actual prior game position")
+        ensure(delivery.get("moves") == old_moves and
+               delivery.get("payload_sha256") == source["predecessor_sha256"],
+               "stale-state delivered unchanged/current payload")
+
+
 def verify_scenario_witness(scenario: dict, activation: dict,
                             trace: list[dict], result: dict):
     fault = activation.get("activations")
@@ -173,6 +213,8 @@ def verify_scenario_witness(scenario: dict, activation: dict,
             sends = [r for r in trace if r.get("event") == "stream_emit" and
                      r.get("sid") == sid and r.get("fault_action") == action]
             ensure(bool(sends), "game-state fault was never written")
+            if action in ("delay_state", "stale_state"):
+                verify_state_fault(action, witnessed[0], sends, trace)
             if action in ("duplicate_state", "duplicate_terminal"):
                 ensure(any(r.get("event") == "stream_emit" and
                            r.get("fault_action") == "duplicate" and
@@ -289,12 +331,30 @@ def validate_experiment(case_dir: Path, scenario: dict, color: str,
            "bridge process cleanup was not recorded")
     early_rate_requests = []
     if scenario["action"] == "rate_limit_429":
+        ensure(result.get("observation") == "bounded_postfault_observation"
+               and type(result.get("postfault_observed_seconds")) in (int, float)
+               and result["postfault_observed_seconds"] >= 61,
+               "incomplete R10 post-fault observation")
+        activation_row = next((r for r in trace if
+                               r.get("event") == "fault_activated" and
+                               r.get("action") == "rate_limit_429"), None)
+        complete_rows = [r for r in trace if
+                         r.get("event") == "postfault_window_complete"
+                         and r.get("action") == "rate_limit_429"]
+        ensure(activation_row is not None and len(complete_rows) == 1
+               and type(activation_row.get("monotonic_ns")) is int
+               and type(complete_rows[0].get("monotonic_ns")) is int
+               and complete_rows[0]["monotonic_ns"] -
+               activation_row["monotonic_ns"] >= 61_000_000_000,
+               "R10 server trace lacks 61 seconds after rate-limit fault")
         responses = [r for r in http_requests if r.get("status") == 429]
         ensure(len(responses) == 1, "missing or repeated authoritative 429")
         when = responses[0]["monotonic_ms"]
         rate_index = http_requests.index(responses[0])
         early_rate_requests = [r for r in http_requests[rate_index + 1:]
                                if 0 <= r["monotonic_ms"] - when < 60000]
+    ensure(isinstance(result.get("runner_errors"), list) and not result["runner_errors"],
+           "fault harness recorded execution or teardown errors")
     unusable_moves = invalid_move_submissions(http_requests)
     if scenario["action"] == "none":
         ensure(history["bot_commits"] > 0 and logging is not None,

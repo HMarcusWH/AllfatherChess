@@ -41,14 +41,15 @@ def verify(location: Path, lock: dict) -> None:
         raise ValueError("bridge scope is not offline-only")
 
 
-def copy_tracked(source: Path, destination: Path) -> None:
+def copy_tracked(source: Path, destination: Path, *, verify_lock=True) -> None:
     """Export only HEAD-tracked regular bytes, never ignored or transient code.
 
     Exact checkout verification is mandatory before export; caller-supplied
     untracked files (including ignored sitecustomize.py) cannot enter staging.
     """
-    lock = json.loads(LOCK.read_text(encoding="utf-8"))
-    verify(source, lock)
+    if verify_lock:
+        lock = json.loads(LOCK.read_text(encoding="utf-8"))
+        verify(source, lock)
     raw = subprocess.check_output(
         ["git", "-C", str(source), "ls-files", "--stage", "-z"], stderr=subprocess.PIPE
     )

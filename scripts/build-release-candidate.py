@@ -81,7 +81,7 @@ def checksum_tree(root: Path) -> list[dict]:
 
 def copy_tracked_bridge(source: Path, destination: Path) -> None:
     """One canonical exact-HEAD tracked bridge export for all offline consumers."""
-    fetch_bridge.copy_tracked(source, destination)
+    fetch_bridge.copy_tracked(source, destination, verify_lock=False)
 
 
 

@@ -140,6 +140,7 @@ def experiment(*, scenario: dict, color: str, bridge: Path, release: Path,
                         state["observation"] = "game_stream_started"
                         end = time.monotonic() + timeout
                         activated_at = None
+                        state["postfault_observed_seconds"] = None
                         while time.monotonic() < end:
                             if server.finished.is_set():
                                 state["observation"] = "server_game_complete"
@@ -151,6 +152,9 @@ def experiment(*, scenario: dict, color: str, bridge: Path, release: Path,
                             activation = server.fault.evidence()["activations"]
                             if activation and activated_at is None:
                                 activated_at = time.monotonic()
+                                hold = 61 if scenario["action"] == "rate_limit_429" else 12
+                                # Complete a late fault's declared observation window.
+                                end = max(end, activated_at + hold + 1)
                             if (scenario["action"] == "terminate_bridge"
                                     and activation and proc.poll() is None):
                                 os.killpg(proc.pid, signal.SIGKILL)
@@ -160,7 +164,11 @@ def experiment(*, scenario: dict, color: str, bridge: Path, release: Path,
                                 hold = 61 if scenario["action"] == "rate_limit_429" else 12
                                 if time.monotonic() - activated_at >= hold:
                                     state["observation"] = "bounded_postfault_observation"
-                                    state["postfault_observed_seconds"] = round(hold, 3)
+                                    state["postfault_observed_seconds"] = round(
+                                        time.monotonic() - activated_at, 3)
+                                    server.trace.record(
+                                        "postfault_window_complete",
+                                        action=scenario["action"])
                                     break
                             time.sleep(0.05)
                         else:
@@ -236,6 +244,7 @@ def experiment(*, scenario: dict, color: str, bridge: Path, release: Path,
                           "observation": state["observation"],
                           "activations": len((evidence.get("fault") or {}).get("activations", [])),
                           "errors": errors}, sort_keys=True))
+    return not errors
 
 
 def main() -> int:
@@ -251,11 +260,11 @@ def main() -> int:
     rows = load_scenarios(CASES)
     if args.scenario not in rows:
         p.error("unknown frozen scenario")
-    experiment(scenario=rows[args.scenario], color=args.color,
-               bridge=args.bridge.resolve(), release=args.release.resolve(),
-               output=args.output.resolve(), source_sha=args.source_sha,
-               timeout=args.timeout)
-    return 0
+    success = experiment(scenario=rows[args.scenario], color=args.color,
+                         bridge=args.bridge.resolve(), release=args.release.resolve(),
+                         output=args.output.resolve(), source_sha=args.source_sha,
+                         timeout=args.timeout)
+    return 0 if success else 2
 
 
 if __name__ == "__main__":

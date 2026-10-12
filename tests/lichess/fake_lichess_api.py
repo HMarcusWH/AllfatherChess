@@ -108,12 +108,22 @@ class FakeLichess:
                     server.trace.record("stream_partial_chunk", sid=subscriber.sid)
                     self.drop_connection()
                     return False
-                if action == "delay_state":
-                    time.sleep(0.4)  # bounded transport delay; not a virtual game clock
-                if action == "stale_state":
-                    predecessor = server.state_predecessors.get(state_digest(payload))
-                    if predecessor is None:
+                if action in ("delay_state", "stale_state"):
+                    predecessor = (server.state_predecessors.get(state_digest(payload))
+                                   if action == "stale_state" else None)
+                    if action == "stale_state" and predecessor is None:
                         raise RuntimeError("fault state has no authoritative predecessor")
+                    server.trace.record(
+                        "stream_fault_source", sid=subscriber.sid,
+                        action=action, original_sha256=state_digest(payload),
+                        original_moves=payload.get("moves"),
+                        predecessor_sha256=(state_digest(predecessor)
+                                            if predecessor is not None else None),
+                        predecessor_moves=(predecessor.get("moves")
+                                           if predecessor is not None else None))
+                if action == "delay_state":
+                    time.sleep(0.4)  # real monotonic delay, not a game-clock mutation
+                if action == "stale_state":
                     payload = copy.deepcopy(predecessor)
                 if action == "wrong_game":
                     payload = dict(payload, gameId="untrusted-other-game")
@@ -141,6 +151,7 @@ class FakeLichess:
                 self.send_header("Cache-Control", "no-cache")
                 self.end_headers()
                 ready.set()
+                partial_chunk_broken = False
                 try:
                     if subscriber is None:
                         if first is not None:
@@ -158,11 +169,19 @@ class FakeLichess:
                                 self.chunk(None)
                                 continue
                             if not self.emit_faultable(payload, subscriber):
+                                partial_chunk_broken = True
                                 break
                 except (BrokenPipeError, ConnectionResetError, OSError):
                     return
                 finally:
                     if subscriber is not None:
+                        if not partial_chunk_broken:
+                            try:
+                                self.wfile.write(b"0\r\n\r\n")
+                                self.wfile.flush()
+                            except (BrokenPipeError, ConnectionResetError, OSError):
+                                pass
+                        self.close_connection = True
                         server.sessions.unsubscribe(subscriber)
 
             def chunk(self, payload):

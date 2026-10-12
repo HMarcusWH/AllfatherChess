@@ -80,11 +80,16 @@ def copy_tracked(source: Path, destination: Path, *, verify_lock=True) -> None:
                 raise ValueError("missing, linked or escaped tracked source: " + name)
             target = destination / name
             target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(source_file, target)
+            # Export Git's exact indexed blob, not working-tree bytes. Safe
+            # checkout filters (e.g. CRLF) may transform a clean path, and
+            # git hash-object without --path would reject that legitimate file.
+            # Reading by immutable object ID also prevents an export-time TOCTOU.
+            blob = subprocess.check_output(
+                ["git", "-C", str(source), "cat-file", "blob",
+                 metadata[1].decode("ascii")], stderr=subprocess.PIPE)
+            target.write_bytes(blob)
             if metadata[0] == b"100755":
                 target.chmod(0o755)
-            if cmd("git", "hash-object", name, cwd=source) != metadata[1].decode("ascii"):
-                raise ValueError("tracked bridge bytes changed during export: " + name)
     except BaseException:
         shutil.rmtree(destination)
         raise

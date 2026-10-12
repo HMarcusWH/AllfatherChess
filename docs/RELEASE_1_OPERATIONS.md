@@ -84,8 +84,10 @@ docker run --rm --network none --read-only \
 ```
 
 Prepare the host test-persistent directory for UID/GID 10001 before use.
-The distinct bound persistent mount contains the SQLite WAL, epoch fence
-and game evidence. Both /opt/allfather and /opt/bridge remain read-only.
+The distinct bound persistent mount contains the SQLite WAL and epoch fence.
+A separate persistent replay bind mount is mandatory because the sealed UCI
+config writes to build/replays-online-hybrid-v2 relative to /opt/allfather.
+That directory is still immutable without the explicitly provided mount. Both /opt/allfather and /opt/bridge remain read-only.
 Each simulated game uses a new bounded run identifier; the runner refuses
 to overwrite any prior journal. Process cleanup is deliberately confined to
 its private PID namespace and is **not** a production daemon.

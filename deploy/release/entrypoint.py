@@ -15,6 +15,7 @@ RELEASE = Path("/opt/allfather-release")
 STATE = Path("/var/lib/allfather")
 RUN = Path("/run/allfather")
 TMP = Path("/tmp")
+REPLAY = ENGINE / "build/replays-online-hybrid-v2"
 
 
 def _die(reason: str):
@@ -55,9 +56,11 @@ def _mounts_ready():
     persistent = os.stat(STATE)
     volatile = os.stat(RUN)
     scratch = os.stat(TMP)
-    if root.st_dev == persistent.st_dev or root.st_dev == volatile.st_dev or root.st_dev == scratch.st_dev:
+    replay = os.stat(REPLAY)
+    if (root.st_dev == persistent.st_dev or root.st_dev == volatile.st_dev
+        or root.st_dev == scratch.st_dev or root.st_dev == replay.st_dev):
         _die("distinct persistent/tmpfs mount contract not satisfied")
-    for where in (STATE, RUN, TMP):
+    for where in (STATE, RUN, TMP, REPLAY):
         if where.is_symlink() or not where.is_dir() or not os.access(where, os.W_OK | os.X_OK):
             _die("runtime volume absent, linked or unwritable: " + str(where))
 

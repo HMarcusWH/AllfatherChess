@@ -34,8 +34,8 @@ RUN python3 -m venv /opt/online3b && \
       > /opt/allfather-release/python-packages.txt && \
     useradd --system --uid 10001 --home-dir /nonexistent \
       --shell /usr/sbin/nologin allfather && \
-    mkdir -p /var/lib/allfather /run/allfather /tmp && \
-    chown 10001:10001 /var/lib/allfather /run/allfather /tmp && \
+    mkdir -p /var/lib/allfather /run/allfather /tmp /opt/allfather/build/replays-online-hybrid-v2 && \
+    chown 10001:10001 /var/lib/allfather /run/allfather /tmp /opt/allfather/build/replays-online-hybrid-v2 && \
     chmod 755 /opt/allfather/deploy/bin/allfather-online
 
 RUN /opt/online3b/bin/python /opt/release-tools/scripts/verify-release-candidate.py --installed

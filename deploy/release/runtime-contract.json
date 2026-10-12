@@ -28,5 +28,6 @@
     "verify",
     "offline-smoke"
   ],
-  "live_play": false
+  "live_play": false,
+  "replay_mount": "/opt/allfather/build/replays-online-hybrid-v2"
 }

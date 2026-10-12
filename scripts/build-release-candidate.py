@@ -98,6 +98,7 @@ def assemble(root: Path, destination: Path, release: Path, bridge: Path,
     probe = subprocess.run(
         [sys.executable, str(release / "deploy/bin/allfather-online"), "--check"],
         cwd=release, capture_output=True, text=True, timeout=45,
+        env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
     )
     fail(probe.returncode == 0 and "offline seal verified" in probe.stdout,
          "sealed online UCI candidate failed its own integrity check")
@@ -113,7 +114,8 @@ def assemble(root: Path, destination: Path, release: Path, bridge: Path,
     fail(destination.resolve().is_relative_to(root), "candidate outside repository")
     dest = destination
     try:
-        shutil.copytree(release, dest / "allfather", symlinks=True)
+        shutil.copytree(release, dest / "allfather", symlinks=True,
+                        ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "*.pyo"))
         shutil.copytree(bridge, dest / "bridge",
                         ignore=shutil.ignore_patterns(".git", "__pycache__", "*.pyc"))
         shutil.copy2(root / "deploy/lichess/extra_game_handlers.py",

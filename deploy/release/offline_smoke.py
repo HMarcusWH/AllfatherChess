@@ -231,15 +231,42 @@ def run(*, color: str, scenario_id: str, run_id: str):
                 outcome["runner_errors"].append("authoritative move illegally replayed")
                 break
             board.push_uci(move)
-        confirmed = ("journal" in outcome and
-                     (scenario_id == "R10" or
-                      (scenario_id == "R02" and evidence.get("complete") and
-                       len(outcome["observations"]) == 2 and
-                       outcome["observations"][-1]["observation"] == "complete_confirmed")
-                      or (scenario_id == "R00" and evidence.get("complete") and
-                          outcome["observations"][-1]["observation"] == "complete_confirmed")))
-        bad_http = [r for r in outcome["http"] or [] if r["path"].endswith(
+        journal = outcome.get("journal") or {}
+        last_epoch = outcome["observations"][-1]["epoch"] if outcome["observations"] else None
+        second_epoch_commits = [
+            i for i in journal.get("intents", [])
+            if i.get("epoch") == last_epoch and i.get("status") == "CONFIRMED"
+            and any(c.get("origin") == "allfather" and
+                    c.get("game_id") == i.get("game_id") and
+                    c.get("ply_before") == i.get("ply_before") and
+                    c.get("uci") == i.get("move") for c in outcome["commits"])
+        ]
+        records = outcome["http"] or []
+        cooldowns = journal.get("cooldown") or []
+        rate = [i for i, r in enumerate(records) if r.get("status") == 429]
+        rate_clean = False
+        if len(rate) == 1 and cooldowns:
+            previous = records[rate[0]]["monotonic_ms"]
+            rate_clean = not any(
+                0 <= r["monotonic_ms"] - previous < 60000
+                for r in records[rate[0]+1:]
+            )
+        if scenario_id == "R10":
+            confirmed = (rate_clean and
+                         outcome["observations"][-1]["observation"] ==
+                         "rate_limited_suspension" and not evidence.get("complete"))
+        elif scenario_id == "R02":
+            confirmed = (evidence.get("complete") and
+                         len(outcome["observations"]) == 2 and
+                         outcome["observations"][-1]["observation"] == "complete_confirmed"
+                         and bool(second_epoch_commits))
+        else:
+            confirmed = (evidence.get("complete") and
+                         outcome["observations"][-1]["observation"] == "complete_confirmed")
+        bad_http = [r for r in records if r["path"].endswith(
             ("/abort", "/resign", "/upgrade", "/takeback")) or "/move/0000" in r["path"]]
+        outcome["rate_cooldown_verified"] = rate_clean if scenario_id == "R10" else None
+        outcome["fresh_second_epoch_commits"] = len(second_epoch_commits) if scenario_id == "R02" else None
         outcome["ready"] = bool(confirmed and not outcome["runner_errors"] and
                                 not bad_http and (scenario_id == "R00" or
                                 len(outcome["fault"]["activations"]) == 1))

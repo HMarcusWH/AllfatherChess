@@ -145,7 +145,8 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p build/test-results/release1-volume
-          sudo chown 10001:10001 build/test-results/release1-volume
+          mkdir -p build/test-results/release1-volume/replays
+          sudo chown -R 10001:10001 build/test-results/release1-volume
           for CASE in r00-white r00-black r02-white r10-white; do
             SCENARIO="$(printf '%s' "$CASE" | cut -d- -f1 | tr '[:lower:]' '[:upper:]')"
             COLOR="$(printf '%s' "$CASE" | cut -d- -f2)"
@@ -155,6 +156,7 @@ jobs:
               --tmpfs /run/allfather:rw,nosuid,size=64m,uid=10001,gid=10001 \
               --tmpfs /tmp:rw,nosuid,size=128m,uid=10001,gid=10001 \
               --volume "$PWD/build/test-results/release1-volume:/var/lib/allfather:rw" \
+              --volume "$PWD/build/test-results/release1-volume/replays:/opt/allfather/build/replays-online-hybrid-v2:rw" \
               -e ONLINE_RELEASEx_ISOLATED=1 -e ONLINE4B_ISOLATED_CONTAINER=1 \
               allfather/release1:offline offline-smoke \
                 --scenario "$SCENARIO" --color "$COLOR" --run-id "$CASE" \

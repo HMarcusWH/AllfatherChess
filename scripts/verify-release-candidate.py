@@ -141,6 +141,7 @@ def verify(manifest: dict, roots: dict[str, Path],
     executable = roots["allfather"] / "deploy/bin/allfather-online"
     check = subprocess.run([sys.executable, str(executable), "--check"],
                            cwd=roots["allfather"], timeout=50,
+                           env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
                            capture_output=True, text=True)
     insist(check.returncode == 0 and "offline seal verified" in check.stdout,
            "real sealed UCI launcher rejected the packaged binaries")

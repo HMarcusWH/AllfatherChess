@@ -89,6 +89,24 @@ class OfflineReleaseContracts(unittest.TestCase):
         self.assertFalse(doc["os_package_lock_complete"])
         self.assertFalse(doc["wheel_lock_complete"])
 
+    def test_readonly_runtime_requires_separate_replay_bind_mount(self):
+        p=json.loads((ROOT/"qualification/release-image-v1.json").read_text())
+        runtime=json.loads((ROOT/"deploy/release/runtime-contract.json").read_text())
+        mount="/opt/allfather/build/replays-online-hybrid-v2"
+        self.assertEqual(p["required_mounts"]["replay"],mount)
+        self.assertEqual(runtime["replay_mount"],mount)
+        self.assertIn("replays:/opt/allfather/build/replays-online-hybrid-v2:rw",
+                      (ROOT/".github/workflows/release-candidate.yml").read_text())
+
+    def test_bytecode_or_transient_code_never_enters_image_manifest(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp)
+            cached=root/"allfather/scripts/__pycache__/unsafe.cpython-312.pyc"
+            cached.parent.mkdir(parents=True)
+            cached.write_bytes(b"transient")
+            with self.assertRaisesRegex(ValueError,"forbidden transient path"):
+                builder.checksum_tree(root)
+
     def test_source_tree_staging_requires_clean_exact_checkout(self):
         with tempfile.TemporaryDirectory() as temp:
             with self.assertRaises(ValueError):

@@ -30,7 +30,8 @@
   "required_mounts": {
     "persistent": "/var/lib/allfather",
     "temporary": "/run/allfather",
-    "scratch": "/tmp"
+    "scratch": "/tmp",
+    "replay": "/opt/allfather/build/replays-online-hybrid-v2"
   },
   "cpu_limit": 4,
   "memory_mib": 6144,

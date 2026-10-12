@@ -56,5 +56,9 @@
     "sealed-online-3a",
     "pinned-upstream-lichess-bot",
     "offline-4b-source-locked-overlay"
-  ]
+  ],
+  "ca_bootstrap_signed_http_only": true,
+  "ca_bootstrap_snapshot_locked": false,
+  "ca_bootstrap_sources": "deploy/release/bootstrap.sources",
+  "ca_bootstrap_source_reason": "Pinned minimal base has no usable CA trust before first HTTPS APT access; only signed native Ubuntu APT metadata may install ca-certificates. Exact bootstrap package version is part of generated runtime inventory; publication blocked until reviewed."
 }

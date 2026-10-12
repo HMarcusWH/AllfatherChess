@@ -133,3 +133,23 @@ separately qualify the named destination host, complete compliance review,
 design and independently test a guarded official-Lichess transport profile
 and a supervised bot process. Only then, with explicit operator approval,
 consider one unrated/casual 10+5 approved-bot canary.
+
+## Signed APT trust-root bootstrap
+
+The digest-pinned minimal Ubuntu 24.04 image may not contain a usable CA
+certificate bundle. Fetching the fixed HTTPS snapshot *before* installing
+`ca-certificates` fails TLS validation. RELEASE-1 now installs only
+`ca-certificates` using native HTTP access to Ubuntu's signed APT
+`InRelease` metadata, restricted to official noble/noble-updates and
+noble-security `main` pockets with the pinned Ubuntu archive GPG keyring.
+It immediately deletes those bootstrap sources, installs the trust root,
+and then uses the frozen signed **HTTPS** Ubuntu snapshot for all remaining
+dependencies. No `trusted=yes`, insecure TLS switch, or unsigned package
+installation is permitted.
+
+This bootstrap solves the dependency-order problem, **not** final package
+reproducibility: the CA bootstrap package version is included in the
+image's dpkg inventory, while `ca_bootstrap_snapshot_locked=false` and
+`os_package_lock_complete=false` remain explicit blockers. Public
+distribution and production deployment remain prohibited until reviewed
+exact versions and associated redistribution/source obligations are cleared.

@@ -10,7 +10,22 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONPATH=/opt/bridge:/opt/release-tools \
     PATH=/opt/online3b/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
-# Ubuntu 24.04 signed archive snapshot; never use a moving APT index.
+# Bootstrap only the trust anchors via Ubuntu's GPG-signed native HTTP APT
+# archive. The minimal pinned Ubuntu base lacks CA roots, so HTTPS snapshot
+# access cannot work until ca-certificates is installed. The bootstrap's
+# package version is independently recorded; distribution remains prohibited
+# until this bootstrap dependency is reviewed/locked. Never disable TLS
+# verification and never use trusted=yes or allow-unauthenticated.
+COPY deploy/release/bootstrap.sources /etc/apt/sources.list.d/bootstrap.sources
+RUN set -eu; \
+    rm -f /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list; \
+    apt-get update -o APT::Update::Error-Mode=any; \
+    apt-get install -y --no-install-recommends ca-certificates; \
+    test -s /etc/ssl/certs/ca-certificates.crt; \
+    rm -f /etc/apt/sources.list.d/bootstrap.sources; \
+    rm -rf /var/lib/apt/lists/*
+# Once CA trust has been established, ALL remaining APT inputs use the
+# fixed signed HTTPS Ubuntu snapshot; no bootstrap source survives.
 COPY deploy/release/ubuntu.sources /etc/apt/sources.list.d/ubuntu.sources
 RUN apt-get update -o APT::Update::Error-Mode=any && \
     apt-get install -y --no-install-recommends \

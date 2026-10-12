@@ -1,0 +1,15 @@
+# Bootstrap the CA certificate package using signed official APT indexes.
+# This native archive step is deliberately NOT a final dependency lock.
+Types: deb
+URIs: http://archive.ubuntu.com/ubuntu
+Suites: noble noble-updates
+Components: main
+Architectures: amd64
+Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+
+Types: deb
+URIs: http://security.ubuntu.com/ubuntu
+Suites: noble-security
+Components: main
+Architectures: amd64
+Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg

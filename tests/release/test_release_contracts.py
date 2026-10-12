@@ -88,6 +88,19 @@ class OfflineReleaseContracts(unittest.TestCase):
         self.assertIn("Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg",src)
         self.assertFalse(doc["os_package_lock_complete"])
         self.assertFalse(doc["wheel_lock_complete"])
+        self.assertTrue(doc["ca_bootstrap_signed_http_only"])
+        self.assertFalse(doc["ca_bootstrap_snapshot_locked"])
+        bootstrap=(ROOT/doc["ca_bootstrap_sources"]).read_text()
+        self.assertEqual(bootstrap.count("Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg"),2)
+        self.assertIn("http://archive.ubuntu.com/ubuntu",bootstrap)
+        self.assertIn("http://security.ubuntu.com/ubuntu",bootstrap)
+        for forbidden in ("trusted=yes", "allow-unauthenticated", "Verify-Peer=false",
+                          "Verify-Host=false"):
+            self.assertNotIn(forbidden,bootstrap)
+        docker=(ROOT/"deploy/release/Dockerfile").read_text()
+        self.assertLess(docker.index("COPY deploy/release/bootstrap.sources"),
+                        docker.index("COPY deploy/release/ubuntu.sources"))
+        self.assertIn("test -s /etc/ssl/certs/ca-certificates.crt",docker)
 
     def test_readonly_runtime_requires_separate_replay_bind_mount(self):
         p=json.loads((ROOT/"qualification/release-image-v1.json").read_text())

@@ -76,6 +76,11 @@ jobs:
           assert p['allow_real_credentials'] is False and p['public_bot_release'] is False
           assert re.fullmatch(r'docker.io/library/ubuntu@sha256:[0-9a-f]{64}',p['base_image'])
           assert p['apt_snapshot'] in Path('deploy/release/ubuntu.sources').read_text()
+          bootstrap=Path(p['ca_bootstrap_sources']).read_text()
+          assert p['ca_bootstrap_signed_http_only'] is True
+          assert p['ca_bootstrap_snapshot_locked'] is False
+          assert bootstrap.count('Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg') == 2
+          assert 'trusted=yes' not in bootstrap and 'allow-unauthenticated' not in bootstrap
           PY
       - name: Install exact engine and wheel preparation toolchain
         run: |

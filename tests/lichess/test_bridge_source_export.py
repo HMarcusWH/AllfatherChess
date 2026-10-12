@@ -44,5 +44,23 @@ class BridgeExportTests(unittest.TestCase):
                 verify(root,lock)
 
 
+    def test_export_prefers_indexed_blob_over_filtered_worktree(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d)/"upstream"
+            root.mkdir()
+            git(root,"init","--quiet")
+            (root/".gitattributes").write_text("*.md text eol=crlf\n")
+            (root/"README.md").write_bytes(b"original\r\ntracked\r\n")
+            git(root,"add",".gitattributes","README.md")
+            git(root,"-c","user.email=test@example.org","-c","user.name=Test",
+                "commit","--quiet","-m","crlf")
+            exported=Path(d)/"export"
+            copy_tracked(root,exported,verify_lock=False)
+            canonical=subprocess.check_output(
+                ["git","-C",str(root),"show","HEAD:README.md"])
+            self.assertEqual(exported.joinpath("README.md").read_bytes(), canonical)
+            self.assertEqual(canonical,b"original\ntracked\n")
+
+
 if __name__=="__main__":
     unittest.main()

@@ -48,7 +48,7 @@ def game(*, color: str, release: Path, bridge: Path, output: Path, timeout: int 
         shutil.copytree(release, copied_release)
         release = copied_release
         staged = work / "bridge"
-        shutil.copytree(bridge, staged, ignore=shutil.ignore_patterns(".git", "__pycache__", "*.pyc"))
+        fetch_bridge.copy_tracked(bridge, staged)
         shutil.copy2(ROOT / "deploy/lichess/extra_game_handlers.py",
                      staged / "extra_game_handlers.py")
         cfg = bridge_policy.generate(staged, release, server.url, work / "config.yml")

@@ -80,28 +80,9 @@ def checksum_tree(root: Path) -> list[dict]:
 
 
 def copy_tracked_bridge(source: Path, destination: Path) -> None:
-    """Export only pinned Git-tracked upstream bytes, never local untracked files.
+    """One canonical exact-HEAD tracked bridge export for all offline consumers."""
+    fetch_bridge.copy_tracked(source, destination)
 
-    fetch_bridge.verify rejects dirty tracked files but intentionally does
-    not reject untracked files. Those must never enter the container image.
-    """
-    names = subprocess.check_output(
-        ["git", "-C", str(source), "ls-files", "-z", "--cached"])
-    entries = [x.decode("utf-8") for x in names.split(b"\x00") if x]
-    fail(bool(entries), "locked bridge has no tracked files")
-    destination.mkdir(parents=True, exist_ok=False)
-    for name in entries:
-        p = Path(name)
-        fail(not p.is_absolute() and ".." not in p.parts and
-             "\\\\" not in name and p.as_posix() == name,
-             "noncanonical tracked bridge path: " + name)
-        source_file = source / name
-        fail(source_file.is_file() and not source_file.is_symlink()
-             and source_file.resolve().is_relative_to(source.resolve()),
-             "linked/invalid tracked bridge file: " + name)
-        target = destination / name
-        target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(source_file, target)
 
 
 def assemble(root: Path, destination: Path, release: Path, bridge: Path,

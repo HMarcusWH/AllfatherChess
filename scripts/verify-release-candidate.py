@@ -60,6 +60,26 @@ def image_roots():
     }
 
 
+def installed_mutable_replay(prefix: str, base: Path,
+                             item: Path, *, installed: bool) -> bool:
+    """Exclude ONLY files from the explicitly mounted runtime replay volume.
+
+    Stage validation and immutable release paths remain strict. The replay
+    subtree cannot hide changes to executable/code files. The replay volume
+    must be on a different filesystem device from the read-only image root.
+    """
+    if prefix != "allfather" or not installed:
+        return False
+    relative = item.relative_to(base)
+    if relative.parts[:2] != ("build", "replays-online-hybrid-v2"):
+        return False
+    replay_root = base / "build/replays-online-hybrid-v2"
+    insist(replay_root.is_dir() and not replay_root.is_symlink()
+           and replay_root.stat().st_dev != base.stat().st_dev,
+           "unlisted replay files require separately mounted storage")
+    return True
+
+
 def verify(manifest: dict, roots: dict[str, Path],
            *, installed: bool, policy: dict) -> dict:
     insist(manifest.get("schema_version") == 1 and
@@ -106,6 +126,8 @@ def verify(manifest: dict, roots: dict[str, Path],
         for item in base.rglob("*"):
             insist(not item.is_symlink(), "symlinked release path: " + str(item))
             if item.is_file():
+                if installed_mutable_replay(prefix, base, item, installed=installed):
+                    continue
                 actual.add(prefix + "/" + item.relative_to(base).as_posix())
     insist(actual == known, "release tree has unlisted/missing files: " +
            repr(sorted(actual.symmetric_difference(known))[:8]))

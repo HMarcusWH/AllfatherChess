@@ -153,3 +153,24 @@ image's dpkg inventory, while `ca_bootstrap_snapshot_locked=false` and
 `os_package_lock_complete=false` remain explicit blockers. Public
 distribution and production deployment remain prohibited until reviewed
 exact versions and associated redistribution/source obligations are cleared.
+
+## Mounted replay data and immutable release verification
+
+The runtime's only writable engine subtree is
+`/opt/allfather/build/replays-online-hybrid-v2`, overlaid with a
+separately mounted persistent replay directory. After one completed game,
+the next process finds new replay manifests on that volume. Those
+runtime-generated files are intentionally **not** part of the immutable
+release source file manifest.
+
+The installed verifier excludes only that precise replay subtree and
+only when its filesystem device is different from the image's read-only
+engine root. Every executable, controller source, model weight, patched
+bridge file, Python wheel and policy artifact stays under the original
+exact-byte verification; unlisted files elsewhere fail closed. During
+staged (pre-image) verification, replay-file exemptions are never allowed.
+
+RELEASE-1 also exports only Git-tracked files from the verified
+lichess-bot checkout. Untracked files such as a local `.env` may not
+enter the image regardless of their contents. The CA trust-root bootstrap
+source is bound into the source-attestation inventory.

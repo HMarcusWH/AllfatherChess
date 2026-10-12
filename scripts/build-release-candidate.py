@@ -42,7 +42,8 @@ TOOL_FILES = (
 )
 SOURCE_FILES = (POLICY, BRIDGE_LOCK, "qualification/release-qualification-v1.json",
                 "qualification/license-compliance-v1.json",
-                "deploy/release/ubuntu.sources", "deploy/release/Dockerfile",
+                "deploy/release/ubuntu.sources", "deploy/release/bootstrap.sources",
+                "deploy/release/Dockerfile",
                 "deploy/release/Dockerfile.dockerignore",
                 "scripts/build-release-candidate.py", *TOOL_FILES)
 
@@ -69,9 +70,38 @@ def checksum_tree(root: Path) -> list[dict]:
         name = item.relative_to(root).as_posix()
         fail(not any(part in (".git", "__pycache__") for part in Path(name).parts),
              "forbidden transient path in release: " + name)
+        fail(not any(part in (".env", ".secrets", "config.yml", "credentials.json",
+                              "token.txt", "id_rsa") for part in Path(name).parts)
+             and not name.lower().endswith((".pem", ".p12", ".key")),
+             "secret-bearing filename refused in image: " + name)
         entries.append({"path": name, "bytes": item.stat().st_size,
                         "sha256": digest(item)})
     return entries
+
+
+def copy_tracked_bridge(source: Path, destination: Path) -> None:
+    """Export only pinned Git-tracked upstream bytes, never local untracked files.
+
+    fetch_bridge.verify rejects dirty tracked files but intentionally does
+    not reject untracked files. Those must never enter the container image.
+    """
+    names = subprocess.check_output(
+        ["git", "-C", str(source), "ls-files", "-z", "--cached"])
+    entries = [x.decode("utf-8") for x in names.split(b"\x00") if x]
+    fail(bool(entries), "locked bridge has no tracked files")
+    destination.mkdir(parents=True, exist_ok=False)
+    for name in entries:
+        p = Path(name)
+        fail(not p.is_absolute() and ".." not in p.parts and
+             "\\\\" not in name and p.as_posix() == name,
+             "noncanonical tracked bridge path: " + name)
+        source_file = source / name
+        fail(source_file.is_file() and not source_file.is_symlink()
+             and source_file.resolve().is_relative_to(source.resolve()),
+             "linked/invalid tracked bridge file: " + name)
+        target = destination / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source_file, target)
 
 
 def assemble(root: Path, destination: Path, release: Path, bridge: Path,
@@ -116,8 +146,7 @@ def assemble(root: Path, destination: Path, release: Path, bridge: Path,
     try:
         shutil.copytree(release, dest / "allfather", symlinks=True,
                         ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "*.pyo"))
-        shutil.copytree(bridge, dest / "bridge",
-                        ignore=shutil.ignore_patterns(".git", "__pycache__", "*.pyc"))
+        copy_tracked_bridge(bridge, dest / "bridge")
         shutil.copy2(root / "deploy/lichess/extra_game_handlers.py",
                      dest / "bridge/extra_game_handlers.py")
         overlay = recovery_overlay.apply(dest / "bridge")

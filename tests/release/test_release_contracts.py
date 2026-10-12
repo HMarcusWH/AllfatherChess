@@ -4,6 +4,7 @@ import copy
 import importlib.util
 import json
 import tempfile
+import subprocess
 import unittest
 from pathlib import Path
 
@@ -119,6 +120,52 @@ class OfflineReleaseContracts(unittest.TestCase):
             cached.write_bytes(b"transient")
             with self.assertRaisesRegex(ValueError,"forbidden transient path"):
                 builder.checksum_tree(root)
+
+    def test_ca_bootstrap_is_bound_to_source_manifest(self):
+        self.assertIn("deploy/release/bootstrap.sources",builder.SOURCE_FILES)
+
+    def test_only_tracked_upstream_bridge_files_enter_release(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            upstream=root/"upstream"
+            upstream.mkdir()
+            subprocess.run(["git","init","--quiet",str(upstream)],check=True)
+            (upstream/"safe.py").write_text("print('tracked')\\n")
+            subprocess.run(["git","-C",str(upstream),"add","safe.py"],check=True)
+            (upstream/".env").write_text("SECRET=NEVER_COPY")
+            target=root/"export"
+            builder.copy_tracked_bridge(upstream,target)
+            self.assertEqual((target/"safe.py").read_text(),
+                             (upstream/"safe.py").read_text())
+            self.assertFalse((target/".env").exists())
+
+    def test_secret_named_file_is_rejected_even_from_other_components(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source=Path(tmp)
+            (source/"bridge").mkdir()
+            (source/"bridge/config.yml").write_text("token: secret")
+            with self.assertRaisesRegex(ValueError,"secret-bearing filename"):
+                builder.checksum_tree(source)
+
+    def test_replay_data_can_only_escape_source_manifest_under_a_real_mount(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base=Path(temp)/"allfather"
+            replay=base/"build/replays-online-hybrid-v2"
+            replay.mkdir(parents=True)
+            generated=replay/"from-an-earlier-game.json"
+            generated.write_text("{}")
+            self.assertFalse(verifier.installed_mutable_replay(
+                "allfather",base,generated,installed=False))
+            self.assertFalse(verifier.installed_mutable_replay(
+                "bridge",base,generated,installed=True))
+            with self.assertRaisesRegex(ValueError,"separately mounted storage"):
+                verifier.installed_mutable_replay(
+                    "allfather",base,generated,installed=True)
+            source=base/"controller/runtime.py"
+            source.parent.mkdir(parents=True)
+            source.write_text("print('not replay')")
+            self.assertFalse(verifier.installed_mutable_replay(
+                "allfather",base,source,installed=True))
 
     def test_source_tree_staging_requires_clean_exact_checkout(self):
         with tempfile.TemporaryDirectory() as temp:

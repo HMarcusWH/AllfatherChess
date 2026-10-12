@@ -50,7 +50,11 @@ def verify_archive(archive: Path, metadata: Path, *, docker_inspect: Path | None
                 "not an OCI-layout archive")
         require(json.load(inp.extractfile(by_name["oci-layout"])).get("imageLayoutVersion") ==
                 "1.0.0", "unsupported OCI layout")
-        index = json.load(inp.extractfile(by_name["index.json"]))
+        index_member = inp.extractfile(by_name["index.json"])
+        require(index_member is not None, "OCI index not readable")
+        index_raw = index_member.read()
+        index_digest = "sha256:" + _digest(index_raw)
+        index = json.loads(index_raw)
         require(index.get("schemaVersion") == 2 and
                 index.get("mediaType") in (None,"application/vnd.oci.image.index.v1+json"),
                 "invalid OCI index")
@@ -120,9 +124,10 @@ def verify_archive(archive: Path, metadata: Path, *, docker_inspect: Path | None
         require(reported_config==image["config_digest"],
                 "BuildKit config digest does not match OCI archive image")
         # BuildKit reports a descriptor digest, not the sha256 of OCI tar bytes.
-        require(reported_manifest==image["manifest_digest"] or
-                reported_manifest in [x.get("digest") for x in index.get("manifests",[])],
-                "BuildKit image descriptor does not match OCI archive")
+        accepted_digests = {image["manifest_digest"], index_digest}
+        accepted_digests.update(x.get("digest") for x in index.get("manifests",[]))
+        require(reported_manifest in accepted_digests,
+                "BuildKit descriptor digest does not match OCI index or image")
         config=image["config"].get("config") or {}
         require(config.get("User") in ("10001:10001", "10001") and
                 config.get("Entrypoint")==[
@@ -153,8 +158,11 @@ def verify_archive(archive: Path, metadata: Path, *, docker_inspect: Path | None
         return {
             "schema_version":1,"oci_archive_sha256":file_digest(archive),
             "oci_image_manifest_digest":image["manifest_digest"],
+            "oci_index_digest":index_digest,
             "oci_config_digest":image["config_digest"],
             "buildkit_digest":reported_manifest,
+            "buildkit_digest_kind":("oci-index" if reported_manifest == index_digest
+                                    else "image-or-index-child"),
             "attestation_predicate_types":sorted(predicates),
             "oci_layers":image["layer_count"],
             "integrity_verified":True,"publisher_signature_verified":False,

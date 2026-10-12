@@ -147,7 +147,9 @@ jobs:
       - name: Install independent chess oracle
         run: |
           bash scripts/ci-install-apt-deps.sh python3-pip python3-venv
-          python3 -m pip install --break-system-packages 'chess==1.11.2'
+          python3 -m pip install --break-system-packages 'chess==1.11.2' 'PyYAML==6.0.3'
+      - name: Rebuild expected overlay from independent pinned upstream
+        run: python3 deploy/lichess/fetch_bridge.py
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: online4b-guarded-raw-evidence

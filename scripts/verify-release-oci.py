@@ -7,6 +7,8 @@ it does NOT claim a trusted publisher signature or legal distribution.
 from __future__ import annotations
 import argparse
 import hashlib
+import gzip
+import zlib
 import json
 import re
 import tarfile
@@ -55,6 +57,99 @@ def verify_image_config_link(*, image_config_digest: str,
     require(metadata_config_digest is not None or docker_inspection is not None,
             "OCI config identity has neither BuildKit metadata nor image inspection")
     return True
+
+
+def verify_layer_diff_ids(archive: tarfile.TarFile, members: dict,
+                          layers: list[dict], rootfs: dict) -> list[str]:
+    """Independently hash the expanded application layers in rootfs order."""
+    require(rootfs.get("type") == "layers" and
+            isinstance(rootfs.get("diff_ids"), list) and
+            len(rootfs["diff_ids"]) == len(layers),
+            "OCI rootfs does not enumerate every application layer")
+    computed = []
+    for layer, expected in zip(layers, rootfs["diff_ids"]):
+        oid = layer.get("digest")
+        kind = layer.get("mediaType")
+        require(isinstance(oid, str) and oid.startswith("sha256:") and
+                HEX.fullmatch(oid[7:]) is not None and
+                isinstance(expected, str) and expected.startswith("sha256:") and
+                HEX.fullmatch(expected[7:]) is not None,
+                "invalid application layer/rootfs digest")
+        require(kind in (
+            "application/vnd.oci.image.layer.v1.tar",
+            "application/vnd.oci.image.layer.v1.tar+gzip",
+            "application/vnd.docker.image.rootfs.diff.tar",
+            "application/vnd.docker.image.rootfs.diff.tar.gzip",
+        ), "unsupported OCI layer compression type")
+        member = members.get("blobs/sha256/" + oid[7:])
+        require(member is not None and member.isfile(),
+                "application layer blob missing from archive")
+        stream = archive.extractfile(member)
+        require(stream is not None, "unreadable OCI application layer")
+        compressed = kind.endswith(("+gzip", ".gzip"))
+        with stream:
+            decoded = gzip.GzipFile(fileobj=stream, mode="rb") if compressed else stream
+            h = hashlib.sha256()
+            expanded = 0
+            try:
+                while True:
+                    piece = decoded.read(1 << 20)
+                    if not piece:
+                        break
+                    expanded += len(piece)
+                    require(expanded <= (4 << 30),
+                            "OCI application layer exceeds bounded expanded size")
+                    h.update(piece)
+            finally:
+                if decoded is not stream:
+                    decoded.close()
+        observed = "sha256:" + h.hexdigest()
+        require(observed == expected,
+                "application OCI layer differs from config.rootfs.diff_ids")
+        computed.append(observed)
+    return computed
+
+
+def verify_attestation_subjects(attestations: list[dict], image: dict) -> set[str]:
+    """Require each BuildKit statement to refer to the actual target image."""
+    accepted = {image["manifest_digest"], image["config_digest"]}
+    accepted.update(row["digest"] for row in image["layers"])
+    predicates = set()
+    require(attestations, "OCI archive has no attestation manifests")
+    for item in attestations:
+        descriptor, attestation = item["descriptor"], item["statement"]
+        annotations = descriptor.get("annotations") or {}
+        require(annotations.get("vnd.docker.reference.type") == "attestation-manifest"
+                and annotations.get("vnd.docker.reference.digest") ==
+                    image["manifest_digest"],
+                "OCI attestation descriptor refers to a different application image")
+        platform = descriptor.get("platform") or {}
+        require(platform.get("architecture") == "unknown"
+                and platform.get("os") == "unknown",
+                "OCI attestation artifact uses invalid image platform")
+        statements = attestation.get("statements") if isinstance(attestation, dict) else None
+        if statements is None:
+            statements = [attestation]
+        require(isinstance(statements, list) and bool(statements),
+                "OCI attestation contains no in-toto statements")
+        for statement in statements:
+            require(isinstance(statement, dict) and
+                    isinstance(statement.get("predicateType"), str),
+                    "OCI attestation statement or predicate missing")
+            subjects = statement.get("subject")
+            require(isinstance(subjects, list) and bool(subjects),
+                    "OCI attestation has no image subjects")
+            for subject in subjects:
+                sha = subject.get("digest", {}).get("sha256") if isinstance(subject, dict) else None
+                require(isinstance(sha, str) and
+                        "sha256:" + sha in accepted,
+                        "OCI attestation subject is unrelated to actual image")
+            predicates.add(statement["predicateType"])
+    require(any("spdx" in x.lower() for x in predicates),
+            "required image SBOM attestation not exported")
+    require(any("slsa" in x.lower() for x in predicates),
+            "required image provenance attestation not exported")
+    return predicates
 
 
 def verify_archive(archive: Path, metadata: Path, *, docker_inspect: Path | None = None):
@@ -134,16 +229,20 @@ def verify_archive(archive: Path, metadata: Path, *, docker_inspect: Path | None
                 for layer in layers:
                     content = get(layer["digest"])
                     require(content is not None, "oversized attestation refused")
-                    attestations.append(json.loads(content))
+                    attestations.append({"descriptor":descriptor,
+                                         "statement":json.loads(content)})
             elif details.get("architecture") == "amd64" and details.get("os") == "linux":
                 images.append({"manifest_digest":descriptor["digest"],
                                "config_digest":cfg["digest"],
                                "config":details,
+                               "layers":layers,
                                "layer_count":len(layers)})
         for x in index.get("manifests",[]):
             inspect_descriptor(x)
         require(len(images)==1, "require exactly one linux/amd64 application image")
         image=images[0]
+        diff_ids=verify_layer_diff_ids(inp,by_name,image["layers"],
+                                        image["config"].get("rootfs") or {})
         reported_manifest=meta.get("containerimage.digest")
         reported_config=meta.get("containerimage.config.digest")
         # BuildKit OCI index metadata can omit this config digest when
@@ -172,18 +271,7 @@ def verify_archive(archive: Path, metadata: Path, *, docker_inspect: Path | None
                     "/opt/release-tools/deploy/release/entrypoint.py"],
                 "OCI image launched with unapproved identity/entrypoint")
         require(not config.get("ExposedPorts"), "offline candidate must not expose ports")
-        predicates=set()
-        for att in attestations:
-            if isinstance(att,dict):
-                if att.get("predicateType"):
-                    predicates.add(att["predicateType"])
-                for row in att.get("statements",[]):
-                    if isinstance(row,dict) and row.get("predicateType"):
-                        predicates.add(row["predicateType"])
-        require(any("spdx" in x.lower() for x in predicates),
-                "required image SBOM attestation not exported")
-        require(any("slsa" in x.lower() for x in predicates),
-                "required image provenance attestation not exported")
+        predicates=verify_attestation_subjects(attestations,image)
         # The OCI layout may contain unreferenced internal artifacts that are
         # independently hashed but cannot grant authority.
         return {
@@ -198,6 +286,9 @@ def verify_archive(archive: Path, metadata: Path, *, docker_inspect: Path | None
                                     else "image-or-index-child"),
             "attestation_predicate_types":sorted(predicates),
             "oci_layers":image["layer_count"],
+            "oci_diff_ids_verified":True,
+            "oci_diff_id_count":len(diff_ids),
+            "oci_attestation_subjects_verified":True,
             "integrity_verified":True,"publisher_signature_verified":False,
             "public_bot_release":False,"artifact_distribution_authorized":False,
         }
@@ -215,7 +306,8 @@ def main():
         a.output.parent.mkdir(parents=True,exist_ok=True)
         a.output.write_text(json.dumps(report,sort_keys=True,indent=2)+"\n")
         print(json.dumps(report,sort_keys=True))
-    except (OSError,ValueError,KeyError,TypeError,tarfile.TarError) as exc:
+    except (OSError,ValueError,KeyError,TypeError,EOFError,
+            zlib.error,tarfile.TarError) as exc:
         p.exit(2,"RELEASE-1 OCI attestation refused: "+str(exc)+"\n")
 
 

@@ -213,6 +213,11 @@ def run(*, color: str, scenario_id: str, run_id: str):
                 outcome["guard_events"] = []
     except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as exc:
         outcome["runner_errors"].append(type(exc).__name__ + ": " + str(exc))
+    except BaseException as exc:
+        # Retain negative evidence, but never silently turn an unexpected
+        # test-supervisor failure into a successful qualification result.
+        outcome["runner_errors"].append(type(exc).__name__ + ": " + str(exc))
+        raise
     finally:
         if started:
             game.close()
@@ -263,8 +268,19 @@ def run(*, color: str, scenario_id: str, run_id: str):
         else:
             confirmed = (evidence.get("complete") and
                          outcome["observations"][-1]["observation"] == "complete_confirmed")
-        bad_http = [r for r in records if r["path"].endswith(
-            ("/abort", "/resign", "/upgrade", "/takeback")) or "/move/0000" in r["path"]]
+        allowed_posts = {"/api/token/test",
+                         "/api/challenge/off3b001/accept",
+                         "/api/challenge/off3b001/decline"}
+        prefix = "/api/bot/game/off3b001/move/"
+        bad_http = [r for r in records if
+                    r.get("method") == "POST" and
+                    (r.get("status") == 403 or
+                     not (r.get("path") in allowed_posts or
+                          (isinstance(r.get("path"), str) and
+                           r["path"].startswith(prefix) and
+                           r["path"][len(prefix):] not in ("", "0000"))))]
+        if not isinstance(outcome["game"].get("forbidden_attempts"), list) or outcome["game"]["forbidden_attempts"]:
+            outcome["runner_errors"].append("server recorded forbidden HTTP attempts")
         outcome["rate_cooldown_verified"] = rate_clean if scenario_id == "R10" else None
         outcome["fresh_second_epoch_commits"] = len(second_epoch_commits) if scenario_id == "R02" else None
         outcome["ready"] = bool(confirmed and not outcome["runner_errors"] and
@@ -277,7 +293,8 @@ def run(*, color: str, scenario_id: str, run_id: str):
                           "errors": outcome["runner_errors"],
                           "observations": outcome["observations"],
                           "public_bot_release": False}, sort_keys=True))
-        return 0 if outcome["ready"] else 2
+    # NEVER return from finally: doing so suppresses an active exception.
+    return 0 if outcome["ready"] else 2
 
 
 def main():

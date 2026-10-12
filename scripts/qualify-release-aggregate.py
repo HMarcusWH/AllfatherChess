@@ -94,6 +94,31 @@ def qualify(*, stage:Path, oci:Path, host:Path, smoke_dir:Path,
                 result.get("runner_errors")==[] and
                 result.get("public_bot_release") is False,
                 "release-image smoke failed: "+key)
+        game=result.get("game") or {}
+        require(game.get("forbidden_attempts")==[],
+                "release image simulator recorded forbidden API attempts: "+key)
+        requests=result.get("http")
+        require(isinstance(requests,list),
+                "release-image complete HTTP audit missing: "+key)
+        allow={"/api/token/test","/api/challenge/off3b001/accept",
+               "/api/challenge/off3b001/decline"}
+        prefix="/api/bot/game/off3b001/move/"
+        require(all(isinstance(r,dict) and
+                    (r.get("method")!="POST" or
+                     (r.get("path") in allow or
+                      (isinstance(r.get("path"),str)
+                       and r["path"].startswith(prefix)
+                       and r["path"][len(prefix):] not in ("","0000")))
+                     and r.get("status")!=403)
+                    for r in requests),
+                "release image HTTP contains prohibited POST: "+key)
+        if key=="r10-white":
+            require(result.get("rate_cooldown_verified") is True,
+                    "release-image 429 cooldown witness absent")
+        if key=="r02-white":
+            require(type(result.get("fresh_second_epoch_commits")) is int and
+                    result["fresh_second_epoch_commits"]>0,
+                    "release image restart has no fresh confirmed move")
         if key!="r10-white":
             require(result["game"]["complete"] is True,
                     "offline completed-game requirement not met: "+key)

@@ -24,6 +24,7 @@ BRIDGE_LOCK = "deploy/lichess/bridge.lock.json"
 ENGINE_MANIFEST = "build/online-release/release-manifest.json"
 
 TOOL_FILES = (
+    "deploy/lichess/bridge.lock.json",
     "deploy/release/entrypoint.py",
     "deploy/release/offline_smoke.py",
     "deploy/release/runtime-contract.json",

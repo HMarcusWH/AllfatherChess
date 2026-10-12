@@ -78,12 +78,14 @@ docker run --rm --network none --read-only \
   --tmpfs /run/allfather:rw,nosuid,size=64m,uid=10001,gid=10001 \
   --tmpfs /tmp:rw,nosuid,size=128m,uid=10001,gid=10001 \
   --volume "$PWD/test-persistent:/var/lib/allfather:rw" \
+  --volume "$PWD/test-persistent/replays:/opt/allfather/build/replays-online-hybrid-v2:rw" \
   -e ONLINE_RELEASEx_ISOLATED=1 -e ONLINE4B_ISOLATED_CONTAINER=1 \
   allfather/release1:offline offline-smoke \
   --scenario R00 --color white --run-id smoke-white
 ```
 
-Prepare the host test-persistent directory for UID/GID 10001 before use.
+Prepare `test-persistent/replays` and the parent directory for UID/GID 10001
+before use (for example `mkdir -p test-persistent/replays && sudo chown -R 10001:10001 test-persistent`).
 The distinct bound persistent mount contains the SQLite WAL and epoch fence.
 A separate persistent replay bind mount is mandatory because the sealed UCI
 config writes to build/replays-online-hybrid-v2 relative to /opt/allfather.

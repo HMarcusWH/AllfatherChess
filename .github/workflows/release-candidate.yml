@@ -1,25 +1,8 @@
 name: RELEASE-1 immutable offline OCI candidate
 on:
   pull_request:
-    paths:
-      - 'deploy/release/**'
-      - 'deploy/lichess/**'
-      - 'scripts/build-release-candidate.py'
-      - 'scripts/verify-release-candidate.py'
-      - 'scripts/verify-release-oci.py'
-      - 'scripts/qualify-release-host.py'
-      - 'scripts/qualify-release-aggregate.py'
-      - 'scripts/prepare-online3b-wheels.py'
-      - 'qualification/release-*.json'
-      - 'qualification/license-compliance-v1.json'
-      - 'tests/release/**'
-      - '.github/workflows/release-candidate.yml'
-      - 'controller/**'
-      - 'common/**'
-      - 'adapters/**'
-      - 'engines/**'
-      - 'config/**'
-      - 'vendor.lock.json'
+  push:
+    branches: [main]
   workflow_dispatch:
 permissions:
   contents: read

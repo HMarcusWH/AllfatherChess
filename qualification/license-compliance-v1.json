@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "scope": "distribution-review-pending",
+  "components": [
+    {
+      "component": "Stockfish",
+      "path": "engines/stockfish",
+      "license": "GPL-3.0",
+      "source_notice": "engines/stockfish/Copying.txt"
+    },
+    {
+      "component": "Reckless",
+      "path": "engines/reckless",
+      "license": "AGPL-3.0",
+      "source_notice": "engines/reckless/LICENSE"
+    },
+    {
+      "component": "LC0",
+      "path": "engines/lc0",
+      "license": "GPL-3.0-or-later",
+      "source_notice": "engines/lc0/COPYING"
+    },
+    {
+      "component": "lichess-bot",
+      "path": "pinned-upstream",
+      "license": "AGPL-3.0",
+      "source_notice": "upstream license to verify in build"
+    },
+    {
+      "component": "Allfather-specific controller",
+      "path": "controller",
+      "license": "UNDECIDED",
+      "source_notice": "LICENSES.md"
+    }
+  ],
+  "combined_work_classification": "REVIEW_REQUIRED",
+  "corresponding_source_packaging": "NOT_QUALIFIED",
+  "license_notices_verified": false,
+  "controller_distribution_license_approved": false,
+  "legal_review_completed": false,
+  "artifact_distribution_authorized": false,
+  "live_network_agpl_obligations": "REVIEW_REQUIRED"
+}

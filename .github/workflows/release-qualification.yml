@@ -1,0 +1,35 @@
+name: RELEASE-1 publication prohibition / policy gate
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  release-policy-is-blocked:
+    name: Check release policy (publication NOT authorized)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Verify source-bound release prohibitions
+        run: |
+          python3 scripts/release-promotion-policy.py \
+            --output build/test-results/release1/blocked-promotion.json
+          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          p=json.load(open("build/test-results/release1/blocked-promotion.json"))
+          print("## RELEASE-1 — publication remains prohibited")
+          print("Policy check passed; no public distribution, deployment, bot credentials, or live play is authorized.")
+          for key in ("public_release_authorized","artifact_distribution_authorized",
+                      "destination_host_qualified","live_transport_qualified"):
+              print(f"- {key}: {p[key]}")
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: release1-no-publication-policy
+          path: build/test-results/release1/blocked-promotion.json
+          if-no-files-found: warn
+          retention-days: 30

@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "mode": "offline-inspection-and-fake-api-only",
+  "image_root": "/opt/allfather-release",
+  "engine_root": "/opt/allfather",
+  "bridge_root": "/opt/bridge",
+  "tools_root": "/opt/release-tools",
+  "entrypoint": "/opt/release-tools/deploy/release/entrypoint.py",
+  "uid": 10001,
+  "gid": 10001,
+  "root_read_only": true,
+  "egress": "none",
+  "api_allowlist": [
+    "http://127.0.0.1/"
+  ],
+  "max_games": 1,
+  "challenge": {
+    "variant": "standard",
+    "rated": false,
+    "clock_seconds": 600,
+    "increment_seconds": 5,
+    "allow_bot": "approved_test_bot"
+  },
+  "persistent": "/var/lib/allfather",
+  "temporary": "/run/allfather",
+  "scratch": "/tmp",
+  "commands": [
+    "verify",
+    "offline-smoke"
+  ],
+  "live_play": false,
+  "replay_mount": "/opt/allfather/build/replays-online-hybrid-v2"
+}

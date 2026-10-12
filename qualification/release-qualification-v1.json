@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "profile_id": "release-1-qualification-v1",
+  "scope": "offline-only",
+  "source_policy": "qualification/release-image-v1.json",
+  "base_engine_qualification": "qualification/online-recovery-v2.json",
+  "required_evidence": [
+    "source_tree",
+    "candidate_manifest",
+    "engine_seal",
+    "bridge_overlay",
+    "runtime_packages",
+    "runtime_wheels",
+    "oci_descriptor",
+    "full_game_white",
+    "full_game_black",
+    "offline_restart",
+    "read_only_root",
+    "persisted_journal",
+    "security_contract",
+    "independent_verification"
+  ],
+  "offline_candidate_qualified": false,
+  "destination_host_qualified": false,
+  "license_compliance_approved": false,
+  "live_transport_qualified": false,
+  "artifact_distribution_authorized": false,
+  "release_promotion_authorized": false,
+  "authenticated_publication_authorized": false,
+  "public_bot_release": false,
+  "mandatory_negatives": [
+    "missing_image_digest",
+    "floating_base",
+    "wrong_architecture",
+    "tampered_engine",
+    "mismatched_bridge",
+    "secret_in_config",
+    "unreviewed_license",
+    "unqualified_host",
+    "missing_runtime_mount",
+    "unexpected_live_transport"
+  ]
+}

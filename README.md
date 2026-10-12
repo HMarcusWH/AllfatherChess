@@ -1,6 +1,7 @@
 # AllfatherChess
 
-> **Current synchronized build state:** PR #56 / M14-J J9 is merged; main is synchronized at `ddb63157749ebdd8c10120d25b9c4b2e1d3b2649`. J0-J9 are implemented, ENGINE-OPT-V2 remains the fail-closed fallback, and **PR #57 / J10** adds deterministic round-2 allocation nomination while keeping adaptive STOP unpromoted until leakage-free independent calibration exists.  
+> **Current release status (12 October 2026):** ONLINE-4B source-locked offline Lichess recovery merged in PR #68 (`f5eab35`) with 10/10 offline scenarios qualified. **Next: RELEASE-1 / PR #69**—immutable offline OCI candidate, independent image audit and still-blocked host/licensing/live promotion. See [docs/RELEASE_1_OPERATIONS.md](docs/RELEASE_1_OPERATIONS.md). No bot has been deployed or publicly released.
+
 > See [docs/CURRENT_STATUS.md](docs/CURRENT_STATUS.md) for the exact implemented surface and
 > [docs/ROADMAP.md](docs/ROADMAP.md) for the canonical forward execution order.
 

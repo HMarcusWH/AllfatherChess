@@ -153,7 +153,7 @@ class RecoveryHTTPTests(unittest.TestCase):
                     self.assertEqual(first.status_code,200)
                     self.assertEqual(second.status_code,200)
                     # Must finish rather than hang on an unterminated HTTP/1.1 chunk.
-                    self.assertEqual(list(first.iter_lines(chunk_size=1)),[])
+                    self.assertFalse(any(first.iter_lines(chunk_size=1)))
                     fake.issue_challenge()
                     event=json.loads(next(x for x in second.iter_lines(chunk_size=1) if x))
                     self.assertEqual(event["type"],"challenge")

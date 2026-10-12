@@ -143,5 +143,23 @@ class RecoveryHTTPTests(unittest.TestCase):
             fake.close()
 
 
+    def test_fenced_http_stream_reaches_eof(self):
+        fake=FakeLichess("white",load_scenarios(SCENARIOS)["R09"])
+        fake.start()
+        try:
+            url=fake.url+"api/stream/event"
+            with requests.get(url,headers=HEADERS,stream=True,timeout=4) as first:
+                with requests.get(url,headers=HEADERS,stream=True,timeout=4) as second:
+                    self.assertEqual(first.status_code,200)
+                    self.assertEqual(second.status_code,200)
+                    # Must finish rather than hang on an unterminated HTTP/1.1 chunk.
+                    self.assertEqual(list(first.iter_lines(chunk_size=1)),[])
+                    fake.issue_challenge()
+                    event=json.loads(next(x for x in second.iter_lines(chunk_size=1) if x))
+                    self.assertEqual(event["type"],"challenge")
+        finally:
+            fake.close()
+
+
 if __name__ == "__main__":
     unittest.main()

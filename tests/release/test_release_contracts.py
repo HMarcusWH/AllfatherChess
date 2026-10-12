@@ -193,5 +193,37 @@ class OfflineReleaseContracts(unittest.TestCase):
                                  Path(temp),Path(temp))
 
 
+    def test_every_authentication_and_host_release_flag_fails_policy(self):
+        source = ROOT / "qualification/release-qualification-v1.json"
+        for flag in ("authenticated_publication_authorized",
+                     "destination_host_qualified", "public_bot_release",
+                     "artifact_distribution_authorized",
+                     "release_promotion_authorized"):
+            with self.subTest(flag=flag), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                for name in ("release-image-v1.json",
+                             "release-qualification-v1.json",
+                             "license-compliance-v1.json"):
+                    target = root / "qualification" / name
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_bytes((ROOT / "qualification" / name).read_bytes())
+                target = root / "qualification/release-qualification-v1.json"
+                policy_doc = json.loads(target.read_text())
+                policy_doc[flag] = True
+                target.write_text(json.dumps(policy_doc))
+                with self.assertRaisesRegex(ValueError, flag):
+                    policy.audit(root)
+
+    def test_replay_mount_documentation_matches_ci(self):
+        ops = (ROOT / "docs/RELEASE_1_OPERATIONS.md").read_text()
+        workflow = (ROOT / ".github/workflows/release-candidate.yml").read_text()
+        replay = ":/opt/allfather/build/replays-online-hybrid-v2:rw"
+        self.assertIn(replay, ops)
+        self.assertIn(replay, workflow)
+        for flag in ("--network none", "--read-only", "--cap-drop ALL",
+                     "--security-opt no-new-privileges", "10001:10001"):
+            self.assertIn(flag, ops)
+
+
 if __name__=="__main__":
     unittest.main()

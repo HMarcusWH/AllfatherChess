@@ -82,6 +82,11 @@ def independently_expected_overlay() -> dict:
         return recovery_overlay.apply(staged)
 
 
+def verify_overlay_identity(manifest: dict, expected: dict) -> None:
+    require(manifest == expected,
+            "overlay files, original blob IDs or actual patched hashes differ from frozen source")
+
+
 def verify_guarded_requests(requests: list[dict], trace: list[dict],
                             game: dict, intents: list[dict]) -> dict:
     """Bind every HTTP move attempt to a unique durable intent and legal board."""
@@ -403,8 +408,7 @@ def verify_one(folder: Path, *, scenario: dict, color: str,
             manifest.get("mode") == "OFFLINE-4B-ONLY" and
             manifest.get("public_bot_release") is False,
             "upstream recovery overlay identity invalid")
-    require(manifest == expected_overlay,
-            "overlay files, original blob IDs or actual patched hashes differ from frozen source")
+    verify_overlay_identity(manifest, expected_overlay)
     require(commits == [r for r in trace if r.get("event") == "board_commit"],
             "server commit extract differs from raw trace")
     history = v1.verify_trace(trace, game)

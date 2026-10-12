@@ -74,7 +74,11 @@ class ReleaseAggregateContracts(unittest.TestCase):
             write_json(self.smoke_dir / key / "result.json", {
                 "offline": True, "ready": True, "runner_errors": [],
                 "public_bot_release": False,
-                "game": {"complete": key != "r10-white", "accepted": ["e2e4"]},
+                "game": {"complete": key != "r10-white", "accepted": ["e2e4"],
+                         "forbidden_attempts": []},
+                "http": [{"method": "POST", "path": "/api/token/test", "status": 200}],
+                "rate_cooldown_verified": key == "r10-white",
+                "fresh_second_epoch_commits": 1 if key == "r02-white" else None,
                 "observations": [{"phase": "synthetic"}],
             })
 
@@ -188,6 +192,31 @@ class ReleaseAggregateContracts(unittest.TestCase):
         license_doc["artifact_distribution_authorized"] = True
         write_json(path, license_doc)
         with self.assertRaisesRegex(ValueError, "licensing gate unexpectedly opened"):
+            self.qualify()
+
+
+    def test_aggregate_rejects_forbidden_requests_and_fake_cooldown(self):
+        key = "r10-white"
+        path = self.smoke_dir / key / "result.json"
+        original = json.loads(path.read_text())
+        for bad in (
+            {**original, "game": {**original["game"],
+                                  "forbidden_attempts": ["POST /api/bot/game/off3b001/abort"]}},
+            {**original, "http": original["http"] +
+                [{"method":"POST","path":"/api/bot/game/off3b001/abort","status":403}]},
+            {**original, "rate_cooldown_verified": False},
+        ):
+            with self.subTest(bad=bad):
+                write_json(path, bad)
+                with self.assertRaises(ValueError):
+                    self.qualify()
+        write_json(path, original)
+
+    def test_aggregate_requires_new_epoch_confirmed_move(self):
+        path = self.smoke_dir / "r02-white/result.json"
+        doc = json.loads(path.read_text())
+        write_json(path, {**doc, "fresh_second_epoch_commits": 0})
+        with self.assertRaisesRegex(ValueError, "no fresh confirmed move"):
             self.qualify()
 
 

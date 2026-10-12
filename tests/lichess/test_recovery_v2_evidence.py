@@ -212,5 +212,68 @@ class RecoveryV2EvidenceTests(unittest.TestCase):
         self.assertFalse(value["deployment_host_qualified"])
 
 
+    def test_guarded_request_ledger_rejects_duplicate_illegal_and_forbidden(self):
+        gid = "off3b001"
+        path = f"/api/bot/game/{gid}/move/e2e4"
+        game = {"game_id": gid, "color": "white", "moves": ["e2e4"],
+                "forbidden_attempts": []}
+        requests = [{"method": "POST", "path": path, "status": 200}]
+        trace = [
+            {"seq":1,"event":"move_attempt","game_id":gid,"uci":"e2e4",
+             "path":path,"ply_at_receipt":0},
+            {"seq":2,"event":"board_commit","game_id":gid,"origin":"allfather",
+             "uci":"e2e4","ply_before":0},
+        ]
+        intents=[{"game_id":gid,"ply_before":0,"move":"e2e4","history_json":"[]"}]
+        self.assertEqual(
+            qual.verify_guarded_requests(requests,trace,game,intents)["unique_legal_move_attempts"],
+            1)
+        invalid_cases = (
+            (requests + [{"method":"POST","path":path,"status":409}],
+             trace + [{"seq":3, "event":"move_attempt","game_id":gid,
+                       "uci":"e2e4","path":path,"ply_at_receipt":1}],game,intents),
+            ([{"method":"POST","path":f"/api/bot/game/{gid}/move/e7e5","status":400}],
+             [{"seq":1,"event":"move_attempt","game_id":gid,"uci":"e7e5",
+               "path":f"/api/bot/game/{gid}/move/e7e5","ply_at_receipt":0}],
+             {**game,"moves":[]},intents),
+            (requests+[{"method":"POST","path":f"/api/bot/game/{gid}/abort","status":403}],
+             trace, {**game,"forbidden_attempts":[f"POST /api/bot/game/{gid}/abort"]},intents),
+            (requests,trace,game,[{**intents[0],"history_json":'["d2d4"]'}]),
+        )
+        for mutated in invalid_cases:
+            with self.subTest(mutated=mutated),self.assertRaises(ValueError):
+                qual.verify_guarded_requests(*mutated)
+
+    def test_journal_history_must_equal_authoritative_prefix(self):
+        from deploy.lichess.reconcile import position_id
+        gid, epoch = "off3b001", "a"*32
+        game = {"game_id":gid,"moves":["e2e4","e7e5"]}
+        journal = {"owner_epoch":epoch,"events":[{"event_id":1,"event":"observe"}],
+                   "games":[],
+                   "intents":[{"game_id":gid,"ply_before":2,"move":"g1f3",
+                               "history_json":'["e2e4", "e7e5"]',
+                               "position_id":position_id(("e2e4","e7e5")),
+                               "status":"PREPARED"}]}
+        result={"phases":[{"epoch":epoch}]}
+        guarded=[{"event":"authoritative_snapshot_observed"}]
+        qual.verify_journal(journal,[],game,result,guarded)
+        wrong=copy.deepcopy(journal)
+        wrong["intents"][0]["history_json"]='["d2d4", "d7d5"]'
+        wrong["intents"][0]["position_id"]=position_id(("d2d4","d7d5"))
+        with self.assertRaisesRegex(ValueError,"authoritative game history"):
+            qual.verify_journal(wrong,[],game,result,guarded)
+
+    def test_overlay_verifier_compares_keys_and_digests_not_counts(self):
+        expected={"upstream_commit":"a"*40,"patched_upstream":{
+                  "lib/lichess.py":{"git_blob_sha1":"b"*40,"patched_sha256":"c"*64}},
+                  "guard_modules":{"guarded_transport.py":"d"*64},
+                  "mode":"OFFLINE-4B-ONLY","public_bot_release":False}
+        qual.verify_overlay_identity(expected,copy.deepcopy(expected))
+        mutated=copy.deepcopy(expected)
+        mutated["patched_upstream"]["lib/lichess.py"]["patched_sha256"]="e"*64
+        with self.assertRaisesRegex(ValueError,"overlay"):
+            qual.verify_overlay_identity(mutated,expected)
+
+
 if __name__ == "__main__":
     unittest.main()

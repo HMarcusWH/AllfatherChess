@@ -104,5 +104,49 @@ class IndependentEvidenceTests(unittest.TestCase):
         self.assertEqual(state_digest(x), state_digest(dict(reversed(list(x.items())))))
 
 
+    def test_delay_state_requires_actual_monotonic_gap(self):
+        witnessed = {"seq": 1, "sid": 4}
+        base = [
+            {**witnessed, "event": "fault_activated", "action": "delay_state"},
+            {"seq": 2, "sid": 4, "event": "stream_fault_source",
+             "action": "delay_state", "monotonic_ns": 1000000000,
+             "original_sha256": "a"*64, "original_moves": "e2e4"},
+            {"seq": 3, "sid": 4, "event": "stream_emit", "action": "delay_state",
+             "monotonic_ns": 1400000000, "payload_sha256": "a"*64,
+             "moves": "e2e4"},
+        ]
+        QUALIFIER.verify_state_fault("delay_state", witnessed, [base[-1]], base)
+        stale = copy.deepcopy(base)
+        stale[-1]["monotonic_ns"] = 1100000000
+        with self.assertRaisesRegex(ValueError, "delay"):
+            QUALIFIER.verify_state_fault("delay_state", witnessed, [stale[-1]], stale)
+
+    def test_stale_state_must_deliver_authoritative_predecessor(self):
+        before = chess.Board()
+        prefen = before.fen()
+        before.push_uci("e2e4")
+        trace = [
+            {"seq": 1, "event": "board_commit", "uci": "e2e4"},
+            {"seq": 2, "sid": 4, "event": "fault_activated", "action": "stale_state"},
+            {"seq": 3, "sid": 4, "event": "stream_fault_source",
+             "action": "stale_state", "monotonic_ns": 2000000000,
+             "original_sha256": "a"*64, "original_moves": "e2e4",
+             "predecessor_sha256": "b"*64, "predecessor_moves": ""},
+            {"seq": 4, "sid": 4, "event": "stream_emit", "action": "stale_state",
+             "monotonic_ns": 2000000001,
+             "payload_sha256": "b"*64, "moves": ""},
+        ]
+        witnessed=trace[1]
+        QUALIFIER.verify_state_fault("stale_state", witnessed, [trace[-1]], trace)
+        for change in (
+            {"payload_sha256":"a"*64, "moves":"e2e4"},
+            {"payload_sha256":"b"*64, "moves":"e2e4"},
+        ):
+            bad=copy.deepcopy(trace)
+            bad[-1].update(change)
+            with self.assertRaises(ValueError):
+                QUALIFIER.verify_state_fault("stale_state", witnessed, [bad[-1]], bad)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -32,6 +32,31 @@ def file_digest(path: Path):
     return sha.hexdigest()
 
 
+def verify_image_config_link(*, image_config_digest: str,
+                             metadata_config_digest: str | None,
+                             docker_inspection: dict | None) -> bool:
+    """OCI index exporters can omit containerimage.config.digest metadata.
+
+    In that case require the independently inspected *loaded* image to
+    supply the exact config digest. Never compare OCI index digest to a
+    config digest, and never infer equality from a green build label.
+    """
+    require(isinstance(image_config_digest, str) and
+            image_config_digest.startswith("sha256:") and
+            HEX.fullmatch(image_config_digest[7:]) is not None,
+            "invalid archive image-config digest")
+    if metadata_config_digest is not None:
+        require(metadata_config_digest == image_config_digest,
+                "BuildKit config metadata contradicts OCI archive image")
+    if docker_inspection is not None:
+        require(docker_inspection.get("Id") == image_config_digest and
+                docker_inspection.get("Architecture") == "amd64",
+                "tested Docker image differs from exported OCI config")
+    require(metadata_config_digest is not None or docker_inspection is not None,
+            "OCI config identity has neither BuildKit metadata nor image inspection")
+    return True
+
+
 def verify_archive(archive: Path, metadata: Path, *, docker_inspect: Path | None = None):
     meta = json.loads(metadata.read_text(encoding="utf-8"))
     blobs = {}
@@ -121,8 +146,20 @@ def verify_archive(archive: Path, metadata: Path, *, docker_inspect: Path | None
         image=images[0]
         reported_manifest=meta.get("containerimage.digest")
         reported_config=meta.get("containerimage.config.digest")
-        require(reported_config==image["config_digest"],
-                "BuildKit config digest does not match OCI archive image")
+        # BuildKit OCI index metadata can omit this config digest when
+        # SBOM/provenance attestation manifests are attached. In that case
+        # use the independent loaded-image inspection as the mandatory link.
+        inspection = None
+        if docker_inspect:
+            inspection = json.loads(docker_inspect.read_text(encoding="utf-8"))
+            if isinstance(inspection,list):
+                require(len(inspection) == 1, "ambiguous Docker inspection")
+                inspection = inspection[0]
+        verify_image_config_link(
+            image_config_digest=image["config_digest"],
+            metadata_config_digest=reported_config,
+            docker_inspection=inspection,
+        )
         # BuildKit reports a descriptor digest, not the sha256 of OCI tar bytes.
         accepted_digests = {image["manifest_digest"], index_digest}
         accepted_digests.update(x.get("digest") for x in index.get("manifests",[]))
@@ -147,12 +184,6 @@ def verify_archive(archive: Path, metadata: Path, *, docker_inspect: Path | None
                 "required image SBOM attestation not exported")
         require(any("slsa" in x.lower() for x in predicates),
                 "required image provenance attestation not exported")
-        if docker_inspect:
-            inspect=json.loads(docker_inspect.read_text(encoding="utf-8"))
-            if isinstance(inspect,list): inspect=inspect[0]
-            require(inspect.get("Id")==image["config_digest"] and
-                    inspect.get("Architecture")=="amd64",
-                    "tested Docker image differs from exported OCI config")
         # The OCI layout may contain unreferenced internal artifacts that are
         # independently hashed but cannot grant authority.
         return {
@@ -161,6 +192,8 @@ def verify_archive(archive: Path, metadata: Path, *, docker_inspect: Path | None
             "oci_index_digest":index_digest,
             "oci_config_digest":image["config_digest"],
             "buildkit_digest":reported_manifest,
+            "buildkit_config_digest_metadata_present": reported_config is not None,
+            "independent_loaded_image_digest_verified": inspection is not None,
             "buildkit_digest_kind":("oci-index" if reported_manifest == index_digest
                                     else "image-or-index-child"),
             "attestation_predicate_types":sorted(predicates),

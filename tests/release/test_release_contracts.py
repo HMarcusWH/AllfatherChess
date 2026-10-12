@@ -121,6 +121,25 @@ class OfflineReleaseContracts(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,"forbidden transient path"):
                 builder.checksum_tree(root)
 
+    def test_oci_index_metadata_without_config_uses_exact_loaded_image(self):
+        digest="sha256:"+"a"*64
+        observed={"Id":digest, "Architecture":"amd64"}
+        self.assertTrue(oci.verify_image_config_link(
+            image_config_digest=digest,
+            metadata_config_digest=None,
+            docker_inspection=observed))
+        for metadata, inspection in (
+            (None, None),
+            ("sha256:"+"b"*64, observed),
+            (None, {"Id":"sha256:"+"b"*64,"Architecture":"amd64"}),
+            (None, {"Id":digest,"Architecture":"arm64"}),
+        ):
+            with self.subTest(metadata=metadata, inspected=inspection), self.assertRaises(ValueError):
+                oci.verify_image_config_link(
+                    image_config_digest=digest,
+                    metadata_config_digest=metadata,
+                    docker_inspection=inspection)
+
     def test_ca_bootstrap_is_bound_to_source_manifest(self):
         self.assertIn("deploy/release/bootstrap.sources",builder.SOURCE_FILES)
 

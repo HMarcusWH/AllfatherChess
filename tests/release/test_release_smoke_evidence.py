@@ -265,6 +265,21 @@ class PackagedMoveEvidenceTests(unittest.TestCase):
                 qual.verify_smoke(doc,"r02-white")
 
 
+    def test_r02_rejects_a_successful_response_without_request_identity(self):
+        doc = fixture("r02-white")
+        close = next(t for t in doc["transport_trace"]
+                     if t["event"] == "connection_close_requested")
+        final = doc["transport_trace"][-1]
+        doc["transport_trace"].append({
+            "seq":final["seq"]+1,
+            "monotonic_ns":final["monotonic_ns"]+1_000_000,
+            "event":"response_write_completed",
+            "path":close["path"],"status":200})
+        seal(doc)
+        with self.assertRaisesRegex(ValueError, "request correlation"):
+            qual.verify_smoke(doc,"r02-white")
+
+
 
 if __name__=="__main__":
     unittest.main()

@@ -317,6 +317,7 @@ def verify_archive(archive: Path, metadata: Path, *, docker_inspect: Path | None
                     "flat OCI layout has unrelated root descriptors")
         reported_descriptor = meta.get("containerimage.descriptor")
         require(isinstance(reported_descriptor, dict) and
+                type(reported_descriptor.get("size")) is int and
                 all(reported_descriptor.get(k) == root_descriptor.get(k)
                     for k in ("digest", "mediaType", "size")) and
                 type(root_descriptor.get("size")) is int,

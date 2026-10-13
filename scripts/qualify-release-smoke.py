@@ -181,6 +181,21 @@ def verify_smoke(doc: dict, key: str) -> dict:
             "HTTP request audit omits or duplicates trace move attempts")
     require(all(type(a.get("status")) is int for a in http_attempts.values()),
             "unrecorded HTTP move status")
+    for row in trace:
+        if (row.get("event") not in
+                ("response_write_completed", "connection_close_requested") or
+                not isinstance(row.get("path"), str) or
+                not row["path"].startswith(MOVE_PREFIX)):
+            continue
+        rid = row.get("request_id")
+        require(rid in attempt_index and
+                row["path"] == attempt_index[rid]["path"] and
+                row["seq"] > attempt_index[rid]["seq"],
+                "move response/close event lacks exact request correlation")
+        if row["event"] == "response_write_completed":
+            require(type(row.get("status")) is int and
+                    row["status"] == http_attempts[rid]["status"],
+                    "completed move response status differs from HTTP audit")
 
     intents = journal["intents"]
     require(all(isinstance(i, dict) for i in intents), "malformed durable intent")

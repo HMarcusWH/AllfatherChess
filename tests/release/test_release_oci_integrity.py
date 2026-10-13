@@ -259,6 +259,16 @@ class OCIProofTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "BuildKit descriptor"):
                     oci.verify_archive(archive, meta, docker_inspect=inspection)
 
+    def test_metadata_descriptor_size_must_be_integer_even_if_numerically_equal(self):
+        with tempfile.TemporaryDirectory() as d:
+            archive, meta, inspection = self.fixture(Path(d))
+            report = json.loads(meta.read_text())
+            report["containerimage.descriptor"]["size"] = float(
+                report["containerimage.descriptor"]["size"])
+            meta.write_text(json.dumps(report))
+            with self.assertRaisesRegex(ValueError, "descriptor identity"):
+                oci.verify_archive(archive, meta, docker_inspect=inspection)
+
     def test_wrong_buildkit_descriptor_size_is_rejected(self):
         with tempfile.TemporaryDirectory() as d:
             archive, meta, inspection = self.fixture(

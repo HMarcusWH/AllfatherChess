@@ -15,6 +15,23 @@ spec.loader.exec_module(smoke)
 
 
 class SmokeFailureTests(unittest.TestCase):
+    def test_illegal_move_http_post_cannot_qualify_completed_game(self):
+        valid = [
+            {"method":"POST","path":"/api/token/test","status":200},
+            {"method":"POST","path":"/api/challenge/off3b001/accept","status":200},
+            {"method":"POST","path":"/api/bot/game/off3b001/move/f2f3","status":200},
+        ]
+        self.assertEqual(smoke.rejected_http_posts(valid,"R00"),[])
+        illegal_status = {"method":"POST",
+                          "path":"/api/bot/game/off3b001/move/e7e5",
+                          "status":400}
+        for scenario in ("R00", "R02", "R10"):
+            with self.subTest(scenario=scenario):
+                rejected = smoke.rejected_http_posts(valid+[illegal_status],
+                                                     scenario)
+                self.assertEqual(rejected,[illegal_status])
+                self.assertFalse(not rejected)  # producer ready requires no bad_http
+
     def test_unexpected_exception_cannot_be_swallowed_by_finally(self):
         class BrokenServer:
             def __init__(self,*args):

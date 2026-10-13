@@ -99,6 +99,32 @@ def _start(cfg, owner, logpath):
     return proc, fd
 
 
+def rejected_http_posts(records: list[dict], scenario_id: str) -> list[dict]:
+    """Producer-side fail-closed POST gate; host qualification is independent."""
+    allowed = {"/api/token/test",
+               "/api/challenge/off3b001/accept",
+               "/api/challenge/off3b001/decline"}
+    prefix = "/api/bot/game/off3b001/move/"
+    expected_move_status = (200, 429) if scenario_id == "R10" else (200,)
+    rejected = []
+    for record in records:
+        if not isinstance(record, dict):
+            rejected.append({"malformed": True})
+            continue
+        if record.get("method") != "POST":
+            continue
+        path, status = record.get("path"), record.get("status")
+        if (type(status) is not int or
+            (path in allowed and status != 200) or
+            (isinstance(path, str) and path.startswith(prefix) and
+             (path[len(prefix):] in ("", "0000") or
+              status not in expected_move_status)) or
+            not (path in allowed or
+                 isinstance(path, str) and path.startswith(prefix))):
+            rejected.append(record)
+    return rejected
+
+
 def run(*, color: str, scenario_id: str, run_id: str):
     if os.getpid() != 1:
         raise RuntimeError("image smoke supervisor must be PID 1; no unrestricted signals")
@@ -277,21 +303,7 @@ def run(*, color: str, scenario_id: str, run_id: str):
         else:
             confirmed = (evidence.get("complete") and
                          outcome["observations"][-1]["observation"] == "complete_confirmed")
-        allowed_posts = {"/api/token/test",
-                         "/api/challenge/off3b001/accept",
-                         "/api/challenge/off3b001/decline"}
-        prefix = "/api/bot/game/off3b001/move/"
-        bad_http = [r for r in records if
-                    r.get("method") == "POST" and
-                    (r.get("status") == 403 or
-                     (r.get("path") in allowed_posts and r.get("status") != 200) or
-                     (isinstance(r.get("path"), str) and r["path"].startswith(prefix)
-                      and r.get("status") not in (
-                          (200, 429) if scenario_id == "R10" else (200,))) or
-                     not (r.get("path") in allowed_posts or
-                          (isinstance(r.get("path"), str) and
-                           r["path"].startswith(prefix) and
-                           r["path"][len(prefix):] not in ("", "0000"))))]
+        bad_http = rejected_http_posts(records, scenario_id)
         if not isinstance(outcome["game"].get("forbidden_attempts"), list) or outcome["game"]["forbidden_attempts"]:
             outcome["runner_errors"].append("server recorded forbidden HTTP attempts")
         outcome["rate_cooldown_verified"] = rate_clean if scenario_id == "R10" else None

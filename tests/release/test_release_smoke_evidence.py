@@ -222,7 +222,9 @@ class PackagedMoveEvidenceTests(unittest.TestCase):
             elif mode == "wrong-request":
                 response["request_id"] = "request-999"
             elif mode == "duplicate":
-                rows.append({**response})
+                hold_index = next(i for i, row in enumerate(rows)
+                                  if row["event"] == "rate_limit_hold_completed")
+                rows.insert(hold_index, dict(response))
             elif mode == "wrong-status":
                 response["status"] = 200
             else:

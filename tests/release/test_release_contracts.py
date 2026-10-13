@@ -103,6 +103,17 @@ class OfflineReleaseContracts(unittest.TestCase):
                         docker.index("COPY deploy/release/ubuntu.sources"))
         self.assertIn("test -s /etc/ssl/certs/ca-certificates.crt",docker)
 
+    def test_pinned_snapshot_retries_are_bounded_without_mirror_fallback(self):
+        docker=(ROOT/"deploy/release/Dockerfile").read_text()
+        self.assertEqual(docker.count("Acquire::Retries=2"),2)
+        self.assertEqual(docker.count("Acquire::https::Timeout=30"),2)
+        self.assertIn("apt-get",docker)
+        self.assertIn("COPY deploy/release/ubuntu.sources",docker)
+        for unsafe in ("--fix-missing", "trusted=yes", "allow-unauthenticated",
+                       "Acquire::https::Verify-Peer=false",
+                       "Acquire::https::Verify-Host=false"):
+            self.assertNotIn(unsafe,docker)
+
     def test_readonly_runtime_requires_separate_replay_bind_mount(self):
         p=json.loads((ROOT/"qualification/release-image-v1.json").read_text())
         runtime=json.loads((ROOT/"deploy/release/runtime-contract.json").read_text())

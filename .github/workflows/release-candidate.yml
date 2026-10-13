@@ -109,10 +109,45 @@ jobs:
           mkdir -p build/test-results/release1
           docker buildx create --driver docker-container --name release1-builder --use
           docker buildx inspect --bootstrap
-          docker buildx build --builder release1-builder --platform linux/amd64 \
+          BUILD_LOG="$RUNNER_TEMP/release1-offline-image-build.log"
+          if docker buildx build --builder release1-builder --platform linux/amd64 \
             --file deploy/release/Dockerfile --build-arg "BASE_IMAGE=$IMAGE_BASE" \
             --metadata-file build/test-results/release1/docker-build-metadata.json \
-            --provenance=false --sbom=false --tag allfather/release1:offline --load .
+            --provenance=false --sbom=false --tag allfather/release1:offline --load . \
+            > "$BUILD_LOG" 2>&1; then
+            tail -n 16 "$BUILD_LOG"
+          else
+            # Store only bounded public package-failure metadata, not raw logs,
+            # images, credentials, or a rewritten/unpinned dependency source.
+            python3 - "$BUILD_LOG" <<'PY'
+          import json, os, re, sys
+          from pathlib import Path
+          lines = Path(sys.argv[1]).read_text(encoding="utf-8", errors="replace").splitlines()
+          snapshot = json.loads(Path("qualification/release-image-v1.json").read_text())["apt_snapshot"]
+          error_lines = [line for line in lines
+                         if any(word in line for word in (
+                             "503  Service Unavailable", "Failed to fetch",
+                             "Unable to fetch", "failed to solve", "ERROR:"))]
+          report = {
+              "schema_version": 1,
+              "stage": "offline-docker-image-build",
+              "source_sha": os.environ["SOURCE_SHA"],
+              "pinned_apt_snapshot": snapshot,
+              "failure_class": ("ubuntu_snapshot_http_503"
+                                if any("503  Service Unavailable" in l for l in lines)
+                                else "docker_build_failure_unclassified"),
+              "diagnostics": [
+                  re.sub(r"\\x1b\\[[0-9;]*m", "", line)[-400:]
+                  for line in error_lines[-12:]],
+              "candidate_qualified": False,
+              "public_bot_release": False,
+          }
+          output = Path("build/test-results/release1/snapshot-acquisition-failure.json")
+          output.write_text(json.dumps(report, indent=2, sort_keys=True) + "\\n")
+          PY
+            tail -n 45 "$BUILD_LOG"
+            exit 1
+          fi
           docker image inspect allfather/release1:offline \
             > build/test-results/release1/docker-inspect.json
           docker run --rm --network none --read-only \

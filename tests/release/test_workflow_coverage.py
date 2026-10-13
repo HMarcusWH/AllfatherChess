@@ -35,5 +35,16 @@ class WorkflowCoverageTests(unittest.TestCase):
             self.assertIn(fragment,command)
 
 
+    def test_offline_oci_export_is_named_and_diagnostics_precede_admission(self):
+        content=(ROOT/".github/workflows/release-candidate.yml").read_text()
+        export=content.split("- name: Export standalone OCI archive",1)[1]
+        self.assertIn("--tag allfather/release1:offline",export)
+        self.assertIn("scripts/inspect-release-oci.py",export)
+        self.assertLess(export.index("scripts/inspect-release-oci.py"),
+                        export.index("scripts/verify-release-oci.py"))
+        self.assertIn("scripts/qualify-release-smoke.py",content)
+        self.assertLess(content.index("scripts/qualify-release-smoke.py"),
+                        content.index("- name: Export standalone OCI archive"))
+
 if __name__=="__main__":
     unittest.main()

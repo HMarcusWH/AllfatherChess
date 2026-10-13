@@ -131,7 +131,7 @@ class OCIProofTests(unittest.TestCase):
     def test_attestation_subject_cannot_name_an_unrelated_image(self):
         with tempfile.TemporaryDirectory() as d:
             archive,meta,inspection=self.fixture(Path(d),bad_subject=True)
-            with self.assertRaisesRegex(ValueError,"unrelated"):
+            with self.assertRaisesRegex(ValueError,"application manifest"):
                 oci.verify_archive(archive,meta,docker_inspect=inspection)
 
     def test_attestation_descriptor_cannot_point_to_other_image(self):
@@ -184,6 +184,20 @@ class OCIProofTests(unittest.TestCase):
                 oci.verify_archive(archive,meta,docker_inspect=inspection)
 
 
+
+    def test_diagnostic_structure_is_not_an_integrity_verdict(self):
+        inspect_spec=importlib.util.spec_from_file_location(
+            "release1_oci_diagnostic",ROOT/"scripts/inspect-release-oci.py")
+        mod=importlib.util.module_from_spec(inspect_spec)
+        inspect_spec.loader.exec_module(mod)
+        with tempfile.TemporaryDirectory() as d:
+            archive,meta,_=self.fixture(Path(d))
+            report=mod.inspect(archive,meta)
+            self.assertFalse(report["integrity_verified"])
+            self.assertEqual(len(report["index_manifests"]),2)
+            attest=report["index_manifests"][1]
+            self.assertEqual(len(attest["layers"]),2)
+            self.assertEqual(attest["layers"][0]["statements"][0]["subject_count"],1)
 
 if __name__=="__main__":
     unittest.main()

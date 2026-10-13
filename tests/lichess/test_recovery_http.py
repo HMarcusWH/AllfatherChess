@@ -161,5 +161,16 @@ class RecoveryHTTPTests(unittest.TestCase):
             fake.close()
 
 
+    def test_every_simulated_move_post_has_correlated_http_request_id(self):
+        _,data=self.run_fault("R02",1)
+        attempts=[r for r in data["transport_trace"] if r["event"]=="move_attempt"]
+        http=[r for r in data["requests"] if
+              r["method"]=="POST" and "/move/" in r["path"]]
+        self.assertTrue(attempts)
+        self.assertEqual(
+            {f"request-{r['seq']}" for r in attempts},
+            {r.get("request_id") for r in http})
+        self.assertTrue(all(r["status"]==200 for r in http))
+
 if __name__ == "__main__":
     unittest.main()

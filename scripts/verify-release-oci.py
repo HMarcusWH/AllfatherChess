@@ -110,47 +110,88 @@ def verify_layer_diff_ids(archive: tarfile.TarFile, members: dict,
     return computed
 
 
+SPDX = "https://spdx.dev/Document"
+SLSA = {"https://slsa.dev/provenance/v0.2", "https://slsa.dev/provenance/v1"}
+STATEMENT = "https://in-toto.io/Statement/v1"
+
+
 def verify_attestation_subjects(attestations: list[dict], image: dict) -> set[str]:
-    """Require each BuildKit statement to refer to the actual target image."""
-    accepted = {image["manifest_digest"], image["config_digest"]}
-    accepted.update(row["digest"] for row in image["layers"])
+    """Independently bind BuildKit's in-toto subjects to the application manifest.
+
+    For an image-level qualification the image config or one component layer is
+    not an acceptable alternative subject. Attestations are NOT signatures.
+    """
+    image_digest = image["manifest_digest"]
     predicates = set()
     require(attestations, "OCI archive has no attestation manifests")
     for item in attestations:
-        descriptor, attestation = item["descriptor"], item["statement"]
+        descriptor, statement = item["descriptor"], item["statement"]
         annotations = descriptor.get("annotations") or {}
         require(annotations.get("vnd.docker.reference.type") == "attestation-manifest"
-                and annotations.get("vnd.docker.reference.digest") ==
-                    image["manifest_digest"],
+                and annotations.get("vnd.docker.reference.digest") == image_digest,
                 "OCI attestation descriptor refers to a different application image")
         platform = descriptor.get("platform") or {}
         require(platform.get("architecture") == "unknown"
                 and platform.get("os") == "unknown",
                 "OCI attestation artifact uses invalid image platform")
-        statements = attestation.get("statements") if isinstance(attestation, dict) else None
+        manifest_subject = item.get("manifest_subject")
+        if manifest_subject is not None:
+            require(isinstance(manifest_subject, dict) and
+                    manifest_subject.get("digest") == image_digest and
+                    manifest_subject.get("mediaType") in (
+                        "application/vnd.oci.image.manifest.v1+json",
+                        "application/vnd.docker.distribution.manifest.v2+json"),
+                    "OCI attestation manifest subject differs from application image")
+        require(item.get("layer_media_type") == "application/vnd.in-toto+json",
+                "unexpected attestation statement layer type")
+        require(isinstance(statement, dict), "OCI attestation statement missing")
+        statements = statement.get("statements")
         if statements is None:
-            statements = [attestation]
+            statements = [statement]
         require(isinstance(statements, list) and bool(statements),
                 "OCI attestation contains no in-toto statements")
-        for statement in statements:
-            require(isinstance(statement, dict) and
-                    isinstance(statement.get("predicateType"), str),
-                    "OCI attestation statement or predicate missing")
-            subjects = statement.get("subject")
+        for row in statements:
+            require(isinstance(row, dict) and row.get("_type") == STATEMENT,
+                    "OCI attestation is not a supported in-toto statement")
+            kind = row.get("predicateType")
+            require(kind == SPDX or kind in SLSA,
+                    "unknown attestation predicate type")
+            subjects = row.get("subject")
             require(isinstance(subjects, list) and bool(subjects),
                     "OCI attestation has no image subjects")
             for subject in subjects:
-                sha = subject.get("digest", {}).get("sha256") if isinstance(subject, dict) else None
-                require(isinstance(sha, str) and
-                        "sha256:" + sha in accepted,
-                        "OCI attestation subject is unrelated to actual image")
-            predicates.add(statement["predicateType"])
-    require(any("spdx" in x.lower() for x in predicates),
-            "required image SBOM attestation not exported")
-    require(any("slsa" in x.lower() for x in predicates),
+                if not isinstance(subject, dict):
+                    raise ValueError("malformed in-toto image subject")
+                digest = subject.get("digest")
+                require(isinstance(subject.get("name"), str) and
+                        bool(subject["name"].strip()) and
+                        isinstance(digest, dict) and
+                        set(digest) == {"sha256"} and
+                        digest["sha256"] == image_digest.removeprefix("sha256:"),
+                        "OCI attestation subject does not name application manifest")
+            predicate = row.get("predicate")
+            require(isinstance(predicate, dict) and bool(predicate),
+                    "OCI attestation predicate document empty")
+            if kind == SPDX:
+                require(isinstance(predicate.get("spdxVersion"), str)
+                        and predicate["spdxVersion"].startswith("SPDX-2.")
+                        and isinstance(predicate.get("SPDXID"), str)
+                        and bool(predicate["SPDXID"]),
+                        "SPDX SBOM predicate lacks document identity")
+            elif kind.endswith("/v1"):
+                require(isinstance(predicate.get("buildDefinition"), dict)
+                        and isinstance(predicate.get("runDetails"), dict),
+                        "SLSA provenance v1 predicate incomplete")
+            else:
+                require(isinstance(predicate.get("builder"), dict)
+                        and isinstance(predicate.get("buildType"), str)
+                        and bool(predicate["buildType"]),
+                        "SLSA provenance v0.2 predicate incomplete")
+            predicates.add(kind)
+    require(SPDX in predicates, "required image SBOM attestation not exported")
+    require(bool(predicates.intersection(SLSA)),
             "required image provenance attestation not exported")
     return predicates
-
 
 def verify_archive(archive: Path, metadata: Path, *, docker_inspect: Path | None = None):
     meta = json.loads(metadata.read_text(encoding="utf-8"))
@@ -230,6 +271,8 @@ def verify_archive(archive: Path, metadata: Path, *, docker_inspect: Path | None
                     content = get(layer["digest"])
                     require(content is not None, "oversized attestation refused")
                     attestations.append({"descriptor":descriptor,
+                                         "manifest_subject":document.get("subject"),
+                                         "layer_media_type":layer.get("mediaType"),
                                          "statement":json.loads(content)})
             elif details.get("architecture") == "amd64" and details.get("os") == "linux":
                 images.append({"manifest_digest":descriptor["digest"],
@@ -261,7 +304,6 @@ def verify_archive(archive: Path, metadata: Path, *, docker_inspect: Path | None
         )
         # BuildKit reports a descriptor digest, not the sha256 of OCI tar bytes.
         accepted_digests = {image["manifest_digest"], index_digest}
-        accepted_digests.update(x.get("digest") for x in index.get("manifests",[]))
         require(reported_manifest in accepted_digests,
                 "BuildKit descriptor digest does not match OCI index or image")
         config=image["config"].get("config") or {}
@@ -283,7 +325,12 @@ def verify_archive(archive: Path, metadata: Path, *, docker_inspect: Path | None
             "buildkit_config_digest_metadata_present": reported_config is not None,
             "independent_loaded_image_digest_verified": inspection is not None,
             "buildkit_digest_kind":("oci-index" if reported_manifest == index_digest
-                                    else "image-or-index-child"),
+                                    else "application-manifest"),
+            "oci_application_identity_verified":True,
+            "oci_attestation_references_verified":True,
+            "oci_sbom_verified":SPDX in predicates,
+            "oci_provenance_verified":bool(predicates.intersection(SLSA)),
+            "oci_layers_verified":True,
             "attestation_predicate_types":sorted(predicates),
             "oci_layers":image["layer_count"],
             "oci_diff_ids_verified":True,

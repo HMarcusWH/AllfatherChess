@@ -45,6 +45,8 @@ def fixture(key):
         rid = f"request-{request['seq']}"
         fault = event("fault_activated",action="rate_limit_429",
                       endpoint="move_post",request_id=rid)
+        event("response_write_completed",status=429,path=path,
+              request_id=rid)
         row = event("rate_limit_hold_completed",action="rate_limit_429")
         row["monotonic_ns"] = fault["monotonic_ns"] + 61_500_000_000
         activations.append({"action":"rate_limit_429","request_id":rid})
@@ -96,7 +98,16 @@ def fixture(key):
             if is_bot:
                 accepted.append({"ply":len(board.move_stack),"uci":uci})
             if scenario=="R02" and is_bot and bot_index==1:
-                event("connection_close_requested",path=qual.MOVE_PREFIX+uci)
+                event("connection_close_requested",path=qual.MOVE_PREFIX+uci,
+                      request_id=rid)
+                guarded.append({"event":"http_unknown_ack","owner_epoch":first,
+                                "game_id":qual.GAME_ID,"endpoint":"move"})
+            elif is_bot:
+                event("response_write_completed",path=qual.MOVE_PREFIX+uci,
+                      request_id=rid,status=200)
+                guarded.append({"event":"http_move_ack_observed",
+                                "owner_epoch":epoch,"game_id":qual.GAME_ID,
+                                "move":uci})
     moves = [m.uci() for m in board.move_stack]
     complete = scenario!="R10"
     observations = (
@@ -120,8 +131,13 @@ def fixture(key):
                    "intents":intents,
                    "games":[{"game_id":qual.GAME_ID,"history_json":json.dumps(moves),
                              "terminal":int(complete)}],
-                   "cooldown":[{"expires":"future"}] if scenario=="R10" else []},
+                   "cooldown":[{"singleton":1,"until_wall":4000000000.0,
+                                "cause":"http429:move"}] if scenario=="R10" else [],
+                   "events":[]},
     }
+    from deploy.lichess.reconcile import position_id
+    for intent in result["journal"]["intents"]:
+        intent["position_id"] = position_id(json.loads(intent["history_json"]))
     seal(result)
     return result
 
@@ -207,6 +223,47 @@ class PackagedMoveEvidenceTests(unittest.TestCase):
                             "status":200,"monotonic_ms":1200})
         with self.assertRaisesRegex(ValueError,"cooldown"):
             qual.verify_smoke(doc,"r10-white")
+
+    def test_r02_completed_success_response_fails(self):
+        doc = fixture("r02-white")
+        close = next(x for x in doc["transport_trace"]
+                     if x["event"] == "connection_close_requested")
+        rid = close["request_id"]
+        close["event"] = "response_write_completed"
+        close["status"] = 200
+        final = doc["transport_trace"][-1]
+        doc["transport_trace"].append({
+            "seq":final["seq"]+1,
+            "monotonic_ns":final["monotonic_ns"]+1_000_000,
+            "event":"connection_close_requested","path":close["path"],
+            "request_id":rid})
+        seal(doc)
+        with self.assertRaisesRegex(ValueError,"lost-ack"):
+            qual.verify_smoke(doc,"r02-white")
+
+    def test_r02_unrelated_completed_responses_are_allowed(self):
+        doc = fixture("r02-white")
+        target = next(g["request_id"] for g in doc["transport_trace"]
+                      if g["event"] == "fault_activated")
+        completed = [r for r in doc["transport_trace"]
+                     if r["event"] == "response_write_completed"
+                     and r.get("request_id") != target]
+        self.assertTrue(completed)
+        self.assertTrue(qual.verify_smoke(doc,"r02-white")["independent_qualified"])
+
+    def test_r02_rejects_missing_unknown_ack_or_successful_ack(self):
+        for mode in ("missing-unknown", "acknowledged"):
+            doc = fixture("r02-white")
+            if mode == "missing-unknown":
+                doc["guard_events"] = [g for g in doc["guard_events"]
+                                       if g["event"] != "http_unknown_ack"]
+            else:
+                doc["guard_events"].append({
+                    "event":"http_move_ack_observed","game_id":qual.GAME_ID,
+                    "owner_epoch":doc["observations"][0]["epoch"],"move":"f2f3"})
+            with self.subTest(mode=mode),self.assertRaisesRegex(ValueError,"lost-ack"):
+                qual.verify_smoke(doc,"r02-white")
+
 
 
 if __name__=="__main__":

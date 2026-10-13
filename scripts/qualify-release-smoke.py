@@ -298,6 +298,7 @@ def verify_smoke(doc: dict, key: str) -> dict:
             require(len(closed) == len(all_closes) ==
                     len(commits_for_request) == len(unknown_ack) ==
                     len(first_submissions) == 1 and
+                    unknown_ack[0].get("endpoint") == "move" and
                     not completed_responses and not acknowledged and
                     commits_for_request[0]["seq"] < closed[0]["seq"] and
                     attempt_index[rid]["seq"] < fault_events[0]["seq"] <

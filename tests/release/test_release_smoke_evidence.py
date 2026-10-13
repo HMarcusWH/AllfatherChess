@@ -241,6 +241,22 @@ class PackagedMoveEvidenceTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,"lost-ack"):
             qual.verify_smoke(doc,"r02-white")
 
+    def test_r02_unknown_ack_must_identify_move_endpoint(self):
+        for mode in ("missing", "challenge", "token", "duplicate"):
+            doc = fixture("r02-white")
+            event = next(g for g in doc["guard_events"]
+                         if g["event"] == "http_unknown_ack")
+            if mode == "missing":
+                del event["endpoint"]
+            elif mode in ("challenge", "token"):
+                event["endpoint"] = mode
+            else:
+                doc["guard_events"].append({
+                    **event, "endpoint": "challenge"})
+            with self.subTest(mode=mode), self.assertRaisesRegex(
+                    ValueError, "lost-ack"):
+                qual.verify_smoke(doc, "r02-white")
+
     def test_r02_unrelated_completed_responses_are_allowed(self):
         doc = fixture("r02-white")
         target = next(g["request_id"] for g in doc["transport_trace"]

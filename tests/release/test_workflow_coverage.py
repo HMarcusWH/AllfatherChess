@@ -45,6 +45,8 @@ class WorkflowCoverageTests(unittest.TestCase):
         self.assertIn("scripts/qualify-release-smoke.py",content)
         self.assertLess(content.index("scripts/qualify-release-smoke.py"),
                         content.index("- name: Export standalone OCI archive"))
+        self.assertIn("--oci-archive build/release1-offline.oci.tar",content)
+        self.assertIn("build/test-results/release1/smoke-verdict.json",content)
 
 if __name__=="__main__":
     unittest.main()

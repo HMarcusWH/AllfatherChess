@@ -36,3 +36,15 @@ Status: code implementation in progress; not evidence of green CI or completed r
 
 Keep draft until all exact-head fast/real-process checks pass and final Codex code/security reviews finish. Preserve failing and incomplete evidence. Do not reduce any chess authority or runtime-budget requirement. Remain offline-only: no license approval, OS/wheel dependency promotion, public image upload, destination-host authorization, real credentials, BOT account conversion, live transport, or playing-strength claim.
 On squash merge, verify new main SHA through the explicit RELEASE-1 main-push workflow.
+
+## PR #71 Codex review and final qualification follow-up
+
+- [P1: image-level in-toto subject](https://github.com/HMarcusWH/AllfatherChess/pull/71#discussion_r4253078059): now accepted only when every subject digest equals the selected application-image manifest, not its config or individual layer. Added config-only/layer-only/empty-subject destructive tests.
+- [P2: BuildKit metadata digest](https://github.com/HMarcusWH/AllfatherChess/pull/71#pullrequestreview-5496871107): only the verified OCI index or selected application manifest can match `containerimage.digest`; an otherwise-valid attestation manifest cannot substitute for the image.
+- [P2: packaged illegal HTTP move attempt](https://github.com/HMarcusWH/AllfatherChess/pull/71#discussion_r4253078070): the fake server now correlates every move request ID with its HTTP status. The image retains its ordered trace and a separate host verifier reconstructs board legality, no-blind-retry, durable intent, R02 and R10 witnesses before aggregate admission.
+
+CI discovered that the untagged OCI archive export lacked BuildKit default image subjects even though the standalone Docker image had an image name. The OCI export now specifies an explicit **local** image tag and records sanitized attestation structure before strict verification. Missing subject evidence is NEVER accepted as a workaround.
+
+The RELEASE-1 host aggregate now also recomputes the actual OCI archive SHA-256 and requires all independent OCI-verifier booleans. Smoke evidence schema 2 replaces incomplete schema 1 for qualification; no producer readiness bit alone can authorize a verdict.
+
+**Status:** this entry records implemented source changes, not successful exact-head OCI integration or an approved code/security review. Fresh final-head tests/reviews and disposition of any new feedback are mandatory before merging. Offline-only/publication-prohibited policy remains unchanged.

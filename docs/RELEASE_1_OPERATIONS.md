@@ -176,3 +176,34 @@ RELEASE-1 also exports only Git-tracked files from the verified
 lichess-bot checkout. Untracked files such as a local `.env` may not
 enter the image regardless of their contents. The CA trust-root bootstrap
 source is bound into the source-attestation inventory.
+
+## Post-merge Codex hardening: source-bound OCI and independent move evidence
+
+PR #71 introduces an explicitly named **local OCI export** (`--tag allfather/release1:offline`).
+The tag is an attestation identity input; the workflow uses `type=oci,dest=...`,
+not a registry push, and never publishes the image or OCI tarball.
+`scripts/inspect-release-oci.py` writes bounded diagnostic-only JSON before
+`scripts/verify-release-oci.py` evaluates the archive. The diagnostic report is
+not an integrity verdict. Image-level in-toto subjects and Docker descriptor
+references must identify the exact selected application manifest, while the
+OCI layers must still match the ordered expanded `config.rootfs.diff_ids`.
+The final aggregate independently binds the generated OCI archive SHA-256.
+
+Each installed-image smoke run now retains evidence schema 2: the ordered
+server transport trace with a canonical SHA-256 digest, request-ID-correlated
+HTTP responses, authoritative board commits, durable SQLite journal and
+guard submission audit. On the CI host, `scripts/qualify-release-smoke.py`
+independently reconstructs move legality, HTTP-attempt uniqueness, accepted
+board history and journal/epoch identities. It also checks R02's real
+lost-ACK restart and R10's complete post-429 observation window and
+account-wide 60-second API cooldown. A producer `ready: true` without those
+independent witnesses is insufficient for qualification.
+
+The host-side report `build/test-results/release1/smoke-verdict.json` and
+bounded OCI descriptor report `oci-attestation-structure.json` are retained
+as non-binary CI diagnostics. No raw OCI archive, executable, private log or
+persistent SQLite replay volume is uploaded by the RELEASE-1 workflow.
+
+**No new release permissions are implied.** OS/wheel reproducibility locks,
+combined license review, destination-host qualification, real Lichess
+transport, public BOT account play and operator approval remain blocked.

@@ -157,9 +157,14 @@ jobs:
           IMAGE_BASE="$(python3 -c 'import json; print(json.load(open("qualification/release-image-v1.json"))["base_image"])')"
           docker buildx build --builder release1-builder --platform linux/amd64 \
             --file deploy/release/Dockerfile --build-arg "BASE_IMAGE=$IMAGE_BASE" \
+            --tag allfather/release1:offline \
             --metadata-file build/test-results/release1/oci-build-metadata.json \
             --provenance=mode=min --sbom=true \
             --output type=oci,dest=build/release1-offline.oci.tar .
+          python3 scripts/inspect-release-oci.py \
+            --archive build/release1-offline.oci.tar \
+            --metadata build/test-results/release1/oci-build-metadata.json \
+            --output build/test-results/release1/oci-attestation-structure.json
           python3 scripts/verify-release-oci.py \
             --archive build/release1-offline.oci.tar \
             --metadata build/test-results/release1/oci-build-metadata.json \

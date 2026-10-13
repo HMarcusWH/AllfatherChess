@@ -195,12 +195,16 @@ class FakeLichess:
                     return False
                 return True
 
-            def record(self, kind: str, path: str, status: int):
+            def record(self, kind: str, path: str, status: int,
+                       request_id: str | None = None):
                 with server.lock:
-                    server.requests.append({
+                    row = {
                         "monotonic_ms": round((time.monotonic() - server.start_time) * 1000),
                         "method": kind, "path": path, "status": status
-                    })
+                    }
+                    if request_id is not None:
+                        row["request_id"] = request_id
+                    server.requests.append(row)
 
             def do_GET(self):
                 if not self.auth():
@@ -314,23 +318,23 @@ class FakeLichess:
                                                 endpoint="move_post", request_id=request_id,
                                                 ply=ply)
                         if action == "drop_before_commit":
-                            self.record("POST", path, 0)
+                            self.record("POST", path, 0, request_id=request_id)
                             return self.drop_connection()
                         if action == "rate_limit_429":
-                            self.record("POST", path, 429)
+                            self.record("POST", path, 429, request_id=request_id)
                             return self.respond(429, {"error": "fault-injected rate limit"})
                         if not server.started or server.finished.is_set():
-                            self.record("POST", path, 409)
+                            self.record("POST", path, 409, request_id=request_id)
                             return self.respond(409, {"error": "game inactive"})
                         if server.board.turn != (server.color == "white"):
-                            self.record("POST", path, 409)
+                            self.record("POST", path, 409, request_id=request_id)
                             return self.respond(409, {"error": "not bot turn"})
                         try:
                             move = chess.Move.from_uci(move_text)
                         except ValueError:
                             move = None
                         if move is None or move not in server.board.legal_moves:
-                            self.record("POST", path, 400)
+                            self.record("POST", path, 400, request_id=request_id)
                             return self.respond(400, {"error": "illegal move"})
                         if action == "low_clock_close":
                             side = "white" if server.board.turn else "black"
@@ -340,7 +344,8 @@ class FakeLichess:
                                      forced_clock_after_ms=(1500 if action == "low_clock_close"
                                                             else None))
                         server.accepted.append({"ply": len(server.board.move_stack), "uci": move.uci()})
-                        self.record("POST", path, 200 if action != "commit_then_504" else 504)
+                        self.record("POST", path, 200 if action != "commit_then_504" else 504,
+                                    request_id=request_id)
                         if not server.finished.is_set():
                             threading.Thread(target=server.opponent_move, daemon=True).start()
                     if action in ("commit_then_close", "low_clock_close", "terminate_bridge"):

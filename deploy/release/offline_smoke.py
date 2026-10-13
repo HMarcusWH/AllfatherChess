@@ -7,6 +7,7 @@ SQLite journal across a real supervised process restart.
 """
 from __future__ import annotations
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -120,7 +121,7 @@ def run(*, color: str, scenario_id: str, run_id: str):
     if output.exists() or output.is_symlink():
         raise RuntimeError("image smoke refuses to reuse a prior game journal")
     output.mkdir(mode=0o700)
-    outcome = {"schema_version": 1, "run_id": run_id, "scenario": scenario_id,
+    outcome = {"schema_version": 2, "run_id": run_id, "scenario": scenario_id,
                "color": color, "observations": [], "runner_errors": [],
                "offline": True, "network_recovery_qualified": False,
                "public_bot_release": False, "ready": False}
@@ -183,6 +184,8 @@ def run(*, color: str, scenario_id: str, run_id: str):
                         if scenario_id == "R10" and activated is not None:
                             if time.monotonic()-activated > 61:
                                 observation = "rate_limited_suspension"
+                                game.trace.record("rate_limit_hold_completed",
+                                                  action="rate_limit_429")
                                 break
                         if proc.poll() is not None:
                             observation = "bridge_exited"
@@ -228,7 +231,13 @@ def run(*, color: str, scenario_id: str, run_id: str):
         }
         outcome["fault"] = evidence.get("fault")
         outcome["http"] = evidence.get("requests")
-        outcome["commits"] = [r for r in evidence.get("transport_trace", [])
+        trace = evidence.get("transport_trace")
+        outcome["transport_trace"] = trace
+        if isinstance(trace, list):
+            raw_trace = json.dumps(trace, sort_keys=True,
+                                   separators=(",", ":"), allow_nan=False).encode()
+            outcome["transport_trace_sha256"] = hashlib.sha256(raw_trace).hexdigest()
+        outcome["commits"] = [r for r in trace or []
                               if r.get("event") == "board_commit"]
         board = chess.Board()
         for move in outcome["game"].get("moves") or []:
@@ -275,6 +284,10 @@ def run(*, color: str, scenario_id: str, run_id: str):
         bad_http = [r for r in records if
                     r.get("method") == "POST" and
                     (r.get("status") == 403 or
+                     (r.get("path") in allowed_posts and r.get("status") != 200) or
+                     (isinstance(r.get("path"), str) and r["path"].startswith(prefix)
+                      and r.get("status") not in (
+                          (200, 429) if scenario_id == "R10" else (200,))) or
                      not (r.get("path") in allowed_posts or
                           (isinstance(r.get("path"), str) and
                            r["path"].startswith(prefix) and

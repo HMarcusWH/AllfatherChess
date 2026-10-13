@@ -1,0 +1,213 @@
+"""Adversarial RELEASE-1 evidence fixtures with legal game and HTTP traces.
+
+A valid evidence graph is constructed first; each negative case mutates a
+single contract property and recomputes the non-authenticating trace digest.
+"""
+from __future__ import annotations
+
+import copy
+import hashlib
+import importlib.util
+import json
+import unittest
+from pathlib import Path
+
+import chess
+
+ROOT = Path(__file__).resolve().parents[2]
+spec = importlib.util.spec_from_file_location(
+    "release_smoke_evidence_qualifier", ROOT / "scripts/qualify-release-smoke.py")
+qual = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(qual)
+
+
+def fixture(key):
+    scenario, color = qual.CASES[key]
+    first, second = "a"*32, "b"*32
+    board = chess.Board()
+    rows, requests, guarded, intents, accepted, commits = [], [], [], [], [], []
+    activations = []
+    def event(kind, **kw):
+        row = {"seq":len(rows)+1, "event":kind,
+               "monotonic_ns":(len(rows)+1)*1_000_000, **kw}
+        rows.append(row)
+        return row
+    requests.extend([
+        {"method":"POST","path":"/api/token/test","status":200,"monotonic_ms":10},
+        {"method":"POST","path":f"/api/challenge/{qual.GAME_ID}/accept",
+         "status":200,"monotonic_ms":20},
+    ])
+    if scenario == "R10":
+        uci, ply = "e2e4", 0
+        path = qual.MOVE_PREFIX + uci
+        request = event("move_attempt",game_id=qual.GAME_ID,
+                        ply_at_receipt=ply,uci=uci,path=path)
+        rid = f"request-{request['seq']}"
+        fault = event("fault_activated",action="rate_limit_429",
+                      endpoint="move_post",request_id=rid)
+        row = event("rate_limit_hold_completed",action="rate_limit_429")
+        row["monotonic_ns"] = fault["monotonic_ns"] + 61_500_000_000
+        activations.append({"action":"rate_limit_429","request_id":rid})
+        requests.append({"method":"POST","path":path,"status":429,
+                         "monotonic_ms":1000,"request_id":rid})
+        guarded.append({"event":"http_move_submission_attempt",
+                        "owner_epoch":first,"game_id":qual.GAME_ID,
+                        "ply":ply,"uci":uci})
+        intents.append({"game_id":qual.GAME_ID,"epoch":first,
+                        "ply_before":ply,"move":uci,"history_json":"[]",
+                        "status":"UNKNOWN_ACK"})
+    else:
+        bot_index = 0
+        for uci in ("f2f3","e7e5","g2g4","d8h4"):
+            ply = len(board.move_stack)
+            before = board.fen()
+            is_bot = board.turn == (color=="white")
+            rid = None
+            epoch = second if scenario=="R02" and bot_index else first
+            if is_bot:
+                path = qual.MOVE_PREFIX + uci
+                a = event("move_attempt",game_id=qual.GAME_ID,uci=uci,
+                          path=path,ply_at_receipt=ply)
+                rid = f"request-{a['seq']}"
+                if scenario=="R02" and bot_index==0:
+                    event("fault_activated",action="commit_then_close",
+                          endpoint="move_post",request_id=rid)
+                    activations.append({"action":"commit_then_close",
+                                        "request_id":rid})
+                requests.append({"method":"POST","path":path,"status":200,
+                                 "monotonic_ms":1000+ply*1000,
+                                 "request_id":rid})
+                intents.append({"game_id":qual.GAME_ID,"epoch":epoch,
+                                "ply_before":ply,"move":uci,
+                                "history_json":json.dumps(
+                                    [m.uci() for m in board.move_stack]),
+                                "status":"CONFIRMED"})
+                guarded.append({"event":"http_move_submission_attempt",
+                                "owner_epoch":epoch,"game_id":qual.GAME_ID,
+                                "ply":ply,"uci":uci})
+                bot_index += 1
+            board.push_uci(uci)
+            c = event("board_commit",game_id=qual.GAME_ID,
+                      origin="allfather" if is_bot else "scripted_opponent",
+                      request_id=rid,uci=uci,ply_before=ply,
+                      ply_after=len(board.move_stack),fen_before=before,
+                      fen_after=board.fen())
+            commits.append(c)
+            if is_bot:
+                accepted.append({"ply":len(board.move_stack),"uci":uci})
+            if scenario=="R02" and is_bot and bot_index==1:
+                event("connection_close_requested",path=qual.MOVE_PREFIX+uci)
+    moves = [m.uci() for m in board.move_stack]
+    complete = scenario!="R10"
+    observations = (
+        [{"phase":1,"epoch":first,"observation":"restart_after_lost_ack"},
+         {"phase":2,"epoch":second,"observation":"complete_confirmed"}]
+        if scenario=="R02" else
+        [{"phase":1,"epoch":first,
+          "observation":"rate_limited_suspension" if scenario=="R10"
+                         else "complete_confirmed"}])
+    result = {
+        "schema_version":2,"run_id":key,"scenario":scenario,"color":color,
+        "offline":True,"public_bot_release":False,"ready":True,
+        "runner_errors":[],"http":requests,"transport_trace":rows,
+        "game":{"game_id":qual.GAME_ID,"color":color,"moves":moves,
+                "accepted":accepted,"complete":complete,
+                "outcome":({"termination":"CHECKMATE"} if complete else None),
+                "forbidden_attempts":[]},
+        "commits":commits,"fault":{"activations":activations},
+        "guard_events":guarded,"observations":observations,
+        "journal":{"owner_epoch":observations[-1]["epoch"],
+                   "intents":intents,
+                   "games":[{"game_id":qual.GAME_ID,"history_json":json.dumps(moves),
+                             "terminal":int(complete)}],
+                   "cooldown":[{"expires":"future"}] if scenario=="R10" else []},
+    }
+    seal(result)
+    return result
+
+
+def seal(value):
+    value["transport_trace_sha256"] = hashlib.sha256(
+        qual.trace_bytes(value["transport_trace"])).hexdigest()
+
+
+class PackagedMoveEvidenceTests(unittest.TestCase):
+    def test_all_four_realistic_cases_have_valid_independent_witnesses(self):
+        for key in qual.CASES:
+            with self.subTest(key=key):
+                result = qual.verify_smoke(fixture(key), key)
+                self.assertTrue(result["independent_qualified"])
+                self.assertFalse(result["public_bot_release"])
+
+    def test_position_illegal_uci_fails_even_when_the_producer_says_ready(self):
+        doc=fixture("r10-white")
+        uci="e7e5"  # syntactically valid, illegal on White's first turn
+        doc["transport_trace"][0]["uci"]=uci
+        doc["transport_trace"][0]["path"]=qual.MOVE_PREFIX+uci
+        doc["http"][-1]["path"]=qual.MOVE_PREFIX+uci
+        doc["journal"]["intents"][0]["move"]=uci
+        doc["guard_events"][0]["uci"]=uci
+        seal(doc)
+        with self.assertRaisesRegex(ValueError,"position-illegal"):
+            qual.verify_smoke(doc,"r10-white")
+
+    def test_duplicate_submission_fails_independently_of_journal_status(self):
+        doc=fixture("r10-white")
+        final=doc["transport_trace"][-1]
+        doc["transport_trace"].append({
+            "seq":final["seq"]+1,"monotonic_ns":final["monotonic_ns"]+1_000_000,
+            "event":"move_attempt","game_id":qual.GAME_ID,
+            "ply_at_receipt":0,"uci":"e2e4","path":qual.MOVE_PREFIX+"e2e4"})
+        seal(doc)
+        with self.assertRaisesRegex(ValueError,"repeated intent"):
+            qual.verify_smoke(doc,"r10-white")
+
+    def test_unattributed_http_move_and_illegal_rejection_fail(self):
+        for mutation in ("unknown-request","unexpected-status"):
+            doc=fixture("r00-white")
+            if mutation=="unknown-request":
+                doc["http"].append({"method":"POST",
+                    "path":qual.MOVE_PREFIX+"e7e5",
+                    "status":400,"monotonic_ms":6000,
+                    "request_id":"request-999"})
+            else:
+                doc["http"][2]["status"]=400
+            with self.subTest(mutation=mutation),self.assertRaises(ValueError):
+                qual.verify_smoke(doc,"r00-white")
+
+    def test_forged_trace_digest_or_commit_result_fails(self):
+        doc=fixture("r00-black")
+        doc["transport_trace"][0]["uci"]="a7a5"
+        with self.assertRaisesRegex(ValueError,"trace digest"):
+            qual.verify_smoke(doc,"r00-black")
+        doc=fixture("r00-black")
+        doc["commits"].pop()
+        with self.assertRaisesRegex(ValueError,"commit extract"):
+            qual.verify_smoke(doc,"r00-black")
+
+    def test_r02_recovery_requires_a_distinct_confirmed_epoch(self):
+        doc=fixture("r02-white")
+        doc["observations"][1]["epoch"]=doc["observations"][0]["epoch"]
+        doc["journal"]["owner_epoch"]=doc["observations"][0]["epoch"]
+        with self.assertRaisesRegex(ValueError,"new-epoch"):
+            qual.verify_smoke(doc,"r02-white")
+
+    def test_r10_requires_complete_monotonic_observation(self):
+        doc=fixture("r10-white")
+        final=doc["transport_trace"][-1]
+        fault=doc["transport_trace"][1]
+        final["monotonic_ns"]=fault["monotonic_ns"]+59_000_000_000
+        seal(doc)
+        with self.assertRaisesRegex(ValueError,"61 seconds"):
+            qual.verify_smoke(doc,"r10-white")
+
+    def test_r10_rejects_all_api_requests_during_cooldown(self):
+        doc=fixture("r10-white")
+        doc["http"].append({"method":"GET","path":"/api/account/playing",
+                            "status":200,"monotonic_ms":1200})
+        with self.assertRaisesRegex(ValueError,"cooldown"):
+            qual.verify_smoke(doc,"r10-white")
+
+
+if __name__=="__main__":
+    unittest.main()

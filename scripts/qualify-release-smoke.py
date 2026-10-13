@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import sqlite3
 from pathlib import Path
 from urllib.parse import unquote
 
@@ -255,12 +256,37 @@ def verify_smoke(doc: dict, key: str) -> dict:
         if scenario == "R02":
             closed = [r for r in trace if
                       r.get("event") == "connection_close_requested"
-                      and r.get("path") == attempt_index[rid]["path"] and
+                      and r.get("request_id") == rid and
+                      r.get("path") == attempt_index[rid]["path"] and
                       r["seq"] > fault_events[0]["seq"]]
+            all_closes = [r for r in trace if
+                          r.get("event") == "connection_close_requested" and
+                          r.get("path") == attempt_index[rid]["path"]]
+            completed_responses = [r for r in trace if
+                                   r.get("event") == "response_write_completed" and
+                                   r.get("request_id") == rid]
             commits_for_request = [r for r in commits if
                                    r.get("request_id") == rid]
-            require(len(closed) == len(commits_for_request) == 1 and
+            first_epoch = phases[0]["epoch"] if phases else None
+            unknown_ack = [g for g in guarded if isinstance(g, dict) and
+                           g.get("event") == "http_unknown_ack" and
+                           g.get("game_id") == GAME_ID and
+                           g.get("owner_epoch") == first_epoch]
+            acknowledged = [g for g in guarded if isinstance(g, dict) and
+                            g.get("event") == "http_move_ack_observed" and
+                            g.get("game_id") == GAME_ID and
+                            g.get("owner_epoch") == first_epoch and
+                            g.get("move") == attempt_index[rid]["uci"]]
+            first_submissions = [g for g in guarded_submissions if
+                                 g.get("game_id") == GAME_ID and
+                                 g.get("owner_epoch") == first_epoch]
+            require(len(closed) == len(all_closes) ==
+                    len(commits_for_request) == len(unknown_ack) ==
+                    len(first_submissions) == 1 and
+                    not completed_responses and not acknowledged and
                     commits_for_request[0]["seq"] < closed[0]["seq"] and
+                    attempt_index[rid]["seq"] < fault_events[0]["seq"] <
+                    commits_for_request[0]["seq"] and
                     len(phases) == 2 and
                     phases[0].get("observation") == "restart_after_lost_ack" and
                     phases[1].get("observation") == "complete_confirmed" and
@@ -298,11 +324,75 @@ def verify_smoke(doc: dict, key: str) -> dict:
             "public_bot_release": False, "release_blocked": True}
 
 
+def verify_persisted_sqlite(folder: Path, journal: dict) -> dict:
+    """Independently verify committed on-disk state, including live WAL entries.
+
+    A producer's JSON snapshot is never authoritative. This is a consistency
+    check against persisted SQLite, not protection against a writer able to
+    rewrite both the database and evidence.
+    """
+    state = folder / "state"
+    db = state / "move-journal.sqlite3"
+    require(folder.is_dir() and not folder.is_symlink() and
+            not folder.parent.is_symlink() and
+            state.is_dir() and not state.is_symlink() and
+            db.is_file() and not db.is_symlink(),
+            "persisted SQLite journal absent or linked")
+    for suffix in ("-wal", "-shm"):
+        sidecar = state / ("move-journal.sqlite3" + suffix)
+        require(not sidecar.is_symlink(),
+                "persisted SQLite sidecar cannot be a symlink")
+    require(db.stat().st_size <= 256 * 1024 * 1024,
+            "persisted SQLite exceeds bounded verification size")
+    require(type(journal) is dict, "persisted SQLite snapshot absent")
+    connection = sqlite3.connect(
+        db.resolve(strict=True).as_uri() + "?mode=ro",
+        uri=True, isolation_level=None, timeout=5)
+    connection.row_factory = sqlite3.Row
+    try:
+        connection.execute("PRAGMA query_only=ON")
+        connection.execute("BEGIN")  # consistent view of the main file and WAL
+        try:
+            require([tuple(r) for r in connection.execute(
+                "PRAGMA integrity_check")] == [("ok",)],
+                "persisted SQLite integrity check failed")
+            owner = connection.execute(
+                "SELECT epoch FROM owner WHERE singleton=1").fetchone()
+            require(owner is not None and
+                    owner["epoch"] == journal.get("owner_epoch"),
+                    "SQLite owner epoch differs from JSON snapshot")
+            queries = {
+                "games": "SELECT * FROM games ORDER BY game_id",
+                "intents": "SELECT * FROM intents ORDER BY game_id,ply_before",
+                "cooldown": "SELECT * FROM cooldown ORDER BY singleton",
+                "events": "SELECT * FROM events ORDER BY event_id",
+            }
+            observed = {name: [dict(row) for row in connection.execute(query)]
+                        for name, query in queries.items()}
+            for name, rows in observed.items():
+                require(type(journal.get(name)) is list and
+                        rows == journal[name],
+                        "SQLite persisted " + name + " differs from JSON snapshot")
+        finally:
+            connection.execute("ROLLBACK")
+    finally:
+        connection.close()
+    return {"persisted_sqlite_verified": True,
+            "durable_events": len(observed["events"]),
+            "durable_intents": len(observed["intents"])}
+
+
 def verify_file(path: Path, key: str) -> dict:
     require(path.is_file() and not path.is_symlink() and
             path.stat().st_size <= MAX_EVIDENCE_BYTES,
             "packaged smoke evidence absent, linked or oversized")
-    return verify_smoke(json.loads(path.read_text(encoding="utf-8")), key)
+    doc = json.loads(path.read_text(encoding="utf-8"))
+    require(type(doc) is dict and type(doc.get("journal")) is dict,
+            "packaged smoke durable journal snapshot missing")
+    persisted = verify_persisted_sqlite(path.parent, doc["journal"])
+    verdict = verify_smoke(doc, key)
+    verdict.update(persisted)
+    return verdict
 
 
 def qualify_directory(root: Path) -> dict:
@@ -310,7 +400,8 @@ def qualify_directory(root: Path) -> dict:
     for key in CASES:
         try:
             results[key] = verify_file(root / key / "result.json", key)
-        except (OSError, ValueError, KeyError, TypeError, IndexError) as exc:
+        except (OSError, ValueError, KeyError, TypeError, IndexError,
+                sqlite3.DatabaseError) as exc:
             failures.append({"scenario": key,
                              "error": type(exc).__name__ + ": " + str(exc)})
     return {"schema_version": 1, "offline_smoke_qualified": not failures and

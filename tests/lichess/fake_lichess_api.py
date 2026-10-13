@@ -69,13 +69,18 @@ class FakeLichess:
                 self.wfile.write(data)
                 self.wfile.flush()
                 if server.trace is not None:
+                    identity = getattr(self, "_move_request_id", None)
                     server.trace.record("response_write_completed", status=status,
-                                        path=urllib.parse.urlparse(self.path).path)
+                                        path=urllib.parse.urlparse(self.path).path,
+                                        **({"request_id": identity} if identity else {}))
 
             def drop_connection(self):
                 """An intentional server-side close, not proof of what the client read."""
-                server.trace and server.trace.record("connection_close_requested",
-                                                      path=urllib.parse.urlparse(self.path).path)
+                if server.trace is not None:
+                    identity = getattr(self, "_move_request_id", None)
+                    server.trace.record("connection_close_requested",
+                                        path=urllib.parse.urlparse(self.path).path,
+                                        **({"request_id": identity} if identity else {}))
                 self.close_connection = True
                 try:
                     self.connection.shutdown(socket.SHUT_RDWR)
@@ -207,6 +212,7 @@ class FakeLichess:
                     server.requests.append(row)
 
             def do_GET(self):
+                self._move_request_id = None  # never reuse an HTTP/1.1 request identity
                 if not self.auth():
                     return
                 path = urllib.parse.urlparse(self.path).path
@@ -261,6 +267,7 @@ class FakeLichess:
                 return self.respond(403, {"error": "offline route prohibited"})
 
             def do_POST(self):
+                self._move_request_id = None  # reset on every request, even on reused sockets
                 if not self.auth():
                     return
                 # requests.Session reuses HTTP/1.1 connections. POST bodies
@@ -311,6 +318,7 @@ class FakeLichess:
                             seq = server.trace.record("move_attempt", path=path, uci=move_text,
                                                       game_id=GAME_ID, ply_at_receipt=ply)
                             request_id = f"request-{seq}"
+                            self._move_request_id = request_id
                         action = (server.fault.hit("move_post", ply=ply, request_id=request_id)
                                   if server.fault is not None else None)
                         if action:

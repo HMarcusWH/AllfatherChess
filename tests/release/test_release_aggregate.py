@@ -28,6 +28,8 @@ class ReleaseAggregateContracts(unittest.TestCase):
         self.root = Path(temp.name)
         self.stage = self.root / "stage"
         self.oci = self.root / "oci.json"
+        self.oci_archive = self.root / "image.oci.tar"
+        self.oci_archive.write_bytes(b"synthetic verified offline archive")
         self.host = self.root / "host.json"
         self.smoke_dir = self.root / "smoke"
         self.os_inventory = self.root / "os.txt"
@@ -62,7 +64,7 @@ class ReleaseAggregateContracts(unittest.TestCase):
             "publisher_signature_verified": False,
             "oci_image_manifest_digest": "sha256:" + "c" * 64,
             "oci_config_digest": "sha256:" + "d" * 64,
-            "oci_archive_sha256": "e" * 64,
+            "oci_archive_sha256": aggregate.digest(self.oci_archive),
         })
         write_json(self.host, {
             "test_host_observed": True,
@@ -99,7 +101,8 @@ class ReleaseAggregateContracts(unittest.TestCase):
         raise AssertionError("unexpected git command")
 
     def qualify(self, **overrides):
-        arguments = dict(stage=self.stage, oci=self.oci, host=self.host,
+        arguments = dict(stage=self.stage, oci=self.oci,
+                         oci_archive=self.oci_archive, host=self.host,
                          smoke_dir=self.smoke_dir, os_inventory=self.os_inventory,
                          wheel_inventory=self.wheel_inventory, source_sha=self.source,
                          root=self.root)
@@ -240,10 +243,17 @@ class ReleaseAggregateContracts(unittest.TestCase):
                  side_effect=ValueError("illegal request in independently replayed trace")):
             with self.assertRaisesRegex(ValueError,"illegal request"):
                 aggregate.qualify(
-                    stage=self.stage,oci=self.oci,host=self.host,
+                    stage=self.stage,oci=self.oci,
+                    oci_archive=self.oci_archive,host=self.host,
                     smoke_dir=self.smoke_dir,os_inventory=self.os_inventory,
                     wheel_inventory=self.wheel_inventory,source_sha=self.source,
                     root=self.root)
+
+
+    def test_verifier_report_must_match_actual_oci_archive_bytes(self):
+        self.oci_archive.write_bytes(b"tampered OCI archive")
+        with self.assertRaisesRegex(ValueError,"OCI archive identity"):
+            self.qualify()
 
 
 if __name__ == "__main__":

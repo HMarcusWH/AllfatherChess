@@ -183,6 +183,7 @@ jobs:
           python3 scripts/qualify-release-aggregate.py \
             --stage build/release1-stage \
             --oci build/test-results/release1/oci-report.json \
+            --oci-archive build/release1-offline.oci.tar \
             --host build/test-results/release1/host-report.json \
             --smoke-dir build/test-results/release1-volume \
             --os-inventory build/test-results/release1/os-packages.txt \

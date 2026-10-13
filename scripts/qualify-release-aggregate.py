@@ -57,7 +57,7 @@ def check_smoke_evidence(path:Path, key:str) -> dict:
     return mod.verify_file(path,key)
 
 
-def qualify(*, stage:Path, oci:Path, host:Path, smoke_dir:Path,
+def qualify(*, stage:Path, oci:Path, oci_archive:Path, host:Path, smoke_dir:Path,
             os_inventory:Path, wheel_inventory:Path, source_sha:str, root:Path=ROOT):
     source= subprocess.check_output(["git","-C",str(root),"rev-parse","HEAD"],
                                     text=True).strip()
@@ -92,6 +92,9 @@ def qualify(*, stage:Path, oci:Path, host:Path, smoke_dir:Path,
                 "invalid OCI "+key)
     require(is_sha256_hex(oci_report.get("oci_archive_sha256")),
             "invalid OCI archive SHA-256 digest")
+    require(oci_archive.is_file() and not oci_archive.is_symlink() and
+            digest(oci_archive) == oci_report["oci_archive_sha256"],
+            "OCI archive identity does not match independently verified report")
     require(host_report["destination_host_qualified"] is False and
             host_report["test_host_observed"] is True,
             "host admission attempted to promote CI runner")
@@ -193,6 +196,7 @@ def main():
     p=argparse.ArgumentParser()
     p.add_argument("--stage",type=Path,required=True)
     p.add_argument("--oci",type=Path,required=True)
+    p.add_argument("--oci-archive",type=Path,required=True)
     p.add_argument("--host",type=Path,required=True)
     p.add_argument("--smoke-dir",type=Path,required=True)
     p.add_argument("--os-inventory",type=Path,required=True)
@@ -201,7 +205,7 @@ def main():
     p.add_argument("--output",type=Path,required=True)
     a=p.parse_args()
     try:
-        report=qualify(stage=a.stage,oci=a.oci,host=a.host,
+        report=qualify(stage=a.stage,oci=a.oci,oci_archive=a.oci_archive,host=a.host,
                        smoke_dir=a.smoke_dir,os_inventory=a.os_inventory,
                        wheel_inventory=a.wheel_inventory,source_sha=a.source_sha)
         a.output.parent.mkdir(parents=True,exist_ok=True)

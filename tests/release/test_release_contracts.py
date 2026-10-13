@@ -109,10 +109,13 @@ class OfflineReleaseContracts(unittest.TestCase):
         self.assertEqual(docker.count("Acquire::https::Timeout=30"),2)
         self.assertIn("apt-get",docker)
         self.assertIn("COPY deploy/release/ubuntu.sources",docker)
+        instructions = "\n".join(
+            line for line in docker.splitlines()
+            if not line.lstrip().startswith("#"))
         for unsafe in ("--fix-missing", "trusted=yes", "allow-unauthenticated",
                        "Acquire::https::Verify-Peer=false",
                        "Acquire::https::Verify-Host=false"):
-            self.assertNotIn(unsafe,docker)
+            self.assertNotIn(unsafe,instructions)
 
     def test_readonly_runtime_requires_separate_replay_bind_mount(self):
         p=json.loads((ROOT/"qualification/release-image-v1.json").read_text())

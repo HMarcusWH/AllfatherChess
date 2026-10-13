@@ -261,6 +261,12 @@ class PackagedMoveEvidenceTests(unittest.TestCase):
                     ValueError, "client guard"):
                 qual.verify_smoke(doc,"r10-white")
 
+    def test_r10_malformed_cooldown_row_fails_as_a_qualification_error(self):
+        doc = fixture("r10-white")
+        doc["journal"]["cooldown"] = [None]
+        with self.assertRaisesRegex(ValueError, "durable 429"):
+            qual.verify_smoke(doc, "r10-white")
+
     def test_r10_rejects_durable_intent_without_unknown_ack(self):
         doc = fixture("r10-white")
         doc["journal"]["intents"][0]["status"] = "ACK_OBSERVED"

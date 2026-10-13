@@ -349,6 +349,7 @@ def verify_smoke(doc: dict, key: str) -> dict:
             target_intent = by_ply[attempt_index[rid]["ply_at_receipt"]]
             require(target_intent.get("status") == "UNKNOWN_ACK" and
                     len(journal["cooldown"]) == 1 and
+                    isinstance(journal["cooldown"][0], dict) and
                     journal["cooldown"][0].get("cause") == "http429:move",
                     "R10 durable 429 intent/cooldown evidence invalid")
             hold = [r for r in trace if

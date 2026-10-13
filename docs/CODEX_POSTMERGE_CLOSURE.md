@@ -65,3 +65,20 @@ The RELEASE-1 host aggregate now also recomputes the actual OCI archive SHA-256 
 The prior illegal POST and image-manifest subject protections remain enforced. These changes are local qualification and provenance controls, not move-search or HYBRID authorization changes.
 
 **Merge hold:** Do not merge PR #71 until final-head fast contracts, RELEASE-1 real OCI and packaged games, all ONLINE/LOCAL/LC0 checks, and fresh code/security review are green; no public deployment or licensing grant.
+
+## PR #71 final follow-up — four new P2 findings and external build blocker
+
+The Codex review of `d75f10e976decd80c4c0f0c8e74296fbb65751cc` identified four actionable P2 evidence gaps. The following remedies and destructive fixtures were staged in the existing draft branch; **do not mark these findings closed until final-head tests, actual packaged-OCI evidence and review succeed**.
+
+| Codex finding | Source repair | Negative proof fixture |
+|---|---|---|
+| [Application platform](https://github.com/HMarcusWH/AllfatherChess/pull/71#discussion_r4263102073) | `scripts/verify-release-oci.py` requires a runnable nested-index descriptor to advertise `linux/amd64` consistent with its config. An optional explicit flat-manifest platform must also match. | Wrong OS, wrong architecture, absent nested platform, malformed platform; legitimate flat omission remains supported. |
+| [Attestation subject size](https://github.com/HMarcusWH/AllfatherChess/pull/71#discussion_r4263102056) | A present OCI attestation manifest `subject` must equal the independently verified application-manifest descriptor's digest, media type and integer byte size. | Missing, boolean, floating, negative, incorrect sizes and wrong media type, with rehashed parent blobs; valid optional subject accepted. |
+| [R02 unknown ACK endpoint](https://github.com/HMarcusWH/AllfatherChess/pull/71#discussion_r4263102049) | First-epoch unique `http_unknown_ack` must explicitly have `endpoint="move"` and match the game/owner. | Missing/wrong endpoint and duplicate conflicting unknown ACK. |
+| [R10 client-observed HTTP 429](https://github.com/HMarcusWH/AllfatherChess/pull/71#discussion_r4263102061) | Require the targeted completed 429 response (request/path/status/order), exactly one first-epoch `global_rate_limit_block` at endpoint `move`, and the persisted `UNKNOWN_ACK` intent with `http429:move` cooldown. | Missing, unrelated, duplicate, premature or wrong-status response; absent/misowned/wrong-endpoint guard and wrong durable intent. |
+
+An older [illegal-POST review](https://github.com/HMarcusWH/AllfatherChess/pull/71#discussion_r4253078070) receives a direct producer-side negative test alongside existing host-side chess legality checks: an otherwise completed game with a 400 illegal-move response cannot set `ready` to true.
+
+**RELEASE-1 previous exact-head failure:** Docker's pinned Ubuntu snapshot `20261001T000000Z` returned HTTP 503 while downloading native packages, before OCI export or packaged smoke testing. The Dockerfile now uses bounded APT acquisition retries/timeouts against the **same GPG-verified snapshot**. The workflow retains a small, failure-only structured report and exits nonzero if the build remains unavailable. No fallback mirror, floating repository, unsigned package or publication permission was added.
+
+The proof obligation remains eleven required exact-head workflows green, genuine standalone OCI SBOM/provenance verified, all four installed-image scenarios qualified against real SQLite, final Codex code/security review with no actionable findings, and explicit disposition of the remaining prior review threads. No online play or public distribution grant is part of this PR.

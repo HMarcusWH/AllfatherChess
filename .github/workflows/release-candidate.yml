@@ -137,13 +137,13 @@ jobs:
                                 if any("503  Service Unavailable" in l for l in lines)
                                 else "docker_build_failure_unclassified"),
               "diagnostics": [
-                  re.sub(r"\\x1b\\[[0-9;]*m", "", line)[-400:]
+                  re.sub(r"\x1b\[[0-9;]*m", "", line)[-400:]
                   for line in error_lines[-12:]],
               "candidate_qualified": False,
               "public_bot_release": False,
           }
           output = Path("build/test-results/release1/snapshot-acquisition-failure.json")
-          output.write_text(json.dumps(report, indent=2, sort_keys=True) + "\\n")
+          output.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
           PY
             tail -n 45 "$BUILD_LOG"
             exit 1

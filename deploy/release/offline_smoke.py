@@ -114,13 +114,14 @@ def rejected_http_posts(records: list[dict], scenario_id: str) -> list[dict]:
         if record.get("method") != "POST":
             continue
         path, status = record.get("path"), record.get("status")
+        authorized_nonmove = isinstance(path, str) and path in allowed
+        move_endpoint = isinstance(path, str) and path.startswith(prefix)
         if (type(status) is not int or
-            (path in allowed and status != 200) or
-            (isinstance(path, str) and path.startswith(prefix) and
+            (authorized_nonmove and status != 200) or
+            (move_endpoint and
              (path[len(prefix):] in ("", "0000") or
               status not in expected_move_status)) or
-            not (path in allowed or
-                 isinstance(path, str) and path.startswith(prefix))):
+            not (authorized_nonmove or move_endpoint)):
             rejected.append(record)
     return rejected
 

@@ -349,6 +349,21 @@ class OCIProofTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "SLSA"):
                     oci.verify_archive(archive, meta, docker_inspect=inspection)
 
+    def test_diagnostic_reports_optional_subject_declared_and_actual_sizes(self):
+        inspect_spec = importlib.util.spec_from_file_location(
+            "release1_oci_diag_subject", ROOT/"scripts/inspect-release-oci.py")
+        mod = importlib.util.module_from_spec(inspect_spec)
+        inspect_spec.loader.exec_module(mod)
+        with tempfile.TemporaryDirectory() as d:
+            archive, metadata, _ = self.fixture(
+                Path(d), manifest_subject_kind="image")
+            report = mod.inspect(archive, metadata)
+            self.assertFalse(report["integrity_verified"])
+            att = report["index_manifests"][0]["children"][1]
+            self.assertEqual(att["subject_declared_size"],
+                             att["subject_actual_size"])
+            self.assertGreater(att["subject_actual_size"],0)
+
     def test_diagnostic_structure_is_not_an_integrity_verdict(self):
         inspect_spec=importlib.util.spec_from_file_location(
             "release1_oci_diagnostic",ROOT/"scripts/inspect-release-oci.py")

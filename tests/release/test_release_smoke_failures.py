@@ -31,6 +31,9 @@ class SmokeFailureTests(unittest.TestCase):
                                                      scenario)
                 self.assertEqual(rejected,[illegal_status])
                 self.assertFalse(not rejected)  # producer ready requires no bad_http
+        invalid_path = {"method":"POST","path":["bad"],"status":200}
+        self.assertEqual(smoke.rejected_http_posts(valid+[invalid_path],"R00"),
+                         [invalid_path])
 
     def test_unexpected_exception_cannot_be_swallowed_by_finally(self):
         class BrokenServer:

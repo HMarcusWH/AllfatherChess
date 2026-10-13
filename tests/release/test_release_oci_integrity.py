@@ -27,7 +27,9 @@ def sha(body):
 
 class OCIProofTests(unittest.TestCase):
     def fixture(self, target:Path, *, replace_layer=False, bad_subject=False,
-                bad_reference=False, corrupt_rootfs=False):
+                bad_reference=False, corrupt_rootfs=False, subject_kind="image",
+                metadata_kind="application", manifest_subject_kind="none",
+                invalid_predicate=False):
         base=b"original uncompressed OCI application layer\n"
         expanded=(b"substituted uncompressed OCI application layer\n"
                   if replace_layer else base)
@@ -53,17 +55,35 @@ class OCIProofTests(unittest.TestCase):
         att_config=store(encode({"architecture":"unknown","os":"unknown"}))
         att_layers=[]
         for predicate in ("https://spdx.dev/Document","https://slsa.dev/provenance/v1"):
-            subject="f"*64 if bad_subject else application[7:]
+            subject=({"image":application[7:],"config":config[7:],
+                      "layer":tar_layer[7:],"empty":None}[subject_kind])
+            if bad_subject:
+                subject="f"*64
+            body=({"SPDXID":"SPDXRef-DOCUMENT","spdxVersion":"SPDX-2.3"}
+                  if "spdx" in predicate else
+                  {"buildDefinition":{"buildType":"https://mobyproject.org/buildkit@v1"},
+                   "runDetails":{"builder":{"id":"synthetic"}}})
+            if invalid_predicate:
+                body={"schema_version":1}
             data=encode({"_type":"https://in-toto.io/Statement/v1",
                          "predicateType":predicate,
-                         "subject":[{"name":"offline-fixture",
-                                     "digest":{"sha256":subject}}],
-                         "predicate":{"schema_version":1}})
+                         "subject":([] if subject is None else
+                                    [{"name":"offline-fixture",
+                                      "digest":{"sha256":subject}}]),
+                         "predicate":body})
             oid=store(data)
             att_layers.append({"mediaType":"application/vnd.in-toto+json","digest":oid})
-        att_manifest=store(encode({"schemaVersion":2,
-            "config":{"mediaType":"application/vnd.oci.image.config.v1+json",
-                      "digest":att_config},"layers":att_layers}))
+        manifest_subject=(None if manifest_subject_kind=="none" else {
+            "mediaType":"application/vnd.oci.image.manifest.v1+json",
+            "digest":application if manifest_subject_kind=="image"
+                     else "sha256:"+"f"*64})
+        att_data={"schemaVersion":2,
+                  "config":{"mediaType":"application/vnd.oci.image.config.v1+json",
+                            "digest":att_config},
+                  "layers":att_layers}
+        if manifest_subject is not None:
+            att_data["subject"]=manifest_subject
+        att_manifest=store(encode(att_data))
         index=encode({"schemaVersion":2,
             "mediaType":"application/vnd.oci.image.index.v1+json",
             "manifests":[
@@ -84,7 +104,11 @@ class OCIProofTests(unittest.TestCase):
                 info.size=len(body)
                 out.addfile(info,io.BytesIO(body))
         meta=target/"metadata.json"
-        meta.write_text(json.dumps({"containerimage.digest":application}))
+        meta.write_text(json.dumps({
+            "image.name":"docker.io/allfather/release1:offline",
+            "containerimage.digest":(
+                att_manifest if metadata_kind=="attestation" else
+                sha(index) if metadata_kind=="index" else application)}))
         inspected=target/"docker-inspect.json"
         inspected.write_text(json.dumps({"Id":config,"Architecture":"amd64"}))
         return archive,meta,inspected
@@ -121,6 +145,44 @@ class OCIProofTests(unittest.TestCase):
             archive,meta,inspection=self.fixture(Path(d),corrupt_rootfs=True)
             with self.assertRaisesRegex(ValueError,"rootfs.diff_ids"):
                 oci.verify_archive(archive,meta,docker_inspect=inspection)
+
+
+    def test_config_and_layer_subjects_cannot_authorize_image(self):
+        for kind in ("config","layer","empty"):
+            with self.subTest(kind=kind),tempfile.TemporaryDirectory() as d:
+                archive,meta,inspection=self.fixture(Path(d),subject_kind=kind)
+                with self.assertRaisesRegex(ValueError,
+                        "subjects|application manifest"):
+                    oci.verify_archive(archive,meta,docker_inspect=inspection)
+
+    def test_index_digest_is_a_valid_metadata_reference(self):
+        with tempfile.TemporaryDirectory() as d:
+            archive,meta,inspection=self.fixture(Path(d),metadata_kind="index",
+                                                  manifest_subject_kind="image")
+            report=oci.verify_archive(archive,meta,docker_inspect=inspection)
+            self.assertEqual(report["buildkit_digest_kind"],"oci-index")
+            self.assertTrue(report["oci_attestation_references_verified"])
+
+    def test_attestation_descriptor_digest_is_not_image_metadata(self):
+        with tempfile.TemporaryDirectory() as d:
+            archive,meta,inspection=self.fixture(Path(d),
+                                                  metadata_kind="attestation")
+            with self.assertRaisesRegex(ValueError,"BuildKit descriptor digest"):
+                oci.verify_archive(archive,meta,docker_inspect=inspection)
+
+    def test_attestation_manifest_subject_must_match_image(self):
+        with tempfile.TemporaryDirectory() as d:
+            archive,meta,inspection=self.fixture(Path(d),
+                                                  manifest_subject_kind="wrong")
+            with self.assertRaisesRegex(ValueError,"manifest subject"):
+                oci.verify_archive(archive,meta,docker_inspect=inspection)
+
+    def test_garbled_predicate_cannot_claim_sbom_or_provenance(self):
+        with tempfile.TemporaryDirectory() as d:
+            archive,meta,inspection=self.fixture(Path(d),invalid_predicate=True)
+            with self.assertRaisesRegex(ValueError,"predicate"):
+                oci.verify_archive(archive,meta,docker_inspect=inspection)
+
 
 
 if __name__=="__main__":

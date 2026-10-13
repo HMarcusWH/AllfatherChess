@@ -55,6 +55,8 @@ def fixture(key):
         guarded.append({"event":"http_move_submission_attempt",
                         "owner_epoch":first,"game_id":qual.GAME_ID,
                         "ply":ply,"uci":uci})
+        guarded.append({"event":"global_rate_limit_block",
+                        "owner_epoch":first,"endpoint":"move","status":429})
         intents.append({"game_id":qual.GAME_ID,"epoch":first,
                         "ply_before":ply,"move":uci,"history_json":"[]",
                         "status":"UNKNOWN_ACK"})
@@ -207,6 +209,61 @@ class PackagedMoveEvidenceTests(unittest.TestCase):
         doc["journal"]["owner_epoch"]=doc["observations"][0]["epoch"]
         with self.assertRaisesRegex(ValueError,"new-epoch"):
             qual.verify_smoke(doc,"r02-white")
+
+    def test_r10_requires_correlated_completed_server_429(self):
+        for mode in ("missing", "wrong-request", "duplicate", "wrong-status",
+                     "before-fault"):
+            doc = fixture("r10-white")
+            rows = doc["transport_trace"]
+            response = next(r for r in rows if
+                            r["event"] == "response_write_completed")
+            if mode == "missing":
+                rows.remove(response)
+            elif mode == "wrong-request":
+                response["request_id"] = "request-999"
+            elif mode == "duplicate":
+                rows.append({**response})
+            elif mode == "wrong-status":
+                response["status"] = 200
+            else:
+                response = rows.pop(rows.index(response))
+                rows.insert(1, response)  # before the fault activation
+            if mode in ("missing", "duplicate", "before-fault"):
+                for i, row in enumerate(rows, start=1):
+                    row["seq"] = i
+                    if row["event"] != "rate_limit_hold_completed":
+                        row["monotonic_ns"] = i * 1_000_000
+            seal(doc)
+            with self.subTest(mode=mode), self.assertRaisesRegex(
+                    ValueError, "429|request correlation|status"):
+                qual.verify_smoke(doc,"r10-white")
+
+    def test_r10_requires_client_observed_rate_limit(self):
+        for mode in ("missing", "bad-endpoint", "wrong-status",
+                     "wrong-epoch", "duplicate"):
+            doc = fixture("r10-white")
+            evidence = doc["guard_events"]
+            block = next(g for g in evidence
+                         if g["event"] == "global_rate_limit_block")
+            if mode == "missing":
+                evidence.remove(block)
+            elif mode == "bad-endpoint":
+                block["endpoint"] = "challenge"
+            elif mode == "wrong-status":
+                block["status"] = 200
+            elif mode == "wrong-epoch":
+                block["owner_epoch"] = "z"*32
+            else:
+                evidence.append(dict(block))
+            with self.subTest(mode=mode), self.assertRaisesRegex(
+                    ValueError, "client guard"):
+                qual.verify_smoke(doc,"r10-white")
+
+    def test_r10_rejects_durable_intent_without_unknown_ack(self):
+        doc = fixture("r10-white")
+        doc["journal"]["intents"][0]["status"] = "ACK_OBSERVED"
+        with self.assertRaisesRegex(ValueError, "durable 429"):
+            qual.verify_smoke(doc,"r10-white")
 
     def test_r10_requires_complete_monotonic_observation(self):
         doc=fixture("r10-white")

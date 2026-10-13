@@ -325,10 +325,37 @@ def verify_smoke(doc: dict, key: str) -> dict:
                     len(phases) == 1 and
                     phases[0].get("observation") == "rate_limited_suspension",
                     "rate-limit suspension missed account-wide 60-second cooldown")
+            # A server-side 429 is not evidence that the client received it.
+            # Require the matching HTTP response *and* the guarded transport's
+            # own observed-rate-limit audit before granting a cooldown witness.
+            completed_429 = [r for r in trace if
+                             r.get("event") == "response_write_completed" and
+                             r.get("request_id") == rid]
+            first_epoch = phases[0]["epoch"]
+            rate_blocks = [g for g in guarded if
+                           isinstance(g, dict) and
+                           g.get("event") == "global_rate_limit_block"]
+            require(len(completed_429) == 1 and
+                    completed_429[0].get("status") == 429 and
+                    completed_429[0].get("path") == attempt_index[rid]["path"] and
+                    fault_events[0]["seq"] < completed_429[0]["seq"],
+                    "R10 targeted 429 response was not completed")
+            require(len(rate_blocks) == 1 and
+                    rate_blocks[0].get("owner_epoch") == first_epoch and
+                    rate_blocks[0].get("endpoint") == "move" and
+                    type(rate_blocks[0].get("status")) is int and
+                    rate_blocks[0]["status"] == 429,
+                    "R10 client guard did not observe the move 429")
+            target_intent = by_ply[attempt_index[rid]["ply_at_receipt"]]
+            require(target_intent.get("status") == "UNKNOWN_ACK" and
+                    len(journal["cooldown"]) == 1 and
+                    journal["cooldown"][0].get("cause") == "http429:move",
+                    "R10 durable 429 intent/cooldown evidence invalid")
             hold = [r for r in trace if
                     r.get("event") == "rate_limit_hold_completed" and
                     r.get("action") == "rate_limit_429"]
             require(len(hold) == 1 and
+                    completed_429[0]["seq"] < hold[0]["seq"] and
                     hold[0]["monotonic_ns"] - fault_events[0]["monotonic_ns"]
                     >= 61_000_000_000,
                     "R10 post-429 observation did not last 61 seconds")

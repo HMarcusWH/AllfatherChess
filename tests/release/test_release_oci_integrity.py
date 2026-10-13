@@ -272,7 +272,7 @@ class OCIProofTests(unittest.TestCase):
             with self.subTest(mode=mode), tempfile.TemporaryDirectory() as d:
                 archive, meta, inspection = self.fixture(Path(d),
                                                          wrong_size=mode)
-                with self.assertRaisesRegex(ValueError, "descriptor size"):
+                with self.assertRaisesRegex(ValueError, r"descriptor.*size"):
                     oci.verify_archive(archive, meta, docker_inspect=inspection)
 
     def test_slsa_predicates_cannot_be_schema_only(self):

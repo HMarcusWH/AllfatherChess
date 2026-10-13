@@ -207,3 +207,15 @@ persistent SQLite replay volume is uploaded by the RELEASE-1 workflow.
 **No new release permissions are implied.** OS/wheel reproducibility locks,
 combined license review, destination-host qualification, real Lichess
 transport, public BOT account play and operator approval remain blocked.
+
+### Final PR #71 evidence-integrity controls
+
+BuildKit's OCI metadata identifies the exported root descriptor, usually a nested image index. The outer layout index.json, selected nested image index, runnable application manifest, and attestation manifest must be kept distinct. The exact exported descriptor digest, media type and size must match BuildKit metadata. Every embedded OCI descriptor is checked against its actual archive member length and hash.
+
+The workflow requests minimal SLSA provenance with an explicit builder-id URI. A schema-shaped empty predicate or blank builder identity fails the version-correct validator; actual BuildKit output must still pass the real OCI qualification job. The bounded recursive inspection report is diagnostic-only.
+
+The packaged smoke verifier now opens the real state/move-journal.sqlite3 read-only and checks integrity, owner, games, intents, cooldown, events and WAL-visible state before accepting result.json. It rejects linked or missing state paths and mismatching snapshots. SQLite/JSON consistency is not a signature and does not protect against a writer that rewrites both records coherently.
+
+For R02 the fake server records move request IDs in response_write_completed and connection_close_requested, resetting the identifier at every new HTTP/1.1 request. The independent host verifier rejects a completed response for the targeted move and requires the correlated close, first-epoch unknown ACK and subsequent recovery evidence. A server-side 200 status alone does not establish that the client received the response.
+
+The pure verify_smoke() function remains useful for synthetic trace-unit tests. Only verify_file() and qualify_directory() verify persisted SQLite durability. The release permissions, source/engine configurations, and outward move authority remain unchanged.

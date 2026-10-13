@@ -48,3 +48,20 @@ CI discovered that the untagged OCI archive export lacked BuildKit default image
 The RELEASE-1 host aggregate now also recomputes the actual OCI archive SHA-256 and requires all independent OCI-verifier booleans. Smoke evidence schema 2 replaces incomplete schema 1 for qualification; no producer readiness bit alone can authorize a verdict.
 
 **Status:** this entry records implemented source changes, not successful exact-head OCI integration or an approved code/security review. Fresh final-head tests/reviews and disposition of any new feedback are mandatory before merging. Offline-only/publication-prohibited policy remains unchanged.
+
+## Final PR #71 follow-up: six fresh P1/P2 findings
+
+**Implemented source and destructive fixtures; actual exact-head CI and Codex review still required.**
+
+| Finding | Source repair and test evidence |
+|---|---|
+| [P1 nested OCI root](https://github.com/HMarcusWH/AllfatherChess/pull/71#discussion_r4253714605) | Select only the BuildKit-reported root descriptor from the OCI layout; compare its digest, media type and byte size to BuildKit metadata. Nested and flat layouts, wrong-root and unrelated-attestation fixtures. |
+| [P2 OCI descriptor size](https://github.com/HMarcusWH/AllfatherChess/pull/71#pullrequestreview-5497647677) | Validate every embedded index, manifest, config, image/attestation layer descriptor with exact actual bytes; reject boolean, absent, negative or wrong sizes. Outer index.json is the layout entrypoint, not an embedded descriptor. |
+| [P2 nested diagnostics](https://github.com/HMarcusWH/AllfatherChess/pull/71#discussion_r4253714615) | Bounded recursive diagnostic inspector exposes nested indexes, manifest identities, sizes and summarized in-toto subjects; never grants integrity_verified. |
+| [P2 SLSA predicate](https://github.com/HMarcusWH/AllfatherChess/pull/71#discussion_r4253714599) | Version-specific v1/v0.2 nested structure, buildType URI, parameters, and builder.id URI; workflow requests a meaningful builder ID; synthetic empty-schema and malformed-ID attacks fail. |
+| [P2 persisted journal](https://github.com/HMarcusWH/AllfatherChess/pull/71#discussion_r4253714591) | Independent host-side read-only SQLite transaction, integrity_check, owner and all four tables exact snapshot match. Real MoveJournal-schema fixtures verify WAL, corruption, missing file, symlinks and forged snapshots. |
+| [P2 R02 response](https://github.com/HMarcusWH/AllfatherChess/pull/71#discussion_r4253714587) | Trace response and close events carry per-request IDs with HTTP/1.1 reset. Target lost-ACK case rejects completed response, requires correct close, first-epoch unknown-ACK and no same-intent successful ACK. |
+
+The prior illegal POST and image-manifest subject protections remain enforced. These changes are local qualification and provenance controls, not move-search or HYBRID authorization changes.
+
+**Merge hold:** Do not merge PR #71 until final-head fast contracts, RELEASE-1 real OCI and packaged games, all ONLINE/LOCAL/LC0 checks, and fresh code/security review are green; no public deployment or licensing grant.

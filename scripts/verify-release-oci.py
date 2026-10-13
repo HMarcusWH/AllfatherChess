@@ -13,6 +13,7 @@ import json
 import re
 import tarfile
 from pathlib import Path, PurePosixPath
+from urllib.parse import urlsplit
 
 HEX = re.compile(r"^[0-9a-f]{64}$")
 
@@ -115,6 +116,42 @@ SLSA = {"https://slsa.dev/provenance/v0.2", "https://slsa.dev/provenance/v1"}
 STATEMENT = "https://in-toto.io/Statement/v1"
 
 
+def valid_identity_uri(value: object) -> bool:
+    """Require an actual URI for a SLSA build type or builder identity."""
+    if not isinstance(value, str) or not value.strip() or value != value.strip():
+        return False
+    parsed = urlsplit(value)
+    return ((parsed.scheme in ("https", "http") and bool(parsed.netloc)
+             and not any(ch.isspace() for ch in value))
+            or (parsed.scheme == "urn" and bool(parsed.path)
+                and ":" in parsed.path and not any(ch.isspace() for ch in value)))
+
+
+def validate_slsa(kind: str, predicate: dict) -> None:
+    if kind == "https://slsa.dev/provenance/v1":
+        build = predicate.get("buildDefinition")
+        run = predicate.get("runDetails")
+        require(isinstance(build, dict) and isinstance(run, dict),
+                "SLSA provenance v1 predicate incomplete")
+        require(valid_identity_uri(build.get("buildType")),
+                "SLSA v1 build type missing or invalid")
+        require(isinstance(build.get("externalParameters"), dict),
+                "SLSA v1 external parameters missing")
+        builder = run.get("builder")
+        require(isinstance(builder, dict) and
+                valid_identity_uri(builder.get("id")),
+                "SLSA v1 builder identity missing or invalid")
+    elif kind == "https://slsa.dev/provenance/v0.2":
+        builder = predicate.get("builder")
+        require(isinstance(builder, dict) and
+                valid_identity_uri(builder.get("id")) and
+                valid_identity_uri(predicate.get("buildType")) and
+                isinstance(predicate.get("invocation"), dict),
+                "SLSA v0.2 build type, builder or invocation missing")
+    else:
+        raise ValueError("unsupported SLSA version")
+
+
 def verify_attestation_subjects(attestations: list[dict], image: dict) -> set[str]:
     """Independently bind BuildKit's in-toto subjects to the application manifest.
 
@@ -178,15 +215,8 @@ def verify_attestation_subjects(attestations: list[dict], image: dict) -> set[st
                         and isinstance(predicate.get("SPDXID"), str)
                         and bool(predicate["SPDXID"]),
                         "SPDX SBOM predicate lacks document identity")
-            elif kind.endswith("/v1"):
-                require(isinstance(predicate.get("buildDefinition"), dict)
-                        and isinstance(predicate.get("runDetails"), dict),
-                        "SLSA provenance v1 predicate incomplete")
             else:
-                require(isinstance(predicate.get("builder"), dict)
-                        and isinstance(predicate.get("buildType"), str)
-                        and bool(predicate["buildType"]),
-                        "SLSA provenance v0.2 predicate incomplete")
+                validate_slsa(kind, predicate)
             predicates.add(kind)
     require(SPDX in predicates, "required image SBOM attestation not exported")
     require(bool(predicates.intersection(SLSA)),
@@ -220,70 +250,152 @@ def verify_archive(archive: Path, metadata: Path, *, docker_inspect: Path | None
                 index.get("mediaType") in (None,"application/vnd.oci.image.index.v1+json"),
                 "invalid OCI index")
         referenced = set()
-        def get(oid):
-            if not isinstance(oid, str) or not oid.startswith("sha256:") or not HEX.fullmatch(oid[7:]):
-                raise ValueError("invalid OCI digest")
+
+        def get(oid, expected_size):
+            """Hash the actual tar member and validate its descriptor byte length."""
+            require(isinstance(oid, str) and oid.startswith("sha256:") and
+                    HEX.fullmatch(oid[7:]) is not None, "invalid OCI digest")
+            require(type(expected_size) is int and expected_size >= 0,
+                    "missing or invalid OCI descriptor size")
             name = "blobs/sha256/" + oid[7:]
+            member = by_name.get(name)
+            require(member is not None and member.isfile(), "missing OCI blob " + oid)
+            require(member.size == expected_size,
+                    "OCI descriptor size differs from referenced blob")
             if name in blobs:
                 return blobs[name]
-            require(name in by_name and by_name[name].isfile(), "missing OCI blob "+oid)
-            f = inp.extractfile(by_name[name])
-            require(f is not None, "unreadable OCI blob")
+            stream = inp.extractfile(member)
+            require(stream is not None, "unreadable OCI blob")
             sha = hashlib.sha256()
-            body = bytearray() if by_name[name].size <= 8 * 1024 * 1024 else None
-            while True:
-                data = f.read(1 << 20)
-                if not data: break
-                sha.update(data)
-                if body is not None: body.extend(data)
-            require(sha.hexdigest() == oid[7:], "OCI blob hash mismatch "+oid)
+            body = bytearray() if member.size <= 8 * 1024 * 1024 else None
+            with stream:
+                while True:
+                    data = stream.read(1 << 20)
+                    if not data:
+                        break
+                    sha.update(data)
+                    if body is not None:
+                        body.extend(data)
+            require(sha.hexdigest() == oid[7:], "OCI blob hash mismatch " + oid)
             referenced.add(name)
             if body is not None:
                 blobs[name] = bytes(body)
                 return blobs[name]
             return None
 
+        INDEX_TYPE = "application/vnd.oci.image.index.v1+json"
+        MANIFEST_TYPES = ("application/vnd.oci.image.manifest.v1+json",
+                          "application/vnd.docker.distribution.manifest.v2+json")
+        CONFIG_TYPES = ("application/vnd.oci.image.config.v1+json",
+                        "application/vnd.docker.container.image.v1+json",
+                        "application/vnd.oci.empty.v1+json")
+        LAYER_TYPES = ("application/vnd.oci.image.layer.v1.tar",
+                       "application/vnd.oci.image.layer.v1.tar+gzip",
+                       "application/vnd.docker.image.rootfs.diff.tar",
+                       "application/vnd.docker.image.rootfs.diff.tar.gzip")
+        top = index.get("manifests")
+        require(isinstance(top, list) and bool(top),
+                "OCI layout has no root descriptors")
+        reported_manifest = meta.get("containerimage.digest")
+        matches = [d for d in top if isinstance(d, dict)
+                   and d.get("digest") == reported_manifest]
+        require(len(matches) == 1,
+                "BuildKit descriptor digest does not match exported OCI root")
+        root_descriptor = matches[0]
+        root_type = root_descriptor.get("mediaType")
+        require(root_type == INDEX_TYPE or root_type in MANIFEST_TYPES,
+                "BuildKit root descriptor has unsupported media type")
+        if root_type == INDEX_TYPE:
+            require(len(top) == 1,
+                    "nested BuildKit root must be the sole layout root")
+        else:
+            require(all(d is root_descriptor or
+                        (isinstance(d, dict) and
+                         (d.get("annotations") or {}).get(
+                             "vnd.docker.reference.type") == "attestation-manifest")
+                        for d in top),
+                    "flat OCI layout has unrelated root descriptors")
+        reported_descriptor = meta.get("containerimage.descriptor")
+        require(isinstance(reported_descriptor, dict) and
+                all(reported_descriptor.get(k) == root_descriptor.get(k)
+                    for k in ("digest", "mediaType", "size")) and
+                type(root_descriptor.get("size")) is int,
+                "BuildKit image descriptor identity/size differs from OCI root")
         images, attestations = [], []
-        def inspect_descriptor(descriptor, depth=0):
-            require(depth < 4 and isinstance(descriptor, dict),
+        visited_nodes = [0]
+
+        def inspect_descriptor(descriptor, depth=0, ancestors=frozenset()):
+            require(depth <= 8 and isinstance(descriptor, dict),
                     "OCI descriptor nesting invalid")
-            raw = get(descriptor.get("digest"))
+            visited_nodes[0] += 1
+            require(visited_nodes[0] <= 256,
+                    "OCI descriptor graph exceeds node budget")
+            typ = descriptor.get("mediaType")
+            require(typ == INDEX_TYPE or typ in MANIFEST_TYPES,
+                    "unsupported OCI descriptor kind")
+            oid = descriptor.get("digest")
+            require(oid not in ancestors, "OCI descriptor graph contains a cycle")
+            raw = get(oid, descriptor.get("size"))
             require(raw is not None, "OCI descriptor JSON too large or missing")
             document = json.loads(raw)
-            typ = descriptor.get("mediaType")
-            if typ == "application/vnd.oci.image.index.v1+json":
-                for next in document.get("manifests", []):
-                    inspect_descriptor(next, depth+1)
+            require(isinstance(document, dict) and
+                    document.get("schemaVersion") == 2,
+                    "invalid nested OCI index or image manifest")
+            if typ == INDEX_TYPE:
+                children = document.get("manifests")
+                require(isinstance(children, list) and bool(children),
+                        "nested OCI index has no child descriptors")
+                for child in children:
+                    inspect_descriptor(child, depth + 1, ancestors | {oid})
                 return
-            require(typ in ("application/vnd.oci.image.manifest.v1+json",
-                            "application/vnd.docker.distribution.manifest.v2+json"),
-                    "unsupported OCI descriptor kind")
-            cfg = document.get("config") or {}
-            config_bytes = get(cfg.get("digest"))
-            require(config_bytes is not None, "OCI config cannot be independently parsed")
+            cfg = document.get("config")
+            require(isinstance(cfg, dict) and
+                    cfg.get("mediaType") in CONFIG_TYPES,
+                    "OCI image has invalid configuration media type")
+            config_bytes = get(cfg.get("digest"), cfg.get("size"))
+            require(config_bytes is not None,
+                    "OCI config cannot be independently parsed")
             details = json.loads(config_bytes)
+            require(isinstance(details, dict), "malformed OCI configuration")
             layers = document.get("layers")
-            require(isinstance(layers, list) and bool(layers), "OCI image missing layers")
+            require(isinstance(layers, list) and bool(layers),
+                    "OCI image missing layers")
+            attested = (descriptor.get("annotations") or {}).get(
+                "vnd.docker.reference.type") == "attestation-manifest"
             for layer in layers:
-                get(layer.get("digest"))
-            if descriptor.get("annotations", {}).get("vnd.docker.reference.type") == "attestation-manifest":
+                require(isinstance(layer, dict) and
+                        layer.get("mediaType") in (
+                            ("application/vnd.in-toto+json",) if attested
+                            else LAYER_TYPES),
+                        "unsupported OCI statement or application layer mediaType")
+                get(layer.get("digest"), layer.get("size"))
+            if attested:
                 for layer in layers:
-                    content = get(layer["digest"])
-                    require(content is not None, "oversized attestation refused")
-                    attestations.append({"descriptor":descriptor,
-                                         "manifest_subject":document.get("subject"),
-                                         "layer_media_type":layer.get("mediaType"),
-                                         "statement":json.loads(content)})
-            elif details.get("architecture") == "amd64" and details.get("os") == "linux":
-                images.append({"manifest_digest":descriptor["digest"],
-                               "config_digest":cfg["digest"],
-                               "config":details,
-                               "layers":layers,
-                               "layer_count":len(layers)})
-        for x in index.get("manifests",[]):
-            inspect_descriptor(x)
-        require(len(images)==1, "require exactly one linux/amd64 application image")
-        image=images[0]
+                    content = get(layer["digest"], layer["size"])
+                    require(content is not None,
+                            "oversized attestation statement refused")
+                    attestations.append({
+                        "descriptor": descriptor,
+                        "manifest_subject": document.get("subject"),
+                        "layer_media_type": layer.get("mediaType"),
+                        "statement": json.loads(content)})
+            else:
+                require(details.get("architecture") == "amd64" and
+                        details.get("os") == "linux",
+                        "unexpected non-attestation OCI application manifest")
+                images.append({"manifest_digest": oid,
+                               "config_digest": cfg["digest"],
+                               "config": details, "layers": layers,
+                               "layer_count": len(layers)})
+
+        for entry in top:
+            inspect_descriptor(entry)
+        require(len(images) == 1,
+                "require exactly one linux/amd64 application image")
+        image = images[0]
+        if root_type in MANIFEST_TYPES:
+            require(image["manifest_digest"] == root_descriptor["digest"],
+                    "flat OCI root is not the runnable application")
         diff_ids=verify_layer_diff_ids(inp,by_name,image["layers"],
                                         image["config"].get("rootfs") or {})
         reported_manifest=meta.get("containerimage.digest")
@@ -302,10 +414,10 @@ def verify_archive(archive: Path, metadata: Path, *, docker_inspect: Path | None
             metadata_config_digest=reported_config,
             docker_inspection=inspection,
         )
-        # BuildKit reports a descriptor digest, not the sha256 of OCI tar bytes.
-        accepted_digests = {image["manifest_digest"], index_digest}
-        require(reported_manifest in accepted_digests,
-                "BuildKit descriptor digest does not match OCI index or image")
+        # The identity was selected from the exported layout root descriptor,
+        # not from an unrestricted set of digests reachable in the archive.
+        require(reported_manifest == root_descriptor["digest"],
+                "BuildKit root descriptor changed during traversal")
         config=image["config"].get("config") or {}
         require(config.get("User") in ("10001:10001", "10001") and
                 config.get("Entrypoint")==[
@@ -320,11 +432,13 @@ def verify_archive(archive: Path, metadata: Path, *, docker_inspect: Path | None
             "schema_version":1,"oci_archive_sha256":file_digest(archive),
             "oci_image_manifest_digest":image["manifest_digest"],
             "oci_index_digest":index_digest,
+            "oci_exported_root_digest":root_descriptor["digest"],
+            "oci_exported_root_size":root_descriptor["size"],
             "oci_config_digest":image["config_digest"],
             "buildkit_digest":reported_manifest,
             "buildkit_config_digest_metadata_present": reported_config is not None,
             "independent_loaded_image_digest_verified": inspection is not None,
-            "buildkit_digest_kind":("oci-index" if reported_manifest == index_digest
+            "buildkit_digest_kind":("oci-index" if root_type == INDEX_TYPE
                                     else "application-manifest"),
             "oci_application_identity_verified":True,
             "oci_attestation_references_verified":True,

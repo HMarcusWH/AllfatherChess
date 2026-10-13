@@ -164,7 +164,8 @@ jobs:
             --file deploy/release/Dockerfile --build-arg "BASE_IMAGE=$IMAGE_BASE" \
             --tag allfather/release1:offline \
             --metadata-file build/test-results/release1/oci-build-metadata.json \
-            --provenance=mode=min --sbom=true \
+            --attest type=provenance,mode=min,builder-id=https://github.com/HMarcusWH/AllfatherChess/actions/workflows/release-candidate.yml \
+            --attest type=sbom \
             --output type=oci,dest=build/release1-offline.oci.tar .
           python3 scripts/inspect-release-oci.py \
             --archive build/release1-offline.oci.tar \

@@ -8,6 +8,7 @@ distribution authorization are deliberately impossible in this milestone.
 from __future__ import annotations
 import argparse
 import hashlib
+import importlib.util
 import json
 import re
 import subprocess
@@ -45,6 +46,17 @@ def require(ok,reason):
         raise ValueError(reason)
 
 
+def check_smoke_evidence(path:Path, key:str) -> dict:
+    """Execute the independent host verifier, never trust the producer's ready."""
+    module_path=ROOT/"scripts/qualify-release-smoke.py"
+    spec=importlib.util.spec_from_file_location("release1_smoke_independent",module_path)
+    require(spec is not None and spec.loader is not None,
+            "independent packaged-smoke verifier missing")
+    mod=importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod.verify_file(path,key)
+
+
 def qualify(*, stage:Path, oci:Path, host:Path, smoke_dir:Path,
             os_inventory:Path, wheel_inventory:Path, source_sha:str, root:Path=ROOT):
     source= subprocess.check_output(["git","-C",str(root),"rev-parse","HEAD"],
@@ -66,9 +78,15 @@ def qualify(*, stage:Path, oci:Path, host:Path, smoke_dir:Path,
             digest(root/"qualification/release-image-v1.json"),
             "candidate policy mismatch")
     require(oci_report.get("integrity_verified") is True and
+            all(oci_report.get(field) is True for field in (
+                "oci_layers_verified","oci_diff_ids_verified",
+                "oci_application_identity_verified",
+                "oci_attestation_references_verified",
+                "oci_attestation_subjects_verified",
+                "oci_sbom_verified","oci_provenance_verified")) and
             oci_report.get("public_bot_release") is False and
             oci_report.get("publisher_signature_verified") is False,
-            "OCI attestation invalid or makes an unsupported publisher claim")
+            "OCI attestation or verified application binding invalid")
     for key in ("oci_image_manifest_digest","oci_config_digest"):
         require(is_sha256_hex(oci_report.get(key),prefixed=True),
                 "invalid OCI "+key)
@@ -89,6 +107,11 @@ def qualify(*, stage:Path, oci:Path, host:Path, smoke_dir:Path,
         target=smoke_dir/key/"result.json"
         require(target.is_file(), "release-image smoke scenario missing: "+key)
         result=load(target)
+        independent=check_smoke_evidence(target,key)
+        require(independent.get("independent_qualified") is True and
+                independent.get("run_id") == key and
+                independent.get("public_bot_release") is False,
+                "independent chess/HTTP evidence failed: "+key)
         require(result.get("offline") is True and
                 result.get("ready") is True and
                 result.get("runner_errors")==[] and
@@ -125,7 +148,8 @@ def qualify(*, stage:Path, oci:Path, host:Path, smoke_dir:Path,
         else:
             require(result["game"]["complete"] is False,
                     "rate-limit test unexpectedly marked game as complete")
-        tests[key]={"passed":True,"accepted_moves":len(result["game"]["accepted"] or []),
+        tests[key]={"passed":True,"independent_evidence":independent,
+                    "accepted_moves":len(result["game"]["accepted"] or []),
                     "phase_count":len(result["observations"])}
     wheel_hash=digest(stage/"wheels/runtime-wheels.lock")
     wheel_inv=digest(wheel_inventory)

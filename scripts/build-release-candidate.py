@@ -46,7 +46,9 @@ SOURCE_FILES = (POLICY, BRIDGE_LOCK, "qualification/release-qualification-v1.jso
                 "deploy/release/ubuntu.sources", "deploy/release/bootstrap.sources",
                 "deploy/release/Dockerfile",
                 "deploy/release/Dockerfile.dockerignore",
-                "scripts/build-release-candidate.py", *TOOL_FILES)
+                "scripts/build-release-candidate.py",
+                "scripts/qualify-release-smoke.py",
+                "scripts/inspect-release-oci.py", *TOOL_FILES)
 
 
 def fail(condition: bool, reason: str):

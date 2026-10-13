@@ -51,6 +51,13 @@ class ReleaseAggregateContracts(unittest.TestCase):
         })
         write_json(self.oci, {
             "integrity_verified": True,
+            "oci_layers_verified": True,
+            "oci_diff_ids_verified": True,
+            "oci_application_identity_verified": True,
+            "oci_attestation_references_verified": True,
+            "oci_attestation_subjects_verified": True,
+            "oci_sbom_verified": True,
+            "oci_provenance_verified": True,
             "public_bot_release": False,
             "publisher_signature_verified": False,
             "oci_image_manifest_digest": "sha256:" + "c" * 64,
@@ -97,7 +104,10 @@ class ReleaseAggregateContracts(unittest.TestCase):
                          wheel_inventory=self.wheel_inventory, source_sha=self.source,
                          root=self.root)
         arguments.update(overrides)
-        with mock.patch.object(aggregate.subprocess, "check_output", side_effect=self.git):
+        with mock.patch.object(aggregate.subprocess, "check_output", side_effect=self.git), \
+             mock.patch.object(aggregate, "check_smoke_evidence",
+                 side_effect=lambda path,key: {"independent_qualified":True,
+                                                "run_id":key,"public_bot_release":False}):
             return aggregate.qualify(**arguments)
 
     def test_sha1_git_vs_sha256_artifacts(self):
@@ -218,6 +228,22 @@ class ReleaseAggregateContracts(unittest.TestCase):
         write_json(path, {**doc, "fresh_second_epoch_commits": 0})
         with self.assertRaisesRegex(ValueError, "no fresh confirmed move"):
             self.qualify()
+
+
+    def test_no_producer_ready_bit_bypasses_independent_checker(self):
+        path=self.smoke_dir/"r00-white"/"result.json"
+        original=json.loads(path.read_text())
+        # The test deliberately leaves the producer saying ready=true.
+        self.assertTrue(original["ready"])
+        with mock.patch.object(aggregate.subprocess,"check_output",side_effect=self.git), \
+             mock.patch.object(aggregate,"check_smoke_evidence",
+                 side_effect=ValueError("illegal request in independently replayed trace")):
+            with self.assertRaisesRegex(ValueError,"illegal request"):
+                aggregate.qualify(
+                    stage=self.stage,oci=self.oci,host=self.host,
+                    smoke_dir=self.smoke_dir,os_inventory=self.os_inventory,
+                    wheel_inventory=self.wheel_inventory,source_sha=self.source,
+                    root=self.root)
 
 
 if __name__ == "__main__":

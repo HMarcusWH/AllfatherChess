@@ -68,7 +68,7 @@ jobs:
       - name: Install exact engine and wheel preparation toolchain
         run: |
           bash scripts/ci-install-apt-deps.sh build-essential meson ninja-build pkg-config libprotobuf-dev protobuf-compiler zlib1g-dev libopenblas-dev python3-pip python3-venv
-          python3 -m pip install --break-system-packages 'pip-tools==7.5.2'
+          python3 -m pip install --break-system-packages 'pip-tools==7.5.2' 'chess==1.11.2'
       - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
           path: |
@@ -151,6 +151,11 @@ jobs:
               | tee "build/test-results/release1/$CASE.log"
           done
           sudo chmod -R a+rX build/test-results/release1-volume
+      - name: Independently reconstruct all packaged chess and HTTP requests
+        run: |
+          python3 scripts/qualify-release-smoke.py \
+            --smoke-dir build/test-results/release1-volume \
+            --output build/test-results/release1/smoke-verdict.json
       - name: Export standalone OCI archive with SBOM/provenance attestations
         timeout-minutes: 20
         run: |

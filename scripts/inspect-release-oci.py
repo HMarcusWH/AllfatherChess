@@ -101,6 +101,16 @@ def inspect(archive: Path, metadata: Path) -> dict:
             manifest = document("blobs/sha256/" + oid[7:])
             rec["artifact_type"] = manifest.get("artifactType")
             rec["manifest_subject"] = manifest.get("subject")
+            if isinstance(manifest.get("subject"), dict):
+                subject = manifest["subject"]
+                digest = subject.get("digest")
+                referenced = (members.get("blobs/sha256/" + digest[7:])
+                              if isinstance(digest, str) and digest.startswith("sha256:")
+                              else None)
+                rec["subject_declared_size"] = subject.get("size")
+                rec["subject_actual_size"] = (
+                    referenced.size if referenced is not None and referenced.isfile()
+                    else None)
             rec["config_type"] = (manifest.get("config") or {}).get("mediaType")
             attested = (rec["annotations"] or {}).get(
                 "vnd.docker.reference.type") == "attestation-manifest"

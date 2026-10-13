@@ -175,9 +175,9 @@ def verify_attestation_subjects(attestations: list[dict], image: dict) -> set[st
         if manifest_subject is not None:
             require(isinstance(manifest_subject, dict) and
                     manifest_subject.get("digest") == image_digest and
-                    manifest_subject.get("mediaType") in (
-                        "application/vnd.oci.image.manifest.v1+json",
-                        "application/vnd.docker.distribution.manifest.v2+json"),
+                    manifest_subject.get("mediaType") == image["manifest_media_type"] and
+                    type(manifest_subject.get("size")) is int and
+                    manifest_subject["size"] == image["manifest_size"],
                     "OCI attestation manifest subject differs from application image")
         require(item.get("layer_media_type") == "application/vnd.in-toto+json",
                 "unexpected attestation statement layer type")
@@ -381,10 +381,24 @@ def verify_archive(archive: Path, metadata: Path, *, docker_inspect: Path | None
                         "layer_media_type": layer.get("mediaType"),
                         "statement": json.loads(content)})
             else:
+                # The index descriptor is how an OCI consumer selects a platform.
+                # A flat manifest may not advertise one, but any advertised
+                # platform must agree with the configuration bytes.
+                advertised = descriptor.get("platform")
+                if advertised is None:
+                    require(root_type in MANIFEST_TYPES,
+                            "nested OCI application descriptor lacks platform")
+                else:
+                    require(isinstance(advertised, dict) and
+                            advertised.get("os") == "linux" and
+                            advertised.get("architecture") == "amd64",
+                            "OCI application descriptor platform mismatch")
                 require(details.get("architecture") == "amd64" and
                         details.get("os") == "linux",
                         "unexpected non-attestation OCI application manifest")
                 images.append({"manifest_digest": oid,
+                               "manifest_media_type": typ,
+                               "manifest_size": descriptor["size"],
                                "config_digest": cfg["digest"],
                                "config": details, "layers": layers,
                                "layer_count": len(layers)})

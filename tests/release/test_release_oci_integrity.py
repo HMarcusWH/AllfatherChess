@@ -30,7 +30,8 @@ class OCIProofTests(unittest.TestCase):
                 bad_reference=False, corrupt_rootfs=False, subject_kind="image",
                 metadata_kind="root", manifest_subject_kind="none",
                 invalid_predicate=False, nested=True, wrong_size=None,
-                slsa_case="valid", bad_metadata_descriptor=False):
+                slsa_case="valid", bad_metadata_descriptor=False,
+                application_platform="linux/amd64"):
         base = b"original uncompressed OCI application layer\n"
         expanded = (b"substituted uncompressed OCI application layer\n"
                     if replace_layer else base)
@@ -65,8 +66,17 @@ class OCIProofTests(unittest.TestCase):
             layer_desc["size"] += 1
         application = store(encode({
             "schemaVersion": 2, "config": cfg_desc, "layers": [layer_desc]}))
-        app_desc = descriptor(oci_manifest, application,
-                              platform={"os": "linux", "architecture": "amd64"})
+        app_desc = descriptor(oci_manifest, application)
+        if application_platform == "linux/amd64":
+            app_desc["platform"] = {"os": "linux", "architecture": "amd64"}
+        elif application_platform == "linux/arm64":
+            app_desc["platform"] = {"os": "linux", "architecture": "arm64"}
+        elif application_platform == "windows/amd64":
+            app_desc["platform"] = {"os": "windows", "architecture": "amd64"}
+        elif application_platform == "malformed":
+            app_desc["platform"] = "linux/amd64"
+        elif application_platform != "absent":
+            raise ValueError("unknown synthetic application-platform variant")
         att_config = store(encode({"architecture": "unknown", "os": "unknown"}))
         attest_layers = []
         for predicate in ("https://spdx.dev/Document",
@@ -111,10 +121,24 @@ class OCIProofTests(unittest.TestCase):
                                   att_config),
             "layers": attest_layers}
         if manifest_subject_kind != "none":
-            attest_data["subject"] = {
-                "mediaType": oci_manifest,
-                "digest": (application if manifest_subject_kind == "image"
-                           else "sha256:" + "f"*64)}
+            subject = descriptor(oci_manifest, application)
+            if manifest_subject_kind == "wrong":
+                subject["digest"] = "sha256:" + "f"*64
+            elif manifest_subject_kind == "missing-size":
+                del subject["size"]
+            elif manifest_subject_kind == "boolean-size":
+                subject["size"] = True
+            elif manifest_subject_kind == "float-size":
+                subject["size"] = float(subject["size"])
+            elif manifest_subject_kind == "negative-size":
+                subject["size"] = -1
+            elif manifest_subject_kind == "incorrect-size":
+                subject["size"] += 1
+            elif manifest_subject_kind == "wrong-media-type":
+                subject["mediaType"] = oci_index
+            elif manifest_subject_kind != "image":
+                raise ValueError("unknown synthetic subject variant")
+            attest_data["subject"] = subject
         attest_manifest = store(encode(attest_data))
         att_desc = descriptor(oci_manifest, attest_manifest,
             annotations={"vnd.docker.reference.type": "attestation-manifest",
@@ -163,6 +187,38 @@ class OCIProofTests(unittest.TestCase):
         inspected = target / "docker-inspect.json"
         inspected.write_text(json.dumps({"Id": config, "Architecture": "amd64"}))
         return archive, meta, inspected
+
+    def test_nested_application_platform_matches_config(self):
+        for kind in ("linux/arm64", "windows/amd64", "malformed", "absent"):
+            with self.subTest(platform=kind), tempfile.TemporaryDirectory() as d:
+                archive, meta, inspection = self.fixture(
+                    Path(d), application_platform=kind)
+                with self.assertRaisesRegex(ValueError, "platform"):
+                    oci.verify_archive(archive, meta, docker_inspect=inspection)
+
+    def test_flat_manifest_without_platform_is_supported(self):
+        with tempfile.TemporaryDirectory() as d:
+            archive, meta, inspection = self.fixture(
+                Path(d), nested=False, application_platform="absent")
+            self.assertTrue(
+                oci.verify_archive(archive, meta, docker_inspect=inspection)[
+                    "oci_application_identity_verified"])
+
+    def test_attestation_subject_descriptor_sizes_and_types(self):
+        for kind in ("missing-size", "boolean-size", "float-size",
+                     "negative-size", "incorrect-size", "wrong-media-type"):
+            with self.subTest(subject=kind), tempfile.TemporaryDirectory() as d:
+                archive, meta, inspection = self.fixture(
+                    Path(d), manifest_subject_kind=kind)
+                with self.assertRaisesRegex(ValueError, "manifest subject"):
+                    oci.verify_archive(archive, meta, docker_inspect=inspection)
+
+    def test_valid_optional_attestation_subject_in_nested_image(self):
+        with tempfile.TemporaryDirectory() as d:
+            archive, meta, inspection = self.fixture(
+                Path(d), manifest_subject_kind="image")
+            report = oci.verify_archive(archive, meta, docker_inspect=inspection)
+            self.assertTrue(report["oci_attestation_references_verified"])
 
     def test_real_small_oci_graph_binds_every_layer_and_attestation(self):
         with tempfile.TemporaryDirectory() as d:
@@ -306,6 +362,7 @@ class OCIProofTests(unittest.TestCase):
             self.assertEqual(report["exported_root_digest"],report["buildkit_digest"])
             self.assertEqual(report["application_manifest_digest"],report["index_manifests"][0]["children"][0]["digest"])
             attest=report["index_manifests"][0]["children"][1]
+            self.assertIsNone(attest["manifest_subject"])
             self.assertEqual(len(attest["layers"]),2)
             self.assertEqual(attest["layers"][0]["statements"][0]["subject_count"],1)
 

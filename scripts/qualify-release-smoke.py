@@ -409,8 +409,9 @@ def verify_smoke(doc: dict, key: str) -> dict:
                     r.get("event") == "rate_limit_hold_completed" and
                     r.get("action") == "rate_limit_429"]
             require(len(hold) == 1 and
+                    hold[0].get("request_id") == rid and
                     completed_429[0]["seq"] < hold[0]["seq"] and
-                    hold[0]["monotonic_ns"] - fault_events[0]["monotonic_ns"]
+                    hold[0]["monotonic_ns"] - completed_429[0]["monotonic_ns"]
                     >= 61_000_000_000,
                     "R10 post-429 observation did not last 61 seconds")
 

@@ -126,6 +126,24 @@ def rejected_http_posts(records: list[dict], scenario_id: str) -> list[dict]:
     return rejected
 
 
+R10_POST_RESPONSE_HOLD_NS = 61_250_000_000  # min 61 sec + scheduler margin
+
+
+def completed_rate_limit_response(trace: list[dict], request_id: str):
+    """Return only the single request-correlated HTTP 429 completion."""
+    found = [r for r in trace if r.get("event") == "response_write_completed"
+             and r.get("request_id") == request_id
+             and r.get("status") == 429]
+    return found[0] if len(found) == 1 else None
+
+
+def r10_hold_ready(trace: list[dict], request_id: str, now_ns: int) -> bool:
+    response = completed_rate_limit_response(trace, request_id)
+    return bool(response is not None and
+                type(response.get("monotonic_ns")) is int and
+                now_ns - response["monotonic_ns"] >= R10_POST_RESPONSE_HOLD_NS)
+
+
 def run(*, color: str, scenario_id: str, run_id: str):
     if os.getpid() != 1:
         raise RuntimeError("image smoke supervisor must be PID 1; no unrestricted signals")
@@ -209,11 +227,19 @@ def run(*, color: str, scenario_id: str, run_id: str):
                                 observation = "restart_after_lost_ack"
                                 break
                         if scenario_id == "R10" and activated is not None:
-                            if time.monotonic()-activated > 61:
-                                observation = "rate_limited_suspension"
-                                game.trace.record("rate_limit_hold_completed",
-                                                  action="rate_limit_429")
-                                break
+                            activations = game.fault.evidence()["activations"]
+                            request_ids = [entry.get("request_id")
+                                           for entry in activations
+                                           if entry.get("action") == "rate_limit_429"]
+                            if len(request_ids) == 1 and isinstance(request_ids[0], str):
+                                rid = request_ids[0]
+                                if r10_hold_ready(game.trace.snapshot(), rid,
+                                                  time.monotonic_ns()):
+                                    observation = "rate_limited_suspension"
+                                    game.trace.record("rate_limit_hold_completed",
+                                                      action="rate_limit_429",
+                                                      request_id=rid)
+                                    break
                         if proc.poll() is not None:
                             observation = "bridge_exited"
                             break

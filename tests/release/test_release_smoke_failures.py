@@ -15,6 +15,18 @@ spec.loader.exec_module(smoke)
 
 
 class SmokeFailureTests(unittest.TestCase):
+    def test_producer_r10_waits_full_time_from_correlated_429_completion(self):
+        event = {"event":"response_write_completed",
+                 "request_id":"request-1", "monotonic_ns":1_000_000_000,
+                 "status":429}
+        start = event["monotonic_ns"]
+        wait = smoke.R10_POST_RESPONSE_HOLD_NS
+        self.assertFalse(smoke.r10_hold_ready([event], "request-1", start+wait-1))
+        self.assertTrue(smoke.r10_hold_ready([event], "request-1", start+wait))
+        self.assertFalse(smoke.r10_hold_ready([event], "request-2", start+wait))
+        self.assertFalse(smoke.r10_hold_ready([event, dict(event)],
+                                              "request-1", start+wait))
+
     def test_illegal_move_http_post_cannot_qualify_completed_game(self):
         valid = [
             {"method":"POST","path":"/api/token/test","status":200},

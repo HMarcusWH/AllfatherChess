@@ -45,10 +45,11 @@ def fixture(key):
         rid = f"request-{request['seq']}"
         fault = event("fault_activated",action="rate_limit_429",
                       endpoint="move_post",request_id=rid)
-        event("response_write_completed",status=429,path=path,
-              request_id=rid)
-        row = event("rate_limit_hold_completed",action="rate_limit_429")
-        row["monotonic_ns"] = fault["monotonic_ns"] + 61_500_000_000
+        completed = event("response_write_completed",status=429,path=path,
+                          request_id=rid)
+        row = event("rate_limit_hold_completed",action="rate_limit_429",
+                    request_id=rid)
+        row["monotonic_ns"] = completed["monotonic_ns"] + 61_500_000_000
         activations.append({"action":"rate_limit_429","request_id":rid})
         requests.append({"method":"POST","path":path,"status":429,
                          "monotonic_ms":1000,"request_id":rid})
@@ -325,6 +326,23 @@ class PackagedMoveEvidenceTests(unittest.TestCase):
         doc["journal"]["intents"][0]["status"] = "ACK_OBSERVED"
         with self.assertRaisesRegex(ValueError, "durable 429"):
             qual.verify_smoke(doc,"r10-white")
+
+    def test_r10_window_cannot_be_counted_before_completed_response(self):
+        doc = fixture("r10-white")
+        response = next(r for r in doc["transport_trace"]
+                        if r["event"] == "response_write_completed")
+        hold = doc["transport_trace"][-1]
+        response["monotonic_ns"] = hold["monotonic_ns"] - 500_000_000
+        seal(doc)
+        with self.assertRaisesRegex(ValueError, "post-429 observation"):
+            qual.verify_smoke(doc, "r10-white")
+
+    def test_r10_hold_event_must_bind_targeted_request(self):
+        doc = fixture("r10-white")
+        doc["transport_trace"][-1]["request_id"] = "request-unrelated"
+        seal(doc)
+        with self.assertRaisesRegex(ValueError, "post-429 observation"):
+            qual.verify_smoke(doc, "r10-white")
 
     def test_r10_requires_complete_monotonic_observation(self):
         doc=fixture("r10-white")

@@ -310,6 +310,12 @@ class PackagedMoveEvidenceTests(unittest.TestCase):
                 block = next(g for g in doc["guard_events"]
                              if g["event"] == "global_rate_limit_block")
                 block["timestamp"] = 1700000000.0
+            if mode in ("short", "long"):
+                # Keep the JSON and persisted event in agreement, so the
+                # duration-bound check itself must reject this mutation.
+                event["details"] = json.dumps({
+                    "until_wall":cooldown["until_wall"],
+                    "cause":"http429:move"})
             with self.subTest(mode=mode), self.assertRaisesRegex(
                     ValueError, "cooldown|guard observation"):
                 qual.verify_smoke(doc,"r10-white")

@@ -27,16 +27,10 @@ RUN set -eu; \
 # Once CA trust has been established, ALL remaining APT inputs use the
 # fixed signed HTTPS Ubuntu snapshot; no bootstrap source survives.
 COPY deploy/release/ubuntu.sources /etc/apt/sources.list.d/ubuntu.sources
-# A transient 503 on the *same pinned, signed* Ubuntu snapshot may be retried
-# within the existing build deadline. No mirror substitution or unlocked
-# repository fallback is permitted; persistent snapshot errors fail the build.
-RUN apt-get -o Acquire::Retries=2 -o Acquire::https::Timeout=30 \
-        update -o APT::Update::Error-Mode=any && \
-    apt-get -o Acquire::Retries=2 -o Acquire::https::Timeout=30 \
-        install -y --no-install-recommends \
-        python3 python3-venv python3-pip ca-certificates procps \
-        libopenblas0-pthread libprotobuf32t64 libstdc++6 libgomp1 zlib1g && \
-    rm -rf /var/lib/apt/lists/*
+# Only the pinned signed snapshot may be queried; no floating fallback.
+COPY deploy/release/install-pinned-apt.sh /usr/local/bin/install-pinned-apt
+RUN /bin/sh /usr/local/bin/install-pinned-apt && \
+    rm /usr/local/bin/install-pinned-apt
 
 COPY build/release1-stage/allfather/ /opt/allfather/
 COPY build/release1-stage/bridge/ /opt/bridge/

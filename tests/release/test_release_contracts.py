@@ -105,9 +105,14 @@ class OfflineReleaseContracts(unittest.TestCase):
 
     def test_pinned_snapshot_retries_are_bounded_without_mirror_fallback(self):
         docker=(ROOT/"deploy/release/Dockerfile").read_text()
-        self.assertEqual(docker.count("Acquire::Retries=2"),2)
-        self.assertEqual(docker.count("Acquire::https::Timeout=30"),2)
-        self.assertIn("apt-get",docker)
+        helper=(ROOT/"deploy/release/install-pinned-apt.sh").read_text()
+        self.assertIn('while [ "$attempt" -le 4 ]',helper)
+        self.assertIn('Acquire::Retries=1',helper)
+        self.assertIn('Acquire::https::Timeout=25',helper)
+        self.assertIn("apt-get",helper)
+        self.assertIn('integrity_error || ! retryable',helper)
+        self.assertIn("COPY deploy/release/install-pinned-apt.sh",docker)
+        self.assertIn("/bin/sh /usr/local/bin/install-pinned-apt",docker)
         self.assertIn("COPY deploy/release/ubuntu.sources",docker)
         instructions = "\n".join(
             line for line in docker.splitlines()
@@ -116,6 +121,7 @@ class OfflineReleaseContracts(unittest.TestCase):
                        "Acquire::https::Verify-Peer=false",
                        "Acquire::https::Verify-Host=false"):
             self.assertNotIn(unsafe,instructions)
+            self.assertNotIn(unsafe,helper)
 
     def test_sbom_generator_is_reviewed_immutable_oci_index(self):
         image=json.loads((ROOT/"qualification/release-image-v1.json").read_text())

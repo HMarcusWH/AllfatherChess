@@ -44,6 +44,7 @@ TOOL_FILES = (
 SOURCE_FILES = (POLICY, BRIDGE_LOCK, "qualification/release-qualification-v1.json",
                 "qualification/license-compliance-v1.json",
                 "deploy/release/ubuntu.sources", "deploy/release/bootstrap.sources",
+                "deploy/release/install-pinned-apt.sh",
                 "deploy/release/Dockerfile",
                 "deploy/release/Dockerfile.dockerignore",
                 "scripts/build-release-candidate.py",

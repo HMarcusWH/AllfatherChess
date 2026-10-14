@@ -7,3 +7,4 @@
 !build/
 !build/release1-stage/
 !build/release1-stage/**
+!deploy/release/install-pinned-apt.sh

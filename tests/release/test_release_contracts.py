@@ -117,6 +117,17 @@ class OfflineReleaseContracts(unittest.TestCase):
                        "Acquire::https::Verify-Host=false"):
             self.assertNotIn(unsafe,instructions)
 
+    def test_sbom_generator_is_reviewed_immutable_oci_index(self):
+        image=json.loads((ROOT/"qualification/release-image-v1.json").read_text())
+        scanner=image["sbom_generator_image"]
+        self.assertRegex(scanner,
+            r"^docker\.io/docker/buildkit-syft-scanner@sha256:[0-9a-f]{64}$")
+        content=(ROOT/".github/workflows/release-candidate.yml").read_text()
+        self.assertIn('["sbom_generator_image"]',content)
+        self.assertIn('--attest "type=sbom,generator=$SCANNER"',content)
+        self.assertIn('docker buildx imagetools inspect "$SCANNER" --raw',content)
+        self.assertNotIn("--attest type=sbom \\",content)
+
     def test_readonly_runtime_requires_separate_replay_bind_mount(self):
         p=json.loads((ROOT/"qualification/release-image-v1.json").read_text())
         runtime=json.loads((ROOT/"deploy/release/runtime-contract.json").read_text())

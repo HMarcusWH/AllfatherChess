@@ -35,6 +35,19 @@ class WorkflowCoverageTests(unittest.TestCase):
             self.assertIn(fragment,command)
 
 
+    def test_release_artifacts_exclude_raw_provenance_and_image_bytes(self):
+        content=(ROOT/".github/workflows/release-candidate.yml").read_text()
+        upload=content.split("- name: Do not publish combined image",1)[1]
+        self.assertIn("oci-attestation-structure.json", upload)
+        self.assertIn("smoke-verdict.json",upload)
+        self.assertIn("aggregate.json",upload)
+        for forbidden in ("/*.json", "/*.txt", "/*.log",
+                          "build/test-results/release1/oci-build-metadata.json",
+                          "build/test-results/release1/docker-build-metadata.json",
+                          "build/test-results/release1/docker-inspect.json",
+                          "build/release1-offline.oci.tar"):
+            self.assertNotIn(forbidden,upload)
+
     def test_offline_oci_export_is_named_and_diagnostics_precede_admission(self):
         content=(ROOT/".github/workflows/release-candidate.yml").read_text()
         export=content.split("- name: Export standalone OCI archive",1)[1]

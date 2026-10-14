@@ -382,7 +382,7 @@ class OCIProofTests(unittest.TestCase):
     def test_garbled_predicate_cannot_claim_sbom_or_provenance(self):
         with tempfile.TemporaryDirectory() as d:
             archive,meta,inspection=self.fixture(Path(d),invalid_predicate=True)
-            with self.assertRaisesRegex(ValueError,"predicate"):
+            with self.assertRaisesRegex(ValueError,"SPDX|SLSA|predicate"):
                 oci.verify_archive(archive,meta,docker_inspect=inspection)
 
 

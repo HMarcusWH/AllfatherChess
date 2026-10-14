@@ -13,6 +13,50 @@ import tarfile
 from pathlib import Path
 
 MAX_JSON = 8 * 1024 * 1024
+SAFE_ANNOTATION_KEYS = {"vnd.docker.reference.type", "vnd.docker.reference.digest"}
+SAFE_SPDX_KEYS = {
+    "SPDXID", "spdxVersion", "name", "downloadLocation", "fileName",
+    "checksums", "filesAnalyzed", "licenseConcluded", "licenseDeclared",
+    "licenseInfoFromFiles", "licenseInfoInFiles", "copyrightText",
+    "versionInfo", "externalRefs", "primaryPackagePurpose",
+    "sourceInfo", "supplier", "originator", "verificationCode",
+    "packageVerificationCode", "fileTypes", "description",
+}
+
+
+def digest_only(value):
+    if (isinstance(value, str) and len(value) == 71 and
+            value.startswith("sha256:") and
+            all(ch in "0123456789abcdef" for ch in value[7:])):
+        return value
+    return None
+
+
+def approved_annotations(value):
+    if type(value) is not dict:
+        return {}
+    result = {}
+    for key in SAFE_ANNOTATION_KEYS:
+        observed = value.get(key)
+        if key.endswith(".digest"):
+            verified = digest_only(observed)
+            if verified:
+                result[key] = verified
+        elif observed == "attestation-manifest":
+            result[key] = observed
+    return result
+
+
+def approved_platform(value):
+    if type(value) is not dict:
+        return None
+    return {
+        "os": value.get("os") if value.get("os") in ("linux", "unknown") else "other",
+        "architecture": value.get("architecture")
+        if value.get("architecture") in ("amd64", "unknown") else "other",
+        "additional_field_count": max(len(value)-2, 0),
+    }
+
 
 
 def inspect(archive: Path, metadata: Path) -> dict:
@@ -20,8 +64,7 @@ def inspect(archive: Path, metadata: Path) -> dict:
     result = {"schema_version": 1, "diagnostic_only": True,
               "integrity_verified": False, "public_bot_release": False}
     build = json.loads(metadata.read_text(encoding="utf-8"))
-    result["buildkit_image_name"] = build.get("image.name")
-    result["buildkit_digest"] = build.get("containerimage.digest")
+    result["buildkit_digest"] = digest_only(build.get("containerimage.digest"))
     with tarfile.open(archive, "r:*") as tar:
         members = {}
         for member in tar.getmembers():
@@ -62,11 +105,14 @@ def inspect(archive: Path, metadata: Path) -> dict:
             actual = members.get(path)
             if actual is None or not actual.isfile():
                 raise ValueError("missing OCI referenced blob")
-            return {"digest": oid, "media_type": typ,
+            return {"digest": oid,
+                    "media_type": typ if isinstance(typ, str) and
+                        typ.startswith("application/vnd.") and len(typ)<100
+                        else "unrecognized",
                     "declared_size": size, "actual_size": actual.size,
                     "descriptor_path": list(ancestry) + [oid],
-                    "platform": desc.get("platform"),
-                    "annotations": desc.get("annotations", {})}
+                    "platform": approved_platform(desc.get("platform")),
+                    "annotations": approved_annotations(desc.get("annotations"))}
 
         index = document("index.json")
         if not isinstance(index, dict) or not isinstance(index.get("manifests"), list):
@@ -99,18 +145,31 @@ def inspect(archive: Path, metadata: Path) -> dict:
                            "application/vnd.docker.distribution.manifest.v2+json"):
                 raise ValueError("unexpected descriptor media type")
             manifest = document("blobs/sha256/" + oid[7:])
-            rec["artifact_type"] = manifest.get("artifactType")
-            rec["manifest_subject"] = manifest.get("subject")
-            if isinstance(manifest.get("subject"), dict):
-                subject = manifest["subject"]
-                digest = subject.get("digest")
-                referenced = (members.get("blobs/sha256/" + digest[7:])
-                              if isinstance(digest, str) and digest.startswith("sha256:")
-                              else None)
-                rec["subject_declared_size"] = subject.get("size")
+            rec["artifact_type"] = (
+                "application" if not (
+                    (rec["annotations"] or {}).get("vnd.docker.reference.type")
+                        == "attestation-manifest") else "attestation")
+            subject = manifest.get("subject")
+            if isinstance(subject, dict):
+                oid_subject = digest_only(subject.get("digest"))
+                referenced = (members.get("blobs/sha256/" + oid_subject[7:])
+                              if oid_subject else None)
+                rec["manifest_subject"] = {
+                    "digest": oid_subject,
+                    "media_type": subject.get("mediaType")
+                        if subject.get("mediaType") in (
+                            "application/vnd.oci.image.manifest.v1+json",
+                            "application/vnd.docker.distribution.manifest.v2+json")
+                        else "unrecognized",
+                    "size": subject.get("size") if type(subject.get("size")) is int
+                        else None,
+                }
+                rec["subject_declared_size"] = rec["manifest_subject"]["size"]
                 rec["subject_actual_size"] = (
                     referenced.size if referenced is not None and referenced.isfile()
                     else None)
+            else:
+                rec["manifest_subject"] = None
             rec["config_type"] = (manifest.get("config") or {}).get("mediaType")
             attested = (rec["annotations"] or {}).get(
                 "vnd.docker.reference.type") == "attestation-manifest"
@@ -122,10 +181,18 @@ def inspect(archive: Path, metadata: Path) -> dict:
             for layer in manifest.get("layers", []):
                 lid = layer.get("digest", "")
                 member = members.get("blobs/sha256/" + str(lid)[7:])
-                row = {"digest": lid,
-                       "media_type": layer.get("mediaType"),
-                       "annotations": layer.get("annotations", {}),
-                       "declared_size": layer.get("size"),
+                row = {"digest": digest_only(lid),
+                       "media_type": layer.get("mediaType")
+                            if layer.get("mediaType") in (
+                                "application/vnd.in-toto+json",
+                                "application/vnd.oci.image.layer.v1.tar",
+                                "application/vnd.oci.image.layer.v1.tar+gzip",
+                                "application/vnd.docker.image.rootfs.diff.tar",
+                                "application/vnd.docker.image.rootfs.diff.tar.gzip")
+                            else "unrecognized",
+                       "annotations": approved_annotations(layer.get("annotations")),
+                       "declared_size": layer.get("size") if type(layer.get("size")) is int
+                            else None,
                        "actual_size": member.size if member else None}
                 if attested and layer.get("mediaType") == "application/vnd.in-toto+json":
                     statement = document("blobs/sha256/" + str(lid)[7:])
@@ -144,8 +211,18 @@ def inspect(archive: Path, metadata: Path) -> dict:
                             "predicate_type": st.get("predicateType"),
                             "subject_count": len(st.get("subject", []))
                                 if isinstance(st.get("subject"), list) else None,
-                            "subjects": st.get("subject"),
-                            "predicate_keys": safe_keys[:32],
+                            # Subject names and untrusted predicate values
+                            # must never reach retained CI artifacts.
+                            "subject_digests": sorted({
+                                digest for sub in st.get("subject", [])
+                                if isinstance(sub, dict)
+                                and isinstance(sub.get("digest"), dict)
+                                for digest in [digest_only(
+                                    "sha256:" + str(sub["digest"].get("sha256", "")))]
+                                if digest
+                            })[:8] if type(st.get("subject")) is list else [],
+                            "predicate_keys": [k for k in safe_keys
+                                               if k in SAFE_SPDX_KEYS][:32],
                         }
                         if st.get("predicateType") == "https://spdx.dev/Document":
                             packages = (predicate.get("packages")
@@ -158,11 +235,13 @@ def inspect(archive: Path, metadata: Path) -> dict:
                                 len(files) if type(files) is list else None)
                             summary["spdx_package_field_keys"] = (
                                 sorted({key for item in packages[:32]
-                                        if isinstance(item, dict) for key in item})[:32]
+                                        if isinstance(item, dict) for key in item
+                                        if key in SAFE_SPDX_KEYS})[:32]
                                 if type(packages) is list else [])
                             summary["spdx_file_field_keys"] = (
                                 sorted({key for item in files[:32]
-                                        if isinstance(item, dict) for key in item})[:32]
+                                        if isinstance(item, dict) for key in item
+                                        if key in SAFE_SPDX_KEYS})[:32]
                                 if type(files) is list else [])
                         row["statements"].append(summary)
                 rec["layers"].append(row)

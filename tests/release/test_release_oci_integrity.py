@@ -665,6 +665,20 @@ class OCIProofTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "SLSA"):
                     oci.verify_archive(archive, meta, docker_inspect=inspection)
 
+    def test_retained_oci_diagnostics_do_not_echo_untrusted_subject_names(self):
+        mod_spec=importlib.util.spec_from_file_location(
+            "release1_safe_diag",ROOT/"scripts/inspect-release-oci.py")
+        mod=importlib.util.module_from_spec(mod_spec)
+        mod_spec.loader.exec_module(mod)
+        with tempfile.TemporaryDirectory() as d:
+            archive, meta, _ = self.fixture(Path(d))
+            report=mod.inspect(archive,meta)
+            payload=json.dumps(report)
+            self.assertNotIn("offline-fixture",payload)
+            self.assertNotIn("SPDXRef-Package-offline",payload)
+            self.assertNotIn("offline-test-package",payload)
+            self.assertFalse(report["integrity_verified"])
+
     def test_diagnostic_reports_optional_subject_declared_and_actual_sizes(self):
         inspect_spec = importlib.util.spec_from_file_location(
             "release1_oci_diag_subject", ROOT/"scripts/inspect-release-oci.py")

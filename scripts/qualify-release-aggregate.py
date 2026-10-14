@@ -57,6 +57,33 @@ def check_smoke_evidence(path:Path, key:str) -> dict:
     return mod.verify_file(path,key)
 
 
+def allowed_release_http(row: object, case: str) -> bool:
+    """Defense in depth after the independent chess/request correlation check."""
+    if (type(row) is not dict or
+            row.get("method") not in ("GET", "POST") or
+            type(row.get("status")) is not int or
+            not isinstance(row.get("path"), str) or
+            row["status"] == 403):
+        return False
+    if row["method"] == "GET":
+        return row.get("request_id") is None
+    path = row["path"]
+    approved = {"/api/token/test", "/api/challenge/off3b001/accept",
+                "/api/challenge/off3b001/decline"}
+    if path in approved:
+        return row["status"] == 200 and row.get("request_id") is None
+    prefix = "/api/bot/game/off3b001/move/"
+    if not path.startswith(prefix):
+        return False
+    move = path[len(prefix):]
+    # Position legality and uniqueness are verified by verify_file; this
+    # layer enforces only status, endpoint and request-ID compatibility.
+    return (move not in ("", "0000") and
+            isinstance(row.get("request_id"), str) and
+            bool(row["request_id"]) and
+            row["status"] in ((200, 429) if case == "r10-white" else (200,)))
+
+
 def qualify(*, stage:Path, oci:Path, oci_archive:Path, host:Path, smoke_dir:Path,
             os_inventory:Path, wheel_inventory:Path, source_sha:str, root:Path=ROOT):
     source= subprocess.check_output(["git","-C",str(root),"rev-parse","HEAD"],
@@ -92,6 +119,11 @@ def qualify(*, stage:Path, oci:Path, oci_archive:Path, host:Path, smoke_dir:Path
                 "invalid OCI "+key)
     require(is_sha256_hex(oci_report.get("oci_archive_sha256")),
             "invalid OCI archive SHA-256 digest")
+    require(is_sha256_hex(oci_report.get("oci_exported_root_digest"),
+                          prefixed=True) and
+            oci_report.get("buildkit_digest") ==
+                oci_report.get("oci_exported_root_digest"),
+            "OCI BuildKit digest differs from selected exported root")
     require(oci_archive.is_file() and not oci_archive.is_symlink() and
             digest(oci_archive) == oci_report["oci_archive_sha256"],
             "OCI archive identity does not match independently verified report")
@@ -111,10 +143,15 @@ def qualify(*, stage:Path, oci:Path, oci_archive:Path, host:Path, smoke_dir:Path
         require(target.is_file(), "release-image smoke scenario missing: "+key)
         result=load(target)
         independent=check_smoke_evidence(target,key)
+        scenario,color=key.split("-",1)
         require(independent.get("independent_qualified") is True and
+                independent.get("persisted_sqlite_verified") is True and
+                independent.get("release_blocked") is True and
                 independent.get("run_id") == key and
+                independent.get("scenario") == scenario.upper() and
+                independent.get("color") == color and
                 independent.get("public_bot_release") is False,
-                "independent chess/HTTP evidence failed: "+key)
+                "independent chess/HTTP/SQLite evidence failed: "+key)
         require(result.get("offline") is True and
                 result.get("ready") is True and
                 result.get("runner_errors")==[] and
@@ -126,18 +163,8 @@ def qualify(*, stage:Path, oci:Path, oci_archive:Path, host:Path, smoke_dir:Path
         requests=result.get("http")
         require(isinstance(requests,list),
                 "release-image complete HTTP audit missing: "+key)
-        allow={"/api/token/test","/api/challenge/off3b001/accept",
-               "/api/challenge/off3b001/decline"}
-        prefix="/api/bot/game/off3b001/move/"
-        require(all(isinstance(r,dict) and
-                    (r.get("method")!="POST" or
-                     (r.get("path") in allow or
-                      (isinstance(r.get("path"),str)
-                       and r["path"].startswith(prefix)
-                       and r["path"][len(prefix):] not in ("","0000")))
-                     and r.get("status")!=403)
-                    for r in requests),
-                "release image HTTP contains prohibited POST: "+key)
+        require(all(allowed_release_http(r,key) for r in requests),
+                "release image HTTP contains prohibited request: "+key)
         if key=="r10-white":
             require(result.get("rate_cooldown_verified") is True,
                     "release-image 429 cooldown witness absent")

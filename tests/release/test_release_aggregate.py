@@ -65,6 +65,8 @@ class ReleaseAggregateContracts(unittest.TestCase):
             "oci_image_manifest_digest": "sha256:" + "c" * 64,
             "oci_config_digest": "sha256:" + "d" * 64,
             "oci_archive_sha256": aggregate.digest(self.oci_archive),
+            "oci_exported_root_digest": "sha256:" + "e"*64,
+            "buildkit_digest": "sha256:" + "e"*64,
         })
         write_json(self.host, {
             "test_host_observed": True,
@@ -110,7 +112,12 @@ class ReleaseAggregateContracts(unittest.TestCase):
         with mock.patch.object(aggregate.subprocess, "check_output", side_effect=self.git), \
              mock.patch.object(aggregate, "check_smoke_evidence",
                  side_effect=lambda path,key: {"independent_qualified":True,
-                                                "run_id":key,"public_bot_release":False}):
+                                                "persisted_sqlite_verified":True,
+                                                "release_blocked":True,
+                                                "run_id":key,
+                                                "scenario":key.split("-")[0].upper(),
+                                                "color":key.split("-")[1],
+                                                "public_bot_release":False}):
             return aggregate.qualify(**arguments)
 
     def test_sha1_git_vs_sha256_artifacts(self):
@@ -127,6 +134,52 @@ class ReleaseAggregateContracts(unittest.TestCase):
         ):
             with self.subTest(digest=bad, prefixed=prefixed):
                 self.assertFalse(aggregate.is_sha256_hex(bad, prefixed=prefixed))
+
+    def test_http_admission_is_consistent_with_independent_verifier(self):
+        token={"method":"POST","path":"/api/token/test","status":200}
+        move={"method":"POST",
+              "path":"/api/bot/game/off3b001/move/e2e4",
+              "status":200,"request_id":"request-1"}
+        self.assertTrue(aggregate.allowed_release_http(token,"r00-white"))
+        self.assertTrue(aggregate.allowed_release_http(move,"r00-white"))
+        for bad in ({**move,"status":400},
+                    {**move,"status":429},
+                    {**move,"request_id":None},
+                    {**move,"path":"/api/bot/game/off3b001/abort"},
+                    {**token,"status":500},
+                    {**token,"status":True}):
+            self.assertFalse(aggregate.allowed_release_http(bad,"r00-white"))
+        self.assertTrue(aggregate.allowed_release_http(
+            {**move,"status":429},"r10-white"))
+
+    def test_aggregate_requires_persisted_sqlite_qualified_and_specific_case(self):
+        for mutation in ("without-sqlite","wrong-case","wrong-disposition"):
+            def fake(path,key):
+                report={"independent_qualified":True,
+                        "persisted_sqlite_verified":True,
+                        "release_blocked":True,
+                        "run_id":key,"scenario":key.split("-")[0].upper(),
+                        "color":key.split("-")[1],"public_bot_release":False}
+                if key=="r10-white":
+                    if mutation=="without-sqlite":
+                        report["persisted_sqlite_verified"]=False
+                    elif mutation=="wrong-case":
+                        report["scenario"]="R00"
+                    else:
+                        report["release_blocked"]=False
+                return report
+            with self.subTest(mutation=mutation), \
+                 mock.patch.object(aggregate.subprocess,"check_output",
+                                   side_effect=self.git), \
+                 mock.patch.object(aggregate,"check_smoke_evidence",
+                                   side_effect=fake):
+                with self.assertRaisesRegex(ValueError,"chess/HTTP/SQLite"):
+                    aggregate.qualify(
+                        stage=self.stage,oci=self.oci,
+                        oci_archive=self.oci_archive,host=self.host,
+                        smoke_dir=self.smoke_dir,os_inventory=self.os_inventory,
+                        wheel_inventory=self.wheel_inventory,
+                        source_sha=self.source,root=self.root)
 
     def test_valid_synthetic_aggregate_cannot_promote_public_release(self):
         report = self.qualify()

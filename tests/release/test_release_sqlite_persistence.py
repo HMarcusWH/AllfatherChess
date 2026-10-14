@@ -5,8 +5,10 @@ A JSON-only fixture can exercise verify_smoke but must NEVER satisfy verify_file
 """
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import json
+import os
 import sqlite3
 import tempfile
 import unittest
@@ -23,9 +25,9 @@ fixture = original.fixture
 qual = original.qual
 
 
-def real_fixture(folder: Path, key: str, *, keep_wal=False):
+def real_fixture(folder: Path, key: str, *, keep_wal=False, doc=None):
     """Return an optionally live WAL writer and its complete JSON document."""
-    doc = fixture(key)
+    doc = fixture(key) if doc is None else doc
     folder.mkdir(parents=True)
     state = folder / "state"
     state.mkdir()
@@ -75,6 +77,47 @@ class RealSQLiteQualificationTests(unittest.TestCase):
                 self.assertTrue(report["persisted_sqlite_verified"])
             finally:
                 conn.close()
+
+    def test_qualifier_never_writes_original_read_only_producer_volume(self):
+        """Reproduce GitHub runner reading the UID-10001-owned mount."""
+        for keep_wal in (False, True):
+            with self.subTest(live_wal=keep_wal), tempfile.TemporaryDirectory() as d:
+                folder = Path(d) / "r02-white"
+                _, conn = real_fixture(folder, "r02-white", keep_wal=keep_wal)
+                state = folder / "state"
+                database = state / "move-journal.sqlite3"
+                wal = state / "move-journal.sqlite3-wal"
+                originals = [database] + ([wal] if keep_wal else [])
+                before = {p.name: hashlib.sha256(p.read_bytes()).hexdigest()
+                          for p in originals}
+                previous_modes = {p: p.stat().st_mode & 0o777 for p in originals}
+                try:
+                    for path in originals:
+                        os.chmod(path, 0o444)
+                    os.chmod(state, 0o555)
+                    result = qual.verify_file(folder / "result.json", "r02-white")
+                    self.assertTrue(result["persisted_sqlite_verified"])
+                    self.assertEqual(before, {
+                        p.name: hashlib.sha256(p.read_bytes()).hexdigest()
+                        for p in originals})
+                    self.assertEqual(
+                        (state / "move-journal.sqlite3-shm").exists(), keep_wal)
+                finally:
+                    os.chmod(state, 0o700)
+                    for path, mode in previous_modes.items():
+                        if path.exists():
+                            os.chmod(path, mode)
+                    if conn is not None:
+                        conn.close()
+
+    def test_qualifier_rejects_mutated_source_without_json_change(self):
+        with tempfile.TemporaryDirectory() as d:
+            folder = Path(d) / "r10-white"
+            real_fixture(folder, "r10-white")
+            with sqlite3.connect(folder / "state/move-journal.sqlite3") as c:
+                c.execute("UPDATE cooldown SET cause='http429:other'")
+            with self.assertRaisesRegex(ValueError, "SQLite persisted cooldown"):
+                qual.verify_file(folder / "result.json", "r10-white")
 
     def test_missing_required_wal_refuses_unpersisted_snapshot(self):
         with tempfile.TemporaryDirectory() as directory:

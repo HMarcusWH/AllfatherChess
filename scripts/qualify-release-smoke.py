@@ -10,7 +10,12 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
+import os
+import shutil
 import sqlite3
+import stat
+import tempfile
 from pathlib import Path
 from urllib.parse import unquote
 
@@ -369,11 +374,14 @@ def verify_smoke(doc: dict, key: str) -> dict:
 
 
 def verify_persisted_sqlite(folder: Path, journal: dict) -> dict:
-    """Independently verify committed on-disk state, including live WAL entries.
+    """Verify SQLite/WAL bytes from the producer without altering that volume.
 
-    A producer's JSON snapshot is never authoritative. This is a consistency
-    check against persisted SQLite, not protection against a writer able to
-    rewrite both the database and evidence.
+    The installed-image process owns the persistent directory (UID 10001).
+    The GitHub runner can read it after chmod a+rX, but must not write there.
+    Opening a WAL database read-only can nevertheless need to create -shm.
+    Read the stopped producer's database + WAL into a private writable staging
+    directory, then open *that copy* with SQLite mode=ro (NOT immutable=1).
+    Discard its rebuilt shared-memory sidecar after qualification.
     """
     state = folder / "state"
     db = state / "move-journal.sqlite3"
@@ -382,45 +390,70 @@ def verify_persisted_sqlite(folder: Path, journal: dict) -> dict:
             state.is_dir() and not state.is_symlink() and
             db.is_file() and not db.is_symlink(),
             "persisted SQLite journal absent or linked")
-    for suffix in ("-wal", "-shm"):
-        sidecar = state / ("move-journal.sqlite3" + suffix)
-        require(not sidecar.is_symlink(),
-                "persisted SQLite sidecar cannot be a symlink")
-    require(db.stat().st_size <= 256 * 1024 * 1024,
-            "persisted SQLite exceeds bounded verification size")
     require(type(journal) is dict, "persisted SQLite snapshot absent")
-    connection = sqlite3.connect(
-        db.resolve(strict=True).as_uri() + "?mode=ro",
-        uri=True, isolation_level=None, timeout=5)
-    connection.row_factory = sqlite3.Row
-    try:
-        connection.execute("PRAGMA query_only=ON")
-        connection.execute("BEGIN")  # consistent view of the main file and WAL
+
+    def source(path: Path, *, required: bool) -> bool:
+        require(not path.is_symlink(), "persisted SQLite sidecar cannot be a symlink")
+        if not path.exists():
+            require(not required, "persisted SQLite database missing")
+            return False
+        mode = path.stat()
+        require(stat.S_ISREG(mode.st_mode) and
+                0 < mode.st_size <= 256 * 1024 * 1024,
+                "persisted SQLite database/sidecar invalid or oversized")
+        return True
+
+    source(db, required=True)
+    wal = state / "move-journal.sqlite3-wal"
+    shm = state / "move-journal.sqlite3-shm"
+    has_wal = source(wal, required=False)
+    # The source SHM is disposable indexing state, not authoritative bytes.
+    # Never follow a linked SHM or reuse it in the private directory.
+    if shm.exists() or shm.is_symlink():
+        source(shm, required=False)
+
+    with tempfile.TemporaryDirectory(prefix="release1-sqlite-verify-") as scratch:
+        staged = Path(scratch) / "move-journal.sqlite3"
+        shutil.copyfile(db, staged)
+        if has_wal:
+            shutil.copyfile(wal, Path(scratch) / "move-journal.sqlite3-wal")
+        # Permit SQLite to generate its own -shm only inside scratch. Source
+        # volume remains read-only, including when the original had live WAL.
+        connection = sqlite3.connect(
+            staged.as_uri() + "?mode=ro",
+            uri=True, isolation_level=None, timeout=5)
+        connection.row_factory = sqlite3.Row
         try:
-            require([tuple(r) for r in connection.execute(
-                "PRAGMA integrity_check")] == [("ok",)],
-                "persisted SQLite integrity check failed")
-            owner = connection.execute(
-                "SELECT epoch FROM owner WHERE singleton=1").fetchone()
-            require(owner is not None and
-                    owner["epoch"] == journal.get("owner_epoch"),
-                    "SQLite owner epoch differs from JSON snapshot")
-            queries = {
-                "games": "SELECT * FROM games ORDER BY game_id",
-                "intents": "SELECT * FROM intents ORDER BY game_id,ply_before",
-                "cooldown": "SELECT * FROM cooldown ORDER BY singleton",
-                "events": "SELECT * FROM events ORDER BY event_id",
-            }
-            observed = {name: [dict(row) for row in connection.execute(query)]
-                        for name, query in queries.items()}
-            for name, rows in observed.items():
-                require(type(journal.get(name)) is list and
-                        rows == journal[name],
-                        "SQLite persisted " + name + " differs from JSON snapshot")
+            connection.execute("PRAGMA query_only=ON")
+            connection.execute("BEGIN")
+            try:
+                require([tuple(r) for r in connection.execute(
+                    "PRAGMA integrity_check")] == [("ok",)],
+                    "persisted SQLite integrity check failed")
+                owner = connection.execute(
+                    "SELECT epoch FROM owner WHERE singleton=1").fetchone()
+                require(owner is not None and
+                        owner["epoch"] == journal.get("owner_epoch"),
+                        "SQLite owner epoch differs from JSON snapshot")
+                queries = {
+                    "games": "SELECT * FROM games ORDER BY game_id",
+                    "intents": "SELECT * FROM intents ORDER BY game_id,ply_before",
+                    "cooldown": "SELECT * FROM cooldown ORDER BY singleton",
+                    "events": "SELECT * FROM events ORDER BY event_id",
+                }
+                observed = {
+                    name: [dict(row) for row in connection.execute(query)]
+                    for name, query in queries.items()
+                }
+                for name, rows in observed.items():
+                    require(type(journal.get(name)) is list and
+                            rows == journal[name],
+                            "SQLite persisted " + name +
+                            " differs from JSON snapshot")
+            finally:
+                connection.execute("ROLLBACK")
         finally:
-            connection.execute("ROLLBACK")
-    finally:
-        connection.close()
+            connection.close()
     return {"persisted_sqlite_verified": True,
             "durable_events": len(observed["events"]),
             "durable_intents": len(observed["intents"])}

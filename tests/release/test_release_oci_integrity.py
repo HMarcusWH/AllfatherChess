@@ -399,7 +399,7 @@ class OCIProofTests(unittest.TestCase):
                                   if inner else {"index_platform":advertised})
                         archive, meta, inspection = self.fixture(
                             Path(d), double_nested=inner, **kwargs)
-                        with self.assertRaisesRegex(ValueError, "nested runnable.*platform"):
+                        with self.assertRaisesRegex(ValueError, "OCI runnable platform"):
                             oci.verify_archive(archive, meta,
                                                docker_inspect=inspection)
 

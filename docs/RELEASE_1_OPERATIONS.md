@@ -239,3 +239,15 @@ SPDX 2.x documentation predicates must include the real document-creation identi
 R10 requires a finite numeric SQLite cooldown deadline consistent with the single same-epoch durable cooldown event's recorded deadline, cause and timestamp. The original 60–86400-second duration is checked with a narrow transaction-timestamp tolerance and against the client's 429 guard audit. A matching but semantically forged JSON+SQLite deadline is not sufficient.
 
 All final-head real-process workflows, standalone OCI attestation verification, additional Codex code/security review, dependency locks and public-release gates remain independently enforceable.
+
+## Final PR #71 SPDX, OCI, observation-window and evidence workflow
+
+SBOM validation: in-toto SPDX predicate document must have supported 2.2/2.3 creation identity, legal namespace without `#`, identified file/package records, unique SPDX IDs, valid package `name`+`downloadLocation`, and file `fileName`+nonempty checksum inventory. The offline release contract additionally requires nonempty combined inventory. The diagnostic-only inspector reports bounded counts and SPDX field names, never arbitrary file names or full predicate contents. A genuine nonempty SPDX file-only SBOM is valid; an absent or malformed inventory cannot be admitted.
+
+OCI runtime selection: declared platforms on every selected runnable index/manifest path must match the qualified linux/amd64 baseline; unqualified nonempty OS/CPU requirements, invalid field types, unsupported variants and additional unknown platform requirements are rejected. Each embedded index/manifest `mediaType`, if present, must match the referencing descriptor; all child descriptors remain digest/size verified.
+
+R10: the `rate_limit_hold_completed` event must be request-correlated and recorded after 61.25 seconds have elapsed since the targeted real HTTP 429 response completion. The independent host verifier rejects a completed hold less than 61 seconds after this event. A server write does not by itself prove client receipt: the same first-epoch `global_rate_limit_block` guard audit and persistent SQLite cooldown evidence are independently required. The producer's fixed 100-second scenario deadline remains a bounded fail-closed timeout.
+
+SBOM generator: the release image policy specifies the digest-pinned docker/buildkit-syft-scanner multi-platform image, with remote digest preflight. The default mutable scanner tag is not used during qualification. The pinned image digest is a historically available Docker Hub index and must be exercised in exact-head CI before claiming a valid generator. CI still computes full BuildKit metadata to verify attestation, but only allowlisted sanitized JSON reports, OS inventory and four local smoke logs are retained as download artifacts; private GitHub event payload and full provenance metadata are not retained.
+
+The green supporting workflows and full image smoke testing remain necessary but insufficient: standalone OCI attestation verification, final host aggregate, dependency qualification and a fresh review must pass. The publication/licensing/live-game prohibitions are unchanged.

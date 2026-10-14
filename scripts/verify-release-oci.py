@@ -243,7 +243,7 @@ def validate_target_platform(platform: object) -> None:
     if "os.version" in platform:
         require(type(platform["os.version"]) is str and
                 platform["os.version"] == "",
-                "OCI runnable OS version requirement not qualified")
+                "OCI runnable platform OS version requirement not qualified")
     for field in ("os.features", "features"):
         if field in platform:
             require(type(platform[field]) is list and

@@ -226,6 +226,33 @@ def validate_spdx_document(predicate: dict) -> None:
                 "SPDX SBOM file contains malformed checksums")
 
 
+def validate_target_platform(platform: object) -> None:
+    """Fail closed on unqualified runtime requirements for linux/amd64 v1."""
+    require(type(platform) is dict and
+            platform.get("os") == "linux" and
+            platform.get("architecture") == "amd64",
+            "OCI runnable platform must be linux/amd64")
+    allowed = {"os", "architecture", "variant", "os.version",
+               "os.features", "features"}
+    require(not (set(platform) - allowed),
+            "OCI runnable platform contains unsupported requirements")
+    if "variant" in platform:
+        require(type(platform["variant"]) is str and
+                platform["variant"] == "v1",
+                "OCI runnable platform variant not qualified")
+    if "os.version" in platform:
+        require(type(platform["os.version"]) is str and
+                platform["os.version"] == "",
+                "OCI runnable OS version requirement not qualified")
+    for field in ("os.features", "features"):
+        if field in platform:
+            require(type(platform[field]) is list and
+                    all(type(item) is str and bool(item.strip())
+                        for item in platform[field]) and
+                    not platform[field],
+                    "OCI runnable platform feature requirements not qualified")
+
+
 def verify_attestation_subjects(attestations: list[dict], image: dict) -> set[str]:
     """Independently bind BuildKit's in-toto subjects to the application manifest.
 
@@ -412,6 +439,8 @@ def verify_archive(archive: Path, metadata: Path, *, docker_inspect: Path | None
             require(isinstance(document, dict) and
                     document.get("schemaVersion") == 2,
                     "invalid nested OCI index or image manifest")
+            require(document.get("mediaType") in (None, typ),
+                    "OCI document media type differs from descriptor")
             if typ == INDEX_TYPE:
                 children = document.get("manifests")
                 require(isinstance(children, list) and bool(children),
@@ -425,11 +454,7 @@ def verify_archive(archive: Path, metadata: Path, *, docker_inspect: Path | None
                         child, depth + 1, ancestors | {oid})
                     contains_application = child_application or contains_application
                 if contains_application and "platform" in descriptor:
-                    advertised = descriptor["platform"]
-                    require(isinstance(advertised, dict) and
-                            advertised.get("os") == "linux" and
-                            advertised.get("architecture") == "amd64",
-                            "OCI nested runnable index descriptor platform mismatch")
+                    validate_target_platform(descriptor["platform"])
                 return contains_application
             cfg = document.get("config")
             require(isinstance(cfg, dict) and
@@ -472,10 +497,7 @@ def verify_archive(archive: Path, metadata: Path, *, docker_inspect: Path | None
                     require(root_type in MANIFEST_TYPES,
                             "nested OCI application descriptor lacks platform")
                 else:
-                    require(isinstance(advertised, dict) and
-                            advertised.get("os") == "linux" and
-                            advertised.get("architecture") == "amd64",
-                            "OCI application descriptor platform mismatch")
+                    validate_target_platform(advertised)
                 require(details.get("architecture") == "amd64" and
                         details.get("os") == "linux",
                         "unexpected non-attestation OCI application manifest")

@@ -34,7 +34,7 @@ class OCIProofTests(unittest.TestCase):
                 bad_metadata_descriptor=False,
                 application_platform="linux/amd64",
                 index_platform="absent", inner_index_platform="absent",
-                double_nested=False):
+                double_nested=False, embedded_media="absent"):
         base = b"original uncompressed OCI application layer\n"
         expanded = (b"substituted uncompressed OCI application layer\n"
                     if replace_layer else base)
@@ -67,11 +67,37 @@ class OCIProofTests(unittest.TestCase):
             cfg_desc["size"] += 1
         if wrong_size == "layer":
             layer_desc["size"] += 1
-        application = store(encode({
-            "schemaVersion": 2, "config": cfg_desc, "layers": [layer_desc]}))
+        application_doc = {
+            "schemaVersion": 2, "config": cfg_desc, "layers": [layer_desc]}
+        if embedded_media in ("app-valid", "app-wrong"):
+            application_doc["mediaType"] = (
+                oci_manifest if embedded_media == "app-valid" else oci_index)
+        application = store(encode(application_doc))
         app_desc = descriptor(oci_manifest, application)
         if application_platform == "linux/amd64":
             app_desc["platform"] = {"os": "linux", "architecture": "amd64"}
+        elif application_platform == "valid-extras":
+            app_desc["platform"] = {"os": "linux", "architecture": "amd64",
+                                    "variant": "v1", "os.features": [],
+                                    "features": [], "os.version": ""}
+        elif application_platform == "variant-v3":
+            app_desc["platform"] = {"os": "linux", "architecture": "amd64",
+                                    "variant": "v3"}
+        elif application_platform == "os-features-text":
+            app_desc["platform"] = {"os": "linux", "architecture": "amd64",
+                                    "os.features": "avx512"}
+        elif application_platform == "os-features-extra":
+            app_desc["platform"] = {"os": "linux", "architecture": "amd64",
+                                    "os.features": ["avx512"]}
+        elif application_platform == "features-extra":
+            app_desc["platform"] = {"os": "linux", "architecture": "amd64",
+                                    "features": ["unqualified"]}
+        elif application_platform == "os-version-extra":
+            app_desc["platform"] = {"os": "linux", "architecture": "amd64",
+                                    "os.version": "2026"}
+        elif application_platform == "unknown-extra":
+            app_desc["platform"] = {"os": "linux", "architecture": "amd64",
+                                    "arbitrary": "not qualified"}
         elif application_platform == "linux/arm64":
             app_desc["platform"] = {"os": "linux", "architecture": "arm64"}
         elif application_platform == "windows/amd64":
@@ -225,12 +251,30 @@ class OCIProofTests(unittest.TestCase):
                 entry["platform"] = {"os":"windows", "architecture":"amd64"}
             elif value == "malformed":
                 entry["platform"] = ["linux", "amd64"]
+            elif value in ("valid-extras", "variant-v3", "os-features-text",
+                           "os-features-extra", "features-extra",
+                           "os-version-extra", "unknown-extra"):
+                platform = {"os":"linux", "architecture":"amd64"}
+                changes = {
+                    "valid-extras": {"variant":"v1", "os.features": [],
+                                     "features": [], "os.version": ""},
+                    "variant-v3": {"variant":"v3"},
+                    "os-features-text": {"os.features":"bad"},
+                    "os-features-extra": {"os.features":["bad"]},
+                    "features-extra": {"features":["bad"]},
+                    "os-version-extra": {"os.version":"22"},
+                    "unknown-extra": {"unknown-feature":"bad"},
+                }
+                entry["platform"] = {**platform, **changes[value]}
             else:
                 raise ValueError("unrecognized nested-index platform fixture")
 
         if nested:
-            nested_id = store(encode({"schemaVersion": 2, "mediaType": oci_index,
-                                      "manifests": children}))
+            nested_id = store(encode({
+                "schemaVersion": 2,
+                "mediaType": (oci_manifest if embedded_media == "index-wrong"
+                              else oci_index),
+                "manifests": children}))
             if double_nested:
                 inner_desc = descriptor(oci_index, nested_id)
                 advertise_index(inner_desc, inner_index_platform)
@@ -306,6 +350,45 @@ class OCIProofTests(unittest.TestCase):
                 Path(d), manifest_subject_kind="image")
             report = oci.verify_archive(archive, meta, docker_inspect=inspection)
             self.assertTrue(report["oci_attestation_references_verified"])
+
+    def test_nested_document_embedded_media_type_matches_descriptor(self):
+        for variant in ("app-wrong", "index-wrong"):
+            with self.subTest(variant=variant), tempfile.TemporaryDirectory() as d:
+                archive, meta, inspection = self.fixture(
+                    Path(d), embedded_media=variant)
+                with self.assertRaisesRegex(ValueError, "media type"):
+                    oci.verify_archive(archive, meta, docker_inspect=inspection)
+        with tempfile.TemporaryDirectory() as d:
+            archive, meta, inspection = self.fixture(
+                Path(d), embedded_media="app-valid")
+            self.assertTrue(oci.verify_archive(
+                archive, meta, docker_inspect=inspection)["integrity_verified"])
+
+    def test_runtime_platform_optional_fields_fail_closed(self):
+        invalid = ("variant-v3", "os-features-text", "os-features-extra",
+                   "features-extra", "os-version-extra", "unknown-extra")
+        for where in ("root", "inner", "app"):
+            for variant in invalid:
+                with self.subTest(where=where, kind=variant):
+                    with tempfile.TemporaryDirectory() as d:
+                        kwargs = ({"index_platform":variant}
+                                  if where=="root" else
+                                  {"inner_index_platform":variant}
+                                  if where=="inner" else
+                                  {"application_platform":variant})
+                        archive, meta, inspection = self.fixture(
+                            Path(d), double_nested=True, **kwargs)
+                        with self.assertRaisesRegex(ValueError, "OCI runnable platform"):
+                            oci.verify_archive(archive, meta,
+                                               docker_inspect=inspection)
+        with tempfile.TemporaryDirectory() as d:
+            archive, meta, inspection = self.fixture(
+                Path(d), double_nested=True,
+                index_platform="valid-extras",
+                inner_index_platform="valid-extras",
+                application_platform="valid-extras")
+            self.assertTrue(oci.verify_archive(
+                archive, meta, docker_inspect=inspection)["integrity_verified"])
 
     def test_nested_index_advertised_platform_must_match_runnable_image(self):
         for advertised in ("linux/arm64", "windows/amd64", "malformed"):

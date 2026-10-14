@@ -447,7 +447,8 @@ def verify_persisted_sqlite(folder: Path, journal: dict) -> dict:
             return False
         mode = path.stat()
         require(stat.S_ISREG(mode.st_mode) and
-                0 < mode.st_size <= 256 * 1024 * 1024,
+                (mode.st_size > 0 if required else mode.st_size >= 0) and
+                mode.st_size <= 256 * 1024 * 1024,
                 "persisted SQLite database/sidecar invalid or oversized")
         return True
 

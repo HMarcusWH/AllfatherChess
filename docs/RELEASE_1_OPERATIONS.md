@@ -227,3 +227,15 @@ The independent OCI verifier now checks that the *nested-index runnable-image de
 R02 lost acknowledgment requires a unique first-epoch `http_unknown_ack` audit with `endpoint="move"`; a non-move or missing endpoint cannot stand in for that evidence. R10 requires a matching completed HTTP 429 response, a matching first-epoch `global_rate_limit_block` guard audit, an on-disk `UNKNOWN_ACK` intent and `http429:move` cooldown, plus the existing account-wide API freeze and 61-second observation. Each is independently verified; a producer `ready=true` is never sufficient.
 
 The Dockerfile's snapshot-based APT update/install uses bounded `Acquire::Retries=2` and HTTPS timeouts of 30 seconds. Persistent failure is not ignored: the workflow preserves a bounded failure-only JSON report at `build/test-results/release1/snapshot-acquisition-failure.json`, prints the tail of the temporary build log, and exits unsuccessfully. Package sources, signatures, pinned base and snapshot, and release restrictions remain unchanged. A successful retry is not proof of pinned OS/wheel inventory or release permission.
+
+## PR #71 further integrity hardening
+
+Stopped packaged smoke containers write the persistent recovery SQLite journal as UID 10001. The host runner may read files but cannot create or update WAL shared-memory sidecars there. The independent verifier now copies only the regular SQLite main file and optional WAL bytes into a private host-owned temporary directory, omits producer SHM, and opens the copy through normal SQLite mode=ro, consistent transaction and integrity check. This retains WAL-visible committed rows while leaving original evidence untouched. immutable=1 is never used. Directory/sidecar symlinks, corrupt bytes and JSON mismatches fail qualification.
+
+For OCI platform selection, every *advertised* platform on a nested-index descriptor leading to the runnable application must match linux/amd64, in addition to the leaf manifest and image configuration checks. Synthetic nested root/intermediate platform falsifiers are covered. Attestation-only index branches are not mistaken for runnable images.
+
+SPDX 2.x documentation predicates must include the real document-creation identity and a structurally identified nonempty package/file inventory: CC0-1.0 data license, SPDXRef-DOCUMENT, document name and URI namespace, UTC creation timestamp and creator records. Such shape validation never establishes publisher authenticity, licensing or redistribution permission.
+
+R10 requires a finite numeric SQLite cooldown deadline consistent with the single same-epoch durable cooldown event's recorded deadline, cause and timestamp. The original 60–86400-second duration is checked with a narrow transaction-timestamp tolerance and against the client's 429 guard audit. A matching but semantically forged JSON+SQLite deadline is not sufficient.
+
+All final-head real-process workflows, standalone OCI attestation verification, additional Codex code/security review, dependency locks and public-release gates remain independently enforceable.

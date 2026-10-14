@@ -82,3 +82,18 @@ An older [illegal-POST review](https://github.com/HMarcusWH/AllfatherChess/pull/
 **RELEASE-1 previous exact-head failure:** Docker's pinned Ubuntu snapshot `20261001T000000Z` returned HTTP 503 while downloading native packages, before OCI export or packaged smoke testing. The Dockerfile now uses bounded APT acquisition retries/timeouts against the **same GPG-verified snapshot**. The workflow retains a small, failure-only structured report and exits nonzero if the build remains unavailable. No fallback mirror, floating repository, unsigned package or publication permission was added.
 
 The proof obligation remains eleven required exact-head workflows green, genuine standalone OCI SBOM/provenance verified, all four installed-image scenarios qualified against real SQLite, final Codex code/security review with no actionable findings, and explicit disposition of the remaining prior review threads. No online play or public distribution grant is part of this PR.
+
+## PR #71 follow-up — SQLite read-only WAL, nested OCI, SPDX and R10
+
+Latest Codex review identified three additional P2 admission issues. The real RELEASE-1 packaged-run integration also exposed a host-side SQLite WAL sidecar permission error. These source repairs and destructive fixtures are implemented in the existing draft branch, but successful final-head integration and review are mandatory before closure.
+
+| Area | Repair |
+| --- | --- |
+| OCI nested-platform path | The recursive verifier tracks whether each index descendant is the selected runnable image; every advertised platform on this path must be linux/amd64. Tests mutate root and intermediate index platforms with rehashed manifests; attestation-only paths remain separate. |
+| SPDX document identity | SPDX 2.2/2.3 predicate now requires SPDXRef-DOCUMENT, CC0-1.0 data license, nonempty document name, URI namespace, valid UTC creation date, creator identification and nonempty identified package/file inventory. Empty schema-shaped SBOMs fail. This is not publisher authentication. |
+| R10 cooldown validity | Finite numeric SQLite deadline, exact corresponding single durable cooldown event/cause/deadline, valid owner epoch and event timestamp, 60–86400 second contract with bounded write-delay tolerance, and temporally compatible client guard audit. Coherently corrupted SQLite+JSON fail. |
+| SQLite UID boundary | Independent verifier stages the stopped producer's bounded regular database and WAL bytes in a private writable directory before a read-only SQLite transaction; never uses immutable=1 or producer SHM; original source remains untouched. Tests reproduce read-only permissions and uncheckpointed WAL. |
+
+Run https://github.com/HMarcusWH/AllfatherChess/actions/runs/38486478700 built the candidate image and completed R00 white/black, R02 white and R10 white packaged smoke, but independent qualification failed for all four at SQLite read-only/WAL initialization. OCI export was not yet exercised.
+
+All changes preserve the original no-publication, no-licensing, no-live-transport and no-search/authority-change constraints. Do not claim complete qualification or resolve review threads until exact-head OCI, packaged smoke, and final Codex review pass.

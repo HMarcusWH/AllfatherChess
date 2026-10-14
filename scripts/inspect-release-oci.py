@@ -132,15 +132,39 @@ def inspect(archive: Path, metadata: Path) -> dict:
                     statements = statement.get("statements")
                     if not isinstance(statements, list):
                         statements = [statement]
-                    row["statements"] = [{
-                        "_type": st.get("_type"),
-                        "predicate_type": st.get("predicateType"),
-                        "subject_count": len(st.get("subject", []))
-                            if isinstance(st.get("subject"), list) else None,
-                        "subjects": st.get("subject"),
-                        "predicate_keys": sorted((st.get("predicate") or {}).keys())
-                            if isinstance(st.get("predicate"), dict) else [],
-                    } for st in statements if isinstance(st, dict)]
+                    row["statements"] = []
+                    for st in statements:
+                        if not isinstance(st, dict):
+                            continue
+                        predicate = st.get("predicate")
+                        safe_keys = (sorted(predicate.keys())
+                                     if isinstance(predicate, dict) else [])
+                        summary = {
+                            "_type": st.get("_type"),
+                            "predicate_type": st.get("predicateType"),
+                            "subject_count": len(st.get("subject", []))
+                                if isinstance(st.get("subject"), list) else None,
+                            "subjects": st.get("subject"),
+                            "predicate_keys": safe_keys[:32],
+                        }
+                        if st.get("predicateType") == "https://spdx.dev/Document":
+                            packages = (predicate.get("packages")
+                                        if isinstance(predicate, dict) else None)
+                            files = (predicate.get("files")
+                                     if isinstance(predicate, dict) else None)
+                            summary["spdx_package_count"] = (
+                                len(packages) if type(packages) is list else None)
+                            summary["spdx_file_count"] = (
+                                len(files) if type(files) is list else None)
+                            summary["spdx_package_field_keys"] = (
+                                sorted({key for item in packages[:32]
+                                        if isinstance(item, dict) for key in item})[:32]
+                                if type(packages) is list else [])
+                            summary["spdx_file_field_keys"] = (
+                                sorted({key for item in files[:32]
+                                        if isinstance(item, dict) for key in item})[:32]
+                                if type(files) is list else [])
+                        row["statements"].append(summary)
                 rec["layers"].append(row)
             return rec
 

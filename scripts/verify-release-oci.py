@@ -178,23 +178,52 @@ def validate_spdx_document(predicate: dict) -> None:
         isinstance(predicate.get("name"), str) and
         bool(predicate["name"].strip()) and
         valid_identity_uri(predicate.get("documentNamespace")) and
+        "#" not in predicate["documentNamespace"] and
         valid_date and
         isinstance(creators, list) and bool(creators) and
         all(isinstance(creator, str) and
             creator.startswith(("Tool: ", "Person: ", "Organization: ")) and
             bool(creator.partition(": ")[2].strip()) for creator in creators),
         "SPDX SBOM lacks complete document creation identity")
-    packages = predicate.get("packages")
-    files = predicate.get("files")
-    inventory = ((packages if isinstance(packages, list) else []) +
-                 (files if isinstance(files, list) else []))
-    require(bool(inventory) and
-            all(isinstance(item, dict) and
-                isinstance(item.get("SPDXID"), str) and
-                item["SPDXID"].startswith("SPDXRef-") and
-                isinstance(item.get("name"), str) and
-                bool(item["name"].strip()) for item in inventory),
+    # SPDX 2.3 distinguishes package.name from file.fileName.
+    # A single shared 'name' predicate wrongly rejected genuine Syft files.
+    packages = predicate.get("packages", [])
+    files = predicate.get("files", [])
+    require(type(packages) is list and type(files) is list and
+            bool(packages or files),
             "SPDX SBOM lacks a usable package/file inventory")
+    unique = {"SPDXRef-DOCUMENT"}
+
+    def spdx_id(item):
+        identifier = item.get("SPDXID") if isinstance(item, dict) else None
+        require(isinstance(identifier, str) and
+                re.fullmatch(r"SPDXRef-[A-Za-z0-9.-]+", identifier) is not None and
+                identifier not in unique,
+                "SPDX SBOM inventory has malformed or duplicate SPDXID")
+        unique.add(identifier)
+
+    for item in packages:
+        spdx_id(item)
+        require(isinstance(item.get("name"), str) and
+                bool(item["name"].strip()) and
+                isinstance(item.get("downloadLocation"), str) and
+                bool(item["downloadLocation"].strip()),
+                "SPDX SBOM package lacks name or downloadLocation")
+    for item in files:
+        spdx_id(item)
+        checksums = item.get("checksums")
+        require(isinstance(item.get("fileName"), str) and
+                bool(item["fileName"].strip()) and
+                type(checksums) is list and bool(checksums),
+                "SPDX SBOM file lacks fileName or checksums")
+        require(all(isinstance(checksum, dict) and
+                    isinstance(checksum.get("algorithm"), str) and
+                    bool(checksum["algorithm"].strip()) and
+                    isinstance(checksum.get("checksumValue"), str) and
+                    re.fullmatch(r"[A-Fa-f0-9]+",
+                                 checksum["checksumValue"]) is not None
+                    for checksum in checksums),
+                "SPDX SBOM file contains malformed checksums")
 
 
 def verify_attestation_subjects(attestations: list[dict], image: dict) -> set[str]:

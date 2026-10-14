@@ -128,6 +128,33 @@ class OCIProofTests(unittest.TestCase):
                     body["packages"] = []
                 elif spdx_case == "bad-package":
                     body["packages"] = [{"SPDXID":"SPDXRef-Package-X"}]
+                elif spdx_case == "missing-download":
+                    del body["packages"][0]["downloadLocation"]
+                elif spdx_case == "file-only-valid":
+                    body["packages"] = []
+                    body["files"] = [{"SPDXID": "SPDXRef-File-A",
+                                      "fileName": "./usr/bin/allfather",
+                                      "checksums": [{"algorithm": "SHA256",
+                                                     "checksumValue": "a" * 64}]}]
+                elif spdx_case == "missing-file-checksum":
+                    body["packages"] = []
+                    body["files"] = [{"SPDXID": "SPDXRef-File-A",
+                                      "fileName": "./usr/bin/allfather"}]
+                elif spdx_case == "bad-file-checksum":
+                    body["packages"] = []
+                    body["files"] = [{"SPDXID": "SPDXRef-File-A",
+                                      "fileName": "./usr/bin/allfather",
+                                      "checksums": [{"algorithm":"SHA256",
+                                                     "checksumValue":"not-hex"}]}]
+                elif spdx_case == "duplicate-id":
+                    body["files"] = [{"SPDXID":"SPDXRef-Package-offline",
+                                      "fileName":"./file",
+                                      "checksums":[{"algorithm":"SHA256",
+                                                    "checksumValue":"a"*64}]}]
+                elif spdx_case == "namespace-fragment":
+                    body["documentNamespace"] += "#other"
+                elif spdx_case == "namespace-trailing-fragment":
+                    body["documentNamespace"] += "#"
                 elif spdx_case != "valid":
                     raise ValueError("unknown SPDX fixture variant")
             if predicate.endswith("/v1"):
@@ -303,11 +330,37 @@ class OCIProofTests(unittest.TestCase):
                 oci.verify_archive(archive, meta,
                                    docker_inspect=inspection)["integrity_verified"])
 
+    def test_spdx_file_only_inventory_uses_fileName_not_package_name(self):
+        with tempfile.TemporaryDirectory() as d:
+            archive, meta, inspect = self.fixture(Path(d), spdx_case="file-only-valid")
+            self.assertTrue(oci.verify_archive(
+                archive, meta, docker_inspect=inspect)["oci_sbom_verified"])
+
+    def test_sanitized_diagnostics_report_spdx_shape_without_file_names(self):
+        mod_spec = importlib.util.spec_from_file_location(
+            "release1_inventory_diagnostic",
+            ROOT/"scripts/inspect-release-oci.py")
+        mod = importlib.util.module_from_spec(mod_spec)
+        mod_spec.loader.exec_module(mod)
+        with tempfile.TemporaryDirectory() as d:
+            archive, meta, _ = self.fixture(Path(d), spdx_case="file-only-valid")
+            summary = mod.inspect(archive, meta)
+            attest = summary["index_manifests"][0]["children"][1]
+            spdx = next(s for l in attest["layers"] for s in l["statements"]
+                        if s["predicate_type"] == "https://spdx.dev/Document")
+            self.assertEqual(spdx["spdx_package_count"], 0)
+            self.assertEqual(spdx["spdx_file_count"], 1)
+            self.assertIn("fileName", spdx["spdx_file_field_keys"])
+            self.assertNotIn("./usr/bin/allfather", json.dumps(summary))
+            self.assertFalse(summary["integrity_verified"])
+
     def test_incomplete_spdx_sbom_never_qualifies(self):
         cases = ("missing-license", "wrong-document-id", "missing-name",
                  "bad-namespace", "missing-created", "invalid-created",
                  "missing-creators", "bad-creator", "empty-inventory",
-                 "bad-package")
+                 "bad-package", "missing-download", "missing-file-checksum",
+                 "bad-file-checksum", "duplicate-id", "namespace-fragment",
+                 "namespace-trailing-fragment")
         for variant in cases:
             with self.subTest(spdx=variant), tempfile.TemporaryDirectory() as d:
                 archive, meta, inspection = self.fixture(

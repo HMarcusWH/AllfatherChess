@@ -34,7 +34,8 @@ class OCIProofTests(unittest.TestCase):
                 bad_metadata_descriptor=False,
                 application_platform="linux/amd64",
                 index_platform="absent", inner_index_platform="absent",
-                double_nested=False, embedded_media="absent"):
+                double_nested=False, embedded_media="absent",
+                config_platform="valid"):
         base = b"original uncompressed OCI application layer\n"
         expanded = (b"substituted uncompressed OCI application layer\n"
                     if replace_layer else base)
@@ -53,13 +54,28 @@ class OCIProofTests(unittest.TestCase):
         oci_index = "application/vnd.oci.image.index.v1+json"
         tar_layer = store(gzip.compress(expanded, mtime=0))
         diff_id = sha(b"mismatched expected diff" if corrupt_rootfs else base)
-        config = store(encode({
+        cfg = {
             "architecture": "amd64", "os": "linux",
             "rootfs": {"type": "layers", "diff_ids": [diff_id]},
             "config": {"User": "10001:10001",
                        "Entrypoint": ["/opt/online3b/bin/python",
                                       "/opt/release-tools/deploy/release/entrypoint.py"]}
-        }))
+        }
+        config_changes = {
+            "valid": {},
+            "variant-v3": {"variant": "v3"},
+            "valid-baseline": {"variant": "v1", "os.features": [],
+                               "os.version": ""},
+            "os-features-text": {"os.features": "avx512"},
+            "os-features-extra": {"os.features": ["avx512"]},
+            "os-version-extra": {"os.version": "2026"},
+            "wrong-os": {"os": "windows"},
+            "wrong-arch": {"architecture": "arm64"},
+        }
+        if config_platform not in config_changes:
+            raise ValueError("unsupported image configuration fixture variant")
+        cfg.update(config_changes[config_platform])
+        config = store(encode(cfg))
         cfg_desc = descriptor("application/vnd.oci.image.config.v1+json", config)
         layer_desc = descriptor("application/vnd.oci.image.layer.v1.tar+gzip",
                                 tar_layer)
@@ -380,6 +396,23 @@ class OCIProofTests(unittest.TestCase):
                 Path(d), embedded_media="app-valid")
             self.assertTrue(oci.verify_archive(
                 archive, meta, docker_inspect=inspection)["integrity_verified"])
+
+    def test_actual_image_config_platform_is_independently_qualified(self):
+        invalid = ("variant-v3", "os-features-text", "os-features-extra",
+                   "os-version-extra", "wrong-os", "wrong-arch")
+        for variant in invalid:
+            with self.subTest(config=variant), tempfile.TemporaryDirectory() as d:
+                archive, meta, inspected = self.fixture(
+                    Path(d), config_platform=variant)
+                # Fixture rehashes config -> manifest -> nested index ->
+                # BuildKit metadata, and inspected image ID, by construction.
+                with self.assertRaisesRegex(ValueError, "OCI runnable platform"):
+                    oci.verify_archive(archive, meta, docker_inspect=inspected)
+        with tempfile.TemporaryDirectory() as d:
+            archive, meta, inspected = self.fixture(
+                Path(d), config_platform="valid-baseline")
+            self.assertTrue(oci.verify_archive(
+                archive, meta, docker_inspect=inspected)["integrity_verified"])
 
     def test_runtime_platform_optional_fields_fail_closed(self):
         invalid = ("variant-v3", "os-features-text", "os-features-extra",

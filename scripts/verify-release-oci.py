@@ -53,8 +53,10 @@ def verify_image_config_link(*, image_config_digest: str,
         require(metadata_config_digest == image_config_digest,
                 "BuildKit config metadata contradicts OCI archive image")
     if docker_inspection is not None:
-        require(docker_inspection.get("Id") == image_config_digest and
-                docker_inspection.get("Architecture") == "amd64",
+        require(isinstance(docker_inspection, dict) and
+                docker_inspection.get("Id") == image_config_digest and
+                docker_inspection.get("Architecture") == "amd64" and
+                docker_inspection.get("Os", "linux") == "linux",
                 "tested Docker image differs from exported OCI config")
     require(metadata_config_digest is not None or docker_inspection is not None,
             "OCI config identity has neither BuildKit metadata nor image inspection")
@@ -555,9 +557,15 @@ def verify_archive(archive: Path, metadata: Path, *, docker_inspect: Path | None
                             "nested OCI application descriptor lacks platform")
                 else:
                     validate_target_platform(advertised)
-                require(details.get("architecture") == "amd64" and
-                        details.get("os") == "linux",
-                        "unexpected non-attestation OCI application manifest")
+                # Only OCI configuration platform fields participate in
+                # platform selection. Legitimate config/rootfs/history data
+                # must never be mistaken for descriptor platform extras.
+                image_platform = {
+                    field: details[field] for field in
+                    ("os", "architecture", "variant", "os.version", "os.features")
+                    if field in details
+                }
+                validate_target_platform(image_platform)
                 images.append({"manifest_digest": oid,
                                "manifest_media_type": typ,
                                "manifest_size": descriptor["size"],
@@ -597,6 +605,7 @@ def verify_archive(archive: Path, metadata: Path, *, docker_inspect: Path | None
         require(reported_manifest == root_descriptor["digest"],
                 "BuildKit root descriptor changed during traversal")
         config=image["config"].get("config") or {}
+        require(isinstance(config, dict), "malformed runnable OCI configuration")
         require(config.get("User") in ("10001:10001", "10001") and
                 config.get("Entrypoint")==[
                     "/opt/online3b/bin/python",

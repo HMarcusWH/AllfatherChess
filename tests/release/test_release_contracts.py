@@ -158,6 +158,7 @@ class OfflineReleaseContracts(unittest.TestCase):
             ("sha256:"+"b"*64, observed),
             (None, {"Id":"sha256:"+"b"*64,"Architecture":"amd64"}),
             (None, {"Id":digest,"Architecture":"arm64"}),
+            (None, {"Id":digest,"Architecture":"amd64","Os":"windows"}),
         ):
             with self.subTest(metadata=metadata, inspected=inspection), self.assertRaises(ValueError):
                 oci.verify_image_config_link(

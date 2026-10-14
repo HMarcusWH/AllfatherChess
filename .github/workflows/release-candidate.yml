@@ -65,6 +65,13 @@ jobs:
           assert bootstrap.count('Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg') == 2
           assert 'trusted=yes' not in bootstrap and 'allow-unauthenticated' not in bootstrap
           PY
+      - name: Early signed-snapshot availability preflight
+        timeout-minutes: 3
+        run: |
+          python3 scripts/check-release-snapshot.py \
+            --policy qualification/release-image-v1.json \
+            --sources deploy/release/ubuntu.sources \
+            --output build/test-results/release1/snapshot-availability.json
       - name: Install exact engine and wheel preparation toolchain
         run: |
           bash scripts/ci-install-apt-deps.sh build-essential meson ninja-build pkg-config libprotobuf-dev protobuf-compiler zlib1g-dev libopenblas-dev python3-pip python3-venv
@@ -242,6 +249,7 @@ jobs:
             build/test-results/release1/stage-report.json
             build/test-results/release1/verify-output.json
             build/test-results/release1/snapshot-acquisition-failure.json
+            build/test-results/release1/snapshot-availability.json
             build/test-results/release1/smoke-verdict.json
             build/test-results/release1/oci-attestation-structure.json
             build/test-results/release1/oci-report.json

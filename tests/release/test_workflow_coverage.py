@@ -60,6 +60,9 @@ class WorkflowCoverageTests(unittest.TestCase):
                         content.index("- name: Export standalone OCI archive"))
         self.assertIn("--oci-archive build/release1-offline.oci.tar",content)
         self.assertIn("snapshot-acquisition-failure.json",content)
+        self.assertIn("snapshot-availability.json", content)
+        self.assertLess(content.index("scripts/check-release-snapshot.py"),
+                        content.index("- name: Install exact engine"))
         self.assertIn('exit 1',content.split("snapshot-acquisition-failure.json",1)[1])
         self.assertIn("candidate_qualified",content)
         self.assertIn("build/test-results/release1/smoke-verdict.json",content)

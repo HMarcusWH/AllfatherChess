@@ -473,7 +473,8 @@ class OCIProofTests(unittest.TestCase):
                    "https:///missing-host", "https://example.test/a b",
                    "https://user:password@example.test/x",
                    "http://user@example.test/x", "javascript:evil()",
-                   "https://[bad-ipv6/x", "NOASSERTION\n")
+                   "https://[bad-ipv6/x", "https://example.test:invalid/path",
+                   "NOASSERTION\n")
         for location in accepted:
             with self.subTest(location=location):
                 self.assertTrue(oci.valid_spdx_download_location(location))

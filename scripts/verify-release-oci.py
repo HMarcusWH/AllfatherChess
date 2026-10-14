@@ -190,6 +190,9 @@ def valid_spdx_download_location(value: object) -> bool:
             return False
         if uri.password is not None:
             return False
+        # Force urllib to validate the port rather than treating an invalid
+        # textual authority as a legitimate download location.
+        _ = uri.port
         # A public Git/VCS SSH URL may use git@host; web download URLs
         # may not contain credentials at all.
         if uri.username is not None and not (

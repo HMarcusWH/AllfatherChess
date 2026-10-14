@@ -30,8 +30,11 @@ class OCIProofTests(unittest.TestCase):
                 bad_reference=False, corrupt_rootfs=False, subject_kind="image",
                 metadata_kind="root", manifest_subject_kind="none",
                 invalid_predicate=False, nested=True, wrong_size=None,
-                slsa_case="valid", bad_metadata_descriptor=False,
-                application_platform="linux/amd64"):
+                slsa_case="valid", spdx_case="valid",
+                bad_metadata_descriptor=False,
+                application_platform="linux/amd64",
+                index_platform="absent", inner_index_platform="absent",
+                double_nested=False):
         base = b"original uncompressed OCI application layer\n"
         expanded = (b"substituted uncompressed OCI application layer\n"
                     if replace_layer else base)
@@ -85,13 +88,48 @@ class OCIProofTests(unittest.TestCase):
                        "layer": tar_layer[7:], "empty": None}[subject_kind]
             if bad_subject:
                 subject = "f" * 64
-            body = ({"SPDXID": "SPDXRef-DOCUMENT", "spdxVersion": "SPDX-2.3"}
-                    if predicate == "https://spdx.dev/Document" else {
+            body = ({
+                "SPDXID": "SPDXRef-DOCUMENT",
+                "spdxVersion": "SPDX-2.3",
+                "dataLicense": "CC0-1.0",
+                "name": "AllfatherChess-offline-image",
+                "documentNamespace": "https://spdx.org/spdxdocs/allfather-release1-fixture",
+                "creationInfo": {
+                    "created": "2026-10-14T00:00:00Z",
+                    "creators": ["Tool: BuildKit fixture"]},
+                "packages": [{
+                    "SPDXID": "SPDXRef-Package-offline",
+                    "name": "offline-test-package",
+                    "downloadLocation": "NOASSERTION"}],
+            } if predicate == "https://spdx.dev/Document" else {
                     "buildDefinition": {
                         "buildType": "https://mobyproject.org/buildkit@v1",
                         "externalParameters": {}},
                     "runDetails": {"builder": {
                         "id": "https://github.com/moby/buildkit"}}})
+            if predicate == "https://spdx.dev/Document":
+                if spdx_case == "missing-license":
+                    del body["dataLicense"]
+                elif spdx_case == "wrong-document-id":
+                    body["SPDXID"] = "SPDXRef-Other"
+                elif spdx_case == "missing-name":
+                    del body["name"]
+                elif spdx_case == "bad-namespace":
+                    body["documentNamespace"] = "invalid"
+                elif spdx_case == "missing-created":
+                    del body["creationInfo"]["created"]
+                elif spdx_case == "invalid-created":
+                    body["creationInfo"]["created"] = "2026-99-14T00:00:00Z"
+                elif spdx_case == "missing-creators":
+                    body["creationInfo"]["creators"] = []
+                elif spdx_case == "bad-creator":
+                    body["creationInfo"]["creators"] = ["anonymous"]
+                elif spdx_case == "empty-inventory":
+                    body["packages"] = []
+                elif spdx_case == "bad-package":
+                    body["packages"] = [{"SPDXID":"SPDXRef-Package-X"}]
+                elif spdx_case != "valid":
+                    raise ValueError("unknown SPDX fixture variant")
             if predicate.endswith("/v1"):
                 if slsa_case == "empty":
                     body = {"buildDefinition": {}, "runDetails": {}}
@@ -148,10 +186,32 @@ class OCIProofTests(unittest.TestCase):
         if wrong_size == "application":
             app_desc["size"] += 1
         children = [app_desc, att_desc]
+
+        def advertise_index(entry, value):
+            if value == "absent":
+                return
+            if value == "linux/amd64":
+                entry["platform"] = {"os":"linux", "architecture":"amd64"}
+            elif value == "linux/arm64":
+                entry["platform"] = {"os":"linux", "architecture":"arm64"}
+            elif value == "windows/amd64":
+                entry["platform"] = {"os":"windows", "architecture":"amd64"}
+            elif value == "malformed":
+                entry["platform"] = ["linux", "amd64"]
+            else:
+                raise ValueError("unrecognized nested-index platform fixture")
+
         if nested:
             nested_id = store(encode({"schemaVersion": 2, "mediaType": oci_index,
                                       "manifests": children}))
+            if double_nested:
+                inner_desc = descriptor(oci_index, nested_id)
+                advertise_index(inner_desc, inner_index_platform)
+                nested_id = store(encode({
+                    "schemaVersion": 2, "mediaType": oci_index,
+                    "manifests": [inner_desc]}))
             root_desc = descriptor(oci_index, nested_id)
+            advertise_index(root_desc, index_platform)
             outer_children = [root_desc]
         else:
             root_desc = app_desc
@@ -219,6 +279,41 @@ class OCIProofTests(unittest.TestCase):
                 Path(d), manifest_subject_kind="image")
             report = oci.verify_archive(archive, meta, docker_inspect=inspection)
             self.assertTrue(report["oci_attestation_references_verified"])
+
+    def test_nested_index_advertised_platform_must_match_runnable_image(self):
+        for advertised in ("linux/arm64", "windows/amd64", "malformed"):
+            for inner in (False, True):
+                with self.subTest(advertised=advertised, inner=inner):
+                    with tempfile.TemporaryDirectory() as d:
+                        kwargs = ({"inner_index_platform":advertised}
+                                  if inner else {"index_platform":advertised})
+                        archive, meta, inspection = self.fixture(
+                            Path(d), double_nested=inner, **kwargs)
+                        with self.assertRaisesRegex(ValueError, "nested runnable.*platform"):
+                            oci.verify_archive(archive, meta,
+                                               docker_inspect=inspection)
+
+    def test_valid_advertised_platform_at_every_nested_index_level(self):
+        with tempfile.TemporaryDirectory() as d:
+            archive, meta, inspection = self.fixture(
+                Path(d), double_nested=True,
+                index_platform="linux/amd64",
+                inner_index_platform="linux/amd64")
+            self.assertTrue(
+                oci.verify_archive(archive, meta,
+                                   docker_inspect=inspection)["integrity_verified"])
+
+    def test_incomplete_spdx_sbom_never_qualifies(self):
+        cases = ("missing-license", "wrong-document-id", "missing-name",
+                 "bad-namespace", "missing-created", "invalid-created",
+                 "missing-creators", "bad-creator", "empty-inventory",
+                 "bad-package")
+        for variant in cases:
+            with self.subTest(spdx=variant), tempfile.TemporaryDirectory() as d:
+                archive, meta, inspection = self.fixture(
+                    Path(d), spdx_case=variant)
+                with self.assertRaisesRegex(ValueError, "SPDX"):
+                    oci.verify_archive(archive, meta, docker_inspect=inspection)
 
     def test_real_small_oci_graph_binds_every_layer_and_attestation(self):
         with tempfile.TemporaryDirectory() as d:

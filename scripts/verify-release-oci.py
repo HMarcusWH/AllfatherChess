@@ -12,6 +12,7 @@ import zlib
 import json
 import re
 import tarfile
+from datetime import datetime
 from pathlib import Path, PurePosixPath
 from urllib.parse import urlsplit
 
@@ -152,6 +153,50 @@ def validate_slsa(kind: str, predicate: dict) -> None:
         raise ValueError("unsupported SLSA version")
 
 
+def validate_spdx_document(predicate: dict) -> None:
+    """Validate required SPDX 2.x document creation identity and inventory.
+
+    This is schema/structural validation, not an authentication of the tool
+    that generated the SBOM or of a publisher's signature.
+    """
+    creation = predicate.get("creationInfo")
+    creators = creation.get("creators") if isinstance(creation, dict) else None
+    created = creation.get("created") if isinstance(creation, dict) else None
+    valid_date = (isinstance(created, str) and
+                  re.fullmatch(
+                      r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z",
+                      created) is not None)
+    if valid_date:
+        try:
+            datetime.fromisoformat(created.replace("Z", "+00:00"))
+        except ValueError:
+            valid_date = False
+    require(
+        predicate.get("spdxVersion") in ("SPDX-2.2", "SPDX-2.3") and
+        predicate.get("SPDXID") == "SPDXRef-DOCUMENT" and
+        predicate.get("dataLicense") == "CC0-1.0" and
+        isinstance(predicate.get("name"), str) and
+        bool(predicate["name"].strip()) and
+        valid_identity_uri(predicate.get("documentNamespace")) and
+        valid_date and
+        isinstance(creators, list) and bool(creators) and
+        all(isinstance(creator, str) and
+            creator.startswith(("Tool: ", "Person: ", "Organization: ")) and
+            bool(creator.partition(": ")[2].strip()) for creator in creators),
+        "SPDX SBOM lacks complete document creation identity")
+    packages = predicate.get("packages")
+    files = predicate.get("files")
+    inventory = ((packages if isinstance(packages, list) else []) +
+                 (files if isinstance(files, list) else []))
+    require(bool(inventory) and
+            all(isinstance(item, dict) and
+                isinstance(item.get("SPDXID"), str) and
+                item["SPDXID"].startswith("SPDXRef-") and
+                isinstance(item.get("name"), str) and
+                bool(item["name"].strip()) for item in inventory),
+            "SPDX SBOM lacks a usable package/file inventory")
+
+
 def verify_attestation_subjects(attestations: list[dict], image: dict) -> set[str]:
     """Independently bind BuildKit's in-toto subjects to the application manifest.
 
@@ -210,11 +255,7 @@ def verify_attestation_subjects(attestations: list[dict], image: dict) -> set[st
             require(isinstance(predicate, dict) and bool(predicate),
                     "OCI attestation predicate document empty")
             if kind == SPDX:
-                require(isinstance(predicate.get("spdxVersion"), str)
-                        and predicate["spdxVersion"].startswith("SPDX-2.")
-                        and isinstance(predicate.get("SPDXID"), str)
-                        and bool(predicate["SPDXID"]),
-                        "SPDX SBOM predicate lacks document identity")
+                validate_spdx_document(predicate)
             else:
                 validate_slsa(kind, predicate)
             predicates.add(kind)
@@ -346,9 +387,21 @@ def verify_archive(archive: Path, metadata: Path, *, docker_inspect: Path | None
                 children = document.get("manifests")
                 require(isinstance(children, list) and bool(children),
                         "nested OCI index has no child descriptors")
+                # Validate every *advertised* index platform on the path to
+                # the runnable image. Attestation-only subindexes do not
+                # determine the runner's platform.
+                contains_application = False
                 for child in children:
-                    inspect_descriptor(child, depth + 1, ancestors | {oid})
-                return
+                    child_application = inspect_descriptor(
+                        child, depth + 1, ancestors | {oid})
+                    contains_application = child_application or contains_application
+                if contains_application and "platform" in descriptor:
+                    advertised = descriptor["platform"]
+                    require(isinstance(advertised, dict) and
+                            advertised.get("os") == "linux" and
+                            advertised.get("architecture") == "amd64",
+                            "OCI nested runnable index descriptor platform mismatch")
+                return contains_application
             cfg = document.get("config")
             require(isinstance(cfg, dict) and
                     cfg.get("mediaType") in CONFIG_TYPES,
@@ -380,6 +433,7 @@ def verify_archive(archive: Path, metadata: Path, *, docker_inspect: Path | None
                         "manifest_subject": document.get("subject"),
                         "layer_media_type": layer.get("mediaType"),
                         "statement": json.loads(content)})
+                return False
             else:
                 # The index descriptor is how an OCI consumer selects a platform.
                 # A flat manifest may not advertise one, but any advertised
@@ -402,6 +456,7 @@ def verify_archive(archive: Path, metadata: Path, *, docker_inspect: Path | None
                                "config_digest": cfg["digest"],
                                "config": details, "layers": layers,
                                "layer_count": len(layers)})
+                return True
 
         for entry in top:
             inspect_descriptor(entry)

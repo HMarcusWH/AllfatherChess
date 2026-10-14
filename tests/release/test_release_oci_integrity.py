@@ -156,6 +156,23 @@ class OCIProofTests(unittest.TestCase):
                     body["packages"] = [{"SPDXID":"SPDXRef-Package-X"}]
                 elif spdx_case == "missing-download":
                     del body["packages"][0]["downloadLocation"]
+                elif spdx_case == "invalid-download":
+                    body["packages"][0]["downloadLocation"] = "garbage"
+                elif spdx_case == "bad-package-checksum":
+                    body["packages"][0]["checksums"] = [
+                        {"algorithm":"BOGUS","checksumValue":"0"}]
+                elif spdx_case == "short-sha256":
+                    body["packages"] = []
+                    body["files"] = [{"SPDXID":"SPDXRef-File-A",
+                                      "fileName":"./opt/example",
+                                      "checksums":[{"algorithm":"SHA256",
+                                                    "checksumValue":"0"}]}]
+                elif spdx_case == "bogus-algorithm":
+                    body["packages"] = []
+                    body["files"] = [{"SPDXID":"SPDXRef-File-A",
+                                      "fileName":"./opt/example",
+                                      "checksums":[{"algorithm":"BOGUS",
+                                                    "checksumValue":"0"}]}]
                 elif spdx_case == "file-only-valid":
                     body["packages"] = []
                     body["files"] = [{"SPDXID": "SPDXRef-File-A",
@@ -413,6 +430,40 @@ class OCIProofTests(unittest.TestCase):
                 oci.verify_archive(archive, meta,
                                    docker_inspect=inspection)["integrity_verified"])
 
+    def test_supported_spdx_download_locations(self):
+        accepted = ("NONE", "NOASSERTION",
+                    "https://example.test/archive.tar.gz",
+                    "ftp://example.test/private.tar.gz",
+                    "git+https://example.test/repo.git@5d2fa",
+                    "git+ssh://git@example.test/repo.git@5d2fa")
+        refused = ("", "garbage", "noassertion", "none", "example.test/repo",
+                   "https:///missing-host", "https://example.test/a b",
+                   "https://user:password@example.test/x",
+                   "http://user@example.test/x", "javascript:evil()",
+                   "https://[bad-ipv6/x", "NOASSERTION\n")
+        for location in accepted:
+            with self.subTest(location=location):
+                self.assertTrue(oci.valid_spdx_download_location(location))
+        for location in refused:
+            with self.subTest(location=location):
+                self.assertFalse(oci.valid_spdx_download_location(location))
+
+    def test_spdx_algorithm_lengths_and_digest_canonicality(self):
+        for algorithm, width in oci.SPDX_CHECKSUM_HEX_LENGTH.items():
+            with self.subTest(algorithm=algorithm):
+                self.assertTrue(oci.valid_spdx_checksums([
+                    {"algorithm": algorithm, "checksumValue": "a" * width}]))
+                for bad in ("a"*(width-1), "A"*width, "g"*width, "a"*(width+1)):
+                    self.assertFalse(oci.valid_spdx_checksums([
+                        {"algorithm": algorithm, "checksumValue": bad}]))
+        self.assertFalse(oci.valid_spdx_checksums(
+            [{"algorithm":"BOGUS","checksumValue":"0"}]))
+        self.assertFalse(oci.valid_spdx_checksums(
+            [{"algorithm":"MD6","checksumValue":"a"*64}]))
+        self.assertFalse(oci.valid_spdx_checksums(
+            [{"algorithm":"SHA256","checksumValue":"a"*64}]*2))
+        self.assertFalse(oci.valid_spdx_checksums([]))
+
     def test_spdx_file_only_inventory_uses_fileName_not_package_name(self):
         with tempfile.TemporaryDirectory() as d:
             archive, meta, inspect = self.fixture(Path(d), spdx_case="file-only-valid")
@@ -441,8 +492,9 @@ class OCIProofTests(unittest.TestCase):
         cases = ("missing-license", "wrong-document-id", "missing-name",
                  "bad-namespace", "missing-created", "invalid-created",
                  "missing-creators", "bad-creator", "empty-inventory",
-                 "bad-package", "missing-download", "missing-file-checksum",
-                 "bad-file-checksum", "duplicate-id", "namespace-fragment",
+                 "bad-package", "missing-download", "invalid-download",
+                 "bad-package-checksum", "short-sha256", "bogus-algorithm",
+                 "missing-file-checksum", "bad-file-checksum", "duplicate-id", "namespace-fragment",
                  "namespace-trailing-fragment")
         for variant in cases:
             with self.subTest(spdx=variant), tempfile.TemporaryDirectory() as d:

@@ -153,6 +153,70 @@ def validate_slsa(kind: str, predicate: dict) -> None:
         raise ValueError("unsupported SLSA version")
 
 
+# Supported canonical SPDX 2.2/2.3 checksum algorithms and output widths.
+# MD6 is enumerated by SPDX but its length is parameterized; this release
+# profile refuses MD6 rather than accepting an arbitrary-length hex digest.
+SPDX_CHECKSUM_HEX_LENGTH = {
+    "SHA1": 40, "SHA224": 56, "SHA256": 64, "SHA384": 96,
+    "SHA512": 128, "SHA3-256": 64, "SHA3-384": 96,
+    "SHA3-512": 128, "BLAKE2b-256": 64, "BLAKE2b-384": 96,
+    "BLAKE2b-512": 128, "BLAKE3": 64, "MD2": 32, "MD4": 32,
+    "MD5": 32, "ADLER32": 8,
+}
+
+
+def valid_spdx_download_location(value: object) -> bool:
+    """Supported SPDX Download Location values: special token or URL/VCS URI.
+
+    This is syntax and release-profile validation, NOT reachability,
+    authenticity or evidence the package bytes came from this URI.
+    """
+    if value in ("NONE", "NOASSERTION"):
+        return True
+    if not isinstance(value, str) or not value or value.strip() != value:
+        return False
+    if any(ord(c) < 33 or ord(c) == 127 for c in value):
+        return False
+    try:
+        uri = urlsplit(value)
+        supported = {
+            "http", "https", "ftp", "ftps", "ssh", "git", "git+https",
+            "git+http", "git+ssh", "git+git", "svn", "svn+https",
+            "svn+ssh", "hg", "hg+https", "hg+ssh",
+        }
+        if uri.scheme not in supported or not uri.netloc or not uri.hostname:
+            return False
+        if uri.password is not None:
+            return False
+        # A public Git/VCS SSH URL may use git@host; web download URLs
+        # may not contain credentials at all.
+        if uri.username is not None and not (
+                uri.scheme.endswith("+ssh") or uri.scheme == "ssh"):
+            return False
+        return True
+    except ValueError:
+        return False
+
+
+def valid_spdx_checksums(value: object) -> bool:
+    """Check every listed digest against the supported SPDX algorithm width."""
+    if type(value) is not list or not value:
+        return False
+    seen = set()
+    for checksum in value:
+        if not isinstance(checksum, dict):
+            return False
+        algorithm = checksum.get("algorithm")
+        digest = checksum.get("checksumValue")
+        width = SPDX_CHECKSUM_HEX_LENGTH.get(algorithm) if isinstance(algorithm, str) else None
+        if (width is None or algorithm in seen or
+                type(digest) is not str or len(digest) != width or
+                re.fullmatch(r"[0-9a-f]+", digest) is None):
+            return False
+        seen.add(algorithm)
+    return True
+
+
 def validate_spdx_document(predicate: dict) -> None:
     """Validate required SPDX 2.x document creation identity and inventory.
 
@@ -206,24 +270,17 @@ def validate_spdx_document(predicate: dict) -> None:
         spdx_id(item)
         require(isinstance(item.get("name"), str) and
                 bool(item["name"].strip()) and
-                isinstance(item.get("downloadLocation"), str) and
-                bool(item["downloadLocation"].strip()),
-                "SPDX SBOM package lacks name or downloadLocation")
+                valid_spdx_download_location(item.get("downloadLocation")),
+                "SPDX SBOM package has invalid downloadLocation")
+        if "checksums" in item:
+            require(valid_spdx_checksums(item["checksums"]),
+                    "SPDX SBOM package contains invalid checksums")
     for item in files:
         spdx_id(item)
-        checksums = item.get("checksums")
         require(isinstance(item.get("fileName"), str) and
                 bool(item["fileName"].strip()) and
-                type(checksums) is list and bool(checksums),
-                "SPDX SBOM file lacks fileName or checksums")
-        require(all(isinstance(checksum, dict) and
-                    isinstance(checksum.get("algorithm"), str) and
-                    bool(checksum["algorithm"].strip()) and
-                    isinstance(checksum.get("checksumValue"), str) and
-                    re.fullmatch(r"[A-Fa-f0-9]+",
-                                 checksum["checksumValue"]) is not None
-                    for checksum in checksums),
-                "SPDX SBOM file contains malformed checksums")
+                valid_spdx_checksums(item.get("checksums")),
+                "SPDX SBOM file contains invalid fileName or checksums")
 
 
 def validate_target_platform(platform: object) -> None:

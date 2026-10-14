@@ -37,6 +37,16 @@ def require(value, reason):
         raise ValueError(reason)
 
 
+def finite_number(value) -> bool:
+    """Reject SQLite TEXT deadlines, booleans, NaN and infinite numbers."""
+    if type(value) not in (int, float):
+        return False
+    try:
+        return math.isfinite(value)
+    except (OverflowError, ValueError):
+        return False
+
+
 def trace_bytes(value) -> bytes:
     return json.dumps(value, sort_keys=True, separators=(",", ":"),
                       allow_nan=False).encode("utf-8")
@@ -357,6 +367,44 @@ def verify_smoke(doc: dict, key: str) -> dict:
                     isinstance(journal["cooldown"][0], dict) and
                     journal["cooldown"][0].get("cause") == "http429:move",
                     "R10 durable 429 intent/cooldown evidence invalid")
+            cooldown_row = journal["cooldown"][0]
+            require(type(cooldown_row.get("singleton")) is int and
+                    cooldown_row["singleton"] == 1 and
+                    finite_number(cooldown_row.get("until_wall")),
+                    "R10 persisted cooldown deadline must be finite and numeric")
+            durable_events = journal.get("events")
+            require(type(durable_events) is list and
+                    all(isinstance(e, dict) for e in durable_events),
+                    "R10 persisted cooldown audit events absent")
+            cooldown_events = [e for e in durable_events
+                               if e.get("event") == "cooldown"]
+            require(len(cooldown_events) == 1,
+                    "R10 durable cooldown event missing or duplicated")
+            observed_event = cooldown_events[0]
+            require(observed_event.get("epoch") == first_epoch and
+                    observed_event.get("game_id") is None and
+                    finite_number(observed_event.get("ts")) and
+                    observed_event["ts"] > 0 and
+                    isinstance(observed_event.get("details"), str),
+                    "R10 durable cooldown event identity/time invalid")
+            details = json.loads(observed_event["details"])
+            require(isinstance(details, dict) and
+                    details.get("cause") == "http429:move" and
+                    finite_number(details.get("until_wall")) and
+                    details["until_wall"] == cooldown_row["until_wall"],
+                    "R10 durable cooldown event/details disagree with persisted deadline")
+            # MoveJournal samples time.time before the transaction and writes
+            # the cooldown event just after storing the deadline. A one-second
+            # tolerance accounts for that write, without allowing an arbitrary
+            # stale or unbounded persistent suspension.
+            remaining_at_event = cooldown_row["until_wall"] - observed_event["ts"]
+            require(59.0 <= remaining_at_event <= 86400.0,
+                    "R10 persisted cooldown outside the 60-86400 second contract")
+            require(finite_number(rate_blocks[0].get("timestamp")) and
+                    observed_event["ts"] - 1 <= rate_blocks[0]["timestamp"] and
+                    rate_blocks[0]["timestamp"] <= observed_event["ts"] + 60 and
+                    rate_blocks[0]["timestamp"] <= cooldown_row["until_wall"],
+                    "R10 guard observation is not aligned with durable cooldown")
             hold = [r for r in trace if
                     r.get("event") == "rate_limit_hold_completed" and
                     r.get("action") == "rate_limit_429"]

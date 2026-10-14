@@ -56,7 +56,8 @@ def fixture(key):
                         "owner_epoch":first,"game_id":qual.GAME_ID,
                         "ply":ply,"uci":uci})
         guarded.append({"event":"global_rate_limit_block",
-                        "owner_epoch":first,"endpoint":"move","status":429})
+                        "owner_epoch":first,"endpoint":"move","status":429,
+                        "timestamp":1800000000.25})
         intents.append({"game_id":qual.GAME_ID,"epoch":first,
                         "ply_before":ply,"move":uci,"history_json":"[]",
                         "status":"UNKNOWN_ACK"})
@@ -133,9 +134,16 @@ def fixture(key):
                    "intents":intents,
                    "games":[{"game_id":qual.GAME_ID,"history_json":json.dumps(moves),
                              "terminal":int(complete)}],
-                   "cooldown":[{"singleton":1,"until_wall":4000000000.0,
+                   "cooldown":[{"singleton":1,"until_wall":1800000060.0,
                                 "cause":"http429:move"}] if scenario=="R10" else [],
-                   "events":[]},
+                   "events":[{
+                       "event_id":1, "ts":1800000000.0, "epoch":first,
+                       "event":"cooldown", "game_id":None,
+                       "details":json.dumps({
+                           "until_wall":1800000060.0,
+                           "cause":"http429:move"},
+                           sort_keys=True, separators=(",",":"))
+                   }] if scenario=="R10" else []},
     }
     from deploy.lichess.reconcile import position_id
     for intent in result["journal"]["intents"]:
@@ -266,6 +274,45 @@ class PackagedMoveEvidenceTests(unittest.TestCase):
         doc["journal"]["cooldown"] = [None]
         with self.assertRaisesRegex(ValueError, "durable 429"):
             qual.verify_smoke(doc, "r10-white")
+
+    def test_r10_cooldown_event_and_deadline_falsifiers(self):
+        for mode in ("text", "boolean", "infinite", "negative",
+                     "short", "long", "missing-event", "wrong-epoch",
+                     "wrong-cause", "wrong-event-deadline",
+                     "wrong-guard-time"):
+            doc = fixture("r10-white")
+            cooldown = doc["journal"]["cooldown"][0]
+            event = doc["journal"]["events"][0]
+            if mode == "text":
+                cooldown["until_wall"] = "garbage"
+            elif mode == "boolean":
+                cooldown["until_wall"] = True
+            elif mode == "infinite":
+                cooldown["until_wall"] = float("inf")
+            elif mode == "negative":
+                cooldown["until_wall"] = -2.0
+            elif mode == "short":
+                cooldown["until_wall"] = event["ts"] + 30
+            elif mode == "long":
+                cooldown["until_wall"] = event["ts"] + 86401
+            elif mode == "missing-event":
+                doc["journal"]["events"] = []
+            elif mode == "wrong-epoch":
+                event["epoch"] = "f"*32
+            elif mode == "wrong-cause":
+                event["details"] = json.dumps({
+                    "cause":"http429:challenge",
+                    "until_wall":cooldown["until_wall"]})
+            elif mode == "wrong-event-deadline":
+                event["details"] = json.dumps({
+                    "cause":"http429:move","until_wall":1234.0})
+            else:
+                block = next(g for g in doc["guard_events"]
+                             if g["event"] == "global_rate_limit_block")
+                block["timestamp"] = 1700000000.0
+            with self.subTest(mode=mode), self.assertRaisesRegex(
+                    ValueError, "cooldown|guard observation"):
+                qual.verify_smoke(doc,"r10-white")
 
     def test_r10_rejects_durable_intent_without_unknown_ack(self):
         doc = fixture("r10-white")

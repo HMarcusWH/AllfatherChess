@@ -173,6 +173,27 @@ class RealSQLiteQualificationTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "SQLite"):
                     qual.verify_file(folder / "result.json", key)
 
+    def test_coherently_forged_sqlite_and_json_cooldown_still_fail(self):
+        """Matching disk + JSON is insufficient when the deadline is invalid."""
+        for mode in ("text", "too-long", "bad-event-cause"):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as d:
+                folder = Path(d) / "r10-white"
+                doc = fixture("r10-white")
+                if mode == "text":
+                    doc["journal"]["cooldown"][0]["until_wall"] = "garbage"
+                    doc["journal"]["events"][0]["details"] = json.dumps({
+                        "until_wall":"garbage","cause":"http429:move"})
+                elif mode == "too-long":
+                    doc["journal"]["cooldown"][0]["until_wall"] = 1800086461.0
+                    doc["journal"]["events"][0]["details"] = json.dumps({
+                        "until_wall":1800086461.0,"cause":"http429:move"})
+                else:
+                    doc["journal"]["events"][0]["details"] = json.dumps({
+                        "until_wall":1800000060.0,"cause":"not-move"})
+                real_fixture(folder, "r10-white", doc=doc)
+                with self.assertRaisesRegex(ValueError, "cooldown"):
+                    qual.verify_file(folder / "result.json", "r10-white")
+
     def test_disk_mutation_is_detected_without_json_mutation(self):
         with tempfile.TemporaryDirectory() as directory:
             folder = Path(directory) / "r00-white"

@@ -37,8 +37,45 @@ jobs:
           path: build/test-results/release1/promotion-policy.json
           if-no-files-found: warn
           retention-days: 30
-  release-oci-integration:
+  scanner-compatibility:
     needs: release-contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+      - name: Independently qualify pinned scanner protocol without engine build
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          BASE="$(python3 -c 'import json;print(json.load(open("qualification/release-image-v1.json"))["base_image"])')"
+          SCANNER="$(python3 -c 'import json;print(json.load(open("qualification/release-image-v1.json"))["sbom_generator_image"])')"
+          docker buildx create --driver docker-container --name release1-scanner-probe --use
+          docker buildx inspect --bootstrap
+          docker buildx imagetools inspect "$SCANNER" --raw > /dev/null
+          mkdir -p build/test-results/release1-scanner
+          cat > "$RUNNER_TEMP/Scanner.Dockerfile" <<'EOF'
+          ARG BASE_IMAGE
+          FROM --platform=linux/amd64 ${BASE_IMAGE}
+          EOF
+          docker buildx build --platform linux/amd64 \
+            -f "$RUNNER_TEMP/Scanner.Dockerfile" --build-arg "BASE_IMAGE=$BASE" \
+            --tag allfather/scanner-probe:offline \
+            --attest "type=sbom,generator=$SCANNER" \
+            --output type=oci,dest=build/test-results/release1-scanner/scanner.oci.tar .
+          python3 scripts/check-release-scanner.py \
+            --archive build/test-results/release1-scanner/scanner.oci.tar \
+            --output build/test-results/release1-scanner/scanner-contract.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: release1-scanner-contract
+          path: build/test-results/release1-scanner/scanner-contract.json
+          if-no-files-found: warn
+          retention-days: 30
+  release-oci-integration:
+    needs: [release-contracts, scanner-compatibility]
     runs-on: ubuntu-24.04
     timeout-minutes: 115
     env:

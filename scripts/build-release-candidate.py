@@ -50,7 +50,8 @@ SOURCE_FILES = (POLICY, BRIDGE_LOCK, "qualification/release-qualification-v1.jso
                 "scripts/build-release-candidate.py",
                 "scripts/qualify-release-smoke.py",
                 "scripts/inspect-release-oci.py",
-                "scripts/check-release-snapshot.py", *TOOL_FILES)
+                "scripts/check-release-snapshot.py",
+                "scripts/check-release-scanner.py", *TOOL_FILES)
 
 
 def fail(condition: bool, reason: str):

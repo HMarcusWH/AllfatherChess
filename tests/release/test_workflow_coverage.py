@@ -35,6 +35,18 @@ class WorkflowCoverageTests(unittest.TestCase):
             self.assertIn(fragment,command)
 
 
+    def test_pinned_scanner_is_exercised_without_chess_build(self):
+        source=(ROOT/".github/workflows/release-candidate.yml").read_text()
+        self.assertIn("scanner-compatibility:",source)
+        self.assertIn("needs: [release-contracts, scanner-compatibility]",source)
+        self.assertIn("scripts/check-release-scanner.py",source)
+        self.assertIn("--attest \"type=sbom,generator=$SCANNER\"",source)
+        self.assertIn("scanner-contract.json",source)
+        scanner=source.split("  scanner-compatibility:",1)[1].split(
+            "  release-oci-integration:",1)[0]
+        self.assertNotIn("make build-online-engine-opt-v2",scanner)
+        self.assertNotIn("release1-scanner/scanner.oci.tar\n          if",scanner)
+
     def test_release_artifacts_exclude_raw_provenance_and_image_bytes(self):
         content=(ROOT/".github/workflows/release-candidate.yml").read_text()
         upload=content.split("- name: Do not publish combined image",1)[1]

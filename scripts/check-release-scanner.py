@@ -92,6 +92,9 @@ def inspect_scanner_output(archive: Path) -> dict:
                             type(row.get("subject")) is list and
                             bool(row["subject"]),
                             "scanner in-toto statement element invalid")
+                    require(row.get("predicateType")==contract.SPDX or
+                            row["predicateType"] in contract.SLSA,
+                            "scanner unsupported in-toto predicate")
                     if row.get("predicateType")==contract.SPDX:
                         pred=row.get("predicate")
                         require(type(pred) is dict,"scanner SPDX predicate malformed")

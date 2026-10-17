@@ -53,6 +53,14 @@ class ScannerProbeContractTests(unittest.TestCase):
                                         "scanner in-toto statement element"):
                 probe.inspect_scanner_output(tar)
 
+    def test_unknown_in_toto_row_cannot_be_skipped_next_to_spdx(self):
+        with tempfile.TemporaryDirectory() as td:
+            tar,_,_=oci_fixture.OCIProofTests().fixture(
+                Path(td),statement_wrapper="array-unknown")
+            with self.assertRaisesRegex(ValueError,
+                                        "scanner unsupported in-toto predicate"):
+                probe.inspect_scanner_output(tar)
+
     def test_malformed_spdx_refused_at_scanner_boundary(self):
         for mode in ("missing-download","bogus-algorithm",
                      "namespace-fragment","empty-inventory"):

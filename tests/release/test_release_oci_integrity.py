@@ -323,7 +323,12 @@ class OCIProofTests(unittest.TestCase):
                               "digest": {"sha256": subject}}]),
                 "predicate": body}
             if predicate == "https://spdx.dev/Document":
-                if statement_wrapper == "array":
+                if statement_wrapper == "array-unknown":
+                    statement_document = {"statements":[
+                        {**statement_document,"predicateType":
+                            "https://unknown.test/forged-predicate"},
+                        statement_document]}
+                elif statement_wrapper == "array":
                     statement_document = {"statements": [statement_document]}
                 elif statement_wrapper == "array-null":
                     statement_document = {"statements":[None,statement_document]}

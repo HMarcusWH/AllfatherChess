@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import importlib.util
 import json
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -43,6 +44,30 @@ class AssuranceContractTests(unittest.TestCase):
                      "scripts/verify_source_closure.py",
                      "qualification/assurance-contract-v1.json"):
             self.assertIn(name,names)
+
+    def test_git_committed_bytes_catch_mutated_executable_worktree(self):
+        with tempfile.TemporaryDirectory() as td:
+            root=Path(td)
+            subprocess.run(["git","-C",str(root),"init","-q"],
+                           check=True,capture_output=True)
+            subprocess.run(["git","-C",str(root),"config",
+                            "user.email","offline@example.test"],check=True)
+            subprocess.run(["git","-C",str(root),"config",
+                            "user.name","Offline Test"],check=True)
+            source=root/"deploy/lichess/fault_plan.py"
+            source.parent.mkdir(parents=True)
+            source.write_text("STATE='attested'\n")
+            subprocess.run(["git","-C",str(root),"add","."],check=True)
+            subprocess.run(["git","-C",str(root),"commit","-qm","freeze"],
+                           check=True)
+            sha=subprocess.check_output(
+                ["git","-C",str(root),"rev-parse","HEAD"],text=True).strip()
+            path="deploy/lichess/fault_plan.py"
+            closure.verify_committed_bytes(sha,[path],root)
+            source.write_text("STATE='tampered'\n")
+            with self.assertRaisesRegex(ValueError,
+                                        "executed source differs from Git"):
+                closure.verify_committed_bytes(sha,[path],root)
 
     def test_dependency_parser_catches_unattested_nested_import(self):
         with tempfile.TemporaryDirectory() as td:

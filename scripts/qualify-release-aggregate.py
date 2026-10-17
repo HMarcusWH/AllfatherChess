@@ -236,7 +236,9 @@ def main():
         print(json.dumps({k:v for k,v in report.items() if k not in ("wheel_bytes","smoke")},
                          sort_keys=True))
     except (OSError,ValueError,TypeError,KeyError,subprocess.SubprocessError) as exc:
-        p.exit(2,"RELEASE-1 aggregate verification refused: "+str(exc)+"\n")
+        # Failures are logged, but untrusted evidence must not appear in logs.
+        p.exit(2,"RELEASE-1 aggregate verification refused: "+
+               type(exc).__name__+"\n")
 
 
 if __name__=="__main__":

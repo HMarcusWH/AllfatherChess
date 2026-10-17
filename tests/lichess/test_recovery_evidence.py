@@ -71,6 +71,29 @@ class IndependentEvidenceTests(unittest.TestCase):
             with self.subTest(bad=bad), self.assertRaises(ValueError):
                 QUALIFIER.verify_trace(changed, self.game())
 
+    def test_move_audit_requires_exact_request_id_and_multiset(self):
+        first="/api/bot/game/off3b001/move/e2e4"
+        second="/api/bot/game/off3b001/move/d2d4"
+        trace=[{"seq":1,"event":"move_attempt",
+                "path":first,"uci":"e2e4","game_id":"off3b001"}]
+        http=[{"method":"POST","path":first,
+               "request_id":"request-1","status":200}]
+        self.assertEqual(QUALIFIER.verify_exact_http_move_audit(http,trace),1)
+        invalid=[
+            http+[{"method":"POST","path":second,"request_id":"request-7",
+                   "status":200}],
+            http+[dict(http[0])],
+            [{**http[0],"request_id":"request-2"}],
+            [],
+        ]
+        for rows in invalid:
+            with self.subTest(rows=rows),self.assertRaisesRegex(
+                    ValueError,"HTTP move records and trace attempts differ"):
+                QUALIFIER.verify_exact_http_move_audit(rows,trace)
+        with self.assertRaisesRegex(ValueError,"traced move endpoint identity"):
+            QUALIFIER.verify_exact_http_move_audit(
+                http,[{**trace[0],"uci":"d2d4"}])
+
     def test_does_not_confuse_http_504_with_uncommitted_move(self):
         t = self.trace()
         t.insert(1, {"seq": 2, "event": "fault_activated", "action": "commit_then_504",

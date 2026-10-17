@@ -9,6 +9,7 @@ reason to relabel the client as recovered or release-ready.
 from __future__ import annotations
 
 import argparse
+from collections import Counter
 import hashlib
 import json
 import subprocess
@@ -280,6 +281,34 @@ def invalid_move_submissions(http_requests: list[dict]) -> list[dict]:
     return invalid
 
 
+def verify_exact_http_move_audit(
+        http_requests: list[dict], trace: list[dict]) -> int:
+    """An observed move POST must have exactly one server trace attempt.
+
+    Multisets include request IDs, not only path membership: a legal extra
+    POST is not made safe by the trace of a different legal POST.
+    """
+    prefix = "/api/bot/game/off3b001/move/"
+    require_rows = lambda rows: isinstance(rows, list) and all(
+        isinstance(row, dict) for row in rows)
+    ensure(require_rows(http_requests) and require_rows(trace),
+           "invalid HTTP or trace move audit")
+    observed = [r for r in http_requests if
+                r.get("method") == "POST" and
+                isinstance(r.get("path"), str) and
+                r["path"].startswith(prefix)]
+    attempted = [r for r in trace if r.get("event") == "move_attempt"]
+    ensure(all(type(t.get("seq")) is int and t["seq"] > 0 and
+               t.get("path") == prefix + t.get("uci", "") and
+               isinstance(t.get("uci"), str) for t in attempted),
+           "traced move endpoint identity invalid")
+    server_rows = Counter((r["path"], r.get("request_id")) for r in observed)
+    trace_rows = Counter((r["path"], f"request-{r['seq']}") for r in attempted)
+    ensure(server_rows == trace_rows,
+           "HTTP move records and trace attempts differ")
+    return sum(trace_rows.values())
+
+
 def validate_experiment(case_dir: Path, scenario: dict, color: str,
                         source_sha: str, bridge_sha: str) -> dict:
     result = read_json(case_dir / "result.json")
@@ -309,10 +338,7 @@ def validate_experiment(case_dir: Path, scenario: dict, color: str,
                isinstance(r.get("path"), str) and
                type(r.get("status")) is int
                for r in http_requests), "malformed server HTTP request audit")
-    attempted_paths = [r["path"] for r in http_requests if r["method"] == "POST"]
-    ensure(all(r.get("path") in attempted_paths for r in trace
-               if r.get("event") == "move_attempt"),
-           "HTTP attempt trace has no underlying request audit")
+    verify_exact_http_move_audit(http_requests, trace)
     verify_sources(read_json(case_dir / "source-manifest.json"), source_sha)
     ensure(ndjson(case_dir / "http-attempts.ndjson") ==
            [r for r in trace if r["event"] == "move_attempt"], "HTTP attempt extract drift")

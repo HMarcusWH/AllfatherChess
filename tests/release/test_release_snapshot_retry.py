@@ -52,6 +52,17 @@ case "$APT_TEST_MODE" in
     echo "E: Failed to fetch noble/InRelease 503 Service Unavailable" >&2
     echo "E: Some unknown acquisition condition" >&2
     exit 100 ;;
+  real503port)
+    echo "Err:4 https://snapshot.ubuntu.com/ubuntu noble InRelease" >&2
+    echo "  503  Service Unavailable [IP: 185.125.189.69 443]" >&2
+    echo "E: Failed to fetch https://snapshot.ubuntu.com/ubuntu/noble/InRelease 503 Service Unavailable [IP: 185.125.189.69 443]" >&2
+    echo "E: Some index files failed to download. They have been ignored, or old ones used instead." >&2
+    exit 100 ;;
+  real504port)
+    echo "Err:4 https://snapshot.ubuntu.com/ubuntu noble InRelease" >&2
+    echo "  504  Gateway Time-out [IP: 185.125.189.69 443]" >&2
+    echo "E: Failed to fetch https://snapshot.ubuntu.com/ubuntu/noble/InRelease 504 Gateway Time-out [IP: 185.125.189.69 443]" >&2
+    exit 100 ;;
   two503)
     echo "Err:1 https://snapshot.ubuntu.com/ubuntu noble InRelease" >&2
     echo "  503 Service Unavailable" >&2
@@ -104,6 +115,14 @@ class PinnedSnapshotRetryTests(unittest.TestCase):
                 result,counts=self.execute(mode)
                 self.assertNotEqual(result.returncode,0)
                 self.assertEqual(counts,{"update":1,"install":0})
+
+    def test_realistic_503_and_504_logs_with_https_port_are_retryable(self):
+        for mode in ("real503port","real504port"):
+            with self.subTest(mode=mode):
+                result,counts=self.execute(mode)
+                self.assertNotEqual(result.returncode,0)
+                self.assertEqual(counts,{"update":4,"install":0})
+                self.assertIn("exhausted four bounded attempts",result.stderr)
 
     def test_multiple_503s_are_individually_classified_and_bounded(self):
         result,counts=self.execute("two503")

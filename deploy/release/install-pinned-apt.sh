@@ -14,23 +14,24 @@ only_transient_acquisition_failures() {
     # explicitly allowed transient HTTP status. One unrelated DNS/TLS/hash/
     # signature/unclassified error vetoes retry even alongside a valid 503.
     LC_ALL=C awk '
-        function transient(s) {
-            return s ~ /(^|[[:space:]])(429|502|503|504)([[:space:]]|$)/
+        function transient_reason(s, x) {
+            x=s
+            sub(/^[[:space:]]+/, "", x)
+            return x ~ /^(429|502|503|504)[[:space:]]/
         }
-        function invalid_status(s, a,n,i,t) {
-            n=split(s,a,/[[:space:]]+/)
-            for(i=1;i<=n;i++) {
-                t=a[i]
-                gsub(/^[^0-9]+|[^0-9]+$/, "", t)
-                if(t ~ /^[45][0-9][0-9]$/ &&
-                   t!="429" && t!="502" && t!="503" && t!="504")
-                    return 1
-            }
-            return 0
+        function transient_fetch(s) {
+            # Status immediately after the URL, not a three-digit token in
+            # an [IP: address port] suffix. Port 443 must never be parsed
+            # as an HTTP 443 error.
+            return s ~ /^E: Failed to fetch [^[:space:]]+[[:space:]]+(429|502|503|504)[[:space:]]/
+        }
+        function transient_header(s, x) {
+            x=s
+            gsub(/\[IP:[^]]+\]/, "", x)
+            return x ~ /[[:space:]](429|502|503|504)[[:space:]]/
         }
         function nontransient(s) {
-            return s ~ /NO_PUBKEY|BADSIG|EXPKEYSIG|REVKEYSIG|Hash Sum mismatch|certificate|Certificate|TLS|SSL|signatures could not|not signed|does not have a Release file|clearsigned|unexpected size|Temporary failure resolving|Could not resolve|Name or service not known|Connection refused|Network is unreachable|Unable to locate package|Could not get lock|Permission denied/ ||
-                   invalid_status(s)
+            return s ~ /NO_PUBKEY|BADSIG|EXPKEYSIG|REVKEYSIG|Hash Sum mismatch|certificate|Certificate|TLS|SSL|signatures could not|not signed|does not have a Release file|clearsigned|unexpected size|Temporary failure resolving|Could not resolve|Name or service not known|Connection refused|Network is unreachable|Unable to locate package|Could not get lock|Permission denied|401 Unauthorized|403 Forbidden|404 Not Found/
         }
         function finish_err() {
             if (in_err && !err_retryable) bad=1
@@ -43,18 +44,19 @@ only_transient_acquisition_failures() {
             if (line ~ /^Err:[0-9]+[[:space:]]/) {
                 finish_err()
                 in_err=1
-                err_retryable=transient(line)
+                err_retryable=transient_header(line)
                 seen++
                 next
             }
             if (in_err && line ~ /^[[:space:]]+/) {
-                if(transient(line)) err_retryable=1
+                if (transient_reason(line)) err_retryable=1
+                else if (line !~ /^[[:space:]]*\[IP:/) bad=1
                 next
             }
             finish_err()
             if (line ~ /^E: Failed to fetch /) {
                 seen++
-                if (!transient(line)) bad=1
+                if (!transient_fetch(line)) bad=1
                 next
             }
             if (line ~ /^E:/) {

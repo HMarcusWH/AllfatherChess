@@ -91,6 +91,25 @@ class FakeAPITests(unittest.TestCase):
                 self.assertIn("GET "+target.split("?",1)[0],
                               self.fake.attempted_forbidden)
 
+    def test_raw_double_slash_post_never_becomes_valid_token_endpoint(self):
+        import socket
+        with socket.create_connection(self.fake.http.server_address,
+                                      timeout=4) as connection:
+            connection.settimeout(4)
+            connection.sendall((
+                "POST //api/token/test HTTP/1.1\r\n"
+                "Host: 127.0.0.1\r\n"
+                f"Authorization: Bearer {TOKEN}\r\n"
+                "Content-Length: 0\r\n"
+                "Connection: close\r\n\r\n"
+            ).encode())
+            answer=connection.recv(1024)
+        self.assertIn(b"403",answer)
+        record=self.fake.requests[-1]
+        self.assertEqual(record["status"],403)
+        self.assertFalse(record["target_canonical"])
+        self.assertIsNone(record["request_target"])
+
     def test_duplicate_accept_rejected(self):
         path = f"/api/challenge/{GAME_ID}/accept"
         self.assertEqual(self.call("POST", path), 200)

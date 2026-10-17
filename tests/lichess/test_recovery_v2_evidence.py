@@ -294,6 +294,12 @@ class RecoveryV2EvidenceTests(unittest.TestCase):
               "forbidden_attempts":[]}
         intents=[{"game_id":gid,"ply_before":0,"move":"e2e4",
                   "history_json":"[]"}]
+        expected=qual.verify_guarded_requests(
+            requests+[{"method":"GET","path":"/api/users/status",
+                       "request_target":"/api/users/status?ids=allfatherfixture",
+                       "target_canonical":True,"status":200}],
+            trace,game,intents)
+        self.assertEqual(expected["unique_legal_move_attempts"],1)
         for raw in ("//api/account", "/api/account?access_token=secret",
                     "/api/users/status?ids=other"):
             with self.subTest(raw=raw),self.assertRaisesRegex(

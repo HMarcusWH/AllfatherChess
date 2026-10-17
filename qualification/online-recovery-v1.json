@@ -60,6 +60,7 @@
     "tests/fixtures/lichess/recovery_scenarios.json",
     "tests/lichess/fake_lichess_api.py",
     "tests/lichess/fault_plan.py",
+    "tests/lichess/http_target_contract.py",
     "tests/lichess/scripted_opponent.py",
     "tests/lichess/stream_sessions.py",
     "tests/lichess/test_fault_plan.py",

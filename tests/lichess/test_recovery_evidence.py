@@ -6,6 +6,7 @@ all tests/lichess/test_*.py, so these must stay hermetic.
 from __future__ import annotations
 import copy
 import importlib.util
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -23,6 +24,20 @@ SCENARIOS = load_scenarios(ROOT / "tests/fixtures/lichess/recovery_scenarios.jso
 
 
 class IndependentEvidenceTests(unittest.TestCase):
+    def test_http_target_policy_is_source_attested_and_tamper_detected(self):
+        exact_sha="a"*40
+        names=json.loads((ROOT/"qualification/online-recovery-v1.json")
+                         .read_text())["attested_source_paths"]
+        path="tests/lichess/http_target_contract.py"
+        self.assertEqual(names.count(path),1)
+        file_hashes={name:QUALIFIER.digest(ROOT/name) for name in names}
+        document={"source_commit":exact_sha,"files":file_hashes}
+        QUALIFIER.verify_sources(document,exact_sha)
+        forged=copy.deepcopy(document)
+        forged["files"][path]="0"*64
+        with self.assertRaisesRegex(ValueError,"source file identity drift"):
+            QUALIFIER.verify_sources(forged,exact_sha)
+
     def trace(self):
         board = chess.Board()
         before = board.fen()

@@ -2,6 +2,7 @@
 from __future__ import annotations
 import copy
 import importlib.util
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -16,6 +17,20 @@ spec.loader.exec_module(qual)
 
 
 class RecoveryV2EvidenceTests(unittest.TestCase):
+    def test_http_target_policy_is_in_exact_guarded_source_closure(self):
+        exact_sha="b"*40
+        names=json.loads((ROOT/"qualification/online-recovery-v2.json")
+                         .read_text())["attested_paths"]
+        path="tests/lichess/http_target_contract.py"
+        self.assertEqual(names.count(path),1)
+        file_hashes={name:qual.hash_file(ROOT/name) for name in names}
+        document={"source_commit":exact_sha,"files":file_hashes}
+        qual.attest(document,exact_sha,names)
+        forged=copy.deepcopy(document)
+        forged["files"][path]="0"*64
+        with self.assertRaisesRegex(ValueError,"source hash mismatch"):
+            qual.attest(forged,exact_sha,names)
+
     def test_persisted_journal_verifies_and_mutation_is_detected(self):
         with tempfile.TemporaryDirectory() as d:
             folder = Path(d)

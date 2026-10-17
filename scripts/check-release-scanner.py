@@ -5,6 +5,7 @@ import argparse
 import hashlib
 import importlib.util
 import json
+import re
 import tarfile
 from pathlib import Path
 
@@ -95,12 +96,23 @@ def inspect_scanner_output(archive: Path) -> dict:
                     require(row.get("predicateType")==contract.SPDX or
                             row["predicateType"] in contract.SLSA,
                             "scanner unsupported in-toto predicate")
-                    if row.get("predicateType")==contract.SPDX:
-                        pred=row.get("predicate")
-                        require(type(pred) is dict,"scanner SPDX predicate malformed")
+                    require(all(type(subject) is dict and
+                                type(subject.get("digest")) is dict and
+                                len(subject["digest"]) > 0 and
+                                type(subject["digest"].get("sha256")) is str and
+                                re.fullmatch(r"[0-9a-f]{64}",
+                                             subject["digest"]["sha256"]) is not None
+                                for subject in row["subject"]),
+                            "scanner in-toto subject identity malformed")
+                    pred=row.get("predicate")
+                    require(type(pred) is dict and bool(pred),
+                            "scanner in-toto predicate missing or malformed")
+                    if row["predicateType"]==contract.SPDX:
                         contract.validate_spdx_document(pred)
                         spdx.append((len(pred.get("packages",[])),
                                      len(pred.get("files",[]))))
+                    else:
+                        contract.validate_slsa(row["predicateType"],pred)
         for root in index["manifests"]:
             walk(root)
         require(len(spdx)==1 and sum(spdx[0])>=1,

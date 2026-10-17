@@ -344,7 +344,15 @@ class OCIProofTests(unittest.TestCase):
                               "digest": {"sha256": subject}}]),
                 "predicate": body}
             if predicate == "https://spdx.dev/Document":
-                if statement_wrapper == "array-unknown":
+                if statement_wrapper == "array-bad-subject":
+                    statement_document = {"statements":[
+                        {**statement_document,"subject":[None]},
+                        statement_document]}
+                elif statement_wrapper == "array-empty-predicate":
+                    statement_document = {"statements":[
+                        {**statement_document,"predicate":{}},
+                        statement_document]}
+                elif statement_wrapper == "array-unknown":
                     statement_document = {"statements":[
                         {**statement_document,"predicateType":
                             "https://unknown.test/forged-predicate"},

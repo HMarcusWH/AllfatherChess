@@ -53,6 +53,15 @@ class ScannerProbeContractTests(unittest.TestCase):
                                         "scanner in-toto statement element"):
                 probe.inspect_scanner_output(tar)
 
+    def test_invalid_statement_subject_or_predicate_not_skipped(self):
+        for variant,why in (("array-bad-subject","subject identity"),
+                            ("array-empty-predicate","predicate missing")):
+            with self.subTest(variant=variant),tempfile.TemporaryDirectory() as td:
+                tar,_,_=oci_fixture.OCIProofTests().fixture(
+                    Path(td),statement_wrapper=variant)
+                with self.assertRaisesRegex(ValueError,why):
+                    probe.inspect_scanner_output(tar)
+
     def test_unknown_in_toto_row_cannot_be_skipped_next_to_spdx(self):
         with tempfile.TemporaryDirectory() as td:
             tar,_,_=oci_fixture.OCIProofTests().fixture(

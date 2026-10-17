@@ -21,6 +21,8 @@ from tests.lichess.scripted_opponent import choose
 from tests.lichess.fault_plan import FaultScheduler
 from tests.lichess.stream_sessions import StreamSessions
 from tests.lichess.transport_trace import TransportTrace, state_digest
+from tests.lichess.http_target_contract import (
+    canonical_target, path_of, safe_audit_fields)
 
 TOKEN = "offline-fixture-token"
 GAME_ID = "off3b001"
@@ -196,6 +198,8 @@ class FakeLichess:
 
             def auth(self) -> bool:
                 if self.headers.get("Authorization") != "Bearer " + TOKEN:
+                    # Even an early rejected request remains an HTTP witness.
+                    self.record(self.command, path_of(self.path), 401)
                     self.respond(401, {"error": "synthetic token required"})
                     return False
                 return True
@@ -205,7 +209,8 @@ class FakeLichess:
                 with server.lock:
                     row = {
                         "monotonic_ms": round((time.monotonic() - server.start_time) * 1000),
-                        "method": kind, "path": path, "status": status
+                        "method": kind, "status": status,
+                        **safe_audit_fields(kind, self.path),
                     }
                     if request_id is not None:
                         row["request_id"] = request_id
@@ -215,7 +220,12 @@ class FakeLichess:
                 self._move_request_id = None  # never reuse an HTTP/1.1 request identity
                 if not self.auth():
                     return
-                path = urllib.parse.urlparse(self.path).path
+                path = path_of(self.path)
+                if not canonical_target("GET", self.path):
+                    safe = safe_audit_fields("GET", self.path)["path"]
+                    self.record("GET", safe, 403)
+                    server.attempted_forbidden.append("GET " + safe)
+                    return self.respond(403, {"error": "offline request-target prohibited"})
                 if path == "/api/stream/event":
                     self.record("GET", path, 200)
                     if server.sessions is not None:
@@ -280,7 +290,13 @@ class FakeLichess:
                     return self.respond(413, {"error": "body too large"})
                 if length:
                     self.rfile.read(length)
-                path = urllib.parse.urlparse(self.path).path
+                path = path_of(self.path)
+                if not canonical_target("POST", self.path):
+                    safe = safe_audit_fields("POST", self.path)["path"]
+                    with server.lock:
+                        server.attempted_forbidden.append("POST " + safe)
+                    self.record("POST", safe, 403)
+                    return self.respond(403, {"error": "offline request-target prohibited"})
                 if path == "/api/token/test":
                     self.record("POST", path, 200)
                     return self.respond(200, {TOKEN: {"scopes": "bot:play"}})

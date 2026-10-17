@@ -34,6 +34,7 @@ TOOL_FILES = (
     "deploy/lichess/bridge_policy.py",
     "deploy/lichess/log_capture.py",
     "tests/lichess/fake_lichess_api.py",
+    "tests/lichess/http_target_contract.py",
     "tests/lichess/scripted_opponent.py",
     "tests/lichess/fault_plan.py",
     "tests/lichess/stream_sessions.py",

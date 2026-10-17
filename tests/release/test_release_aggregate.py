@@ -87,7 +87,9 @@ class ReleaseAggregateContracts(unittest.TestCase):
                 "public_bot_release": False,
                 "game": {"complete": key != "r10-white", "accepted": ["e2e4"],
                          "forbidden_attempts": []},
-                "http": [{"method": "POST", "path": "/api/token/test", "status": 200}],
+                "http": [{"method": "POST", "path": "/api/token/test",
+                          "request_target": "/api/token/test",
+                          "target_canonical":True, "status": 200}],
                 "rate_cooldown_verified": key == "r10-white",
                 "fresh_second_epoch_commits": 1 if key == "r02-white" else None,
                 "observations": [{"phase": "synthetic"}],
@@ -152,9 +154,13 @@ class ReleaseAggregateContracts(unittest.TestCase):
         target.write_text(json.dumps(original))
 
     def test_http_admission_is_consistent_with_independent_verifier(self):
-        token={"method":"POST","path":"/api/token/test","status":200}
+        token={"method":"POST","path":"/api/token/test",
+               "request_target":"/api/token/test",
+               "target_canonical":True,"status":200}
         move={"method":"POST",
               "path":"/api/bot/game/off3b001/move/e2e4",
+              "request_target":"/api/bot/game/off3b001/move/e2e4",
+              "target_canonical":True,
               "status":200,"request_id":"request-1"}
         self.assertTrue(aggregate.allowed_release_http(token,"r00-white"))
         self.assertTrue(aggregate.allowed_release_http(move,"r00-white"))

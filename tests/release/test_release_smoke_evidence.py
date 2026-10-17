@@ -149,6 +149,9 @@ def fixture(key):
     from deploy.lichess.reconcile import position_id
     for intent in result["journal"]["intents"]:
         intent["position_id"] = position_id(json.loads(intent["history_json"]))
+    for request in result["http"]:
+        request.setdefault("request_target", request["path"])
+        request.setdefault("target_canonical", True)
     seal(result)
     return result
 
@@ -170,6 +173,8 @@ class PackagedMoveEvidenceTests(unittest.TestCase):
         doc = fixture("r00-white")
         for endpoint in sorted(qual.http_contract.ALLOWED_GETS):
             doc["http"].append({"method":"GET", "path":endpoint,
+                                "request_target":endpoint,
+                                "target_canonical":True,
                                 "status":200, "monotonic_ms":30})
         self.assertTrue(qual.verify_smoke(doc, "r00-white")[
             "independent_qualified"])

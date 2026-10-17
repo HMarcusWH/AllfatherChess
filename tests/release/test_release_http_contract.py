@@ -19,7 +19,8 @@ class SharedHTTPAdmissionTests(unittest.TestCase):
     def test_each_allowed_get_and_case_agrees_across_both_verifiers(self):
         for case in smoke.CASES:
             for path in smoke.http_contract.ALLOWED_GETS:
-                row={"method":"GET","path":path,"status":200}
+                row={"method":"GET","path":path,"status":200,
+                     "request_target":path,"target_canonical":True}
                 with self.subTest(case=case,path=path):
                     self.assertTrue(smoke.http_contract.allowed_release_http(
                         row,case))
@@ -40,11 +41,30 @@ class SharedHTTPAdmissionTests(unittest.TestCase):
             {"method":"POST",
              "path":"/api/bot/game/off3b001/move/%65%32e4","status":200,
              "request_id":"request-1"},
+            {"method":"GET","path":"/api/account","status":200,
+             "request_target":"/api/account?access_token=leak",
+             "target_canonical":True},
+            {"method":"GET","path":"/api/users/status","status":200,
+             "request_target":"/api/users/status?ids=unauthorized",
+             "target_canonical":True},
         ):
             with self.subTest(row=row):
                 self.assertFalse(smoke.http_contract.allowed_release_http(
                     row,"r00-white"))
                 self.assertFalse(aggregate.allowed_release_http(row,"r00-white"))
+
+    def test_legitimate_upstream_query_forms_are_admitted(self):
+        for method, raw, rid in (
+            ("GET", "/api/users/status?ids=allfatherfixture", None),
+            ("POST", "/api/bot/game/off3b001/move/e2e4?offeringDraw=false",
+             "request-1"),
+            ("POST", "/api/bot/game/off3b001/move/e2e4?offeringDraw=true",
+             "request-1"),
+        ):
+            row = {"method":method, "path":raw.split("?")[0],
+                   "request_target":raw, "target_canonical":True,
+                   "status":200,"request_id":rid}
+            self.assertTrue(aggregate.allowed_release_http(row,"r00-white"))
 
 if __name__=="__main__":
     unittest.main()

@@ -821,6 +821,20 @@ class OCIProofTests(unittest.TestCase):
             self.assertNotIn("offline-test-package",payload)
             self.assertFalse(report["integrity_verified"])
 
+    def test_diagnostic_accepts_valid_single_statement_envelope(self):
+        spec=importlib.util.spec_from_file_location(
+            "release1_single_statement_diag",ROOT/"scripts/inspect-release-oci.py")
+        mod=importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        with tempfile.TemporaryDirectory() as d:
+            archive,meta,_=self.fixture(Path(d))
+            report=mod.inspect(archive,meta)
+            attest=report["index_manifests"][0]["children"][1]
+            self.assertEqual(len(attest["layers"]),2)
+            self.assertEqual(
+                sum(len(layer["statements"]) for layer in attest["layers"]),2)
+            self.assertFalse(report["integrity_verified"])
+
     def test_diagnostic_reports_optional_subject_declared_and_actual_sizes(self):
         inspect_spec = importlib.util.spec_from_file_location(
             "release1_oci_diag_subject", ROOT/"scripts/inspect-release-oci.py")

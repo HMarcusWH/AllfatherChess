@@ -228,7 +228,11 @@ def inspect(archive: Path, metadata: Path) -> dict:
                     if type(statement) is not dict:
                         raise ValueError("invalid OCI diagnostic attestation object")
                     statements = statement.get("statements")
-                    if type(statements) is not list:
+                    if statements is None:
+                        # BuildKit normally puts one in-toto statement in
+                        # each layer; arrays are also supported.
+                        statements = [statement]
+                    if type(statements) is not list or not statements:
                         raise ValueError("invalid OCI diagnostic statement list")
                     row["statements"] = []
                     for st in statements:

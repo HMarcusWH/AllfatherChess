@@ -11,9 +11,9 @@ def audit(root=ROOT):
     license=json.loads((root/"qualification/license-compliance-v1.json").read_text())
     qual=json.loads((root/"qualification/release-qualification-v1.json").read_text())
     for doc,fields in (
-        (image,("allow_real_credentials","public_bot_release","network_recovery_qualified","deployment_host_qualified")),
+        (image,("allow_real_credentials","public_bot_release","network_recovery_qualified","deployment_host_qualified","playing_strength_qualified")),
         (license,("artifact_distribution_authorized","controller_distribution_license_approved","legal_review_completed")),
-        (qual,("public_bot_release","artifact_distribution_authorized","release_promotion_authorized","live_transport_qualified","license_compliance_approved")),
+        (qual,("public_bot_release","artifact_distribution_authorized","release_promotion_authorized","live_transport_qualified","license_compliance_approved","authenticated_publication_authorized","destination_host_qualified")),
     ):
         for field in fields:
             if doc.get(field) is not False:

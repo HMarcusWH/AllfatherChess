@@ -7,6 +7,7 @@ SQLite journal across a real supervised process restart.
 """
 from __future__ import annotations
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -98,6 +99,51 @@ def _start(cfg, owner, logpath):
     return proc, fd
 
 
+def rejected_http_posts(records: list[dict], scenario_id: str) -> list[dict]:
+    """Producer-side fail-closed POST gate; host qualification is independent."""
+    allowed = {"/api/token/test",
+               "/api/challenge/off3b001/accept",
+               "/api/challenge/off3b001/decline"}
+    prefix = "/api/bot/game/off3b001/move/"
+    expected_move_status = (200, 429) if scenario_id == "R10" else (200,)
+    rejected = []
+    for record in records:
+        if not isinstance(record, dict):
+            rejected.append({"malformed": True})
+            continue
+        if record.get("method") != "POST":
+            continue
+        path, status = record.get("path"), record.get("status")
+        authorized_nonmove = isinstance(path, str) and path in allowed
+        move_endpoint = isinstance(path, str) and path.startswith(prefix)
+        if (type(status) is not int or
+            (authorized_nonmove and status != 200) or
+            (move_endpoint and
+             (path[len(prefix):] in ("", "0000") or
+              status not in expected_move_status)) or
+            not (authorized_nonmove or move_endpoint)):
+            rejected.append(record)
+    return rejected
+
+
+R10_POST_RESPONSE_HOLD_NS = 61_250_000_000  # min 61 sec + scheduler margin
+
+
+def completed_rate_limit_response(trace: list[dict], request_id: str):
+    """Return only the single request-correlated HTTP 429 completion."""
+    found = [r for r in trace if r.get("event") == "response_write_completed"
+             and r.get("request_id") == request_id
+             and r.get("status") == 429]
+    return found[0] if len(found) == 1 else None
+
+
+def r10_hold_ready(trace: list[dict], request_id: str, now_ns: int) -> bool:
+    response = completed_rate_limit_response(trace, request_id)
+    return bool(response is not None and
+                type(response.get("monotonic_ns")) is int and
+                now_ns - response["monotonic_ns"] >= R10_POST_RESPONSE_HOLD_NS)
+
+
 def run(*, color: str, scenario_id: str, run_id: str):
     if os.getpid() != 1:
         raise RuntimeError("image smoke supervisor must be PID 1; no unrestricted signals")
@@ -120,7 +166,7 @@ def run(*, color: str, scenario_id: str, run_id: str):
     if output.exists() or output.is_symlink():
         raise RuntimeError("image smoke refuses to reuse a prior game journal")
     output.mkdir(mode=0o700)
-    outcome = {"schema_version": 1, "run_id": run_id, "scenario": scenario_id,
+    outcome = {"schema_version": 2, "run_id": run_id, "scenario": scenario_id,
                "color": color, "observations": [], "runner_errors": [],
                "offline": True, "network_recovery_qualified": False,
                "public_bot_release": False, "ready": False}
@@ -181,9 +227,19 @@ def run(*, color: str, scenario_id: str, run_id: str):
                                 observation = "restart_after_lost_ack"
                                 break
                         if scenario_id == "R10" and activated is not None:
-                            if time.monotonic()-activated > 61:
-                                observation = "rate_limited_suspension"
-                                break
+                            activations = game.fault.evidence()["activations"]
+                            request_ids = [entry.get("request_id")
+                                           for entry in activations
+                                           if entry.get("action") == "rate_limit_429"]
+                            if len(request_ids) == 1 and isinstance(request_ids[0], str):
+                                rid = request_ids[0]
+                                if r10_hold_ready(game.trace.snapshot(), rid,
+                                                  time.monotonic_ns()):
+                                    observation = "rate_limited_suspension"
+                                    game.trace.record("rate_limit_hold_completed",
+                                                      action="rate_limit_429",
+                                                      request_id=rid)
+                                    break
                         if proc.poll() is not None:
                             observation = "bridge_exited"
                             break
@@ -213,6 +269,11 @@ def run(*, color: str, scenario_id: str, run_id: str):
                 outcome["guard_events"] = []
     except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as exc:
         outcome["runner_errors"].append(type(exc).__name__ + ": " + str(exc))
+    except BaseException as exc:
+        # Retain negative evidence, but never silently turn an unexpected
+        # test-supervisor failure into a successful qualification result.
+        outcome["runner_errors"].append(type(exc).__name__ + ": " + str(exc))
+        raise
     finally:
         if started:
             game.close()
@@ -223,7 +284,13 @@ def run(*, color: str, scenario_id: str, run_id: str):
         }
         outcome["fault"] = evidence.get("fault")
         outcome["http"] = evidence.get("requests")
-        outcome["commits"] = [r for r in evidence.get("transport_trace", [])
+        trace = evidence.get("transport_trace")
+        outcome["transport_trace"] = trace
+        if isinstance(trace, list):
+            raw_trace = json.dumps(trace, sort_keys=True,
+                                   separators=(",", ":"), allow_nan=False).encode()
+            outcome["transport_trace_sha256"] = hashlib.sha256(raw_trace).hexdigest()
+        outcome["commits"] = [r for r in trace or []
                               if r.get("event") == "board_commit"]
         board = chess.Board()
         for move in outcome["game"].get("moves") or []:
@@ -263,8 +330,9 @@ def run(*, color: str, scenario_id: str, run_id: str):
         else:
             confirmed = (evidence.get("complete") and
                          outcome["observations"][-1]["observation"] == "complete_confirmed")
-        bad_http = [r for r in records if r["path"].endswith(
-            ("/abort", "/resign", "/upgrade", "/takeback")) or "/move/0000" in r["path"]]
+        bad_http = rejected_http_posts(records, scenario_id)
+        if not isinstance(outcome["game"].get("forbidden_attempts"), list) or outcome["game"]["forbidden_attempts"]:
+            outcome["runner_errors"].append("server recorded forbidden HTTP attempts")
         outcome["rate_cooldown_verified"] = rate_clean if scenario_id == "R10" else None
         outcome["fresh_second_epoch_commits"] = len(second_epoch_commits) if scenario_id == "R02" else None
         outcome["ready"] = bool(confirmed and not outcome["runner_errors"] and
@@ -277,7 +345,8 @@ def run(*, color: str, scenario_id: str, run_id: str):
                           "errors": outcome["runner_errors"],
                           "observations": outcome["observations"],
                           "public_bot_release": False}, sort_keys=True))
-        return 0 if outcome["ready"] else 2
+    # NEVER return from finally: doing so suppresses an active exception.
+    return 0 if outcome["ready"] else 2
 
 
 def main():

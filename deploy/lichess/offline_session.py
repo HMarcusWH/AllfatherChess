@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import shutil
 import subprocess
 import sys
@@ -25,10 +26,17 @@ def stage(*, release: Path, bridge: Path, workspace: Path, server_url: str) -> d
     runtime = workspace / "release"
     shutil.copytree(release, runtime)
     upstream = workspace / "bridge"
-    shutil.copytree(bridge, upstream,
-                    ignore=shutil.ignore_patterns(".git", "__pycache__", "*.pyc"))
-    shutil.copy2(ROOT / "deploy/lichess/extra_game_handlers.py",
-                 upstream / "extra_game_handlers.py")
+    fetch_bridge.copy_tracked(bridge, upstream)
+    extra = ROOT / "deploy/lichess/extra_game_handlers.py"
+    frozen = subprocess.check_output([
+        "git", "-C", str(ROOT), "show",
+        "HEAD:deploy/lichess/extra_game_handlers.py"
+    ])
+    if hashlib.sha256(extra.read_bytes()).digest() != hashlib.sha256(frozen).digest():
+        raise ValueError("local challenge overlay differs from HEAD")
+    shutil.copyfile(extra, upstream / "extra_game_handlers.py")
+    if hashlib.sha256((upstream / "extra_game_handlers.py").read_bytes()).digest() != hashlib.sha256(frozen).digest():
+        raise ValueError("executed challenge overlay copy differs from HEAD")
     config_path = workspace / "config.yml"
     effective = bridge_policy.generate(upstream, runtime, server_url, config_path)
     if effective["url"] != server_url:

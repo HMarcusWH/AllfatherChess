@@ -103,6 +103,38 @@ class OfflineReleaseContracts(unittest.TestCase):
                         docker.index("COPY deploy/release/ubuntu.sources"))
         self.assertIn("test -s /etc/ssl/certs/ca-certificates.crt",docker)
 
+    def test_pinned_snapshot_retries_are_bounded_without_mirror_fallback(self):
+        docker=(ROOT/"deploy/release/Dockerfile").read_text()
+        helper=(ROOT/"deploy/release/install-pinned-apt.sh").read_text()
+        self.assertIn('while [ "$attempt" -le 4 ]',helper)
+        self.assertIn('Acquire::Retries=1',helper)
+        self.assertIn('Acquire::https::Timeout=25',helper)
+        self.assertIn("apt-get",helper)
+        self.assertIn('only_transient_acquisition_failures',helper)
+        self.assertIn('if ! only_transient_acquisition_failures',helper)
+        self.assertIn("COPY deploy/release/install-pinned-apt.sh",docker)
+        self.assertIn("/bin/sh /usr/local/bin/install-pinned-apt",docker)
+        self.assertIn("COPY deploy/release/ubuntu.sources",docker)
+        instructions = "\n".join(
+            line for line in docker.splitlines()
+            if not line.lstrip().startswith("#"))
+        for unsafe in ("--fix-missing", "trusted=yes", "allow-unauthenticated",
+                       "Acquire::https::Verify-Peer=false",
+                       "Acquire::https::Verify-Host=false"):
+            self.assertNotIn(unsafe,instructions)
+            self.assertNotIn(unsafe,helper)
+
+    def test_sbom_generator_is_reviewed_immutable_oci_index(self):
+        image=json.loads((ROOT/"qualification/release-image-v1.json").read_text())
+        scanner=image["sbom_generator_image"]
+        self.assertRegex(scanner,
+            r"^docker\.io/docker/buildkit-syft-scanner@sha256:[0-9a-f]{64}$")
+        content=(ROOT/".github/workflows/release-candidate.yml").read_text()
+        self.assertIn('["sbom_generator_image"]',content)
+        self.assertIn('--attest "type=sbom,generator=$SCANNER"',content)
+        self.assertIn('docker buildx imagetools inspect "$SCANNER" --raw',content)
+        self.assertNotIn("--attest type=sbom \\",content)
+
     def test_readonly_runtime_requires_separate_replay_bind_mount(self):
         p=json.loads((ROOT/"qualification/release-image-v1.json").read_text())
         runtime=json.loads((ROOT/"deploy/release/runtime-contract.json").read_text())
@@ -133,6 +165,7 @@ class OfflineReleaseContracts(unittest.TestCase):
             ("sha256:"+"b"*64, observed),
             (None, {"Id":"sha256:"+"b"*64,"Architecture":"amd64"}),
             (None, {"Id":digest,"Architecture":"arm64"}),
+            (None, {"Id":digest,"Architecture":"amd64","Os":"windows"}),
         ):
             with self.subTest(metadata=metadata, inspected=inspection), self.assertRaises(ValueError):
                 oci.verify_image_config_link(
@@ -191,6 +224,38 @@ class OfflineReleaseContracts(unittest.TestCase):
             with self.assertRaises(ValueError):
                 builder.assemble(Path(temp),Path(temp)/"out",Path(temp),
                                  Path(temp),Path(temp))
+
+
+    def test_every_authentication_and_host_release_flag_fails_policy(self):
+        source = ROOT / "qualification/release-qualification-v1.json"
+        for flag in ("authenticated_publication_authorized",
+                     "destination_host_qualified", "public_bot_release",
+                     "artifact_distribution_authorized",
+                     "release_promotion_authorized"):
+            with self.subTest(flag=flag), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                for name in ("release-image-v1.json",
+                             "release-qualification-v1.json",
+                             "license-compliance-v1.json"):
+                    target = root / "qualification" / name
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_bytes((ROOT / "qualification" / name).read_bytes())
+                target = root / "qualification/release-qualification-v1.json"
+                policy_doc = json.loads(target.read_text())
+                policy_doc[flag] = True
+                target.write_text(json.dumps(policy_doc))
+                with self.assertRaisesRegex(ValueError, flag):
+                    policy.audit(root)
+
+    def test_replay_mount_documentation_matches_ci(self):
+        ops = (ROOT / "docs/RELEASE_1_OPERATIONS.md").read_text()
+        workflow = (ROOT / ".github/workflows/release-candidate.yml").read_text()
+        replay = ":/opt/allfather/build/replays-online-hybrid-v2:rw"
+        self.assertIn(replay, ops)
+        self.assertIn(replay, workflow)
+        for flag in ("--network none", "--read-only", "--cap-drop ALL",
+                     "--security-opt no-new-privileges", "10001:10001"):
+            self.assertIn(flag, ops)
 
 
 if __name__=="__main__":

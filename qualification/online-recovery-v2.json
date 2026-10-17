@@ -61,6 +61,9 @@
   "attested_paths": [
     ".github/workflows/online-recovery-v2.yml",
     "deploy/lichess/bridge.lock.json",
+    "deploy/lichess/bridge_policy.py",
+    "deploy/lichess/extra_game_handlers.py",
+    "deploy/lichess/fetch_bridge.py",
     "deploy/lichess/guarded_transport.py",
     "deploy/lichess/move_journal.py",
     "deploy/lichess/offline_session.py",
@@ -71,12 +74,17 @@
     "docs/ONLINE_4B_RECOVERY.md",
     "qualification/online-recovery-v2.json",
     "scripts/qualify-online-recovery-v2.py",
+    "scripts/qualify-online-recovery.py",
     "tests/fixtures/lichess/recovery_scenarios.json",
     "tests/lichess/fake_lichess_api.py",
+    "tests/lichess/http_target_contract.py",
+    "tests/lichess/scripted_opponent.py",
+    "tests/lichess/stream_sessions.py",
     "tests/lichess/test_guarded_transport.py",
     "tests/lichess/test_recovery_journal.py",
     "tests/lichess/test_recovery_overlay.py",
-    "tests/lichess/test_recovery_v2_evidence.py"
+    "tests/lichess/test_recovery_v2_evidence.py",
+    "tests/lichess/transport_trace.py"
   ],
   "require_terminal_state_confirmation": true,
   "require_new_epoch_confirmed_move": true,

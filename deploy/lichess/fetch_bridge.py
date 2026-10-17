@@ -2,6 +2,8 @@
 """Retrieve only the locked lichess-bot Git revision; no submodules or live API."""
 from __future__ import annotations
 import argparse
+import shutil
+from pathlib import PurePosixPath
 import json
 import os
 import subprocess
@@ -22,8 +24,9 @@ def verify(location: Path, lock: dict) -> None:
         raise ValueError("pinned bridge Git checkout missing")
     if cmd("git", "rev-parse", "HEAD", cwd=location) != lock["commit"]:
         raise ValueError("bridge HEAD differs from locked commit")
-    if cmd("git", "status", "--porcelain", "--untracked-files=no", cwd=location):
-        raise ValueError("pinned bridge checkout has modified tracked files")
+    if cmd("git", "status", "--porcelain", "--untracked-files=all",
+           "--ignored=matching", cwd=location):
+        raise ValueError("pinned bridge checkout has modified, untracked, or ignored files")
     if cmd("git", "remote", "get-url", "origin", cwd=location) != lock["origin"]:
         raise ValueError("bridge remote identity differs from lock")
     for path, oid in lock["tracked_blobs"].items():
@@ -36,6 +39,60 @@ def verify(location: Path, lock: dict) -> None:
         raise ValueError("pinned bridge has symlinks or Git submodules")
     if lock["scope"] != "ONLINE-3B-OFFLINE-ONLY" or lock["live_api_permitted"] is not False:
         raise ValueError("bridge scope is not offline-only")
+
+
+def copy_tracked(source: Path, destination: Path, *, verify_lock=True) -> None:
+    """Export only HEAD-tracked regular bytes, never ignored or transient code.
+
+    Exact checkout verification is mandatory before export; caller-supplied
+    untracked files (including ignored sitecustomize.py) cannot enter staging.
+    """
+    if verify_lock:
+        lock = json.loads(LOCK.read_text(encoding="utf-8"))
+        verify(source, lock)
+    raw = subprocess.check_output(
+        ["git", "-C", str(source), "ls-files", "--stage", "-z"], stderr=subprocess.PIPE
+    )
+    rows = [item for item in raw.split(b"\0") if item]
+    if not rows:
+        raise ValueError("pinned bridge HEAD has no tracked files")
+    if destination.exists() or destination.is_symlink():
+        raise ValueError("bridge export destination must be absent")
+    destination.mkdir(parents=True, exist_ok=False)
+    try:
+        seen = set()
+        for row in rows:
+            mode_oid, sep, name_raw = row.partition(b"\t")
+            if not sep:
+                raise ValueError("malformed tracked Git entry")
+            metadata = mode_oid.split()
+            if len(metadata) != 3 or metadata[0] not in (b"100644", b"100755") or metadata[2] != b"0":
+                raise ValueError("nonregular tracked Git entry")
+            name = name_raw.decode("utf-8")
+            posix = PurePosixPath(name)
+            if (not name or posix.is_absolute() or ".." in posix.parts or
+                    "\\" in name or str(posix) != name or name in seen):
+                raise ValueError("noncanonical tracked path: " + name)
+            seen.add(name)
+            source_file = source / name
+            if (not source_file.is_file() or source_file.is_symlink() or
+                    not source_file.resolve().is_relative_to(source.resolve())):
+                raise ValueError("missing, linked or escaped tracked source: " + name)
+            target = destination / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            # Export Git's exact indexed blob, not working-tree bytes. Safe
+            # checkout filters (e.g. CRLF) may transform a clean path, and
+            # git hash-object without --path would reject that legitimate file.
+            # Reading by immutable object ID also prevents an export-time TOCTOU.
+            blob = subprocess.check_output(
+                ["git", "-C", str(source), "cat-file", "blob",
+                 metadata[1].decode("ascii")], stderr=subprocess.PIPE)
+            target.write_bytes(blob)
+            if metadata[0] == b"100755":
+                target.chmod(0o755)
+    except BaseException:
+        shutil.rmtree(destination)
+        raise
 
 
 def fetch(location: Path, lock: dict) -> None:

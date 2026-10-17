@@ -39,6 +39,77 @@ class FakeAPITests(unittest.TestCase):
             self.assertEqual(p.status_code, 200)
             self.assertEqual(p.json()["title"], "BOT")
 
+    def test_complete_canonical_target_and_query_values_are_observed(self):
+        self.assertEqual(self.call("GET",
+                         "/api/users/status?ids=allfatherfixture"), 200)
+        good = self.fake.requests[-1]
+        self.assertEqual(good["request_target"],
+                         "/api/users/status?ids=allfatherfixture")
+        self.assertTrue(good["target_canonical"])
+        self.assertEqual(good["path"], "/api/users/status")
+        # A rejected query is never stored verbatim in downloadable evidence.
+        for target in ("/api/account?access_token=private-test-secret",
+                       "/api/users/status?ids=unapproved",
+                       "/api/users/status?ids=allfatherfixture&other=yes",
+                       "/api/account?x=1"):
+            self.assertEqual(self.call("GET", target), 403)
+            record = self.fake.requests[-1]
+            self.assertFalse(record["target_canonical"])
+            self.assertIsNone(record["request_target"])
+            self.assertIn("request_target_sha256", record)
+            self.assertNotIn("private-test-secret", str(record))
+        self.assertEqual(self.call(
+            "POST", "/api/challenge/"+GAME_ID+"/accept"), 200)
+        for target in ("/api/bot/game/"+GAME_ID+"/move/e2e4?offeringDraw=false",
+                       "/api/bot/game/"+GAME_ID+"/move/e2e4?offeringDraw=true"):
+            self.assertIn(self.call("POST", target), (200,400,409))
+            record=self.fake.requests[-1]
+            self.assertTrue(record["target_canonical"])
+            self.assertEqual(record["request_target"], target)
+
+    def test_network_path_bypasses_cpython_normalization_only_if_not_observed(self):
+        import socket
+        for target in ("//api/account", "///api/account",
+                       "//api/users/status?ids=allfatherfixture"):
+            with self.subTest(target=target):
+                with socket.create_connection(self.fake.http.server_address,
+                                              timeout=4) as connection:
+                    connection.settimeout(4)
+                    query=(f"GET {target} HTTP/1.1\r\n"
+                           "Host: 127.0.0.1\r\n"
+                           f"Authorization: Bearer {TOKEN}\r\n"
+                           "Connection: close\r\n\r\n").encode()
+                    connection.sendall(query)
+                    answer=connection.recv(1024)
+                self.assertIn(b"403",answer)
+                observed=self.fake.requests[-1]
+                self.assertEqual(observed["method"],"GET")
+                self.assertEqual(observed["status"],403)
+                self.assertFalse(observed["target_canonical"])
+                self.assertIsNone(observed["request_target"])
+                self.assertEqual(len(observed["request_target_sha256"]),64)
+                self.assertIn("GET "+target.split("?",1)[0],
+                              self.fake.attempted_forbidden)
+
+    def test_raw_double_slash_post_never_becomes_valid_token_endpoint(self):
+        import socket
+        with socket.create_connection(self.fake.http.server_address,
+                                      timeout=4) as connection:
+            connection.settimeout(4)
+            connection.sendall((
+                "POST //api/token/test HTTP/1.1\r\n"
+                "Host: 127.0.0.1\r\n"
+                f"Authorization: Bearer {TOKEN}\r\n"
+                "Content-Length: 0\r\n"
+                "Connection: close\r\n\r\n"
+            ).encode())
+            answer=connection.recv(1024)
+        self.assertIn(b"403",answer)
+        record=self.fake.requests[-1]
+        self.assertEqual(record["status"],403)
+        self.assertFalse(record["target_canonical"])
+        self.assertIsNone(record["request_target"])
+
     def test_duplicate_accept_rejected(self):
         path = f"/api/challenge/{GAME_ID}/accept"
         self.assertEqual(self.call("POST", path), 200)

@@ -88,10 +88,17 @@ def verify(manifest: dict, roots: dict[str, Path],
     for flag in ("artifact_distribution_authorized","public_bot_release",
                  "network_recovery_qualified","deployment_host_qualified"):
         insist(manifest.get(flag) is False, "release claimed unapproved authority: " + flag)
+    frozen_bridge = roots["tools"] / "deploy/lichess/bridge.lock.json"
+    insist(frozen_bridge.is_file() and not frozen_bridge.is_symlink(),
+           "frozen upstream bridge lock absent from packaged tools")
+    bridge_lock = read(frozen_bridge)
     insist(manifest.get("source_commit") and manifest.get("source_tree") and
-           manifest.get("bridge_commit") ==
-           read(roots["tools"] / "qualification/release-image-v1.json").get("bridge_commit",
-           manifest["bridge_commit"]), "incomplete source/bridge metadata")
+           manifest.get("bridge_commit") == bridge_lock["commit"] and
+           bridge_lock.get("live_api_permitted") is False and
+           bridge_lock.get("scope") == "ONLINE-3B-OFFLINE-ONLY" and
+           manifest.get("source_attestation", {}).get(
+               "deploy/lichess/bridge.lock.json") == sha(frozen_bridge),
+           "upstream bridge commit or source lock does not match pinned input")
     expected_policy = roots["tools"] / "qualification/release-image-v1.json"
     insist(expected_policy.is_file() and sha(expected_policy) ==
            manifest["release_image_policy_sha256"], "frozen policy digest mismatch")

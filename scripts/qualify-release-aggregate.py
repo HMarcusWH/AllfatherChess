@@ -8,6 +8,7 @@ distribution authorization are deliberately impossible in this milestone.
 from __future__ import annotations
 import argparse
 import hashlib
+import importlib.util
 import json
 import re
 import subprocess
@@ -45,7 +46,31 @@ def require(ok,reason):
         raise ValueError(reason)
 
 
-def qualify(*, stage:Path, oci:Path, host:Path, smoke_dir:Path,
+def check_smoke_evidence(path:Path, key:str) -> dict:
+    """Execute the independent host verifier, never trust the producer's ready."""
+    module_path=ROOT/"scripts/qualify-release-smoke.py"
+    spec=importlib.util.spec_from_file_location("release1_smoke_independent",module_path)
+    require(spec is not None and spec.loader is not None,
+            "independent packaged-smoke verifier missing")
+    mod=importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod.verify_file(path,key)
+
+
+# Read the exact same host-only HTTP admission contract as the independent
+# smoke verifier; the aggregate cannot silently widen allowed GETs.
+_http_spec = importlib.util.spec_from_file_location(
+    "release1_http_aggregate", ROOT/"scripts/release_http_contract.py")
+require(_http_spec is not None and _http_spec.loader is not None,
+        "shared RELEASE-1 HTTP admission contract missing")
+http_contract = importlib.util.module_from_spec(_http_spec)
+_http_spec.loader.exec_module(http_contract)
+
+
+def allowed_release_http(row: object, case: str) -> bool:
+    return http_contract.allowed_release_http(row, case)
+
+def qualify(*, stage:Path, oci:Path, oci_archive:Path, host:Path, smoke_dir:Path,
             os_inventory:Path, wheel_inventory:Path, source_sha:str, root:Path=ROOT):
     source= subprocess.check_output(["git","-C",str(root),"rev-parse","HEAD"],
                                     text=True).strip()
@@ -66,14 +91,28 @@ def qualify(*, stage:Path, oci:Path, host:Path, smoke_dir:Path,
             digest(root/"qualification/release-image-v1.json"),
             "candidate policy mismatch")
     require(oci_report.get("integrity_verified") is True and
+            all(oci_report.get(field) is True for field in (
+                "oci_layers_verified","oci_diff_ids_verified",
+                "oci_application_identity_verified",
+                "oci_attestation_references_verified",
+                "oci_attestation_subjects_verified",
+                "oci_sbom_verified","oci_provenance_verified")) and
             oci_report.get("public_bot_release") is False and
             oci_report.get("publisher_signature_verified") is False,
-            "OCI attestation invalid or makes an unsupported publisher claim")
+            "OCI attestation or verified application binding invalid")
     for key in ("oci_image_manifest_digest","oci_config_digest"):
         require(is_sha256_hex(oci_report.get(key),prefixed=True),
                 "invalid OCI "+key)
     require(is_sha256_hex(oci_report.get("oci_archive_sha256")),
             "invalid OCI archive SHA-256 digest")
+    require(is_sha256_hex(oci_report.get("oci_exported_root_digest"),
+                          prefixed=True) and
+            oci_report.get("buildkit_digest") ==
+                oci_report.get("oci_exported_root_digest"),
+            "OCI BuildKit digest differs from selected exported root")
+    require(oci_archive.is_file() and not oci_archive.is_symlink() and
+            digest(oci_archive) == oci_report["oci_archive_sha256"],
+            "OCI archive identity does not match independently verified report")
     require(host_report["destination_host_qualified"] is False and
             host_report["test_host_observed"] is True,
             "host admission attempted to promote CI runner")
@@ -89,18 +128,44 @@ def qualify(*, stage:Path, oci:Path, host:Path, smoke_dir:Path,
         target=smoke_dir/key/"result.json"
         require(target.is_file(), "release-image smoke scenario missing: "+key)
         result=load(target)
+        independent=check_smoke_evidence(target,key)
+        scenario,color=key.split("-",1)
+        require(independent.get("independent_qualified") is True and
+                independent.get("persisted_sqlite_verified") is True and
+                independent.get("release_blocked") is True and
+                independent.get("run_id") == key and
+                independent.get("scenario") == scenario.upper() and
+                independent.get("color") == color and
+                independent.get("public_bot_release") is False,
+                "independent chess/HTTP/SQLite evidence failed: "+key)
         require(result.get("offline") is True and
                 result.get("ready") is True and
                 result.get("runner_errors")==[] and
                 result.get("public_bot_release") is False,
                 "release-image smoke failed: "+key)
+        game=result.get("game") or {}
+        require(game.get("forbidden_attempts")==[],
+                "release image simulator recorded forbidden API attempts: "+key)
+        requests=result.get("http")
+        require(isinstance(requests,list),
+                "release-image complete HTTP audit missing: "+key)
+        require(all(allowed_release_http(r,key) for r in requests),
+                "release image HTTP contains prohibited request: "+key)
+        if key=="r10-white":
+            require(result.get("rate_cooldown_verified") is True,
+                    "release-image 429 cooldown witness absent")
+        if key=="r02-white":
+            require(type(result.get("fresh_second_epoch_commits")) is int and
+                    result["fresh_second_epoch_commits"]>0,
+                    "release image restart has no fresh confirmed move")
         if key!="r10-white":
             require(result["game"]["complete"] is True,
                     "offline completed-game requirement not met: "+key)
         else:
             require(result["game"]["complete"] is False,
                     "rate-limit test unexpectedly marked game as complete")
-        tests[key]={"passed":True,"accepted_moves":len(result["game"]["accepted"] or []),
+        tests[key]={"passed":True,"independent_evidence":independent,
+                    "accepted_moves":len(result["game"]["accepted"] or []),
                     "phase_count":len(result["observations"])}
     wheel_hash=digest(stage/"wheels/runtime-wheels.lock")
     wheel_inv=digest(wheel_inventory)
@@ -144,6 +209,7 @@ def main():
     p=argparse.ArgumentParser()
     p.add_argument("--stage",type=Path,required=True)
     p.add_argument("--oci",type=Path,required=True)
+    p.add_argument("--oci-archive",type=Path,required=True)
     p.add_argument("--host",type=Path,required=True)
     p.add_argument("--smoke-dir",type=Path,required=True)
     p.add_argument("--os-inventory",type=Path,required=True)
@@ -152,7 +218,7 @@ def main():
     p.add_argument("--output",type=Path,required=True)
     a=p.parse_args()
     try:
-        report=qualify(stage=a.stage,oci=a.oci,host=a.host,
+        report=qualify(stage=a.stage,oci=a.oci,oci_archive=a.oci_archive,host=a.host,
                        smoke_dir=a.smoke_dir,os_inventory=a.os_inventory,
                        wheel_inventory=a.wheel_inventory,source_sha=a.source_sha)
         a.output.parent.mkdir(parents=True,exist_ok=True)

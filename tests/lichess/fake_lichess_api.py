@@ -21,6 +21,8 @@ from tests.lichess.scripted_opponent import choose
 from tests.lichess.fault_plan import FaultScheduler
 from tests.lichess.stream_sessions import StreamSessions
 from tests.lichess.transport_trace import TransportTrace, state_digest
+from tests.lichess.http_target_contract import (
+    canonical_target, path_of, safe_audit_fields)
 
 TOKEN = "offline-fixture-token"
 GAME_ID = "off3b001"
@@ -60,6 +62,25 @@ class FakeLichess:
             def log_message(self, fmt, *args):
                 pass
 
+            def parse_request(self):
+                # CPython normalizes a leading // in BaseHTTPRequestHandler
+                # *before* do_GET/do_POST. Capture the original wire target
+                # from raw_requestline to prevent normalization-based bypass.
+                self._raw_http_target = ""
+                try:
+                    line = self.raw_requestline.decode("iso-8859-1").rstrip("\r\n")
+                    parts = line.split(" ")
+                    if (len(parts) == 3 and all(parts) and
+                            parts[0] in ("GET", "POST") and
+                            parts[2] in ("HTTP/1.0", "HTTP/1.1")):
+                        self._raw_http_target = parts[1]
+                except UnicodeError:
+                    pass
+                return super().parse_request()
+
+            def raw_target(self) -> str:
+                return getattr(self, "_raw_http_target", "")
+
             def respond(self, status: int, obj: dict):
                 data = json.dumps(obj, separators=(",", ":")).encode()
                 self.send_response(status)
@@ -69,13 +90,18 @@ class FakeLichess:
                 self.wfile.write(data)
                 self.wfile.flush()
                 if server.trace is not None:
+                    identity = getattr(self, "_move_request_id", None)
                     server.trace.record("response_write_completed", status=status,
-                                        path=urllib.parse.urlparse(self.path).path)
+                                        path=urllib.parse.urlparse(self.path).path,
+                                        **({"request_id": identity} if identity else {}))
 
             def drop_connection(self):
                 """An intentional server-side close, not proof of what the client read."""
-                server.trace and server.trace.record("connection_close_requested",
-                                                      path=urllib.parse.urlparse(self.path).path)
+                if server.trace is not None:
+                    identity = getattr(self, "_move_request_id", None)
+                    server.trace.record("connection_close_requested",
+                                        path=urllib.parse.urlparse(self.path).path,
+                                        **({"request_id": identity} if identity else {}))
                 self.close_connection = True
                 try:
                     self.connection.shutdown(socket.SHUT_RDWR)
@@ -108,12 +134,22 @@ class FakeLichess:
                     server.trace.record("stream_partial_chunk", sid=subscriber.sid)
                     self.drop_connection()
                     return False
-                if action == "delay_state":
-                    time.sleep(0.4)  # bounded transport delay; not a virtual game clock
-                if action == "stale_state":
-                    predecessor = server.state_predecessors.get(state_digest(payload))
-                    if predecessor is None:
+                if action in ("delay_state", "stale_state"):
+                    predecessor = (server.state_predecessors.get(state_digest(payload))
+                                   if action == "stale_state" else None)
+                    if action == "stale_state" and predecessor is None:
                         raise RuntimeError("fault state has no authoritative predecessor")
+                    server.trace.record(
+                        "stream_fault_source", sid=subscriber.sid,
+                        action=action, original_sha256=state_digest(payload),
+                        original_moves=payload.get("moves"),
+                        predecessor_sha256=(state_digest(predecessor)
+                                            if predecessor is not None else None),
+                        predecessor_moves=(predecessor.get("moves")
+                                           if predecessor is not None else None))
+                if action == "delay_state":
+                    time.sleep(0.4)  # real monotonic delay, not a game-clock mutation
+                if action == "stale_state":
                     payload = copy.deepcopy(predecessor)
                 if action == "wrong_game":
                     payload = dict(payload, gameId="untrusted-other-game")
@@ -141,6 +177,7 @@ class FakeLichess:
                 self.send_header("Cache-Control", "no-cache")
                 self.end_headers()
                 ready.set()
+                partial_chunk_broken = False
                 try:
                     if subscriber is None:
                         if first is not None:
@@ -158,11 +195,19 @@ class FakeLichess:
                                 self.chunk(None)
                                 continue
                             if not self.emit_faultable(payload, subscriber):
+                                partial_chunk_broken = True
                                 break
                 except (BrokenPipeError, ConnectionResetError, OSError):
                     return
                 finally:
                     if subscriber is not None:
+                        if not partial_chunk_broken:
+                            try:
+                                self.wfile.write(b"0\r\n\r\n")
+                                self.wfile.flush()
+                            except (BrokenPipeError, ConnectionResetError, OSError):
+                                pass
+                        self.close_connection = True
                         server.sessions.unsubscribe(subscriber)
 
             def chunk(self, payload):
@@ -172,21 +217,34 @@ class FakeLichess:
 
             def auth(self) -> bool:
                 if self.headers.get("Authorization") != "Bearer " + TOKEN:
+                    # Even an early rejected request remains an HTTP witness.
+                    self.record(self.command, path_of(self.raw_target()), 401)
                     self.respond(401, {"error": "synthetic token required"})
                     return False
                 return True
 
-            def record(self, kind: str, path: str, status: int):
+            def record(self, kind: str, path: str, status: int,
+                       request_id: str | None = None):
                 with server.lock:
-                    server.requests.append({
+                    row = {
                         "monotonic_ms": round((time.monotonic() - server.start_time) * 1000),
-                        "method": kind, "path": path, "status": status
-                    })
+                        "method": kind, "status": status,
+                        **safe_audit_fields(kind, self.raw_target()),
+                    }
+                    if request_id is not None:
+                        row["request_id"] = request_id
+                    server.requests.append(row)
 
             def do_GET(self):
+                self._move_request_id = None  # never reuse an HTTP/1.1 request identity
                 if not self.auth():
                     return
-                path = urllib.parse.urlparse(self.path).path
+                path = path_of(self.raw_target())
+                if not canonical_target("GET", self.raw_target()):
+                    safe = safe_audit_fields("GET", self.raw_target())["path"]
+                    self.record("GET", safe, 403)
+                    server.attempted_forbidden.append("GET " + safe)
+                    return self.respond(403, {"error": "offline request-target prohibited"})
                 if path == "/api/stream/event":
                     self.record("GET", path, 200)
                     if server.sessions is not None:
@@ -238,6 +296,7 @@ class FakeLichess:
                 return self.respond(403, {"error": "offline route prohibited"})
 
             def do_POST(self):
+                self._move_request_id = None  # reset on every request, even on reused sockets
                 if not self.auth():
                     return
                 # requests.Session reuses HTTP/1.1 connections. POST bodies
@@ -250,7 +309,13 @@ class FakeLichess:
                     return self.respond(413, {"error": "body too large"})
                 if length:
                     self.rfile.read(length)
-                path = urllib.parse.urlparse(self.path).path
+                path = path_of(self.raw_target())
+                if not canonical_target("POST", self.raw_target()):
+                    safe = safe_audit_fields("POST", self.raw_target())["path"]
+                    with server.lock:
+                        server.attempted_forbidden.append("POST " + safe)
+                    self.record("POST", safe, 403)
+                    return self.respond(403, {"error": "offline request-target prohibited"})
                 if path == "/api/token/test":
                     self.record("POST", path, 200)
                     return self.respond(200, {TOKEN: {"scopes": "bot:play"}})
@@ -288,6 +353,7 @@ class FakeLichess:
                             seq = server.trace.record("move_attempt", path=path, uci=move_text,
                                                       game_id=GAME_ID, ply_at_receipt=ply)
                             request_id = f"request-{seq}"
+                            self._move_request_id = request_id
                         action = (server.fault.hit("move_post", ply=ply, request_id=request_id)
                                   if server.fault is not None else None)
                         if action:
@@ -295,23 +361,23 @@ class FakeLichess:
                                                 endpoint="move_post", request_id=request_id,
                                                 ply=ply)
                         if action == "drop_before_commit":
-                            self.record("POST", path, 0)
+                            self.record("POST", path, 0, request_id=request_id)
                             return self.drop_connection()
                         if action == "rate_limit_429":
-                            self.record("POST", path, 429)
+                            self.record("POST", path, 429, request_id=request_id)
                             return self.respond(429, {"error": "fault-injected rate limit"})
                         if not server.started or server.finished.is_set():
-                            self.record("POST", path, 409)
+                            self.record("POST", path, 409, request_id=request_id)
                             return self.respond(409, {"error": "game inactive"})
                         if server.board.turn != (server.color == "white"):
-                            self.record("POST", path, 409)
+                            self.record("POST", path, 409, request_id=request_id)
                             return self.respond(409, {"error": "not bot turn"})
                         try:
                             move = chess.Move.from_uci(move_text)
                         except ValueError:
                             move = None
                         if move is None or move not in server.board.legal_moves:
-                            self.record("POST", path, 400)
+                            self.record("POST", path, 400, request_id=request_id)
                             return self.respond(400, {"error": "illegal move"})
                         if action == "low_clock_close":
                             side = "white" if server.board.turn else "black"
@@ -321,7 +387,8 @@ class FakeLichess:
                                      forced_clock_after_ms=(1500 if action == "low_clock_close"
                                                             else None))
                         server.accepted.append({"ply": len(server.board.move_stack), "uci": move.uci()})
-                        self.record("POST", path, 200 if action != "commit_then_504" else 504)
+                        self.record("POST", path, 200 if action != "commit_then_504" else 504,
+                                    request_id=request_id)
                         if not server.finished.is_set():
                             threading.Thread(target=server.opponent_move, daemon=True).start()
                     if action in ("commit_then_close", "low_clock_close", "terminate_bridge"):

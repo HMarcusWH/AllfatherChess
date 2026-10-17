@@ -6,6 +6,16 @@ on:
       - 'tests/lichess/**'
       - 'tests/fixtures/lichess/**'
       - 'scripts/qualify-online-recovery-v2.py'
+      - 'scripts/qualify-online-recovery.py'
+      - 'scripts/release-manifest.py'
+      - 'scripts/package-online.py'
+      - 'scripts/build-online-engine-opt-v2.sh'
+      - 'scripts/qualify-engine-opt-v2.py'
+      - 'scripts/prepare-online3b-wheels.py'
+      - 'scripts/ci-install-apt-deps.sh'
+      - 'Makefile'
+      - 'deploy/bin/**'
+      - 'qualification/online-recovery-v1.json'
       - 'qualification/online-recovery-v2.json'
       - '.github/workflows/online-recovery-v2.yml'
       - 'docs/ONLINE_4B_RECOVERY.md'
@@ -136,6 +146,7 @@ jobs:
 
   independent-guarded-qualification:
     needs: guarded-integration
+    if: ${{ always() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 16
     steps:
@@ -147,8 +158,11 @@ jobs:
       - name: Install independent chess oracle
         run: |
           bash scripts/ci-install-apt-deps.sh python3-pip python3-venv
-          python3 -m pip install --break-system-packages 'chess==1.11.2'
+          python3 -m pip install --break-system-packages 'chess==1.11.2' 'PyYAML==6.0.3'
+      - name: Rebuild expected overlay from independent pinned upstream
+        run: python3 deploy/lichess/fetch_bridge.py
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        continue-on-error: true
         with:
           name: online4b-guarded-raw-evidence
           path: build/test-results/online-recovery-v2

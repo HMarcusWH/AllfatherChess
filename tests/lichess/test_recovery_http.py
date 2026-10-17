@@ -37,6 +37,22 @@ class RecoveryHTTPTests(unittest.TestCase):
         finally:
             fake.close()
 
+    def test_attempt_record_retains_actual_upstream_query_target(self):
+        fake=FakeLichess("white")
+        fake.start()
+        try:
+            reply=requests.get(fake.url+"api/users/status",
+                               params={"ids":"allfatherfixture"},
+                               headers=HEADERS,timeout=4)
+            self.assertEqual(reply.status_code,200)
+            row=fake.evidence()["requests"][-1]
+            self.assertEqual(row["path"],"/api/users/status")
+            self.assertEqual(row["request_target"],
+                             "/api/users/status?ids=allfatherfixture")
+            self.assertTrue(row["target_canonical"])
+        finally:
+            fake.close()
+
     def test_request_reaches_handler_but_drops_before_commit(self):
         self.run_fault("R01", 0)
 
@@ -142,6 +158,35 @@ class RecoveryHTTPTests(unittest.TestCase):
         finally:
             fake.close()
 
+
+    def test_fenced_http_stream_reaches_eof(self):
+        fake=FakeLichess("white",load_scenarios(SCENARIOS)["R09"])
+        fake.start()
+        try:
+            url=fake.url+"api/stream/event"
+            with requests.get(url,headers=HEADERS,stream=True,timeout=4) as first:
+                with requests.get(url,headers=HEADERS,stream=True,timeout=4) as second:
+                    self.assertEqual(first.status_code,200)
+                    self.assertEqual(second.status_code,200)
+                    # Must finish rather than hang on an unterminated HTTP/1.1 chunk.
+                    self.assertFalse(any(first.iter_lines(chunk_size=1)))
+                    fake.issue_challenge()
+                    event=json.loads(next(x for x in second.iter_lines(chunk_size=1) if x))
+                    self.assertEqual(event["type"],"challenge")
+        finally:
+            fake.close()
+
+
+    def test_every_simulated_move_post_has_correlated_http_request_id(self):
+        _,data=self.run_fault("R02",1)
+        attempts=[r for r in data["transport_trace"] if r["event"]=="move_attempt"]
+        http=[r for r in data["requests"] if
+              r["method"]=="POST" and "/move/" in r["path"]]
+        self.assertTrue(attempts)
+        self.assertEqual(
+            {f"request-{r['seq']}" for r in attempts},
+            {r.get("request_id") for r in http})
+        self.assertTrue(all(r["status"]==200 for r in http))
 
 if __name__ == "__main__":
     unittest.main()

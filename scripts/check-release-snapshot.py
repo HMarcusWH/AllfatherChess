@@ -84,12 +84,16 @@ def validate_inrelease(body: bytes, suite: str) -> None:
             "Ubuntu InRelease suite or release metadata invalid")
 
 
-def read_complete(response, expected_url: str, suite: str) -> None:
+def read_complete(response, expected_url: str, suite: str, *,
+                  deadline: float | None = None,
+                  clock=time.monotonic) -> None:
     observed = response.geturl() if hasattr(response, "geturl") else expected_url
     require(observed == expected_url,
             "Ubuntu snapshot redirected outside frozen suite URL")
     content = bytearray()
     while True:
+        require(deadline is None or clock() < deadline,
+                "snapshot global preflight budget expired during body read")
         part = response.read(min(65536, MAX_INRELEASE_BYTES + 1 - len(content)))
         if not part:
             break
@@ -118,7 +122,8 @@ def probe(snapshot: str, *, opener=urlopen, sleeper=time.sleep,
             require(left > 1.0, "pinned snapshot global preflight budget exhausted")
             try:
                 with opener(url, timeout=min(10.0, left - 0.5)) as response:
-                    read_complete(response, url, suite)
+                    read_complete(response, url, suite,
+                                  deadline=deadline, clock=clock)
                 results[suite] = {"reachable": True, "attempts": attempt}
                 break
             except HTTPError as exc:

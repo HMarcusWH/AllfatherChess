@@ -135,6 +135,19 @@ class SnapshotAvailabilityTests(unittest.TestCase):
             with self.subTest(change=poisoned[-60:]), self.assertRaises(ValueError):
                 checker.validate_sources(poisoned,"20261001T000000Z")
 
+    def test_streaming_read_cannot_extend_global_deadline_indefinitely(self):
+        moment = [0.0]
+        class DelayedResponse(Response):
+            def read(self,n):
+                moment[0] = 150.0
+                return b"a"
+        def opener(url,timeout):
+            return DelayedResponse(url,envelope("noble"))
+        with self.assertRaisesRegex(ValueError,"budget expired"):
+            checker.probe("20261001T000000Z",
+                          opener=opener, sleeper=lambda _:None,
+                          clock=lambda:moment[0])
+
     def test_bad_snapshot_identity_rejected_before_network(self):
         with self.assertRaisesRegex(ValueError,"invalid pinned"):
             checker.probe("20261001T000000Z/../latest",

@@ -178,3 +178,7 @@ The following six source-linked Codex findings were found against that exact hea
 | Adjacent ONLINE-4B correlation | `scripts/qualify-online-recovery-v2.py` matches exact path and server-generated `request-{seq}` ID multisets rather than paths only. | `tests/lichess/test_recovery_v2_evidence.py`: swapped/missing request-ID attacks. |
 
 **Claim boundary:** These fixes certify neither a deployed public bot nor live-network recovery, publisher signing, host qualification, OS/wheel dependency locks, licensing, public distribution, operator approval, or Elo/strength. All 11 exact-head workflows, actual installed-image/SQLite/OCI/SBOM/SLSA aggregate, and final Codex code/security reviews must be separately proven on the new pushed head. Do not resolve review threads based solely on this planned closure record.
+
+### Scanner-only upstream consistency follow-up
+
+`scripts/check-release-scanner.py` now makes the same precise distinction between a missing `statements` field (valid BuildKit singleton in-toto format) and an explicitly present null/scalar/object/empty `statements` wrapper (invalid). `tests/release/test_release_scanner_contract.py` applies rehashed negative wrapper fixtures to this generator-specific preflight in addition to the independently qualified OCI verifier and sanitized diagnostic reader. The scanner preflight remains non-authoritative for artifact distribution, signing, or full release qualification. **This is source implementation, not a passing exact-head CI claim until workflows run.**

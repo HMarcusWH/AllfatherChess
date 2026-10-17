@@ -69,48 +69,128 @@ def verify_sources(manifest: dict, exact_sha: str):
 
 
 def verify_trace(trace: list[dict], game: dict) -> dict:
+    """Replay *every* observed HTTP attempt at the authoritative receipt ply.
+
+    A syntactically valid UCI is not automatically legal in the actual board.
+    Classify position-illegal attempts as unsafe evidence; classify a stale
+    retry separately only if an earlier *legal* attempt was committed and a
+    correlated lost/unknown-ACK fault preceded the repeated submission.
+    """
     seq = [row.get("seq") for row in trace]
-    ensure(seq == list(range(1, len(trace) + 1)), "trace ordering or numbering invalid")
+    ensure(seq == list(range(1, len(trace) + 1)),
+           "trace ordering or numbering invalid")
+    ensure(game.get("color") in ("white", "black") and
+           isinstance(game.get("moves"), list),
+           "authoritative game bot color or move history missing")
     board = chess.Board()
-    attempts = {f"request-{r['seq']}": r for r in trace if r.get("event") == "move_attempt"}
-    # A legal UCI in the trace cannot stand in for a different real HTTP
-    # endpoint. Reject aliases and encoded spellings rather than trusting
-    # a producer-controlled attempt extract.
     prefix = "/api/bot/game/off3b001/move/"
-    for event in attempts.values():
-        uci = event.get("uci")
-        try:
-            move = chess.Move.from_uci(uci)
-        except (ValueError, TypeError) as exc:
-            raise ValueError("invalid traced HTTP move UCI") from exc
-        ensure(move != chess.Move.null() and move.uci() == uci and
-               event.get("path") == prefix + uci,
-               "traced HTTP move path differs from canonical UCI")
-    commits = [r for r in trace if r.get("event") == "board_commit"]
-    ensure(isinstance(game.get("moves"), list), "authoritative move history missing")
-    for item in commits:
-        ensure(item.get("game_id") == "off3b001", "foreign committed game id")
-        ensure(item.get("ply_before") == len(board.move_stack), "commit before-ply drift")
-        ensure(item.get("ply_after") == len(board.move_stack) + 1, "commit after-ply drift")
-        ensure(item.get("fen_before") == board.fen(), "commit before-FEN drift")
-        move = chess.Move.from_uci(item["uci"])
-        ensure(move in board.legal_moves, "committed illegal chess move")
-        origin = item.get("origin")
-        ensure(origin in ("allfather", "scripted_opponent"), "unknown commit origin")
-        if origin == "allfather":
-            req = item.get("request_id")
-            ensure(req in attempts, "accepted move has no observed HTTP attempt")
-            ensure(attempts[req].get("uci") == item["uci"], "move request/commit mismatch")
-            ensure(attempts[req].get("seq") < item["seq"], "commit preceded its request")
-        else:
-            ensure(item.get("request_id") is None, "opponent move bound to bridge request")
-        board.push(move)
-        ensure(item.get("fen_after") == board.fen(), "commit after-FEN drift")
+    bot_white = game["color"] == "white"
+    attempts = {}
+    legal_attempts = {}
+    first_attempt_by_ply = {}
+    committed_requests = set()
+    fault_request_ids = set()
+    lost_ack_request_ids = set()
+    commits = []
+    unsafe_attempts = []
+    stale_retries = []
+    for row in trace:
+        event = row.get("event")
+        if event == "fault_activated" and row.get("action") in (
+                "commit_then_close", "commit_then_504", "low_clock_close",
+                "terminate_bridge"):
+            if isinstance(row.get("request_id"), str):
+                fault_request_ids.add(row["request_id"])
+        elif event == "connection_close_requested":
+            if row.get("request_id") in fault_request_ids:
+                lost_ack_request_ids.add(row["request_id"])
+        elif event == "response_write_completed" and row.get("status") == 504:
+            if row.get("request_id") in fault_request_ids:
+                lost_ack_request_ids.add(row["request_id"])
+
+        if event == "move_attempt":
+            rid = f"request-{row['seq']}"
+            uci = row.get("uci")
+            ensure(row.get("game_id") == "off3b001" and
+                   type(row.get("ply_at_receipt")) is int and
+                   row["ply_at_receipt"] == len(board.move_stack),
+                   "move HTTP attempt game/receipt ply identity invalid")
+            try:
+                move = chess.Move.from_uci(uci)
+            except (ValueError, TypeError) as exc:
+                raise ValueError("invalid traced HTTP move UCI") from exc
+            ensure(move != chess.Move.null() and move.uci() == uci and
+                   row.get("path") == prefix + uci,
+                   "traced HTTP move path differs from canonical UCI")
+            ensure(rid not in attempts, "duplicate trace move request ID")
+            attempts[rid] = row
+            ply = len(board.move_stack)
+            position_legal = board.turn == bot_white and move in board.legal_moves
+            if position_legal:
+                key = (ply, uci)
+                if key in first_attempt_by_ply:
+                    unsafe_attempts.append({
+                        "request_id": rid, "uci": uci, "ply_at_receipt": ply,
+                        "reason": "duplicate_unconfirmed_move_submission"})
+                else:
+                    legal_attempts[rid] = (ply, uci)
+                    first_attempt_by_ply[key] = rid
+            else:
+                # A previously legal/committed move is not itself proof of
+                # safe retransmission. Require exact lost-ACK request evidence.
+                first = next(
+                    (old_id for old_id, (old_ply, old_move) in legal_attempts.items()
+                     if old_move == uci and old_ply < ply and
+                     old_id in committed_requests and
+                     old_id in lost_ack_request_ids),
+                    None)
+                if first is not None:
+                    stale_retries.append({
+                        "request_id": rid, "uci": uci, "ply_at_receipt": ply,
+                        "original_request_id": first,
+                        "reason": "once_legal_retry_after_lost_ack"})
+                else:
+                    unsafe_attempts.append({
+                        "request_id": rid, "uci": uci, "ply_at_receipt": ply,
+                        "reason": "position_illegal_or_wrong_turn"})
+        elif event == "board_commit":
+            item = row
+            ensure(item.get("game_id") == "off3b001",
+                   "foreign committed game id")
+            ensure(item.get("ply_before") == len(board.move_stack) and
+                   item.get("ply_after") == len(board.move_stack) + 1 and
+                   item.get("fen_before") == board.fen(),
+                   "commit before-position or ply drift")
+            try:
+                move = chess.Move.from_uci(item.get("uci"))
+            except (ValueError, TypeError) as exc:
+                raise ValueError("malformed authoritative commit UCI") from exc
+            ensure(move in board.legal_moves, "committed illegal chess move")
+            origin = item.get("origin")
+            ensure(origin in ("allfather", "scripted_opponent"),
+                   "unknown commit origin")
+            if origin == "allfather":
+                rid = item.get("request_id")
+                earlier = attempts.get(rid)
+                ensure(rid in legal_attempts and earlier is not None and
+                       legal_attempts[rid] ==
+                           (len(board.move_stack), move.uci()) and
+                       earlier["seq"] < item["seq"],
+                       "server bot commit lacks earlier legal HTTP move attempt")
+                committed_requests.add(rid)
+            else:
+                ensure(item.get("request_id") is None,
+                       "opponent move bound to bridge request")
+            board.push(move)
+            ensure(item.get("fen_after") == board.fen(),
+                   "commit after-position drift")
+            commits.append(item)
     ensure(game["moves"] == [m.uci() for m in board.move_stack],
            "authoritative history differs from committed ledger")
     accepted = [dict(ply=r["ply_after"], uci=r["uci"]) for r in commits
                 if r["origin"] == "allfather"]
-    ensure(accepted == game.get("accepted"), "server bot-acceptance list differs from ledger")
+    ensure(accepted == game.get("accepted"),
+           "server bot-acceptance list differs from ledger")
     if game.get("complete") is True:
         outcome = board.outcome(claim_draw=False)
         ensure(outcome is not None and game.get("outcome") is not None,
@@ -118,7 +198,10 @@ def verify_trace(trace: list[dict], game: dict) -> dict:
         ensure(outcome.termination.name == game["outcome"].get("termination"),
                "termination differs from rules oracle")
     return {"plies": len(commits), "bot_commits": len(accepted),
-            "http_attempts": len(attempts), "game_complete": game.get("complete") is True}
+            "http_attempts": len(attempts),
+            "illegal_attempts": unsafe_attempts,
+            "stale_retry_attempts": stale_retries,
+            "game_complete": game.get("complete") is True}
 
 
 def verify_state_fault(action: str, witnessed: dict, sends: list[dict],
@@ -397,12 +480,13 @@ def validate_experiment(case_dir: Path, scenario: dict, color: str,
                                if 0 <= r["monotonic_ms"] - when < 60000]
     ensure(isinstance(result.get("runner_errors"), list) and not result["runner_errors"],
            "fault harness recorded execution or teardown errors")
-    unusable_moves = invalid_move_submissions(http_requests)
+    unusable_moves = (invalid_move_submissions(http_requests) +
+                      history["illegal_attempts"] +
+                      history["stale_retry_attempts"])
     if scenario["action"] == "none":
         ensure(history["bot_commits"] > 0 and logging is not None,
                "normal engine baseline did not play")
-        ensure(not unusable_moves, "normal game submitted invalid/null engine move")
-        status = "SAFE_CONTINUATION"
+        status = "UNSAFE_WITNESS" if unusable_moves else "SAFE_CONTINUATION"
     elif game["forbidden_attempts"] or early_rate_requests or unusable_moves:
         status = "UNSAFE_WITNESS"
     elif game.get("complete") is True:

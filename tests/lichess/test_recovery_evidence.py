@@ -54,7 +54,7 @@ class IndependentEvidenceTests(unittest.TestCase):
 
     def game(self):
         return {"moves": ["e2e4"], "accepted": [{"ply": 1, "uci": "e2e4"}],
-                "complete": False}
+                "complete": False, "color":"white"}
 
     def test_independently_replays_accepted_move(self):
         x = QUALIFIER.verify_trace(self.trace(), self.game())
@@ -85,6 +85,56 @@ class IndependentEvidenceTests(unittest.TestCase):
             changed[1] = bad
             with self.subTest(bad=bad), self.assertRaises(ValueError):
                 QUALIFIER.verify_trace(changed, self.game())
+
+    def test_position_illegal_syntactically_valid_attempt_is_not_safe(self):
+        rows=self.trace()
+        illegal={"seq":1,"event":"move_attempt","game_id":"off3b001",
+                 "uci":"e7e5","path":"/api/bot/game/off3b001/move/e7e5",
+                 "ply_at_receipt":0}
+        rows[0]["seq"]=2
+        rows[1]["seq"]=3
+        rows[1]["request_id"]="request-2"
+        rows.insert(0,illegal)
+        result=QUALIFIER.verify_trace(rows,self.game())
+        self.assertEqual(len(result["illegal_attempts"]),1)
+        self.assertEqual(result["illegal_attempts"][0]["uci"],"e7e5")
+        self.assertEqual(result["illegal_attempts"][0]["reason"],
+                         "position_illegal_or_wrong_turn")
+        self.assertEqual(result["stale_retry_attempts"],[])
+        # A coherent, fully committed R00 game does not erase the illegal
+        # earlier HTTP attempt, even when it returns HTTP 400.
+        self.assertFalse(not result["illegal_attempts"])
+
+    def test_wrong_receipt_ply_is_evidence_corruption(self):
+        rows=self.trace()
+        rows[0]["ply_at_receipt"]=1
+        with self.assertRaisesRegex(ValueError,"receipt ply"):
+            QUALIFIER.verify_trace(rows,self.game())
+
+    def test_stale_retry_requires_prior_committed_legal_move_and_lost_ack(self):
+        rows=self.trace()
+        rows[1]["seq"]=3
+        rows.insert(1,{"seq":2,"event":"fault_activated",
+                       "action":"commit_then_close","endpoint":"move_post",
+                       "request_id":"request-1"})
+        rows.extend([
+            {"seq":4,"event":"connection_close_requested",
+             "request_id":"request-1"},
+            {"seq":5,"event":"move_attempt","game_id":"off3b001",
+             "uci":"e2e4","path":"/api/bot/game/off3b001/move/e2e4",
+             "ply_at_receipt":1},
+        ])
+        observed=QUALIFIER.verify_trace(rows,self.game())
+        self.assertEqual(observed["illegal_attempts"],[])
+        self.assertEqual(len(observed["stale_retry_attempts"]),1)
+        self.assertEqual(observed["stale_retry_attempts"][0]["original_request_id"],
+                         "request-1")
+        without_loss=[r for r in rows if r["event"]!="connection_close_requested"]
+        # Fill the removed sequence gap to maintain an otherwise valid trace.
+        without_loss[-1]["seq"]=4
+        rejected=QUALIFIER.verify_trace(without_loss,self.game())
+        self.assertEqual(rejected["stale_retry_attempts"],[])
+        self.assertEqual(len(rejected["illegal_attempts"]),1)
 
     def test_move_audit_requires_exact_request_id_and_multiset(self):
         first="/api/bot/game/off3b001/move/e2e4"

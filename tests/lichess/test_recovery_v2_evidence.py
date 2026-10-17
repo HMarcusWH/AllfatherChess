@@ -232,7 +232,8 @@ class RecoveryV2EvidenceTests(unittest.TestCase):
         path = f"/api/bot/game/{gid}/move/e2e4"
         game = {"game_id": gid, "color": "white", "moves": ["e2e4"],
                 "forbidden_attempts": []}
-        requests = [{"method": "POST", "path": path, "status": 200}]
+        requests = [{"method": "POST", "path": path, "status": 200,
+                     "request_id": "request-1"}]
         trace = [
             {"seq":1,"event":"move_attempt","game_id":gid,"uci":"e2e4",
              "path":path,"ply_at_receipt":0},
@@ -259,10 +260,29 @@ class RecoveryV2EvidenceTests(unittest.TestCase):
             with self.subTest(mutated=mutated),self.assertRaises(ValueError):
                 qual.verify_guarded_requests(*mutated)
 
+    def test_guarded_audit_cannot_swap_valid_move_request_ids(self):
+        gid="off3b001"
+        path=f"/api/bot/game/{gid}/move/e2e4"
+        trace=[{"seq":1,"event":"move_attempt","game_id":gid,
+                "uci":"e2e4","path":path,"ply_at_receipt":0},
+               {"seq":2,"event":"board_commit","game_id":gid,
+                "uci":"e2e4","origin":"allfather","ply_before":0}]
+        game={"game_id":gid,"color":"white","moves":["e2e4"],
+              "forbidden_attempts":[]}
+        intents=[{"game_id":gid,"ply_before":0,"move":"e2e4",
+                  "history_json":"[]"}]
+        for rid in ("request-2", "request-unseen", None):
+            with self.subTest(request_id=rid),self.assertRaisesRegex(
+                    ValueError,"request ID|request IDs"):
+                qual.verify_guarded_requests(
+                    [{"method":"POST","path":path,"request_id":rid,
+                      "status":200}],trace,game,intents)
+
     def test_legal_but_different_guarded_move_url_is_not_traced_intent(self):
         gid="off3b001"
         path=f"/api/bot/game/{gid}/move/e2e4"
-        requests=[{"method":"POST","path":path,"status":200}]
+        requests=[{"method":"POST","path":path,"status":200,
+                   "request_id":"request-1"}]
         # d2d4 is independently legal, committed and durably prepared;
         # the actual server URL submitted e2e4 instead.
         trace=[{"seq":1,"event":"move_attempt","game_id":gid,
@@ -290,7 +310,8 @@ class RecoveryV2EvidenceTests(unittest.TestCase):
                   "history_json":"[]"}]
         with self.assertRaisesRegex(ValueError,"noncanonical guarded move URL"):
             qual.verify_guarded_requests(
-                [{"method":"POST","path":encoded,"status":200}],
+                [{"method":"POST","path":encoded,"status":200,
+                  "request_id":"request-1"}],
                 trace,game,intents)
 
     def test_journal_history_must_equal_authoritative_prefix(self):

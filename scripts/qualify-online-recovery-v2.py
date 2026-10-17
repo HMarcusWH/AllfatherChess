@@ -125,11 +125,18 @@ def verify_guarded_requests(requests: list[dict], trace: list[dict],
                 raise ValueError("malformed guarded move URL") from exc
             require(canonical != chess.Move.null() and canonical.uci() == uci,
                     "noncanonical guarded move URL")
-            http_moves.append((path, uci))
+            rid = request.get("request_id")
+            require(isinstance(rid, str) and bool(rid),
+                    "guarded move HTTP request ID missing")
+            http_moves.append((path, rid))
     raw_attempts = [r for r in trace if r.get("event") == "move_attempt"]
-    require(Counter(path for path, _ in http_moves) ==
-            Counter(r.get("path") for r in raw_attempts),
-            "move HTTP records and trace attempts differ")
+    require(all(type(r.get("seq")) is int and r["seq"] > 0
+                for r in raw_attempts),
+            "guarded move trace sequence identity malformed")
+    require(Counter(http_moves) ==
+            Counter((r.get("path"), f"request-{r['seq']}")
+                    for r in raw_attempts),
+            "guarded move HTTP records, request IDs and trace attempts differ")
 
     board = chess.Board()
     seen = set()

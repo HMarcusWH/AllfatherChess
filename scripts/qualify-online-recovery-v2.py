@@ -116,7 +116,14 @@ def verify_guarded_requests(requests: list[dict], trace: list[dict],
                 "unexpected guarded POST operation")
         if path.startswith(prefix):
             uci = unquote(path[len(prefix):])
-            require(uci and "/" not in uci and "?" not in uci,
+            require(uci and "/" not in uci and "?" not in uci and
+                    path == prefix + uci,
+                    "noncanonical guarded move URL")
+            try:
+                canonical = chess.Move.from_uci(uci)
+            except (ValueError, TypeError) as exc:
+                raise ValueError("malformed guarded move URL") from exc
+            require(canonical != chess.Move.null() and canonical.uci() == uci,
                     "noncanonical guarded move URL")
             http_moves.append((path, uci))
     raw_attempts = [r for r in trace if r.get("event") == "move_attempt"]
@@ -157,7 +164,10 @@ def verify_guarded_requests(requests: list[dict], trace: list[dict],
             move = chess.Move.from_uci(uci)
         except (ValueError,TypeError) as exc:
             raise ValueError("malformed HTTP UCI move submission") from exc
-        require(move != chess.Move.null() and move in board.legal_moves,
+        require(move != chess.Move.null() and move.uci() == uci and
+                event.get("path") == prefix + uci,
+                "guarded move URL differs from traced canonical UCI")
+        require(move in board.legal_moves,
                 "position-illegal HTTP move submission")
         key = (gid, ply, uci)
         require(key not in seen, "blind repeat HTTP move submission")

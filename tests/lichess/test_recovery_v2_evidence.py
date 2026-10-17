@@ -244,6 +244,40 @@ class RecoveryV2EvidenceTests(unittest.TestCase):
             with self.subTest(mutated=mutated),self.assertRaises(ValueError):
                 qual.verify_guarded_requests(*mutated)
 
+    def test_legal_but_different_guarded_move_url_is_not_traced_intent(self):
+        gid="off3b001"
+        path=f"/api/bot/game/{gid}/move/e2e4"
+        requests=[{"method":"POST","path":path,"status":200}]
+        # d2d4 is independently legal, committed and durably prepared;
+        # the actual server URL submitted e2e4 instead.
+        trace=[{"seq":1,"event":"move_attempt","game_id":gid,
+                "uci":"d2d4","path":path,"ply_at_receipt":0},
+               {"seq":2,"event":"board_commit","game_id":gid,
+                "uci":"d2d4","origin":"allfather","ply_before":0}]
+        game={"game_id":gid,"color":"white","moves":["d2d4"],
+              "forbidden_attempts":[]}
+        intents=[{"game_id":gid,"ply_before":0,"move":"d2d4",
+                  "history_json":"[]"}]
+        with self.assertRaisesRegex(ValueError,
+                                    "guarded move URL differs from traced"):
+            qual.verify_guarded_requests(requests,trace,game,intents)
+
+    def test_encoded_move_url_aliases_are_rejected(self):
+        gid="off3b001"
+        encoded=f"/api/bot/game/{gid}/move/%65%32e4"
+        trace=[{"seq":1,"event":"move_attempt","game_id":gid,
+                "uci":"e2e4","path":encoded,"ply_at_receipt":0},
+               {"seq":2,"event":"board_commit","game_id":gid,
+                "uci":"e2e4","origin":"allfather","ply_before":0}]
+        game={"game_id":gid,"color":"white","moves":["e2e4"],
+              "forbidden_attempts":[]}
+        intents=[{"game_id":gid,"ply_before":0,"move":"e2e4",
+                  "history_json":"[]"}]
+        with self.assertRaisesRegex(ValueError,"noncanonical guarded move URL"):
+            qual.verify_guarded_requests(
+                [{"method":"POST","path":encoded,"status":200}],
+                trace,game,intents)
+
     def test_journal_history_must_equal_authoritative_prefix(self):
         from deploy.lichess.reconcile import position_id
         gid, epoch = "off3b001", "a"*32

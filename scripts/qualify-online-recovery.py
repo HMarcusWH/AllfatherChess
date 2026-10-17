@@ -72,6 +72,19 @@ def verify_trace(trace: list[dict], game: dict) -> dict:
     ensure(seq == list(range(1, len(trace) + 1)), "trace ordering or numbering invalid")
     board = chess.Board()
     attempts = {f"request-{r['seq']}": r for r in trace if r.get("event") == "move_attempt"}
+    # A legal UCI in the trace cannot stand in for a different real HTTP
+    # endpoint. Reject aliases and encoded spellings rather than trusting
+    # a producer-controlled attempt extract.
+    prefix = "/api/bot/game/off3b001/move/"
+    for event in attempts.values():
+        uci = event.get("uci")
+        try:
+            move = chess.Move.from_uci(uci)
+        except (ValueError, TypeError) as exc:
+            raise ValueError("invalid traced HTTP move UCI") from exc
+        ensure(move != chess.Move.null() and move.uci() == uci and
+               event.get("path") == prefix + uci,
+               "traced HTTP move path differs from canonical UCI")
     commits = [r for r in trace if r.get("event") == "board_commit"]
     ensure(isinstance(game.get("moves"), list), "authoritative move history missing")
     for item in commits:

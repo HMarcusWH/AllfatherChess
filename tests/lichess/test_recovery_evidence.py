@@ -29,7 +29,8 @@ class IndependentEvidenceTests(unittest.TestCase):
         board.push_uci("e2e4")
         return [
             {"seq": 1, "event": "move_attempt", "game_id": "off3b001",
-             "uci": "e2e4", "ply_at_receipt": 0},
+             "uci": "e2e4", "ply_at_receipt": 0,
+             "path": "/api/bot/game/off3b001/move/e2e4"},
             {"seq": 2, "event": "board_commit", "game_id": "off3b001",
              "origin": "allfather", "request_id": "request-1",
              "uci": "e2e4", "ply_before": 0, "ply_after": 1,
@@ -44,6 +45,17 @@ class IndependentEvidenceTests(unittest.TestCase):
         x = QUALIFIER.verify_trace(self.trace(), self.game())
         self.assertEqual(x["bot_commits"], 1)
         self.assertEqual(x["http_attempts"], 1)
+
+    def test_legal_trace_move_must_match_actual_url(self):
+        for path in ("/api/bot/game/off3b001/move/d2d4",
+                     "/api/bot/game/off3b001/move/%65%32e4",
+                     "/api/bot/game/off3b001/move/e2e4?x=1",
+                     "/api/bot/game/off3b001/move/0000"):
+            rows=self.trace()
+            rows[0]["path"]=path
+            with self.subTest(path=path),self.assertRaisesRegex(
+                    ValueError,"move path differs"):
+                QUALIFIER.verify_trace(rows,self.game())
 
     def test_rejects_invalid_sequence_and_illegal_commit(self):
         t = self.trace()

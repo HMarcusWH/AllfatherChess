@@ -165,6 +165,15 @@ class IndependentEvidenceTests(unittest.TestCase):
         trace=[{"event":"fault_activated","action":"rate_limit_429",
                 "endpoint":"move_post","request_id":"request-1"}]
         self.assertTrue(approved_status(sample,trace,"rate_limit_429"))
+        self.assertFalse(approved_status(
+            {**sample,"status":200},trace,"rate_limit_429"))
+        for fault,outcome in (("drop_before_commit",0),("commit_then_504",504)):
+            witnessed=[{"event":"fault_activated","action":fault,
+                        "endpoint":"move_post","request_id":"request-1"}]
+            self.assertTrue(approved_status(
+                {**sample,"status":outcome},witnessed,fault))
+            self.assertFalse(approved_status(
+                {**sample,"status":200},witnessed,fault))
         self.assertFalse(approved_status(sample,[],"rate_limit_429"))
         self.assertFalse(approved_status(sample,trace,"none"))
         self.assertEqual(unexpected_statuses([

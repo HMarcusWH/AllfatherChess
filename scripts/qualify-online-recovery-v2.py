@@ -23,6 +23,7 @@ import chess.pgn
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from tests.lichess.fault_plan import load_scenarios
+from tests.lichess.http_target_contract import canonical_target
 from deploy.lichess.reconcile import position_id
 
 def _v1_module():
@@ -106,6 +107,17 @@ def verify_guarded_requests(requests: list[dict], trace: list[dict],
                               if r.get("method") == "POST" and r.get("status") == 403],
             "server forbidden-attempt audit differs from HTTP records")
     require(not forbidden, "guard submitted forbidden HTTP operations")
+    # Audit *original raw request semantics*. Checking only the producer's
+    # normalized pathname would accept a forged GET query or a leading-//
+    # request that CPython normalized before dispatch.
+    for request in requests:
+        raw = request.get("request_target") if isinstance(request, dict) else None
+        method = request.get("method") if isinstance(request, dict) else None
+        require(isinstance(raw, str) and
+                request.get("target_canonical") is True and
+                canonical_target(method, raw) and
+                request.get("path") == raw.split("?", 1)[0],
+                "guarded HTTP request target is not canonical")
     http_moves = []
     for request in requests:
         if request.get("method") != "POST":

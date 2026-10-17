@@ -235,6 +235,12 @@ class OCIProofTests(unittest.TestCase):
                                       "fileName":"./file",
                                       "checksums":[{"algorithm":"SHA256",
                                                     "checksumValue":"a"*64}]}]
+                elif spdx_case == "namespace-bracket-path":
+                    body["documentNamespace"] = "https://example.test/a[b]"
+                elif spdx_case == "namespace-bracket-query":
+                    body["documentNamespace"] = "https://example.test/?q=[x]"
+                elif spdx_case == "download-bracket-path":
+                    body["packages"][0]["downloadLocation"] = "https://example.test/a[b]"
                 elif spdx_case == "namespace-unicode":
                     body["documentNamespace"] = "https://example.test/snowman-☃"
                 elif spdx_case == "namespace-braces":
@@ -568,11 +574,15 @@ class OCIProofTests(unittest.TestCase):
             "https://example.test/%E2%98%83"))
         self.assertTrue(oci.valid_identity_uri(
             "https://example.test/build?key=value&v=2"))
+        self.assertTrue(oci.valid_identity_uri(
+            "https://[2001:db8::1]/x?q=%5By%5D"))
         for uri in ("https://%zz/path", "https://example.test:bogus/x",
                     "https://user:secret@example.test/x",
                     "https://example.test/a\x00", "https://example.test/a%2",
                     "https://example.test/☃", "https://example.test/{bad}",
                     "https://example.test/a|b", "https://example.test/^x",
+                    "https://example.test/a[b]",
+                    "https://example.test/?q=[x]", "urn:example:a[b]",
                     "https://example.test/foo#"):
             with self.subTest(uri=uri):
                 self.assertFalse(oci.valid_spdx_namespace(uri))
@@ -615,7 +625,8 @@ class OCIProofTests(unittest.TestCase):
                  "namespace-trailing-fragment", "namespace-percent",
                  "namespace-port", "namespace-control", "namespace-userinfo",
                  "namespace-encoded-path", "namespace-unicode", "namespace-braces",
-                 "namespace-pipe")
+                 "namespace-pipe", "namespace-bracket-path",
+                 "namespace-bracket-query", "download-bracket-path")
         for variant in cases:
             with self.subTest(spdx=variant), tempfile.TemporaryDirectory() as d:
                 archive, meta, inspection = self.fixture(

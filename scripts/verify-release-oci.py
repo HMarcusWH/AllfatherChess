@@ -163,6 +163,18 @@ def valid_uri_syntax(value: object, allowed_schemes: set[str], *,
         return False
     try:
         uri = urlsplit(value)
+        # RFC3986: "[" and "]" are only valid around an IP-literal
+        # *authority*, never in a path, query, fragment or URN NSS.
+        # The component grammar also prevents reserved gen-delimiters
+        # being treated as ordinary pchar at any position.
+        pchar = r"A-Za-z0-9._~!$&'()*+,;=:@%-"
+        if (re.fullmatch("[" + pchar + r"/]*", uri.path,
+                         re.ASCII) is None or
+                re.fullmatch("[" + pchar + r"/?]*", uri.query,
+                             re.ASCII) is None or
+                re.fullmatch("[" + pchar + r"/?]*", uri.fragment,
+                             re.ASCII) is None):
+            return False
         if uri.scheme not in allowed_schemes:
             return False
         if uri.scheme == "urn":

@@ -81,18 +81,32 @@ SAFE_KEYS=re.compile(r"[a-z][A-Za-z0-9_-]{0,79}\Z")
 SAFE_ENUM=re.compile(r"[A-Za-z][A-Za-z0-9_.:-]{0,95}\Z")
 SAFE_MOVE=re.compile(r"[a-h][1-8][a-h][1-8][qrbn]?\Z")
 SAFE_ID=re.compile(r"[A-Fa-f0-9]{16,128}\Z")
-SAFE_PATH=re.compile(r"/[A-Za-z0-9_./-]{0,220}\Z")
+# Publish only complete approved endpoints, never unrecognized path suffixes.
+SAFE_PUBLIC_PATHS=frozenset({
+    "/api/stream/event", "/api/bot/game/stream/off3b001",
+    "/api/account", "/api/account/playing", "/api/users/status",
+    "/game/export/off3b001", "/api/token/test",
+    "/api/challenge/off3b001/accept", "/api/challenge/off3b001/decline",
+})
+SAFE_MOVE_PATH=re.compile(
+    r"/api/bot/game/off3b001/move/[a-h][1-8][a-h][1-8][qrbn]?\Z")
 SAFE_REQUEST=re.compile(r"(?:request|stream)-\d{1,12}\Z")
 MAX_DEPTH=22
 MAX_SEQUENCE=2000
 
 
 def safe_path(value: object) -> str:
-    """Conservatively strip query/fragment, or substitute a fixed sentinel."""
+    """Retain only approved whole endpoints or one fixed sentinel.
+
+    Stripping a query is not enough to sanitize an invalid move suffix.
+    Chess legality remains a separate independent-verification concern.
+    """
     if type(value) is not str:
         return "__invalid_path__"
     path=value.split("?",1)[0].split("#",1)[0]
-    return path if SAFE_PATH.fullmatch(path) else "__invalid_path__"
+    return (path if path in SAFE_PUBLIC_PATHS or
+            SAFE_MOVE_PATH.fullmatch(path) is not None
+            else "__invalid_path__")
 
 
 def safe_string(field: str, value: str) -> str | None:

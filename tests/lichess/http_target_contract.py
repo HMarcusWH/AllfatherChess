@@ -24,10 +24,18 @@ SAFE_PATH = re.compile(r"/[A-Za-z0-9_./-]{0,220}\Z")
 
 
 def path_of(target: object) -> str:
-    if not isinstance(target, str):
+    """Retain only known whole endpoints, even for rejected raw targets.
+
+    canonical_target separately adjudicates the original wire target.
+    """
+    if type(target) is not str:
         return "__invalid_path__"
-    path = target.split("?", 1)[0]
-    return path if SAFE_PATH.fullmatch(path) else "__invalid_path__"
+    path = target.split("?", 1)[0].split("#", 1)[0]
+    if path in APPROVED_GETS or path in APPROVED_POSTS:
+        return path
+    if path.startswith(MOVE_PREFIX) and UCI.fullmatch(path[len(MOVE_PREFIX):]):
+        return path
+    return "__invalid_path__"
 
 
 def canonical_target(method: object, raw: object) -> bool:

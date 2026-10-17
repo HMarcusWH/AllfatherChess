@@ -92,7 +92,7 @@ class FakeLichess:
                 if server.trace is not None:
                     identity = getattr(self, "_move_request_id", None)
                     server.trace.record("response_write_completed", status=status,
-                                        path=urllib.parse.urlparse(self.path).path,
+                                        path=path_of(self.raw_target()),
                                         **({"request_id": identity} if identity else {}))
 
             def drop_connection(self):
@@ -100,7 +100,7 @@ class FakeLichess:
                 if server.trace is not None:
                     identity = getattr(self, "_move_request_id", None)
                     server.trace.record("connection_close_requested",
-                                        path=urllib.parse.urlparse(self.path).path,
+                                        path=path_of(self.raw_target()),
                                         **({"request_id": identity} if identity else {}))
                 self.close_connection = True
                 try:

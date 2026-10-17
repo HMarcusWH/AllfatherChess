@@ -371,8 +371,7 @@ def invalid_move_submissions(http_requests: list[dict]) -> list[dict]:
             move = None
         if move is None or move == chess.Move.null():
             invalid.append({"path": safe_path(path),
-                            "uci": uci if type(uci) is str and
-                                    len(uci) <= 5 else "__redacted__",
+                            "uci": uci if uci == "0000" else "__redacted__",
                             "status": request.get("status")})
     return invalid
 

@@ -174,6 +174,16 @@ class OCIProofTests(unittest.TestCase):
                     del body["packages"][0]["downloadLocation"]
                 elif spdx_case == "invalid-download":
                     body["packages"][0]["downloadLocation"] = "garbage"
+                elif spdx_case == "invalid-percent":
+                    body["packages"][0]["downloadLocation"] = "https://example.test/%zz"
+                elif spdx_case == "invalid-percent-host":
+                    body["packages"][0]["downloadLocation"] = "https://%zz/path"
+                elif spdx_case == "invalid-port":
+                    body["packages"][0]["downloadLocation"] = "https://example.test:bad/p"
+                elif spdx_case == "invalid-authority":
+                    body["packages"][0]["downloadLocation"] = "https://bad..host/path"
+                elif spdx_case == "encoded-control":
+                    body["packages"][0]["downloadLocation"] = "https://example.test/%00"
                 elif spdx_case == "bad-package-checksum":
                     body["packages"][0]["checksums"] = [
                         {"algorithm":"BOGUS","checksumValue":"0"}]
@@ -466,6 +476,7 @@ class OCIProofTests(unittest.TestCase):
     def test_supported_spdx_download_locations(self):
         accepted = ("NONE", "NOASSERTION",
                     "https://example.test/archive.tar.gz",
+                    "https://example.test/archive%20name.tar.gz",
                     "ftp://example.test/private.tar.gz",
                     "git+https://example.test/repo.git@5d2fa",
                     "git+ssh://git@example.test/repo.git@5d2fa")
@@ -474,7 +485,9 @@ class OCIProofTests(unittest.TestCase):
                    "https://user:password@example.test/x",
                    "http://user@example.test/x", "javascript:evil()",
                    "https://[bad-ipv6/x", "https://example.test:invalid/path",
-                   "NOASSERTION\n")
+                   "https://%zz/path", "https://example.test/a%2",
+                   "https://example.test/%00", "https://bad..host/p",
+                   "https://user@@example.test/p", "NOASSERTION\n")
         for location in accepted:
             with self.subTest(location=location):
                 self.assertTrue(oci.valid_spdx_download_location(location))
@@ -527,7 +540,8 @@ class OCIProofTests(unittest.TestCase):
                  "bad-namespace", "missing-created", "invalid-created",
                  "missing-creators", "bad-creator", "empty-inventory",
                  "bad-package", "missing-download", "invalid-download",
-                 "bad-package-checksum", "short-sha256", "bogus-algorithm",
+                 "invalid-percent", "invalid-percent-host", "invalid-port",
+                 "invalid-authority", "encoded-control", "bad-package-checksum", "short-sha256", "bogus-algorithm",
                  "missing-file-checksum", "bad-file-checksum", "duplicate-id", "namespace-fragment",
                  "namespace-trailing-fragment")
         for variant in cases:

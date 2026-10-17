@@ -11,6 +11,7 @@ import gzip
 import zlib
 import json
 import re
+import ipaddress
 import tarfile
 from datetime import datetime
 from pathlib import Path, PurePosixPath
@@ -179,6 +180,13 @@ def valid_spdx_download_location(value: object) -> bool:
         return False
     if any(ord(c) < 33 or ord(c) == 127 for c in value):
         return False
+    # urlsplit is not a URI validator: %zz and a trailing % in the
+    # authority/path survive splitting. Allow valid escaping in the *path*
+    # without permitting ambiguous encoded hosts or control bytes.
+    if (re.search(r"%(?![0-9A-Fa-f]{2})", value) or
+            re.search(r"%(?:0[0-9A-Fa-f]|1[0-9A-Fa-f]|7[fF])",
+                      value, re.IGNORECASE)):
+        return False
     try:
         uri = urlsplit(value)
         supported = {
@@ -186,18 +194,35 @@ def valid_spdx_download_location(value: object) -> bool:
             "git+http", "git+ssh", "git+git", "svn", "svn+https",
             "svn+ssh", "hg", "hg+https", "hg+ssh",
         }
-        if uri.scheme not in supported or not uri.netloc or not uri.hostname:
+        if (uri.scheme not in supported or not uri.netloc or not uri.hostname
+                or "%" in uri.netloc or uri.netloc.count("@") > 1):
             return False
         if uri.password is not None:
             return False
-        # Force urllib to validate the port rather than treating an invalid
-        # textual authority as a legitimate download location.
-        _ = uri.port
-        # A public Git/VCS SSH URL may use git@host; web download URLs
-        # may not contain credentials at all.
-        if uri.username is not None and not (
-                uri.scheme.endswith("+ssh") or uri.scheme == "ssh"):
+        # Force port range/decimal syntax validation, including :not-a-port.
+        port = uri.port
+        if port is not None and not (1 <= port <= 65535):
             return False
+        # Only the standard public Git SSH user is supported; userinfo must
+        # not be carried in download locations for HTTP, FTP or other VCS.
+        if uri.username is not None and not (
+                (uri.scheme == "ssh" or uri.scheme.endswith("+ssh")) and
+                uri.username == "git"):
+            return False
+        host = uri.hostname
+        if ":" in host:
+            # Bracketed IPv6 is allowed, but IPv6 zone IDs are not pinned.
+            try:
+                ipaddress.IPv6Address(host)
+            except ValueError:
+                return False
+        else:
+            labels = host.split(".")
+            if (len(host) > 253 or
+                    not all(re.fullmatch(
+                        r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?",
+                        label) for label in labels)):
+                return False
         return True
     except ValueError:
         return False

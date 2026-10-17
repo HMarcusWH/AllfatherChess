@@ -151,7 +151,11 @@ class OCIProofTests(unittest.TestCase):
                 "packages": [{
                     "SPDXID": "SPDXRef-Package-offline",
                     "name": "offline-test-package",
-                    "downloadLocation": "NOASSERTION"}],
+                    "downloadLocation": "NOASSERTION",
+                    "filesAnalyzed": False,
+                    "copyrightText": "NOASSERTION",
+                    "licenseConcluded": "NOASSERTION",
+                    "licenseDeclared": "NOASSERTION"}],
             } if predicate == "https://spdx.dev/Document" else {
                     "buildDefinition": {
                         "buildType": "https://mobyproject.org/buildkit@v1",
@@ -179,6 +183,23 @@ class OCIProofTests(unittest.TestCase):
                     body["packages"] = []
                 elif spdx_case == "bad-package":
                     body["packages"] = [{"SPDXID":"SPDXRef-Package-X"}]
+                elif spdx_case == "missing-copyright":
+                    del body["packages"][0]["copyrightText"]
+                elif spdx_case == "empty-copyright":
+                    body["packages"][0]["copyrightText"] = ""
+                elif spdx_case == "filesAnalyzed-invalid":
+                    body["packages"][0]["filesAnalyzed"] = "false"
+                elif spdx_case == "missing-filesAnalyzed-without-code":
+                    del body["packages"][0]["filesAnalyzed"]
+                elif spdx_case == "filesAnalyzed-without-code":
+                    body["packages"][0]["filesAnalyzed"] = True
+                elif spdx_case == "unanalysed-with-code":
+                    body["packages"][0]["packageVerificationCode"] = {
+                        "packageVerificationCodeValue": "a"*40}
+                elif spdx_case == "unanalysed-with-file-licenses":
+                    body["packages"][0]["licenseInfoFromFiles"] = ["MIT"]
+                elif spdx_case == "invalid-license":
+                    body["packages"][0]["licenseDeclared"] = 3
                 elif spdx_case == "missing-download":
                     del body["packages"][0]["downloadLocation"]
                 elif spdx_case == "invalid-download":
@@ -637,6 +658,19 @@ class OCIProofTests(unittest.TestCase):
         self.assertTrue(oci.valid_spdx_download_location("NOASSERTION"))
         self.assertFalse(oci.valid_spdx_namespace("NOASSERTION"))
 
+    def test_spdx_package_optional_defaults_and_conditional_verification(self):
+        pkg={"SPDXID":"SPDXRef-Package-complete",
+             "name":"sample", "downloadLocation":"NOASSERTION",
+             "copyrightText":"NOASSERTION", "filesAnalyzed":False}
+        self.assertTrue(oci.valid_spdx_download_location(pkg["downloadLocation"]))
+        # Optional field omission means files were analyzed; require the
+        # SHA1 verification code in that case, rather than guessing False.
+        with tempfile.TemporaryDirectory() as d:
+            archive,meta,inspection=self.fixture(Path(d),
+                                      spdx_case="missing-filesAnalyzed-without-code")
+            with self.assertRaisesRegex(ValueError,"verification code"):
+                oci.verify_archive(archive,meta,docker_inspect=inspection)
+
     def test_spdx_file_only_inventory_uses_fileName_not_package_name(self):
         with tempfile.TemporaryDirectory() as d:
             archive, meta, inspect = self.fixture(Path(d), spdx_case="file-only-valid")
@@ -666,6 +700,10 @@ class OCIProofTests(unittest.TestCase):
                  "bad-namespace", "missing-created", "invalid-created",
                  "missing-creators", "bad-creator", "empty-inventory",
                  "bad-package", "missing-download", "invalid-download",
+                 "missing-copyright", "empty-copyright",
+                 "filesAnalyzed-invalid","missing-filesAnalyzed-without-code",
+                 "filesAnalyzed-without-code", "unanalysed-with-code",
+                 "unanalysed-with-file-licenses","invalid-license",
                  "download-unicode", "download-braces", "download-pipe",
                  "invalid-percent", "invalid-percent-host", "invalid-port",
                  "invalid-authority", "encoded-control", "bad-package-checksum", "short-sha256", "bogus-algorithm",

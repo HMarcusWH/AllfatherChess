@@ -538,6 +538,34 @@ def validate_spdx_document(predicate: dict) -> None:
                 bool(item["name"].strip()) and
                 valid_spdx_download_location(item.get("downloadLocation")),
                 "SPDX SBOM package has invalid downloadLocation")
+        # SPDX 2.3 CopyrightText is required. filesAnalyzed is optional
+        # (default True), but its verification-code requirement is conditional.
+        # licenseConcluded and licenseDeclared are optional (NOASSERTION).
+        require(type(item.get("copyrightText")) is str and
+                bool(item["copyrightText"].strip()),
+                "SPDX package copyrightText absent or invalid")
+        analyzed=item.get("filesAnalyzed", True)
+        require(type(analyzed) is bool,
+                "SPDX package filesAnalyzed must be boolean")
+        verification=item.get("packageVerificationCode")
+        if analyzed:
+            require(type(verification) is dict and
+                    type(verification.get("packageVerificationCodeValue")) is str and
+                    re.fullmatch(r"[0-9a-f]{40}",
+                       verification["packageVerificationCodeValue"]) is not None and
+                    (verification.get("packageVerificationCodeExcludedFiles") is None
+                     or (type(verification["packageVerificationCodeExcludedFiles"]) is list
+                         and all(type(name) is str and bool(name)
+                                 for name in verification["packageVerificationCodeExcludedFiles"]))),
+                    "SPDX analyzed package requires verification code")
+        else:
+            require(verification is None and
+                    "licenseInfoFromFiles" not in item,
+                    "SPDX unanalyzed package must omit verification code and file licenses")
+        for field in ("licenseConcluded","licenseDeclared"):
+            if field in item:
+                require(type(item[field]) is str and bool(item[field].strip()),
+                        "SPDX package license field malformed")
         if "checksums" in item:
             require(valid_spdx_checksums(item["checksums"]),
                     "SPDX SBOM package contains invalid checksums")

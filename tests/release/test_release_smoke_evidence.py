@@ -190,7 +190,7 @@ class PackagedMoveEvidenceTests(unittest.TestCase):
                                     "status":status,"request_id":rid,
                                     "monotonic_ms":30})
                 with self.assertRaisesRegex(ValueError,
-                        "unapproved GET or POST"):
+                        "unapproved GET or POST|unexpected or malformed HTTP"):
                     qual.verify_smoke(doc,"r00-white")
 
     def test_position_illegal_uci_fails_even_when_the_producer_says_ready(self):

@@ -25,7 +25,7 @@ case "$APT_TEST_MODE" in
       echo "E: Failed to fetch InRelease 503 Service Unavailable" >&2
       exit 100
     fi ;;
-  always503) echo "E: InRelease 503 Service Unavailable" >&2; exit 100 ;;
+  always503) echo "E: Failed to fetch noble/InRelease 503 Service Unavailable" >&2; exit 100 ;;
   badsignature)
     echo "E: BADSIG GPG signature failure" >&2
     echo "E: InRelease 503 Service Unavailable" >&2

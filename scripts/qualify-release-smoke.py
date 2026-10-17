@@ -42,6 +42,8 @@ if not require_spec:
     raise ValueError("independent HTTP contract module missing")
 http_contract = _http_importlib.module_from_spec(_http_spec)
 _http_spec.loader.exec_module(http_contract)
+ALLOWED_POSTS = http_contract.ALLOWED_POSTS
+MOVE_PREFIX = http_contract.MOVE_PREFIX
 
 
 def require(value, reason):

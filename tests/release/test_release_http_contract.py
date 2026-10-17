@@ -28,7 +28,7 @@ class SharedHTTPAdmissionTests(unittest.TestCase):
                           "scripts/qualify-release-aggregate.py"):
                 with self.subTest(cli=entry):
                     outcome = subprocess.run(
-                        [sys.executable, "-I", str(ROOT / entry), "--help"],
+                        [sys.executable, str(ROOT / entry), "--help"],
                         cwd=tmp, env=environment, capture_output=True,
                         text=True, timeout=20)
                     self.assertEqual(outcome.returncode, 0, outcome.stderr)

@@ -145,6 +145,35 @@ class AssuranceContractTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,"authorization prerequisites"):
             claims.verify_report(forged,"release_aggregate")
 
+    def test_four_games_without_oci_provenance_do_not_grant_image_integrity(self):
+        complete={key:{"passed":True,
+                       "independent_evidence":{"independent_qualified":True}}
+                  for key in ("r00-white","r00-black","r02-white","r10-white")}
+        report={
+            "public_bot_release":False,
+            "network_recovery_qualified":False,
+            "artifact_distribution_authorized":False,
+            "release_blocked":True,
+            "release_promotion_authorized":False,
+            "license_approved":False,
+            "destination_host_qualified":False,
+            "image_integrity_qualified":True,
+            "offline_candidate_qualified":False,
+            "smoke":complete,
+            "oci_archive_sha256":"a"*64,
+            "image_manifest_digest":"sha256:"+"b"*64,
+            "oci_evidence":{},
+        }
+        with self.assertRaisesRegex(ValueError,"OCI archive, SBOM"):
+            claims.verify_report(report,"release_aggregate")
+        report["oci_evidence"]={key:True for key in (
+            "integrity_verified","oci_layers_verified",
+            "oci_diff_ids_verified","oci_application_identity_verified",
+            "oci_attestation_references_verified",
+            "oci_attestation_subjects_verified",
+            "oci_sbom_verified","oci_provenance_verified")}
+        claims.verify_report(report,"release_aggregate")
+
     def test_forged_image_integrity_needs_four_independent_games(self):
         report={
             "public_bot_release":False, "network_recovery_qualified":False,

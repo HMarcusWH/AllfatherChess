@@ -98,6 +98,23 @@ def verify_report(report: dict, kind: str) -> dict:
                 report.get("destination_host_qualified") is False,
                 "RELEASE-1 no-publication boundary changed")
         if report.get("image_integrity_qualified") is True:
+            import re
+            evidence=report.get("oci_evidence")
+            require(type(evidence) is dict and
+                    all(evidence.get(key) is True for key in (
+                        "integrity_verified","oci_layers_verified",
+                        "oci_diff_ids_verified",
+                        "oci_application_identity_verified",
+                        "oci_attestation_references_verified",
+                        "oci_attestation_subjects_verified",
+                        "oci_sbom_verified","oci_provenance_verified")) and
+                    type(report.get("oci_archive_sha256")) is str and
+                    re.fullmatch(r"[0-9a-f]{64}",
+                                 report["oci_archive_sha256"]) is not None and
+                    type(report.get("image_manifest_digest")) is str and
+                    re.fullmatch(r"sha256:[0-9a-f]{64}",
+                                 report["image_manifest_digest"]) is not None,
+                    "image integrity missing OCI archive, SBOM or provenance proof")
             smoke=report.get("smoke")
             require(type(smoke) is dict and set(smoke)=={
                 "r00-white","r00-black","r02-white","r10-white"} and

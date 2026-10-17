@@ -188,7 +188,14 @@ def qualify(*, stage:Path, oci:Path, oci_archive:Path, host:Path, smoke_dir:Path
         "wheel_requirements_sha256":wheel_hash,
         "wheel_inventory_sha256":wheel_inv,
         "wheel_bytes":runtime_wheels["wheels"],
-        "smoke":tests,"image_integrity_qualified":True,
+        "smoke":tests,
+        "oci_evidence":{field:oci_report.get(field) for field in (
+            "integrity_verified","oci_layers_verified",
+            "oci_diff_ids_verified","oci_application_identity_verified",
+            "oci_attestation_references_verified",
+            "oci_attestation_subjects_verified",
+            "oci_sbom_verified","oci_provenance_verified")},
+        "image_integrity_qualified":True,
         "frozen_dependency_lock_qualified":all(checked.values()),
         "dependency_lock_checks":checked,
         # Source and image integrity do not grant host/legal/live authority.

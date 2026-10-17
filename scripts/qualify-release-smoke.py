@@ -145,8 +145,11 @@ def verify_smoke(doc: dict, key: str) -> dict:
             require(move in board.legal_moves,
                     "illegal authoritative board commit")
             origin = row.get("origin")
-            require(origin in ("allfather", "scripted_opponent"),
-                    "unknown authoritative move origin")
+            expected_origin = ("allfather" if
+                               board.turn == (color == "white") else
+                               "scripted_opponent")
+            require(origin == expected_origin,
+                    "committed move actor differs from authoritative side to move")
             if origin == "allfather":
                 rid = row.get("request_id")
                 prior = attempt_index.get(rid)

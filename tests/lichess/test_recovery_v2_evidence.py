@@ -261,6 +261,30 @@ class RecoveryV2EvidenceTests(unittest.TestCase):
             with self.subTest(mutated=mutated),self.assertRaises(ValueError):
                 qual.verify_guarded_requests(*mutated)
 
+    def test_guarded_failed_nonmove_endpoint_never_qualifies(self):
+        gid="off3b001"
+        path=f"/api/bot/game/{gid}/move/e2e4"
+        base=[{"method":"POST","path":path,"request_target":path,
+               "target_canonical":True,"request_id":"request-1","status":200}]
+        trace=[{"seq":1,"event":"move_attempt","game_id":gid,
+                "uci":"e2e4","path":path,"ply_at_receipt":0},
+               {"seq":2,"event":"board_commit","game_id":gid,
+                "uci":"e2e4","origin":"allfather","ply_before":0}]
+        game={"game_id":gid,"color":"white","moves":["e2e4"],
+              "forbidden_attempts":[]}
+        intents=[{"game_id":gid,"ply_before":0,"move":"e2e4",
+                  "history_json":"[]"}]
+        for method,target,status in (("GET","/api/account",401),
+                                     ("GET","/api/account/playing",503),
+                                     ("POST","/api/token/test",500),
+                                     ("POST",f"/api/challenge/{gid}/accept",409)):
+            with self.subTest(target=target,status=status),self.assertRaisesRegex(
+                    ValueError,"unqualified status"):
+                qual.verify_guarded_requests(
+                    base+[{"method":method,"path":target,
+                           "request_target":target,"target_canonical":True,
+                           "status":status}],trace,game,intents)
+
     def test_guarded_audit_cannot_swap_valid_move_request_ids(self):
         gid="off3b001"
         path=f"/api/bot/game/{gid}/move/e2e4"

@@ -156,6 +156,22 @@ class IndependentEvidenceTests(unittest.TestCase):
         self.assertEqual(rejected["stale_retry_attempts"],[])
         self.assertEqual(len(rejected["illegal_attempts"]),1)
 
+    def test_offline_fault_http_statuses_require_correlated_witness(self):
+        from scripts.http_evidence_verdict import (
+            approved_status, unexpected_statuses)
+        move="/api/bot/game/off3b001/move/e2e4"
+        sample={"method":"POST","path":move,"request_id":"request-1",
+                "status":429}
+        trace=[{"event":"fault_activated","action":"rate_limit_429",
+                "endpoint":"move_post","request_id":"request-1"}]
+        self.assertTrue(approved_status(sample,trace,"rate_limit_429"))
+        self.assertFalse(approved_status(sample,[],"rate_limit_429"))
+        self.assertFalse(approved_status(sample,trace,"none"))
+        self.assertEqual(unexpected_statuses([
+            {"method":"GET","path":"/api/account","status":401},
+            {"method":"POST","path":"/api/token/test","status":500},
+        ],[],"none")[0]["reason"],"unapproved_http_status")
+
     def test_noncanonical_http_query_never_supports_safe_continuation(self):
         good={"method":"GET","path":"/api/account","status":200,
               "request_target":"/api/account","target_canonical":True}

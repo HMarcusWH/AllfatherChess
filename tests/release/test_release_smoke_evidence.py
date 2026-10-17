@@ -169,6 +169,20 @@ class PackagedMoveEvidenceTests(unittest.TestCase):
                 self.assertTrue(result["independent_qualified"])
                 self.assertFalse(result["public_bot_release"])
 
+    def test_completed_game_cannot_forge_scripted_opponent_as_bot(self):
+        for case in ("r00-white", "r00-black", "r02-white"):
+            with self.subTest(case=case):
+                doc=fixture(case)
+                for item in doc["transport_trace"]:
+                    if item.get("event") == "board_commit":
+                        item["origin"]="scripted_opponent"
+                        item["request_id"]=None
+                doc["game"]["accepted"]=[]
+                seal(doc)
+                with self.assertRaisesRegex(
+                        ValueError, "committed move actor differs"):
+                    qual.verify_smoke(doc, case)
+
     def test_get_allowlist_matches_fake_api_without_wildcard(self):
         doc = fixture("r00-white")
         for endpoint in sorted(qual.http_contract.ALLOWED_GETS):

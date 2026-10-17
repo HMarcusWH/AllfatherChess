@@ -62,6 +62,7 @@ jobs:
           docker buildx build --platform linux/amd64 \
             -f "$RUNNER_TEMP/Scanner.Dockerfile" --build-arg "BASE_IMAGE=$BASE" \
             --tag allfather/scanner-probe:offline \
+            --attest type=provenance,mode=min,builder-id=https://github.com/HMarcusWH/AllfatherChess/actions/workflows/release-candidate.yml \
             --attest "type=sbom,generator=$SCANNER" \
             --output type=oci,dest=build/test-results/release1-scanner/scanner.oci.tar .
           python3 scripts/check-release-scanner.py \

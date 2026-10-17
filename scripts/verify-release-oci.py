@@ -408,11 +408,15 @@ def validate_slsa(kind: str, predicate: dict) -> None:
                 _optional_resource_list(build, "resolvedDependencies"),
                 "SLSA v1 build inputs contain malformed optional fields")
         builder = run.get("builder")
-        require(type(builder) is dict and
-                valid_identity_uri(builder.get("id")) and
-                _optional_string_map(builder, "version") and
-                _optional_resource_list(builder, "builderDependencies"),
-                "SLSA v1 builder identity or field shape invalid")
+        # Field-level, fixed diagnostics; never include untrusted URI values.
+        require(type(builder) is dict,
+                "SLSA v1 builder object missing or invalid")
+        require(valid_identity_uri(builder.get("id")),
+                "SLSA v1 builder ID missing or invalid")
+        require(_optional_string_map(builder, "version"),
+                "SLSA v1 builder version map malformed")
+        require(_optional_resource_list(builder, "builderDependencies"),
+                "SLSA v1 builderDependencies malformed")
         require(_valid_slsa_metadata(run.get("metadata"),version="v1") and
                 _optional_resource_list(run, "byproducts"),
                 "SLSA v1 run metadata/byproducts malformed")

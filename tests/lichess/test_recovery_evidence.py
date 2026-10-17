@@ -111,6 +111,26 @@ class IndependentEvidenceTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,"receipt ply"):
             QUALIFIER.verify_trace(rows,self.game())
 
+    def test_second_position_legal_request_may_commit_but_is_unsafe_retry(self):
+        # R01's first HTTP request drops before commit; the frozen upstream
+        # may submit a second move on the same unchanged position. The second
+        # request can commit legally, but doing it blindly is an unsafe witness,
+        # not an invalid trace or a safe-continuation positive.
+        rows=self.trace()
+        first=dict(rows[0])
+        rows[0]["seq"]=2
+        rows[1]["seq"]=3
+        rows[1]["request_id"]="request-2"
+        rows.insert(0,first)
+        result=QUALIFIER.verify_trace(rows,self.game())
+        self.assertEqual(result["bot_commits"],1)
+        self.assertEqual(result["http_attempts"],2)
+        self.assertEqual(len(result["illegal_attempts"]),1)
+        self.assertEqual(result["illegal_attempts"][0]["reason"],
+                         "repeated_move_submission_same_ply")
+        self.assertEqual(result["illegal_attempts"][0]["original_request_id"],
+                         "request-1")
+
     def test_stale_retry_requires_prior_committed_legal_move_and_lost_ack(self):
         rows=self.trace()
         rows[1]["seq"]=3

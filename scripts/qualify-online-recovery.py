@@ -127,14 +127,19 @@ def verify_trace(trace: list[dict], game: dict) -> dict:
             ply = len(board.move_stack)
             position_legal = board.turn == bot_white and move in board.legal_moves
             if position_legal:
-                key = (ply, uci)
-                if key in first_attempt_by_ply:
+                # The actual server can legally commit a second submission
+                # after a first dropped-before-commit attempt (R01). The
+                # repeated attempt is an UNSAFE behavioral witness, but its
+                # committed legal move must not be mistaken for corrupted
+                # evidence. Keep every position-legal request in the ledger.
+                legal_attempts[rid] = (ply, uci)
+                if ply in first_attempt_by_ply:
                     unsafe_attempts.append({
                         "request_id": rid, "uci": uci, "ply_at_receipt": ply,
-                        "reason": "duplicate_unconfirmed_move_submission"})
+                        "original_request_id": first_attempt_by_ply[ply],
+                        "reason": "repeated_move_submission_same_ply"})
                 else:
-                    legal_attempts[rid] = (ply, uci)
-                    first_attempt_by_ply[key] = rid
+                    first_attempt_by_ply[ply] = rid
             else:
                 # A previously legal/committed move is not itself proof of
                 # safe retransmission. Require exact lost-ACK request evidence.

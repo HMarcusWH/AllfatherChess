@@ -277,3 +277,15 @@ Snapshot availability preflight reads the complete bounded signed-cleartext InRe
 The OCI diagnostic inspector runs before strict verification and may be uploaded on failure. It therefore now allowlists statement `_type`, `predicateType`, descriptor/config media types, accepted annotations and subject digests, and does not echo arbitrary error text or source metadata. Validation itself still requires the complete application config/layer/SPDX/SLSA subject graph; sanitized diagnostics do not establish qualification.
 
 Do not mark these changes proven until exact-head CI passes. Retain the frozen no-publication, no-credential, no-host-admission, no-live-transport, no-license-promotion and incomplete OS/wheel-lock requirements. Run original RELEASE-1, ONLINE-4A/4B, baseline/LOCAL-1/LC0 and policy workflows, then request final Codex reviews.
+
+## October 17 — raw HTTP targets, exact move evidence and OCI archive continuity
+
+Retained offline HTTP evidence now represents the raw request-target when explicitly approved by `tests/lichess/http_target_contract.py`, staged alongside the `FakeLichess` server and source-attested. Rejected arbitrary targets are recorded as disapproved plus a SHA-256 fingerprint and a safe path, not as unredacted query values. The pinned upstream Lichess bot sends `GET /api/users/status?ids=allfatherfixture` and `POST /api/bot/game/off3b001/move/{uci}?offeringDraw=false|true`; both documented forms are admitted, but unrelated/duplicated/query-bearing paths are not. `scripts/release_http_contract.py` uses the exact same classification for independent smoke and downstream aggregate. Live tokens remain forbidden.
+
+ONLINE-4A evidence matching is two-way: every actual move HTTP POST (including an accepted, failed or fault-injected request) must be matched to an exactly one-to-one move trace entry by method, path and request ID; the trace still must match a canonical UCI and authoritative board/legal intent. A legal but untraced POST is an evidence failure, not a valid extra submission.
+
+RELEASE-1 OCI verification now reads and hashes its archive through the same opened inode, requires stable inode/size/mtime/ctime and rejects an atomically replaced file before reporting `oci_archive_sha256`. The later aggregate independently rehashes the pathname and will reject a different archive. OCI structure inspection is diagnostic-only, tolerant of malformed JSON container types with a safe, bounded failure report, never an integrity or publisher-signature grant.
+
+The native GPG-signed, fixed Ubuntu snapshot remains authoritative for APT. Retry classification ignores bracketed HTTPS peer address/port metadata (`443` is not an HTTP status); retries remain bounded to explicitly recognized 429/502/503/504 acquisition failures and immediate refusal on mixed or integrity failures.
+
+Full exactly pinned offline OCI/SQLite/engine, complete merge/check matrix and final Codex reviews are **still required** for any new head. No release-policy permissions or dependency-lock qualification are raised.

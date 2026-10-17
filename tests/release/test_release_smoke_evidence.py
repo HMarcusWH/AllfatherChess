@@ -388,6 +388,8 @@ class PackagedMoveEvidenceTests(unittest.TestCase):
     def test_r10_rejects_all_api_requests_during_cooldown(self):
         doc=fixture("r10-white")
         doc["http"].append({"method":"GET","path":"/api/account/playing",
+                            "request_target":"/api/account/playing",
+                            "target_canonical":True,
                             "status":200,"monotonic_ms":1200})
         with self.assertRaisesRegex(ValueError,"cooldown"):
             qual.verify_smoke(doc,"r10-white")

@@ -53,6 +53,16 @@ class SharedHTTPAdmissionTests(unittest.TestCase):
                     row,"r00-white"))
                 self.assertFalse(aggregate.allowed_release_http(row,"r00-white"))
 
+    def test_rejected_raw_query_is_hashed_before_audit(self):
+        from tests.lichess.http_target_contract import safe_audit_fields
+        original="/api/account?access_token=PRIVATE-CANARY"
+        safe=safe_audit_fields("GET",original)
+        self.assertFalse(safe["target_canonical"])
+        self.assertIsNone(safe["request_target"])
+        self.assertEqual(safe["path"],"/api/account")
+        self.assertNotIn("PRIVATE-CANARY",repr(safe))
+        self.assertEqual(len(safe["request_target_sha256"]),64)
+
     def test_legitimate_upstream_query_forms_are_admitted(self):
         for method, raw, rid in (
             ("GET", "/api/users/status?ids=allfatherfixture", None),

@@ -272,6 +272,26 @@ class OCIProofTests(unittest.TestCase):
                     body["buildDefinition"]["buildType"] = "not-a-uri"
                 if slsa_case == "no-external":
                     del body["buildDefinition"]["externalParameters"]
+                if slsa_case == "resolved-as-string":
+                    body["buildDefinition"]["resolvedDependencies"] = "not-an-array"
+                if slsa_case == "metadata-as-string":
+                    body["runDetails"]["metadata"] = "not-an-object"
+                if slsa_case == "byproducts-as-map":
+                    body["runDetails"]["byproducts"] = {}
+                if slsa_case == "version-as-string":
+                    body["runDetails"]["builder"]["version"] = "not-an-object"
+                if slsa_case == "resource-item-nonobject":
+                    body["buildDefinition"]["resolvedDependencies"] = [17]
+                if slsa_case == "valid-optionals":
+                    body["buildDefinition"]["resolvedDependencies"] = [
+                        {"uri":"https://example.test/source.tar.gz",
+                         "digest":{"sha256":"a"*64}}]
+                    body["buildDefinition"]["internalParameters"] = {}
+                    body["runDetails"]["builder"]["version"] = {
+                        "buildkit":"v0.20"}
+                    body["runDetails"]["metadata"] = {
+                        "invocationId":"offline-test"}
+                    body["runDetails"]["byproducts"] = []
             if invalid_predicate:
                 body = {"schema_version": 1}
             statement_document = {
@@ -819,8 +839,32 @@ class OCIProofTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, r"descriptor.*size"):
                     oci.verify_archive(archive, meta, docker_inspect=inspection)
 
+    def test_slsa_optional_fields_have_independent_schema_contract(self):
+        with tempfile.TemporaryDirectory() as d:
+            archive,meta,inspected=self.fixture(
+                Path(d),slsa_case="valid-optionals")
+            self.assertTrue(oci.verify_archive(
+                archive,meta,docker_inspect=inspected)["oci_provenance_verified"])
+        v02={"builder":{"id":"https://builder.example.test/v02"},
+             "buildType":"https://example.test/buildtype",
+             "invocation":{}}
+        oci.validate_slsa("https://slsa.dev/provenance/v0.2",v02)
+        for bad in (
+            {**v02,"materials":"not-an-array"},
+            {**v02,"metadata":"not-an-object"},
+            {**v02,"builder":{**v02["builder"],"version":"bad"}},
+            {**v02,"invocation":{"environment":"not-an-object"}},
+            {**v02,"buildConfig":[]},
+        ):
+            with self.subTest(bad=bad),self.assertRaisesRegex(ValueError,
+                                                              "SLSA"):
+                oci.validate_slsa("https://slsa.dev/provenance/v0.2",bad)
+
     def test_slsa_predicates_cannot_be_schema_only(self):
-        for mode in ("empty", "builder-empty", "bad-build-type", "no-external"):
+        for mode in ("empty", "builder-empty", "bad-build-type", "no-external",
+                     "resolved-as-string", "metadata-as-string",
+                     "byproducts-as-map", "version-as-string",
+                     "resource-item-nonobject"):
             with self.subTest(mode=mode), tempfile.TemporaryDirectory() as d:
                 archive, meta, inspection = self.fixture(Path(d),
                                                          slsa_case=mode)

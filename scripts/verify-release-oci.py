@@ -217,27 +217,115 @@ def valid_spdx_namespace(value: object) -> bool:
     return valid_identity_uri(value) and "#" not in value
 
 
+def _optional_object(container: dict, field: str) -> bool:
+    value = container.get(field)
+    return value is None or type(value) is dict
+
+
+def _optional_string(container: dict, field: str) -> bool:
+    value = container.get(field)
+    return value is None or type(value) is str
+
+
+def _optional_string_map(container: dict, field: str) -> bool:
+    value = container.get(field)
+    return (value is None or
+            (type(value) is dict and all(
+                type(key) is str and type(item) is str
+                for key, item in value.items())))
+
+
+def _valid_resource_descriptor(value: object) -> bool:
+    """Recognized SLSA resource fields have their normative JSON shapes."""
+    if type(value) is not dict:
+        return False
+    if not all(_optional_string(value, name) for name in
+               ("uri", "name", "downloadLocation", "mediaType", "content",
+                "localName")):
+        return False
+    if not _optional_string_map(value, "digest"):
+        return False
+    return _optional_object(value, "annotations")
+
+
+def _optional_resource_list(container: dict, field: str) -> bool:
+    value = container.get(field)
+    return (value is None or
+            (type(value) is list and
+             all(_valid_resource_descriptor(item) for item in value)))
+
+
+def _valid_slsa_metadata(value: object, *, version: str) -> bool:
+    if value is None:
+        return True
+    if type(value) is not dict:
+        return False
+    keys = ("invocationId", "startedOn", "finishedOn") if version == "v1" else (
+        "buildInvocationId", "buildStartedOn", "buildFinishedOn")
+    if not all(_optional_string(value, field) for field in keys):
+        return False
+    if version == "v0.2":
+        completeness = value.get("completeness")
+        if completeness is not None and (
+                type(completeness) is not dict or
+                any(type(item) is not bool for item in completeness.values())):
+            return False
+        reproducible = value.get("reproducible")
+        if reproducible is not None and type(reproducible) is not bool:
+            return False
+    return True
+
+
 def validate_slsa(kind: str, predicate: dict) -> None:
+    """Recognized SLSA v1/v0.2 fields must satisfy their JSON type contracts.
+
+    Absent and null *optional* fields remain equivalent per SLSA parsing
+    rules. Unrecognized extension fields do not grant extra authority.
+    """
+    require(type(predicate) is dict, "SLSA predicate not a JSON object")
     if kind == "https://slsa.dev/provenance/v1":
         build = predicate.get("buildDefinition")
         run = predicate.get("runDetails")
-        require(isinstance(build, dict) and isinstance(run, dict),
+        require(type(build) is dict and type(run) is dict,
                 "SLSA provenance v1 predicate incomplete")
         require(valid_identity_uri(build.get("buildType")),
                 "SLSA v1 build type missing or invalid")
-        require(isinstance(build.get("externalParameters"), dict),
-                "SLSA v1 external parameters missing")
+        require(type(build.get("externalParameters")) is dict and
+                _optional_object(build, "internalParameters") and
+                _optional_resource_list(build, "resolvedDependencies"),
+                "SLSA v1 build inputs contain malformed optional fields")
         builder = run.get("builder")
-        require(isinstance(builder, dict) and
-                valid_identity_uri(builder.get("id")),
-                "SLSA v1 builder identity missing or invalid")
+        require(type(builder) is dict and
+                valid_identity_uri(builder.get("id")) and
+                _optional_string_map(builder, "version") and
+                _optional_resource_list(builder, "builderDependencies"),
+                "SLSA v1 builder identity or field shape invalid")
+        require(_valid_slsa_metadata(run.get("metadata"),version="v1") and
+                _optional_resource_list(run, "byproducts"),
+                "SLSA v1 run metadata/byproducts malformed")
     elif kind == "https://slsa.dev/provenance/v0.2":
         builder = predicate.get("builder")
-        require(isinstance(builder, dict) and
+        invocation = predicate.get("invocation")
+        require(type(builder) is dict and
                 valid_identity_uri(builder.get("id")) and
                 valid_identity_uri(predicate.get("buildType")) and
-                isinstance(predicate.get("invocation"), dict),
+                type(invocation) is dict,
                 "SLSA v0.2 build type, builder or invocation missing")
+        require(_optional_string_map(builder, "version") and
+                _optional_resource_list(builder, "builderDependencies") and
+                _optional_object(predicate, "buildConfig") and
+                _optional_resource_list(predicate, "materials") and
+                _optional_object(invocation, "parameters") and
+                _optional_object(invocation, "environment") and
+                _optional_object(invocation, "configSource") and
+                _valid_slsa_metadata(predicate.get("metadata"),version="v0.2"),
+                "SLSA v0.2 recognized optional fields malformed")
+        source = invocation.get("configSource")
+        if type(source) is dict:
+            require(all(_optional_string(source, name) for name in
+                        ("uri", "entryPoint")) and
+                    _optional_string_map(source, "digest"),
+                    "SLSA v0.2 config source malformed")
     else:
         raise ValueError("unsupported SLSA version")
 

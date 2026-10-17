@@ -299,10 +299,13 @@ def verify_exact_http_move_audit(
                 r["path"].startswith(prefix)]
     attempted = [r for r in trace if r.get("event") == "move_attempt"]
     ensure(all(type(t.get("seq")) is int and t["seq"] > 0 and
-               t.get("path") == prefix + t.get("uci", "") and
-               isinstance(t.get("uci"), str) for t in attempted),
+               isinstance(t.get("uci"), str) and
+               t.get("path") == prefix + t["uci"] for t in attempted),
            "traced move endpoint identity invalid")
-    server_rows = Counter((r["path"], r.get("request_id")) for r in observed)
+    ensure(all(isinstance(r.get("request_id"), str) and
+               bool(r["request_id"]) for r in observed),
+           "HTTP move request identity missing")
+    server_rows = Counter((r["path"], r["request_id"]) for r in observed)
     trace_rows = Counter((r["path"], f"request-{r['seq']}") for r in attempted)
     ensure(server_rows == trace_rows,
            "HTTP move records and trace attempts differ")

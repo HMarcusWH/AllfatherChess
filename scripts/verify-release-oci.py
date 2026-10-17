@@ -153,7 +153,7 @@ def valid_uri_syntax(value: object, allowed_schemes: set[str], *,
     """
     if not isinstance(value, str) or not value or value != value.strip():
         return False
-    if any(ord(c) < 33 or ord(c) == 127 for c in value):
+    if "\\" in value or any(ord(c) < 33 or ord(c) == 127 for c in value):
         return False
     if (re.search(r"%(?![0-9A-Fa-f]{2})", value) or
             re.search(r"%(?:0[0-9A-Fa-f]|1[0-9A-Fa-f]|7[fF])",

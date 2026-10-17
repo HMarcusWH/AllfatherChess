@@ -234,7 +234,7 @@ class OCIProofTests(unittest.TestCase):
                 elif spdx_case == "namespace-port":
                     body["documentNamespace"] = "https://example.test:bogus/x"
                 elif spdx_case == "namespace-control":
-                    body["documentNamespace"] = "https://example.test/path\\x00"
+                    body["documentNamespace"] = "https://example.test/path\x00"
                 elif spdx_case == "namespace-userinfo":
                     body["documentNamespace"] = "https://user:pw@example.test/a"
                 elif spdx_case == "namespace-encoded-path":
@@ -544,7 +544,7 @@ class OCIProofTests(unittest.TestCase):
             "https://example.test/spdx%20namespace"))
         for uri in ("https://%zz/path", "https://example.test:bogus/x",
                     "https://user:secret@example.test/x",
-                    "https://example.test/a\\x00", "https://example.test/a%2",
+                    "https://example.test/a\x00", "https://example.test/a%2",
                     "https://example.test/foo#"):
             with self.subTest(uri=uri):
                 self.assertFalse(oci.valid_spdx_namespace(uri))

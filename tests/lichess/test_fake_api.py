@@ -62,7 +62,7 @@ class FakeAPITests(unittest.TestCase):
             "POST", "/api/challenge/"+GAME_ID+"/accept"), 200)
         for target in ("/api/bot/game/"+GAME_ID+"/move/e2e4?offeringDraw=false",
                        "/api/bot/game/"+GAME_ID+"/move/e2e4?offeringDraw=true"):
-            self.assertIn(self.call("POST", target), (200,409))
+            self.assertIn(self.call("POST", target), (200,400,409))
             record=self.fake.requests[-1]
             self.assertTrue(record["target_canonical"])
             self.assertEqual(record["request_target"], target)

@@ -14,6 +14,26 @@ from pathlib import Path
 
 MAX_JSON = 8 * 1024 * 1024
 SAFE_ANNOTATION_KEYS = {"vnd.docker.reference.type", "vnd.docker.reference.digest"}
+SAFE_DESCRIPTOR_TYPES = frozenset({
+    "application/vnd.oci.image.index.v1+json",
+    "application/vnd.oci.image.manifest.v1+json",
+    "application/vnd.docker.distribution.manifest.v2+json",
+})
+SAFE_CONFIG_TYPES = frozenset({
+    "application/vnd.oci.image.config.v1+json",
+    "application/vnd.docker.container.image.v1+json",
+    "application/vnd.oci.empty.v1+json",
+})
+SAFE_PREDICATE_TYPES = frozenset({
+    "https://spdx.dev/Document",
+    "https://slsa.dev/provenance/v0.2",
+    "https://slsa.dev/provenance/v1",
+})
+INTOTO_V1 = "https://in-toto.io/Statement/v1"
+
+
+def approved_type(value, allowed):
+    return value if type(value) is str and value in allowed else "unrecognized"
 SAFE_SPDX_KEYS = {
     "SPDXID", "spdxVersion", "name", "downloadLocation", "fileName",
     "checksums", "filesAnalyzed", "licenseConcluded", "licenseDeclared",
@@ -106,9 +126,7 @@ def inspect(archive: Path, metadata: Path) -> dict:
             if actual is None or not actual.isfile():
                 raise ValueError("missing OCI referenced blob")
             return {"digest": oid,
-                    "media_type": typ if isinstance(typ, str) and
-                        typ.startswith("application/vnd.") and len(typ)<100
-                        else "unrecognized",
+                    "media_type": approved_type(typ, SAFE_DESCRIPTOR_TYPES),
                     "declared_size": size, "actual_size": actual.size,
                     "descriptor_path": list(ancestry) + [oid],
                     "platform": approved_platform(desc.get("platform")),
@@ -121,7 +139,7 @@ def inspect(archive: Path, metadata: Path) -> dict:
         result["index_manifests"] = []
         result["application_manifest_digest"] = None
         result["attestation_manifest_digests"] = []
-        result["exported_root_digest"] = build.get("containerimage.digest")
+        result["exported_root_digest"] = digest_only(build.get("containerimage.digest"))
         inspected = [0]
 
         def traverse(desc, ancestry=()):
@@ -170,7 +188,9 @@ def inspect(archive: Path, metadata: Path) -> dict:
                     else None)
             else:
                 rec["manifest_subject"] = None
-            rec["config_type"] = (manifest.get("config") or {}).get("mediaType")
+            rec["config_type"] = approved_type(
+                (manifest.get("config") or {}).get("mediaType"),
+                SAFE_CONFIG_TYPES)
             attested = (rec["annotations"] or {}).get(
                 "vnd.docker.reference.type") == "attestation-manifest"
             if attested:
@@ -207,8 +227,9 @@ def inspect(archive: Path, metadata: Path) -> dict:
                         safe_keys = (sorted(predicate.keys())
                                      if isinstance(predicate, dict) else [])
                         summary = {
-                            "_type": st.get("_type"),
-                            "predicate_type": st.get("predicateType"),
+                            "_type": approved_type(st.get("_type"), {INTOTO_V1}),
+                            "predicate_type": approved_type(
+                                st.get("predicateType"), SAFE_PREDICATE_TYPES),
                             "subject_count": len(st.get("subject", []))
                                 if isinstance(st.get("subject"), list) else None,
                             # Subject names and untrusted predicate values
@@ -263,7 +284,10 @@ def main() -> int:
     except (OSError, ValueError, TypeError, KeyError, tarfile.TarError) as exc:
         report = {"schema_version": 1, "diagnostic_only": True,
                   "integrity_verified": False, "public_bot_release": False,
-                  "inspection_error": type(exc).__name__ + ": " + str(exc)}
+                  # No untrusted archive path, metadata or statement string
+                  # may be published when verification refuses an archive.
+                  "inspection_error": type(exc).__name__,
+                  "inspection_failed": True}
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n",
                            encoding="utf-8")

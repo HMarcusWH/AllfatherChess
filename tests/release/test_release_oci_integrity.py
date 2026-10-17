@@ -35,7 +35,7 @@ class OCIProofTests(unittest.TestCase):
                 application_platform="linux/amd64",
                 index_platform="absent", inner_index_platform="absent",
                 double_nested=False, embedded_media="absent",
-                config_platform="valid"):
+                config_platform="valid", diagnostic_canary=None):
         base = b"original uncompressed OCI application layer\n"
         expanded = (b"substituted uncompressed OCI application layer\n"
                     if replace_layer else base)
@@ -76,7 +76,9 @@ class OCIProofTests(unittest.TestCase):
             raise ValueError("unsupported image configuration fixture variant")
         cfg.update(config_changes[config_platform])
         config = store(encode(cfg))
-        cfg_desc = descriptor("application/vnd.oci.image.config.v1+json", config)
+        cfg_desc = descriptor(
+            diagnostic_canary if diagnostic_canary else
+            "application/vnd.oci.image.config.v1+json", config)
         layer_desc = descriptor("application/vnd.oci.image.layer.v1.tar+gzip",
                                 tar_layer)
         if wrong_size == "config":
@@ -238,10 +240,10 @@ class OCIProofTests(unittest.TestCase):
             if invalid_predicate:
                 body = {"schema_version": 1}
             statement = encode({
-                "_type": "https://in-toto.io/Statement/v1",
-                "predicateType": predicate,
+                "_type": diagnostic_canary or "https://in-toto.io/Statement/v1",
+                "predicateType": diagnostic_canary or predicate,
                 "subject": ([] if subject is None else
-                            [{"name": "offline-fixture",
+                            [{"name": diagnostic_canary or "offline-fixture",
                               "digest": {"sha256": subject}}]),
                 "predicate": body})
             lid = store(statement)
@@ -274,10 +276,13 @@ class OCIProofTests(unittest.TestCase):
                 raise ValueError("unknown synthetic subject variant")
             attest_data["subject"] = subject
         attest_manifest = store(encode(attest_data))
+        annotations={"vnd.docker.reference.type": "attestation-manifest",
+                     "vnd.docker.reference.digest": (
+                         "sha256:" + "f"*64 if bad_reference else application)}
+        if diagnostic_canary:
+            annotations["secret.debug"] = diagnostic_canary
         att_desc = descriptor(oci_manifest, attest_manifest,
-            annotations={"vnd.docker.reference.type": "attestation-manifest",
-                         "vnd.docker.reference.digest": (
-                             "sha256:" + "f"*64 if bad_reference else application)},
+            annotations=annotations,
             platform={"os": "unknown", "architecture": "unknown"})
         if wrong_size == "application":
             app_desc["size"] += 1
@@ -355,8 +360,8 @@ class OCIProofTests(unittest.TestCase):
         if bad_metadata_descriptor:
             reported_desc["size"] += 1
         meta.write_text(json.dumps({
-            "image.name": "docker.io/allfather/release1:offline",
-            "containerimage.digest": reported,
+            "image.name": diagnostic_canary or "docker.io/allfather/release1:offline",
+            "containerimage.digest": diagnostic_canary or reported,
             "containerimage.descriptor": reported_desc}))
         inspected = target / "docker-inspect.json"
         inspected.write_text(json.dumps({"Id": config, "Architecture": "amd64"}))
@@ -679,6 +684,28 @@ class OCIProofTests(unittest.TestCase):
                                                          slsa_case=mode)
                 with self.assertRaisesRegex(ValueError, "SLSA"):
                     oci.verify_archive(archive, meta, docker_inspect=inspection)
+
+    def test_all_diagnostic_statement_values_are_allowlisted(self):
+        mod_spec=importlib.util.spec_from_file_location(
+            "release1_diag_canary",ROOT/"scripts/inspect-release-oci.py")
+        mod=importlib.util.module_from_spec(mod_spec)
+        mod_spec.loader.exec_module(mod)
+        marker="CANARY-private-access-token-DO-NOT-RETAIN"
+        with tempfile.TemporaryDirectory() as d:
+            archive,meta,_=self.fixture(Path(d),diagnostic_canary=marker)
+            report=mod.inspect(archive,meta)
+            serialized=json.dumps(report)
+            self.assertNotIn(marker,serialized)
+            self.assertFalse(report["integrity_verified"])
+            self.assertIsNone(report["buildkit_digest"])
+            attest=report["index_manifests"][0]["children"][1]
+            for layer in attest["layers"]:
+                for statement in layer["statements"]:
+                    self.assertEqual(statement["_type"],"unrecognized")
+                    self.assertEqual(statement["predicate_type"],"unrecognized")
+            self.assertEqual(
+                report["index_manifests"][0]["children"][0]["config_type"],
+                "unrecognized")
 
     def test_retained_oci_diagnostics_do_not_echo_untrusted_subject_names(self):
         mod_spec=importlib.util.spec_from_file_location(

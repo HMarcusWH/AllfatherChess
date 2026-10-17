@@ -146,19 +146,15 @@ STATEMENT = "https://in-toto.io/Statement/v1"
 
 def valid_uri_syntax(value: object, allowed_schemes: set[str], *,
                      allow_git_ssh_user: bool = False) -> bool:
-    """One URI grammar for SPDX identities, downloads and SLSA identities.
+    """One RFC3986 URI grammar for SPDX identities, downloads and SLSA.
 
-    Field-specific scheme, special-token and fragment policy is applied by
-    callers; urlsplit() alone does not check escapes, credentials or ports.
+    URI syntax is common; field-specific schemes, fragments and special tokens
+    remain caller policy. Require percent-encoding for non-ASCII bytes.
     """
     if not isinstance(value, str) or not value or value != value.strip():
         return False
-    # RFC 3986: URI input is ASCII unreserved + gen/sub-delimiters and
-    # percent escapes. Raw Unicode, braces, pipes, quotes and carets are NOT
-    # URIs; callers must percent-encode non-ASCII octets before validation.
-    if re.fullmatch(r"[A-Za-z0-9._~:/?#\\[\\]@!    if "\\" in value or any(ord(c) < 33 or ord(c) == 127 for c in value):
-        return False
-    if (re.search(r"%(?![0-9A-Fa-f]{2})", value) or'()*+,;=%-]+", value,
+    # RFC3986 unreserved + reserved delimiters and encoded %HH octets.
+    if re.fullmatch(r"[A-Za-z0-9._~:/?#\[\]@!$&'()*+,;=%-]+", value,
                     re.ASCII) is None:
         return False
     if (re.search(r"%(?![0-9A-Fa-f]{2})", value) or

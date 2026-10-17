@@ -20,6 +20,7 @@ from pathlib import Path
 from urllib.parse import unquote
 
 import chess
+from scripts.sanitize_qualification_evidence import sanitize_report
 
 CASES = {"r00-white": ("R00", "white"),
          "r00-black": ("R00", "black"),
@@ -559,7 +560,7 @@ def main() -> int:
     parser.add_argument("--smoke-dir", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
-    report = qualify_directory(args.smoke_dir)
+    report = sanitize_report(qualify_directory(args.smoke_dir))
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n",
                            encoding="utf-8")

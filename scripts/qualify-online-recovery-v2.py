@@ -27,6 +27,7 @@ from tests.lichess.http_target_contract import canonical_target
 from deploy.lichess.reconcile import position_id
 from scripts.verify_source_closure import verify_profile, verify_committed_bytes
 from scripts.http_evidence_verdict import approved_status
+from scripts.sanitize_qualification_evidence import sanitize_report
 
 def _v1_module():
     spec = importlib.util.spec_from_file_location(
@@ -607,6 +608,7 @@ def main():
                   "qualification_failures": [{"error": str(exc)}],
                   "network_recovery_qualified": False, "public_bot_release": False,
                   "release_blocked": True}
+    report=sanitize_report(report)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
     print(json.dumps({k:v for k,v in report.items() if k!="scenario_results"},sort_keys=True))

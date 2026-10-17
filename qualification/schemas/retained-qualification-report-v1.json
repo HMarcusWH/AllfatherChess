@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "deny_by_default_unknown_strings": true,
+  "allow_numeric_and_boolean": true,
+  "fields": {
+    "path": "validated-canonical-path-no-query",
+    "request_target": "never-retained",
+    "uci": "canonical-uci",
+    "request_id": "synthetic-request-id",
+    "reason": "enumeration-only",
+    "error": "fixed-redaction",
+    "unknown_strings": "redacted"
+  },
+  "public_authority_granted": false
+}

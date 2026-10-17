@@ -26,6 +26,7 @@ from tests.lichess.fault_plan import load_scenarios
 from tests.lichess.http_target_contract import canonical_target
 from scripts.verify_source_closure import verify_profile, verify_committed_bytes
 from scripts.http_evidence_verdict import unexpected_statuses
+from scripts.sanitize_qualification_evidence import sanitize_report, safe_path
 
 POLICY = ROOT / "qualification/online-recovery-v1.json"
 
@@ -368,7 +369,10 @@ def invalid_move_submissions(http_requests: list[dict]) -> list[dict]:
         except ValueError:
             move = None
         if move is None or move == chess.Move.null():
-            invalid.append({"path": path, "uci": uci, "status": request.get("status")})
+            invalid.append({"path": safe_path(path),
+                            "uci": uci if type(uci) is str and
+                                    len(uci) <= 5 else "__redacted__",
+                            "status": request.get("status")})
     return invalid
 
 
@@ -388,8 +392,7 @@ def unexpected_raw_targets(http_requests: list[dict]) -> list[dict]:
             unexpected.append({
                 "method": method if method in ("GET", "POST") else "unknown",
                 "status": row.get("status") if type(row.get("status")) is int else None,
-                "path": row.get("path") if isinstance(row.get("path"), str)
-                        else "__invalid_path__",
+                "path": safe_path(row.get("path")),
                 "reason": "noncanonical_request_target",
             })
     return unexpected
@@ -606,6 +609,7 @@ def main() -> int:
             "public_bot_release": False,
             "release_blocked": True,
         }
+    report=sanitize_report(report)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, sort_keys=True, indent=2, allow_nan=False) + "\n")
     print(json.dumps({k: v for k, v in report.items() if k != "scenario_results"},

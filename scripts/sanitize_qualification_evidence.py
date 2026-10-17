@@ -21,7 +21,7 @@ HASH_FIELDS=frozenset({
     "scenario_source_sha256","sanitized_sha256","manifest_sha256",
     "position_id","owner_epoch","epoch","request_target_sha256",
 })
-SAFE_KEYS=re.compile(r"[a-z][A-Za-z0-9_]{0,79}\Z")
+SAFE_KEYS=re.compile(r"[a-z][A-Za-z0-9_-]{0,79}\Z")
 SAFE_ENUM=re.compile(r"[A-Za-z][A-Za-z0-9_.:-]{0,95}\Z")
 SAFE_MOVE=re.compile(r"[a-h][1-8][a-h][1-8][qrbn]?\Z")
 SAFE_ID=re.compile(r"[A-Fa-f0-9]{16,128}\Z")

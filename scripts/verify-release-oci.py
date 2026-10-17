@@ -6,6 +6,9 @@ it does NOT claim a trusted publisher signature or legal distribution.
 """
 from __future__ import annotations
 import argparse
+import base64
+import binascii
+from datetime import datetime
 import os
 import stat
 import hashlib
@@ -192,10 +195,21 @@ def valid_uri_syntax(value: object, allowed_schemes: set[str], *,
             return False
         host = uri.hostname
         if ":" in host:
+            if host.lower().startswith("v"):
+                # RFC3986 IPvFuture: v HEXDIG+ '.' 1*(unreserved/subdelims/:)
+                if re.fullmatch(
+                        r"v[0-9A-Fa-f]+\.[A-Za-z0-9._~!        if ":" in host:
             try:
                 ipaddress.IPv6Address(host)
             except ValueError:
-                return False
+                return False'()*+,;=:-]+",
+                        host,re.IGNORECASE) is None:
+                    return False
+            else:
+                try:
+                    ipaddress.IPv6Address(host)
+                except ValueError:
+                    return False
         else:
             labels = host.split(".")
             if (len(host) > 253 or not all(re.fullmatch(
@@ -235,17 +249,87 @@ def _optional_string_map(container: dict, field: str) -> bool:
                 for key, item in value.items())))
 
 
+def _resource_uri(value: object) -> bool:
+    """External resource identifiers are URI, not arbitrary strings.
+
+    A conservative set of schemes includes git+https and OCI resource URIs;
+    general SLSA builder identities remain governed by valid_identity_uri.
+    """
+    if type(value) is not str or not value:
+        return False
+    schemes={"http","https","git+https","git+http","git+ssh",
+             "git","ssh","ftp","ftps","oci","docker","urn"}
+    return valid_uri_syntax(value,schemes,allow_git_ssh_user=True)
+
+
+def _valid_digest_set(value: object) -> bool:
+    if type(value) is not dict or not value:
+        return False
+    sizes={"sha1":40,"sha256":64,"sha384":96,"sha512":128}
+    for algorithm,raw in value.items():
+        if (type(algorithm) is not str or
+                re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]{0,31}",algorithm) is None or
+                type(raw) is not str or
+                re.fullmatch(r"[0-9a-fA-F]+",raw) is None):
+            return False
+        expected=sizes.get(algorithm.lower())
+        if expected is not None:
+            if len(raw)!=expected:
+                return False
+        elif not (16 <= len(raw) <= 128 and len(raw)%2==0):
+            return False
+    return True
+
+
 def _valid_resource_descriptor(value: object) -> bool:
-    """Recognized SLSA resource fields have their normative JSON shapes."""
+    """Typed in-toto ResourceDescriptor with at least one meaningful identity.
+
+    The normative minimum is one of uri/digest/content. We also validate
+    nonselected identity fields if present; combining one good URI with an
+    empty digest or malformed base64 cannot bypass the contract.
+    """
     if type(value) is not dict:
         return False
     if not all(_optional_string(value, name) for name in
                ("uri", "name", "downloadLocation", "mediaType", "content",
                 "localName")):
         return False
-    if not _optional_string_map(value, "digest"):
+    uri=value.get("uri")
+    digest=value.get("digest")
+    content=value.get("content")
+    has_uri=type(uri) is str and _resource_uri(uri)
+    has_digest=_valid_digest_set(digest)
+    has_content=type(content) is str
+    if "uri" in value and uri is not None and not has_uri:
         return False
-    return _optional_object(value, "annotations")
+    if "digest" in value and digest is not None and not has_digest:
+        return False
+    if has_content:
+        try:
+            base64.b64decode(content,validate=True)
+        except (ValueError,binascii.Error):
+            return False
+    if "content" in value and content is not None and not has_content:
+        return False
+    location=value.get("downloadLocation")
+    if location not in (None,"") and not _resource_uri(location):
+        return False
+    return bool(has_uri or has_digest or has_content) and _optional_object(
+        value,"annotations")
+
+
+def _rfc3339_timestamp(value: object) -> bool:
+    if value in (None,""):
+        return True
+    if type(value) is not str or re.fullmatch(
+            r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}"
+            r"(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})",value) is None:
+        return False
+    try:
+        observed=datetime.fromisoformat(value.replace("Z","+00:00"))
+    except ValueError:
+        return False
+    return observed.tzinfo is not None and observed.utcoffset() is not None
 
 
 def _optional_resource_list(container: dict, field: str) -> bool:
@@ -262,8 +346,19 @@ def _valid_slsa_metadata(value: object, *, version: str) -> bool:
         return False
     keys = ("invocationId", "startedOn", "finishedOn") if version == "v1" else (
         "buildInvocationId", "buildStartedOn", "buildFinishedOn")
-    if not all(_optional_string(value, field) for field in keys):
+    if not all((_rfc3339_timestamp(value.get(field))
+                if field in ("startedOn","finishedOn",
+                             "buildStartedOn","buildFinishedOn")
+                else _optional_string(value,field))
+               for field in keys):
         return False
+    first=value.get("startedOn" if version=="v1" else "buildStartedOn")
+    last=value.get("finishedOn" if version=="v1" else "buildFinishedOn")
+    if first not in (None,"") and last not in (None,""):
+        start=datetime.fromisoformat(first.replace("Z","+00:00"))
+        finish=datetime.fromisoformat(last.replace("Z","+00:00"))
+        if finish < start:
+            return False
     if version == "v0.2":
         completeness = value.get("completeness")
         if completeness is not None and (

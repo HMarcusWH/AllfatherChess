@@ -86,9 +86,13 @@ def inspect_scanner_output(archive: Path) -> dict:
                 require(type(rows) is list and bool(rows),
                         "scanner statement envelope invalid")
                 for row in rows:
-                    if isinstance(row,dict) and row.get("predicateType")==contract.SPDX:
-                        require(row.get("_type")==contract.STATEMENT,
-                                "scanner in-toto statement invalid")
+                    require(type(row) is dict and
+                            row.get("_type")==contract.STATEMENT and
+                            type(row.get("predicateType")) is str and
+                            type(row.get("subject")) is list and
+                            bool(row["subject"]),
+                            "scanner in-toto statement element invalid")
+                    if row.get("predicateType")==contract.SPDX:
                         pred=row.get("predicate")
                         require(type(pred) is dict,"scanner SPDX predicate malformed")
                         contract.validate_spdx_document(pred)

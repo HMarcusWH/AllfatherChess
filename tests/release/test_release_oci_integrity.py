@@ -282,6 +282,27 @@ class OCIProofTests(unittest.TestCase):
                     body["runDetails"]["builder"]["version"] = "not-an-object"
                 if slsa_case == "resource-item-nonobject":
                     body["buildDefinition"]["resolvedDependencies"] = [17]
+                if slsa_case == "resource-empty":
+                    body["buildDefinition"]["resolvedDependencies"] = [{}]
+                if slsa_case == "resource-name-only":
+                    body["runDetails"]["byproducts"] = [{"name":"not-identity"}]
+                if slsa_case == "resource-bad-digest":
+                    body["buildDefinition"]["resolvedDependencies"] = [
+                        {"digest":{"sha256":"not-hex"}}]
+                if slsa_case == "resource-empty-digest":
+                    body["buildDefinition"]["resolvedDependencies"] = [
+                        {"digest":{}}]
+                if slsa_case == "resource-bad-content":
+                    body["buildDefinition"]["resolvedDependencies"] = [
+                        {"content":"not+base64!"}]
+                if slsa_case == "metadata-bad-start":
+                    body["runDetails"]["metadata"] = {"startedOn":"not-a-time"}
+                if slsa_case == "metadata-bad-finish":
+                    body["runDetails"]["metadata"] = {"finishedOn":"garbage"}
+                if slsa_case == "metadata-reversed":
+                    body["runDetails"]["metadata"] = {
+                        "startedOn":"2026-10-18T00:00:00Z",
+                        "finishedOn":"2026-10-17T00:00:00Z"}
                 if slsa_case == "valid-optionals":
                     body["buildDefinition"]["resolvedDependencies"] = [
                         {"uri":"https://example.test/source.tar.gz",
@@ -839,6 +860,54 @@ class OCIProofTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, r"descriptor.*size"):
                     oci.verify_archive(archive, meta, docker_inspect=inspection)
 
+    def test_resource_descriptors_require_meaningful_identity(self):
+        good=(
+            {"uri":"https://example.test/file"},
+            {"digest":{"sha256":"a"*64}},
+            {"content":"e30="},
+            {"uri":"git+https://example.test/code.git@abc123",
+             "digest":{"sha1":"b"*40}},
+        )
+        bad=(
+            {},{"name":"name-is-not-an-identity"},{"uri":""},
+            {"digest":{}},{"digest":{"sha256":"garbage"}},
+            {"content":"not+base64!"},{"uri":"https://example.test/x",
+                                    "digest":{}},
+            {"uri":"https://example.test/x","content":"*"},
+        )
+        for row in good:
+            with self.subTest(valid=row):
+                self.assertTrue(oci._valid_resource_descriptor(row))
+        for row in bad:
+            with self.subTest(invalid=row):
+                self.assertFalse(oci._valid_resource_descriptor(row))
+
+    def test_metadata_timestamps_require_rfc3339_and_monotonic_order(self):
+        good={"startedOn":"2026-10-17T08:00:00Z",
+              "finishedOn":"2026-10-17T08:00:01+00:00"}
+        self.assertTrue(oci._valid_slsa_metadata(good,version="v1"))
+        self.assertTrue(oci._valid_slsa_metadata(
+            {"startedOn":None,"finishedOn":""},version="v1"))
+        for bad in (
+            {"startedOn":"not-a-time"},
+            {"finishedOn":"2026-15-17T18:00:00Z"},
+            {"startedOn":"2026-10-17T19:00:00Z",
+             "finishedOn":"2026-10-17T18:00:00Z"},
+            {"startedOn":"2026-10-17T08:00:00"},
+        ):
+            with self.subTest(bad=bad):
+                self.assertFalse(oci._valid_slsa_metadata(bad,version="v1"))
+
+    def test_ipvfuture_authority_is_valid_but_brackets_in_paths_are_not(self):
+        self.assertTrue(oci.valid_identity_uri(
+            "https://[v1.a:b]/resource"))
+        self.assertTrue(oci.valid_identity_uri(
+            "https://[2001:db8::1]/resource"))
+        self.assertFalse(oci.valid_identity_uri(
+            "https://example.test/a[b]"))
+        self.assertFalse(oci.valid_identity_uri(
+            "https://[v1.bad!]/a[b]"))
+
     def test_slsa_optional_fields_have_independent_schema_contract(self):
         with tempfile.TemporaryDirectory() as d:
             archive,meta,inspected=self.fixture(
@@ -864,7 +933,11 @@ class OCIProofTests(unittest.TestCase):
         for mode in ("empty", "builder-empty", "bad-build-type", "no-external",
                      "resolved-as-string", "metadata-as-string",
                      "byproducts-as-map", "version-as-string",
-                     "resource-item-nonobject"):
+                     "resource-item-nonobject", "resource-empty",
+                     "resource-name-only","resource-bad-digest",
+                     "resource-empty-digest","resource-bad-content",
+                     "metadata-bad-start","metadata-bad-finish",
+                     "metadata-reversed"):
             with self.subTest(mode=mode), tempfile.TemporaryDirectory() as d:
                 archive, meta, inspection = self.fixture(Path(d),
                                                          slsa_case=mode)

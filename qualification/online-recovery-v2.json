@@ -80,6 +80,8 @@
     "qualification/online-recovery-v1.json",
     "qualification/online-recovery-v2.json",
     "qualification/schemas/retained-qualification-report-v1.json",
+    "qualification/schemas/slsa-build-metadata-v1.contract.json",
+    "qualification/schemas/slsa-resource-descriptor-v1.contract.json",
     "scripts/http_evidence_verdict.py",
     "scripts/qualify-online-recovery-v2.py",
     "scripts/qualify-online-recovery.py",

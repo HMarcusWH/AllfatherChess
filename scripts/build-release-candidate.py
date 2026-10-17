@@ -54,6 +54,8 @@ SOURCE_FILES = (POLICY, BRIDGE_LOCK, "qualification/release-qualification-v1.jso
                 "scripts/sanitize_qualification_evidence.py",
                 "scripts/verify_assurance_contract.py",
                 "qualification/schemas/retained-qualification-report-v1.json",
+                "qualification/schemas/slsa-resource-descriptor-v1.contract.json",
+                "qualification/schemas/slsa-build-metadata-v1.contract.json",
                 "qualification/assurance-contract-v1.json",
                 "scripts/inspect-release-oci.py",
                 "scripts/check-release-snapshot.py",

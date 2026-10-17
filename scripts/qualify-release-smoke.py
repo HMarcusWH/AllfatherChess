@@ -32,6 +32,18 @@ ALLOWED_POSTS = {"/api/token/test", f"/api/challenge/{GAME_ID}/accept",
 MAX_EVIDENCE_BYTES = 16 * 1024 * 1024
 
 
+# The same host-only HTTP admission contract is used by the downstream
+# RELEASE-1 aggregate; neither verifier trusts a producer success bit.
+import importlib.util as _http_importlib
+_http_spec = _http_importlib.spec_from_file_location(
+    "release1_http_contract", Path(__file__).with_name("release_http_contract.py"))
+require_spec = _http_spec is not None and _http_spec.loader is not None
+if not require_spec:
+    raise ValueError("independent HTTP contract module missing")
+http_contract = _http_importlib.module_from_spec(_http_spec)
+_http_spec.loader.exec_module(http_contract)
+
+
 def require(value, reason):
     if not value:
         raise ValueError(reason)
@@ -175,9 +187,9 @@ def verify_smoke(doc: dict, key: str) -> dict:
                 isinstance(request.get("path"), str) and
                 request["status"] != 403,
                 "unexpected or malformed HTTP request evidence")
+        require(http_contract.allowed_release_http(request, key),
+                "unapproved GET or POST endpoint/status in HTTP audit")
         if request["method"] != "POST":
-            require(request.get("request_id") is None,
-                    "GET request has move request identity")
             continue
         path = request["path"]
         if path.startswith(MOVE_PREFIX):

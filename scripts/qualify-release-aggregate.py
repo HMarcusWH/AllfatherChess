@@ -57,32 +57,18 @@ def check_smoke_evidence(path:Path, key:str) -> dict:
     return mod.verify_file(path,key)
 
 
-def allowed_release_http(row: object, case: str) -> bool:
-    """Defense in depth after the independent chess/request correlation check."""
-    if (type(row) is not dict or
-            row.get("method") not in ("GET", "POST") or
-            type(row.get("status")) is not int or
-            not isinstance(row.get("path"), str) or
-            row["status"] == 403):
-        return False
-    if row["method"] == "GET":
-        return row.get("request_id") is None
-    path = row["path"]
-    approved = {"/api/token/test", "/api/challenge/off3b001/accept",
-                "/api/challenge/off3b001/decline"}
-    if path in approved:
-        return row["status"] == 200 and row.get("request_id") is None
-    prefix = "/api/bot/game/off3b001/move/"
-    if not path.startswith(prefix):
-        return False
-    move = path[len(prefix):]
-    # Position legality and uniqueness are verified by verify_file; this
-    # layer enforces only status, endpoint and request-ID compatibility.
-    return (move not in ("", "0000") and
-            isinstance(row.get("request_id"), str) and
-            bool(row["request_id"]) and
-            row["status"] in ((200, 429) if case == "r10-white" else (200,)))
+# Read the exact same host-only HTTP admission contract as the independent
+# smoke verifier; the aggregate cannot silently widen allowed GETs.
+_http_spec = importlib.util.spec_from_file_location(
+    "release1_http_aggregate", ROOT/"scripts/release_http_contract.py")
+require(_http_spec is not None and _http_spec.loader is not None,
+        "shared RELEASE-1 HTTP admission contract missing")
+http_contract = importlib.util.module_from_spec(_http_spec)
+_http_spec.loader.exec_module(http_contract)
 
+
+def allowed_release_http(row: object, case: str) -> bool:
+    return http_contract.allowed_release_http(row, case)
 
 def qualify(*, stage:Path, oci:Path, oci_archive:Path, host:Path, smoke_dir:Path,
             os_inventory:Path, wheel_inventory:Path, source_sha:str, root:Path=ROOT):

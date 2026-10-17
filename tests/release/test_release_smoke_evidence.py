@@ -166,6 +166,33 @@ class PackagedMoveEvidenceTests(unittest.TestCase):
                 self.assertTrue(result["independent_qualified"])
                 self.assertFalse(result["public_bot_release"])
 
+    def test_get_allowlist_matches_fake_api_without_wildcard(self):
+        doc = fixture("r00-white")
+        for endpoint in sorted(qual.http_contract.ALLOWED_GETS):
+            doc["http"].append({"method":"GET", "path":endpoint,
+                                "status":200, "monotonic_ms":30})
+        self.assertTrue(qual.verify_smoke(doc, "r00-white")[
+            "independent_qualified"])
+
+    def test_forged_get_never_qualifies_producer_success(self):
+        for path, status, rid in (
+            ("/api/account/email",200,None),
+            ("/api/account",401,None),
+            ("/api/account",429,None),
+            ("/api/stream/event",403,None),
+            ("/api/stream/event",200,"request-1"),
+            ("/api/account?private=true",200,None),
+            ("/api/bot/game/stream/off3b001/../other",200,None),
+        ):
+            with self.subTest(path=path,status=status,rid=rid):
+                doc=fixture("r00-white")
+                doc["http"].append({"method":"GET","path":path,
+                                    "status":status,"request_id":rid,
+                                    "monotonic_ms":30})
+                with self.assertRaisesRegex(ValueError,
+                        "unapproved GET or POST"):
+                    qual.verify_smoke(doc,"r00-white")
+
     def test_position_illegal_uci_fails_even_when_the_producer_says_ready(self):
         doc=fixture("r10-white")
         uci="e7e5"  # syntactically valid, illegal on White's first turn

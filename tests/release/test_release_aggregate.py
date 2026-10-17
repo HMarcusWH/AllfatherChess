@@ -135,6 +135,22 @@ class ReleaseAggregateContracts(unittest.TestCase):
             with self.subTest(digest=bad, prefixed=prefixed):
                 self.assertFalse(aggregate.is_sha256_hex(bad, prefixed=prefixed))
 
+    def test_forged_get_does_not_pass_aggregate(self):
+        case = "r00-white"
+        target = self.smoke_dir/case/"result.json"
+        original = json.loads(target.read_text())
+        for path, status in (("/api/account/email",200),
+                             ("/api/account",401),
+                             ("/api/stream/event?token=secret",200)):
+            with self.subTest(path=path):
+                target.write_text(json.dumps({**original,
+                    "http":original["http"]+[{
+                        "method":"GET","path":path,"status":status}]}))
+                with self.assertRaisesRegex(ValueError,
+                        "HTTP contains prohibited request"):
+                    self.qualify()
+        target.write_text(json.dumps(original))
+
     def test_http_admission_is_consistent_with_independent_verifier(self):
         token={"method":"POST","path":"/api/token/test","status":200}
         move={"method":"POST",

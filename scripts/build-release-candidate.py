@@ -49,6 +49,7 @@ SOURCE_FILES = (POLICY, BRIDGE_LOCK, "qualification/release-qualification-v1.jso
                 "deploy/release/Dockerfile.dockerignore",
                 "scripts/build-release-candidate.py",
                 "scripts/qualify-release-smoke.py",
+                "scripts/release_http_contract.py",
                 "scripts/inspect-release-oci.py",
                 "scripts/check-release-snapshot.py",
                 "scripts/check-release-scanner.py", *TOOL_FILES)

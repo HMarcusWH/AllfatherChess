@@ -23,6 +23,7 @@ import chess.pgn
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from tests.lichess.fault_plan import load_scenarios
+from tests.lichess.http_target_contract import canonical_target
 
 POLICY = ROOT / "qualification/online-recovery-v1.json"
 
@@ -369,6 +370,29 @@ def invalid_move_submissions(http_requests: list[dict]) -> list[dict]:
     return invalid
 
 
+def unexpected_raw_targets(http_requests: list[dict]) -> list[dict]:
+    """Bounded unsafe-behavior observations, never raw rejected query data."""
+    unexpected = []
+    for row in http_requests:
+        if not isinstance(row, dict):
+            continue
+        raw = row.get("request_target")
+        method = row.get("method")
+        bad = (not isinstance(raw, str) or
+               row.get("target_canonical") is not True or
+               not canonical_target(method, raw) or
+               row.get("path") != raw.split("?", 1)[0])
+        if bad and len(unexpected) < 32:
+            unexpected.append({
+                "method": method if method in ("GET", "POST") else "unknown",
+                "status": row.get("status") if type(row.get("status")) is int else None,
+                "path": row.get("path") if isinstance(row.get("path"), str)
+                        else "__invalid_path__",
+                "reason": "noncanonical_request_target",
+            })
+    return unexpected
+
+
 def verify_exact_http_move_audit(
         http_requests: list[dict], trace: list[dict]) -> int:
     """An observed move POST must have exactly one server trace attempt.
@@ -487,7 +511,8 @@ def validate_experiment(case_dir: Path, scenario: dict, color: str,
            "fault harness recorded execution or teardown errors")
     unusable_moves = (invalid_move_submissions(http_requests) +
                       history["illegal_attempts"] +
-                      history["stale_retry_attempts"])
+                      history["stale_retry_attempts"] +
+                      unexpected_raw_targets(http_requests))
     if scenario["action"] == "none":
         ensure(history["bot_commits"] > 0 and logging is not None,
                "normal engine baseline did not play")

@@ -156,6 +156,21 @@ class IndependentEvidenceTests(unittest.TestCase):
         self.assertEqual(rejected["stale_retry_attempts"],[])
         self.assertEqual(len(rejected["illegal_attempts"]),1)
 
+    def test_noncanonical_http_query_never_supports_safe_continuation(self):
+        good={"method":"GET","path":"/api/account","status":200,
+              "request_target":"/api/account","target_canonical":True}
+        self.assertEqual(QUALIFIER.unexpected_raw_targets([good]),[])
+        malformed={
+            **good,"request_target":"/api/account?access_token=PRIVATE-CANARY",
+        }
+        observed=QUALIFIER.unexpected_raw_targets([malformed])
+        self.assertEqual(len(observed),1)
+        self.assertEqual(observed[0]["reason"],"noncanonical_request_target")
+        self.assertNotIn("PRIVATE-CANARY",str(observed))
+        self.assertEqual(QUALIFIER.unexpected_raw_targets([
+            {**good,"target_canonical":False}])[0]["reason"],
+                         "noncanonical_request_target")
+
     def test_move_audit_requires_exact_request_id_and_multiset(self):
         first="/api/bot/game/off3b001/move/e2e4"
         second="/api/bot/game/off3b001/move/d2d4"

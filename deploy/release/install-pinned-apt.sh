@@ -61,7 +61,8 @@ only_transient_acquisition_failures() {
             }
             if (line ~ /^E:/) {
                 # This APT summary follows individually classified errors.
-                if (line !~ /^E: Some index files failed to download/)
+                if (line !~ /^E: Some index files failed to download/ &&
+                    line != "E: Unable to fetch some archives, maybe run apt-get update or try with --fix-missing?")
                     bad=1
                 next
             }

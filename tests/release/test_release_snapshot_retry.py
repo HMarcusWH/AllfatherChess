@@ -63,6 +63,21 @@ case "$APT_TEST_MODE" in
     echo "  504  Gateway Time-out [IP: 185.125.189.69 443]" >&2
     echo "E: Failed to fetch https://snapshot.ubuntu.com/ubuntu/noble/InRelease 504 Gateway Time-out [IP: 185.125.189.69 443]" >&2
     exit 100 ;;
+  install503)
+    if [ "$phase" = install ]; then
+      echo "Err:1 https://snapshot.ubuntu.com/ubuntu noble packages" >&2
+      echo "  503 Service Unavailable [IP: 185.125.189.69 443]" >&2
+      echo "E: Failed to fetch https://snapshot.ubuntu.com/ubuntu/packages.deb 503 Service Unavailable [IP: 185.125.189.69 443]" >&2
+      echo "E: Unable to fetch some archives, maybe run apt-get update or try with --fix-missing?" >&2
+      exit 100
+    fi ;;
+  install503mixed)
+    if [ "$phase" = install ]; then
+      echo "E: Failed to fetch https://snapshot.ubuntu.com/ubuntu/packages.deb 503 Service Unavailable" >&2
+      echo "E: Failed to fetch https://snapshot.ubuntu.com/ubuntu/other.deb 401 Unauthorized" >&2
+      echo "E: Unable to fetch some archives, maybe run apt-get update or try with --fix-missing?" >&2
+      exit 100
+    fi ;;
   two503)
     echo "Err:1 https://snapshot.ubuntu.com/ubuntu noble InRelease" >&2
     echo "  503 Service Unavailable" >&2
@@ -123,6 +138,16 @@ class PinnedSnapshotRetryTests(unittest.TestCase):
                 self.assertNotEqual(result.returncode,0)
                 self.assertEqual(counts,{"update":4,"install":0})
                 self.assertIn("exhausted four bounded attempts",result.stderr)
+
+    def test_install_summary_with_only_transient_errors_retries_bounded(self):
+        result,counts=self.execute("install503")
+        self.assertNotEqual(result.returncode,0)
+        self.assertEqual(counts,{"update":1,"install":4})
+
+    def test_install_summary_does_not_override_unknown_or_401(self):
+        result,counts=self.execute("install503mixed")
+        self.assertNotEqual(result.returncode,0)
+        self.assertEqual(counts,{"update":1,"install":1})
 
     def test_multiple_503s_are_individually_classified_and_bounded(self):
         result,counts=self.execute("two503")

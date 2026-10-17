@@ -272,7 +272,8 @@ class IndependentEvidenceTests(unittest.TestCase):
             {"method": "POST", "path": "/api/bot/game/off3b001/move/garbage", "status": 400},
         ]
         bad = QUALIFIER.invalid_move_submissions(attempts)
-        self.assertEqual([r["uci"] for r in bad], ["0000", "garbage"])
+        self.assertEqual([r["uci"] for r in bad], ["0000", "__redacted__"])
+        self.assertNotIn("garbage", repr(bad))
         self.assertEqual(QUALIFIER.invalid_move_submissions([attempts[1]]), [])
 
     def test_sha256_of_stream_payload_is_stable(self):

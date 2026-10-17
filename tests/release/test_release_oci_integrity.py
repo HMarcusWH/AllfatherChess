@@ -35,7 +35,8 @@ class OCIProofTests(unittest.TestCase):
                 application_platform="linux/amd64",
                 index_platform="absent", inner_index_platform="absent",
                 double_nested=False, embedded_media="absent",
-                config_platform="valid", diagnostic_canary=None):
+                config_platform="valid", diagnostic_canary=None,
+                malformed_diagnostic=None):
         base = b"original uncompressed OCI application layer\n"
         expanded = (b"substituted uncompressed OCI application layer\n"
                     if replace_layer else base)
@@ -87,6 +88,12 @@ class OCIProofTests(unittest.TestCase):
             layer_desc["size"] += 1
         application_doc = {
             "schemaVersion": 2, "config": cfg_desc, "layers": [layer_desc]}
+        if malformed_diagnostic == "app-config-list":
+            application_doc["config"] = [cfg_desc]
+        elif malformed_diagnostic == "app-layers-null":
+            application_doc["layers"] = None
+        elif malformed_diagnostic == "app-layer-scalar":
+            application_doc["layers"] = [7]
         if embedded_media in ("app-valid", "app-wrong"):
             application_doc["mediaType"] = (
                 oci_manifest if embedded_media == "app-valid" else oci_index)
@@ -266,6 +273,10 @@ class OCIProofTests(unittest.TestCase):
             "config": descriptor("application/vnd.oci.image.config.v1+json",
                                   att_config),
             "layers": attest_layers}
+        if malformed_diagnostic == "attest-config-list":
+            attest_data["config"] = [attest_data["config"]]
+        elif malformed_diagnostic == "attest-layer-null":
+            attest_data["layers"] = [None]
         if manifest_subject_kind != "none":
             subject = descriptor(oci_manifest, application)
             if manifest_subject_kind == "wrong":
@@ -732,6 +743,33 @@ class OCIProofTests(unittest.TestCase):
             self.assertEqual(
                 report["index_manifests"][0]["children"][0]["config_type"],
                 "unrecognized")
+
+    def test_malformed_oci_containers_yield_sanitized_error_and_strict_refusal(self):
+        mod_spec=importlib.util.spec_from_file_location(
+            "release1_bad_oci_diagnostic",ROOT/"scripts/inspect-release-oci.py")
+        mod=importlib.util.module_from_spec(mod_spec)
+        mod_spec.loader.exec_module(mod)
+        import sys
+        for mode in ("app-config-list", "app-layers-null",
+                     "app-layer-scalar", "attest-config-list",
+                     "attest-layer-null"):
+            with self.subTest(mode=mode),tempfile.TemporaryDirectory() as d:
+                archive,meta,inspection=self.fixture(
+                    Path(d),malformed_diagnostic=mode)
+                output=Path(d)/"diagnostic.json"
+                before=sys.argv
+                try:
+                    sys.argv=["diag","--archive",str(archive),
+                              "--metadata",str(meta),"--output",str(output)]
+                    self.assertEqual(mod.main(),0)
+                finally:
+                    sys.argv=before
+                report=json.loads(output.read_text())
+                self.assertFalse(report["integrity_verified"])
+                self.assertTrue(report["inspection_failed"])
+                self.assertEqual(report["inspection_error"],"ValueError")
+                with self.assertRaises((ValueError, TypeError)):
+                    oci.verify_archive(archive,meta,docker_inspect=inspection)
 
     def test_retained_oci_diagnostics_do_not_echo_untrusted_subject_names(self):
         mod_spec=importlib.util.spec_from_file_location(

@@ -84,6 +84,8 @@ def inspect(archive: Path, metadata: Path) -> dict:
     result = {"schema_version": 1, "diagnostic_only": True,
               "integrity_verified": False, "public_bot_release": False}
     build = json.loads(metadata.read_text(encoding="utf-8"))
+    if type(build) is not dict:
+        raise ValueError("invalid OCI diagnostic BuildKit metadata")
     result["buildkit_digest"] = digest_only(build.get("containerimage.digest"))
     with tarfile.open(archive, "r:*") as tar:
         members = {}
@@ -133,7 +135,7 @@ def inspect(archive: Path, metadata: Path) -> dict:
                     "annotations": approved_annotations(desc.get("annotations"))}
 
         index = document("index.json")
-        if not isinstance(index, dict) or not isinstance(index.get("manifests"), list):
+        if type(index) is not dict or type(index.get("manifests")) is not list:
             raise ValueError("invalid layout index")
         roots = index["manifests"]
         result["index_manifests"] = []
@@ -163,6 +165,14 @@ def inspect(archive: Path, metadata: Path) -> dict:
                            "application/vnd.docker.distribution.manifest.v2+json"):
                 raise ValueError("unexpected descriptor media type")
             manifest = document("blobs/sha256/" + oid[7:])
+            if type(manifest) is not dict:
+                raise ValueError("invalid OCI diagnostic manifest object")
+            config = manifest.get("config")
+            layers = manifest.get("layers")
+            if type(config) is not dict or type(layers) is not list:
+                raise ValueError("invalid OCI diagnostic config/layers container")
+            if any(type(layer) is not dict for layer in layers):
+                raise ValueError("invalid OCI diagnostic layer descriptor")
             rec["artifact_type"] = (
                 "application" if not (
                     (rec["annotations"] or {}).get("vnd.docker.reference.type")
@@ -189,8 +199,7 @@ def inspect(archive: Path, metadata: Path) -> dict:
             else:
                 rec["manifest_subject"] = None
             rec["config_type"] = approved_type(
-                (manifest.get("config") or {}).get("mediaType"),
-                SAFE_CONFIG_TYPES)
+                config.get("mediaType"), SAFE_CONFIG_TYPES)
             attested = (rec["annotations"] or {}).get(
                 "vnd.docker.reference.type") == "attestation-manifest"
             if attested:
@@ -198,7 +207,7 @@ def inspect(archive: Path, metadata: Path) -> dict:
             else:
                 result["application_manifest_digest"] = oid
             rec["layers"] = []
-            for layer in manifest.get("layers", []):
+            for layer in layers:
                 lid = layer.get("digest", "")
                 member = members.get("blobs/sha256/" + str(lid)[7:])
                 row = {"digest": digest_only(lid),
@@ -216,13 +225,15 @@ def inspect(archive: Path, metadata: Path) -> dict:
                        "actual_size": member.size if member else None}
                 if attested and layer.get("mediaType") == "application/vnd.in-toto+json":
                     statement = document("blobs/sha256/" + str(lid)[7:])
+                    if type(statement) is not dict:
+                        raise ValueError("invalid OCI diagnostic attestation object")
                     statements = statement.get("statements")
-                    if not isinstance(statements, list):
-                        statements = [statement]
+                    if type(statements) is not list:
+                        raise ValueError("invalid OCI diagnostic statement list")
                     row["statements"] = []
                     for st in statements:
-                        if not isinstance(st, dict):
-                            continue
+                        if type(st) is not dict:
+                            raise ValueError("invalid OCI diagnostic statement object")
                         predicate = st.get("predicate")
                         safe_keys = (sorted(predicate.keys())
                                      if isinstance(predicate, dict) else [])
@@ -281,7 +292,8 @@ def main() -> int:
     args = ap.parse_args()
     try:
         report = inspect(args.archive, args.metadata)
-    except (OSError, ValueError, TypeError, KeyError, tarfile.TarError) as exc:
+    except (OSError, ValueError, TypeError, AttributeError, IndexError,
+            KeyError, tarfile.TarError) as exc:
         report = {"schema_version": 1, "diagnostic_only": True,
                   "integrity_verified": False, "public_bot_release": False,
                   # No untrusted archive path, metadata or statement string

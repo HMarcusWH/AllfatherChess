@@ -186,6 +186,16 @@ class AssuranceContractTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,"verified packaged games"):
             claims.verify_report(report,"release_aggregate")
 
+    def test_fixed_enum_allowlist_rejects_secret_like_valid_tokens(self):
+        for key in ("reason","origin","status","behavior","action",
+                    "event","scenario","endpoint"):
+            with self.subTest(field=key):
+                cleaned=sanitizer.sanitize_report({key:"PRIVATE_CANARY"})
+                self.assertEqual(cleaned[key],"__redacted__")
+        self.assertEqual(sanitizer.sanitize_report({
+            "reason":"noncanonical_request_target"})["reason"],
+            "noncanonical_request_target")
+
     def test_safe_output_never_exports_nested_secret_canaries(self):
         doc={
             "public_bot_release":False,

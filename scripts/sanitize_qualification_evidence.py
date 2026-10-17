@@ -10,12 +10,68 @@ import json
 import math
 import re
 
-SAFE_ENUM_FIELDS=frozenset({
-    "status","reason","action","event","endpoint","observation","origin",
-    "scenario","color","behavior","release_kind","termination","mode",
-    "phase","kind","cause","http_method","method","run_id","run","name",
-    "stop_reason","scope","type","event_id","generation",
+ACTIONS=frozenset({
+    "none","drop_before_commit","commit_then_close","commit_then_504",
+    "duplicate_move","delay_state","duplicate_state","stale_state",
+    "partial_chunk","replace_event_stream","rate_limit_429","wrong_game",
+    "low_clock_close","terminate_bridge","duplicate_terminal",
 })
+SCENARIOS=frozenset(f"R{i:02d}" for i in range(15))
+BEHAVIORS=frozenset({
+    "SAFE_CONTINUATION","UNSAFE_WITNESS","OBSERVED_COMPLETION",
+    "OBSERVED_STOP_OR_UNRESOLVED","NORMAL_COMPLETION","RECOVERED",
+    "SAFE_SUSPENSION","INCONCLUSIVE","OFFLINE_SMOKE_PASS",
+    "OFFLINE_SMOKE_FAIL","CONFIRMED","UNKNOWN_ACK",
+})
+SAFE_ENUM_VALUES={
+    "status":BEHAVIORS,
+    "behavior":BEHAVIORS,
+    "scenario":SCENARIOS,
+    "color":frozenset(("white","black")),
+    "origin":frozenset(("allfather","scripted_opponent")),
+    "method":frozenset(("GET","POST")),
+    "http_method":frozenset(("GET","POST")),
+    "action":ACTIONS,
+    "endpoint":frozenset(("move","move_post","game_state","event_stream",
+                          "terminal_state","account","token","challenge")),
+    "reason":frozenset(("noncanonical_request_target",
+                         "unapproved_http_status",
+                         "position_illegal_or_wrong_turn",
+                         "repeated_move_submission_same_ply",
+                         "once_legal_retry_after_lost_ack",
+                         "duplicate_unconfirmed_move_submission")),
+    "observation":frozenset(("complete_confirmed","restart_after_lost_ack",
+                           "rate_limited_suspension","fault_triggered_bridge_kill",
+                           "bounded_postfault_observation","not_started",
+                           "experiment_timeout","game_stream_observed",
+                           "injected_bridge_kill","server_game_complete",
+                           "terminal_reconciliation_timeout",
+                           "restart_requested_after_fault",
+                           "unresolved_precommit_contained",
+                           "rate_limit_containment_window",
+                           "invalid_move_containment_window",
+                           "bridge_exited","bounded_restarted_game",
+                           "bounded_experiment_timeout","phase_error",
+                           "launching")),
+    "termination":frozenset(("CHECKMATE","STALEMATE",
+                             "INSUFFICIENT_MATERIAL","SEVENTYFIVE_MOVES",
+                             "FIVEFOLD_REPETITION","VARIANT_WIN",
+                             "VARIANT_LOSS","VARIANT_DRAW")),
+    "cause":frozenset(("http429:move","quiesce")),
+    "scope":frozenset(("offline-fault-harness-only",
+                      "offline-guarded-bridge-only")),
+    "mode":frozenset(("OFFLINE-4B-ONLY","OFFLINE-ONLY")),
+    "release_kind":frozenset(("ONLINE-3A-OFFLINE-ONLY",)),
+    "event":frozenset(("move_attempt","board_commit","fault_activated",
+                      "http_move_submission_attempt","http_unknown_ack",
+                      "http_move_ack_observed","global_rate_limit_block",
+                      "rate_limit_hold_completed","response_write_completed",
+                      "connection_close_requested","stream_emit",
+                      "stream_partial_chunk","cooldown","subscribe",
+                      "position_suspended","authoritative_snapshot_observed",
+                      "unavailable_or_illegal_uci_move","move_prepare_refused")),
+}
+SAFE_ENUM_FIELDS=frozenset(SAFE_ENUM_VALUES)
 HASH_FIELDS=frozenset({
     "source_commit","bridge_commit","source_sha","sha256","policy_sha256",
     "scenario_source_sha256","sanitized_sha256","manifest_sha256",
@@ -54,7 +110,10 @@ def safe_string(field: str, value: str) -> str | None:
                  "stdout","stderr","url","uri","query","raw","raw_path"):
         return "__redacted__"
     if field in SAFE_ENUM_FIELDS:
-        return value if SAFE_ENUM.fullmatch(value) else "__redacted__"
+        return value if value in SAFE_ENUM_VALUES[field] else "__redacted__"
+    if field == "run_id":
+        return value if value in {f"r{i:02d}-{color}" for i in range(15)
+                                  for color in ("white","black")} else "__redacted__"
     # Strict default deny: otherwise any new producer-controlled field can
     # leak a secret without a separate output-safety review.
     return "__redacted__"

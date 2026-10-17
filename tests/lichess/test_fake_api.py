@@ -67,6 +67,30 @@ class FakeAPITests(unittest.TestCase):
             self.assertTrue(record["target_canonical"])
             self.assertEqual(record["request_target"], target)
 
+    def test_network_path_bypasses_cpython_normalization_only_if_not_observed(self):
+        import socket
+        for target in ("//api/account", "///api/account",
+                       "//api/users/status?ids=allfatherfixture"):
+            with self.subTest(target=target):
+                with socket.create_connection(self.fake.http.server_address,
+                                              timeout=4) as connection:
+                    connection.settimeout(4)
+                    query=(f"GET {target} HTTP/1.1\r\n"
+                           "Host: 127.0.0.1\r\n"
+                           f"Authorization: Bearer {TOKEN}\r\n"
+                           "Connection: close\r\n\r\n").encode()
+                    connection.sendall(query)
+                    answer=connection.recv(1024)
+                self.assertIn(b"403",answer)
+                observed=self.fake.requests[-1]
+                self.assertEqual(observed["method"],"GET")
+                self.assertEqual(observed["status"],403)
+                self.assertFalse(observed["target_canonical"])
+                self.assertIsNone(observed["request_target"])
+                self.assertEqual(len(observed["request_target_sha256"]),64)
+                self.assertIn("GET "+target.split("?",1)[0],
+                              self.fake.attempted_forbidden)
+
     def test_duplicate_accept_rejected(self):
         path = f"/api/challenge/{GAME_ID}/accept"
         self.assertEqual(self.call("POST", path), 200)

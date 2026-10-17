@@ -37,6 +37,22 @@ class RecoveryHTTPTests(unittest.TestCase):
         finally:
             fake.close()
 
+    def test_attempt_record_retains_actual_upstream_query_target(self):
+        fake=FakeLichess("white")
+        fake.start()
+        try:
+            reply=requests.get(fake.url+"api/users/status",
+                               params={"ids":"allfatherfixture"},
+                               headers=HEADERS,timeout=4)
+            self.assertEqual(reply.status_code,200)
+            row=fake.evidence()["requests"][-1]
+            self.assertEqual(row["path"],"/api/users/status")
+            self.assertEqual(row["request_target"],
+                             "/api/users/status?ids=allfatherfixture")
+            self.assertTrue(row["target_canonical"])
+        finally:
+            fake.close()
+
     def test_request_reaches_handler_but_drops_before_commit(self):
         self.run_fault("R01", 0)
 

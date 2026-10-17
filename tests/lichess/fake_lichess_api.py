@@ -62,6 +62,25 @@ class FakeLichess:
             def log_message(self, fmt, *args):
                 pass
 
+            def parse_request(self):
+                # CPython normalizes a leading // in BaseHTTPRequestHandler
+                # *before* do_GET/do_POST. Capture the original wire target
+                # from raw_requestline to prevent normalization-based bypass.
+                self._raw_http_target = ""
+                try:
+                    line = self.raw_requestline.decode("iso-8859-1").rstrip("\r\n")
+                    parts = line.split(" ")
+                    if (len(parts) == 3 and all(parts) and
+                            parts[0] in ("GET", "POST") and
+                            parts[2] in ("HTTP/1.0", "HTTP/1.1")):
+                        self._raw_http_target = parts[1]
+                except UnicodeError:
+                    pass
+                return super().parse_request()
+
+            def raw_target(self) -> str:
+                return getattr(self, "_raw_http_target", "")
+
             def respond(self, status: int, obj: dict):
                 data = json.dumps(obj, separators=(",", ":")).encode()
                 self.send_response(status)
@@ -199,7 +218,7 @@ class FakeLichess:
             def auth(self) -> bool:
                 if self.headers.get("Authorization") != "Bearer " + TOKEN:
                     # Even an early rejected request remains an HTTP witness.
-                    self.record(self.command, path_of(self.path), 401)
+                    self.record(self.command, path_of(self.raw_target()), 401)
                     self.respond(401, {"error": "synthetic token required"})
                     return False
                 return True
@@ -210,7 +229,7 @@ class FakeLichess:
                     row = {
                         "monotonic_ms": round((time.monotonic() - server.start_time) * 1000),
                         "method": kind, "status": status,
-                        **safe_audit_fields(kind, self.path),
+                        **safe_audit_fields(kind, self.raw_target()),
                     }
                     if request_id is not None:
                         row["request_id"] = request_id
@@ -220,9 +239,9 @@ class FakeLichess:
                 self._move_request_id = None  # never reuse an HTTP/1.1 request identity
                 if not self.auth():
                     return
-                path = path_of(self.path)
-                if not canonical_target("GET", self.path):
-                    safe = safe_audit_fields("GET", self.path)["path"]
+                path = path_of(self.raw_target())
+                if not canonical_target("GET", self.raw_target()):
+                    safe = safe_audit_fields("GET", self.raw_target())["path"]
                     self.record("GET", safe, 403)
                     server.attempted_forbidden.append("GET " + safe)
                     return self.respond(403, {"error": "offline request-target prohibited"})
@@ -290,9 +309,9 @@ class FakeLichess:
                     return self.respond(413, {"error": "body too large"})
                 if length:
                     self.rfile.read(length)
-                path = path_of(self.path)
-                if not canonical_target("POST", self.path):
-                    safe = safe_audit_fields("POST", self.path)["path"]
+                path = path_of(self.raw_target())
+                if not canonical_target("POST", self.raw_target()):
+                    safe = safe_audit_fields("POST", self.raw_target())["path"]
                     with server.lock:
                         server.attempted_forbidden.append("POST " + safe)
                     self.record("POST", safe, 403)

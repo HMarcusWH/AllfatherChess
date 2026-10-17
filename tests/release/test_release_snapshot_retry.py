@@ -32,6 +32,34 @@ case "$APT_TEST_MODE" in
     exit 100 ;;
   badhash) echo "E: Hash Sum mismatch" >&2; exit 100 ;;
   missing) echo "E: 404 Not Found" >&2; exit 100 ;;
+  mixed-dns)
+    echo "Err:1 https://snapshot.ubuntu.com/ubuntu noble InRelease" >&2
+    echo "  503 Service Unavailable" >&2
+    echo "Err:2 https://snapshot.ubuntu.com/ubuntu noble-security InRelease" >&2
+    echo "  Temporary failure resolving snapshot.ubuntu.com" >&2
+    echo "E: Failed to fetch noble/InRelease 503 Service Unavailable" >&2
+    echo "E: Failed to fetch noble-security/InRelease Temporary failure resolving" >&2
+    exit 100 ;;
+  mixed-401)
+    echo "E: Failed to fetch noble/InRelease 503 Service Unavailable" >&2
+    echo "E: Failed to fetch noble-security/InRelease 401 Unauthorized" >&2
+    exit 100 ;;
+  mixed-signature)
+    echo "E: Failed to fetch noble/InRelease 503 Service Unavailable" >&2
+    echo "E: BADSIG: invalid signature" >&2
+    exit 100 ;;
+  mixed-unclassified)
+    echo "E: Failed to fetch noble/InRelease 503 Service Unavailable" >&2
+    echo "E: Some unknown acquisition condition" >&2
+    exit 100 ;;
+  two503)
+    echo "Err:1 https://snapshot.ubuntu.com/ubuntu noble InRelease" >&2
+    echo "  503 Service Unavailable" >&2
+    echo "Err:2 https://snapshot.ubuntu.com/ubuntu noble-security InRelease" >&2
+    echo "  503 Service Unavailable" >&2
+    echo "E: Failed to fetch noble/InRelease 503 Service Unavailable" >&2
+    echo "E: Failed to fetch noble-security/InRelease 503 Service Unavailable" >&2
+    exit 100 ;;
 esac
 exit 0
 '''
@@ -66,6 +94,19 @@ class PinnedSnapshotRetryTests(unittest.TestCase):
 
     def test_persistent_503_is_bounded_and_blocks_install(self):
         result,counts=self.execute("always503")
+        self.assertNotEqual(result.returncode,0)
+        self.assertEqual(counts,{"update":4,"install":0})
+
+    def test_mixed_error_class_never_retries(self):
+        for mode in ("mixed-dns","mixed-401","mixed-signature",
+                     "mixed-unclassified"):
+            with self.subTest(mode=mode):
+                result,counts=self.execute(mode)
+                self.assertNotEqual(result.returncode,0)
+                self.assertEqual(counts,{"update":1,"install":0})
+
+    def test_multiple_503s_are_individually_classified_and_bounded(self):
+        result,counts=self.execute("two503")
         self.assertNotEqual(result.returncode,0)
         self.assertEqual(counts,{"update":4,"install":0})
 

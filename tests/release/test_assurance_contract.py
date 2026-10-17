@@ -69,6 +69,30 @@ class AssuranceContractTests(unittest.TestCase):
                                         "executed source differs from Git"):
                 closure.verify_committed_bytes(sha,[path],root)
 
+    def test_dynamic_executable_inputs_cannot_be_dropped_from_attestation(self):
+        dynamic={
+            "qualification/http-evidence-contract-v1.json",
+            "tests/fixtures/lichess/recovery_scenarios.json",
+            "deploy/lichess/bridge.lock.json",
+        }
+        for profile,policy in (
+            ("online-recovery-v1","qualification/online-recovery-v1.json"),
+            ("online-recovery-v2","qualification/online-recovery-v2.json"),
+        ):
+            required=closure.expected_sources(profile)
+            self.assertTrue(dynamic.issubset(required))
+            self.assertIn(policy,required)
+            original=closure.PROFILES[profile]["inputs"]
+            try:
+                # A producer-controlled profile cannot shrink independent
+                # expected imports/dynamic contract inputs.
+                config=closure.PROFILES[profile]
+                self.assertTrue(set(original).issubset(required))
+                self.assertTrue(closure.verify_profile(profile)[
+                    "source_closure_verified"])
+            finally:
+                closure.PROFILES[profile]["inputs"]=original
+
     def test_dependency_parser_catches_unattested_nested_import(self):
         with tempfile.TemporaryDirectory() as td:
             root=Path(td)

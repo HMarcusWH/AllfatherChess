@@ -246,16 +246,38 @@ def _optional_string_map(container: dict, field: str) -> bool:
 
 
 def _resource_uri(value: object) -> bool:
-    """External resource identifiers are URI, not arbitrary strings.
+    """in-toto ResourceURI accepts both hierarchical and opaque RFC3986 URIs.
 
-    A conservative set of schemes includes git+https and OCI resource URIs;
-    general SLSA builder identities remain governed by valid_identity_uri.
+    BuildKit's actual Docker materials use Package URLs such as
+    pkg:docker/ubuntu@sha256%3A...; these do not have //network authorities.
+    Resource URIs are identifiers, never instructions to access a network.
     """
     if type(value) is not str or not value:
         return False
-    schemes={"http","https","git+https","git+http","git+ssh",
-             "git","ssh","ftp","ftps","oci","docker","urn"}
-    return valid_uri_syntax(value,schemes,allow_git_ssh_user=True)
+    if re.fullmatch(r"[A-Za-z0-9._~:/?#\[\]@!$&'()*+,;=%-]+",
+                    value,re.ASCII) is None:
+        return False
+    if (re.search(r"%(?![0-9A-Fa-f]{2})",value) or
+            re.search(r"%(?:0[0-9A-Fa-f]|1[0-9A-Fa-f]|7[fF])",
+                      value,re.IGNORECASE)):
+        return False
+    try:
+        uri=urlsplit(value)
+        if not re.fullmatch(r"[A-Za-z][A-Za-z0-9+.-]*",uri.scheme):
+            return False
+        if uri.netloc:
+            return valid_uri_syntax(value,{uri.scheme},allow_git_ssh_user=True)
+        if uri.scheme not in ("pkg","urn","git","oci","file","docker"):
+            return False
+        pchar=r"A-Za-z0-9._~!$&'()*+,;=:@%-"
+        if (not uri.path or uri.path.startswith("//") or
+                re.fullmatch("["+pchar+r"/]*",uri.path,re.ASCII) is None or
+                re.fullmatch("["+pchar+r"/?]*",uri.query,re.ASCII) is None or
+                re.fullmatch("["+pchar+r"/?]*",uri.fragment,re.ASCII) is None):
+            return False
+        return True
+    except ValueError:
+        return False
 
 
 def _valid_digest_set(value: object) -> bool:

@@ -870,6 +870,7 @@ class OCIProofTests(unittest.TestCase):
     def test_resource_descriptors_require_meaningful_identity(self):
         good=(
             {"uri":"https://example.test/file"},
+            {"uri":"pkg:docker/ubuntu@sha256%3Aabc123"},
             {"digest":{"sha256":"a"*64}},
             {"content":"e30="},
             {"uri":"git+https://example.test/code.git@abc123",

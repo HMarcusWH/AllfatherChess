@@ -26,19 +26,16 @@ def approved_status(request: object, trace: list[dict],
         return False
     if method == "GET" or not path.startswith(MOVE_PREFIX):
         return status == policy["non_move_status"]
-    if status == policy["ordinary_move_status"]:
-        return True
-    target=policy["fault_specific_move_status"].get(action)
-    if target is None or status != target:
-        return False
+    target_status=policy["fault_specific_move_status"].get(action)
     request_id=request.get("request_id")
-    return (type(request_id) is str and bool(request_id) and
-            sum(1 for event in trace if type(event) is dict and
-                event.get("event")=="fault_activated" and
-                event.get("action")==action and
-                event.get("endpoint")=="move_post" and
-                event.get("request_id")==request_id)==1)
-
+    matching=[row for row in trace
+              if type(row) is dict and row.get("event")=="fault_activated"
+              and row.get("action")==action
+              and row.get("endpoint")=="move_post"
+              and row.get("request_id")==request_id]
+    if target_status is not None and matching:
+        return len(matching)==1 and status==target_status
+    return status==policy["ordinary_move_status"]
 
 def unexpected_statuses(requests: list[dict], trace: list[dict],
                         action: str) -> list[dict]:

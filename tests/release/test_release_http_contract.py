@@ -35,6 +35,17 @@ class SharedHTTPAdmissionTests(unittest.TestCase):
             "path":"/api/bot/game/off3b001/move/e2e4"})["path"],
             "/api/bot/game/off3b001/move/e2e4")
 
+    def test_safe_output_whitelist_matches_canonical_http_endpoints(self):
+        from scripts.sanitize_qualification_evidence import (
+            SAFE_PUBLIC_PATHS, safe_path)
+        from tests.lichess.http_target_contract import (
+            APPROVED_GETS, APPROVED_POSTS)
+        self.assertEqual(SAFE_PUBLIC_PATHS,
+                         APPROVED_GETS | APPROVED_POSTS)
+        prefix="/api/bot/game/off3b001/move/"
+        self.assertEqual(safe_path(prefix+"e7e8q"),prefix+"e7e8q")
+        self.assertEqual(safe_path(prefix+"garbage"),"__invalid_path__")
+
     def test_standalone_release_verifiers_import_policy_without_pythonpath(self):
         # Identical invocation mode to the real OCI release workflow.
         with tempfile.TemporaryDirectory() as tmp:

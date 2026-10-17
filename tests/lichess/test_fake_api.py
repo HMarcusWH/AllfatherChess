@@ -84,6 +84,22 @@ class FakeAPITests(unittest.TestCase):
                 self.assertNotIn("PRIVATE_CANARY",
                                  str(self.fake.attempted_forbidden))
 
+    def test_raw_trace_artifact_does_not_retain_malformed_path_canaries(self):
+        from pathlib import Path
+        from tests.lichess.fault_plan import load_scenarios
+        self.fake.close()
+        scenarios=Path(__file__).resolve().parents[2] / (
+            "tests/fixtures/lichess/recovery_scenarios.json")
+        self.fake=FakeLichess("white",load_scenarios(scenarios)["R00"])
+        self.fake.start()
+        for target in ("/api/account/PRIVATE_CANARY",
+                       f"/api/bot/game/{GAME_ID}/move/PRIVATE_CANARY",
+                       "//api/account?secret=PRIVATE_CANARY"):
+            self.assertEqual(self.call("GET",target),403)
+        report=json.dumps(self.fake.evidence(),sort_keys=True)
+        self.assertNotIn("PRIVATE_CANARY",report)
+        self.assertIn("__invalid_path__",report)
+
     def test_network_path_bypasses_cpython_normalization_only_if_not_observed(self):
         import socket
         for target in ("//api/account", "///api/account",

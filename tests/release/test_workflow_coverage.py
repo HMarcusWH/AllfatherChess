@@ -10,6 +10,19 @@ ROOT=Path(__file__).resolve().parents[2]
 
 
 class WorkflowCoverageTests(unittest.TestCase):
+    def test_online_bridge_contracts_trigger_for_assurance_dependencies(self):
+        cfg=yaml.load((ROOT/".github/workflows/online-bridge.yml").read_text(),
+                      Loader=yaml.BaseLoader)
+        paths=set(cfg["on"]["pull_request"]["paths"])
+        for critical in (
+            "scripts/sanitize_qualification_evidence.py",
+            "scripts/http_evidence_verdict.py",
+            "scripts/qualify-online-recovery.py",
+            "qualification/http-evidence-contract-v1.json",
+            "qualification/online-recovery-v1.json"):
+            with self.subTest(source=critical):
+                self.assertIn(critical,paths)
+
     def test_release_candidate_runs_on_all_prs_and_merged_main(self):
         cfg=yaml.load((ROOT/".github/workflows/release-candidate.yml").read_text(),
                       Loader=yaml.BaseLoader)

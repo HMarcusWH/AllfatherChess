@@ -24,6 +24,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from tests.lichess.fault_plan import load_scenarios
 from tests.lichess.http_target_contract import canonical_target
+from scripts.verify_source_closure import verify_profile, verify_committed_bytes
 
 POLICY = ROOT / "qualification/online-recovery-v1.json"
 
@@ -543,6 +544,8 @@ def qualify(evidence: Path, source_sha: str) -> dict:
     actual = subprocess.check_output(["git", "-C", str(ROOT), "rev-parse", "HEAD"],
                                      text=True).strip()
     ensure(actual == source_sha, "validator checkout is not exact source commit")
+    verify_profile("online-recovery-v1")
+    verify_committed_bytes(source_sha, policy["attested_source_paths"])
     bridge = read_json(ROOT / "deploy/lichess/bridge.lock.json")["commit"]
     scenarios = load_scenarios(ROOT / policy["scenario_source"])
     required = policy["required_integration_scenarios"]

@@ -25,6 +25,7 @@ sys.path.insert(0, str(ROOT))
 from tests.lichess.fault_plan import load_scenarios
 from tests.lichess.http_target_contract import canonical_target
 from deploy.lichess.reconcile import position_id
+from scripts.verify_source_closure import verify_profile, verify_committed_bytes
 
 def _v1_module():
     spec = importlib.util.spec_from_file_location(
@@ -544,6 +545,8 @@ def qualify(evidence: Path, source_sha: str):
     require(subprocess.check_output(["git", "-C", str(ROOT), "rev-parse", "HEAD"],
                                     text=True).strip() == source_sha,
             "not executing verifier on exact CI source head")
+    verify_profile("online-recovery-v2")
+    verify_committed_bytes(source_sha, policy["attested_paths"])
     scenarios = load_scenarios(ROOT / policy["scenario_source"])
     bridge = read(ROOT / policy["bridge_lock"])["commit"]
     expected_overlay = independently_expected_overlay()

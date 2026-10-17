@@ -1,0 +1,125 @@
+{
+  "schema_version": 1,
+  "scope": "immutable-offline-evidence-only",
+  "public_bot_release": false,
+  "authority": {
+    "public_distribution": false,
+    "live_transport": false,
+    "host_qualified": false,
+    "legal_approval": false,
+    "operator_approval": false,
+    "playing_strength": false
+  },
+  "claims": {
+    "harness_qualified": {
+      "requires": [
+        "exact_executed_source_closure",
+        "producer_qualifier_independent",
+        "complete_http_record_and_trace",
+        "authoritative_chess_replay",
+        "fault_witness",
+        "safe_retained_report"
+      ],
+      "does_not_imply": [
+        "safe_continuation",
+        "offline_recovery_qualified",
+        "network_recovery_qualified",
+        "public_bot_release"
+      ]
+    },
+    "containment_qualified_offline": {
+      "requires": [
+        "harness_qualified",
+        "all_requests_admitted_and_classified",
+        "scenario_specific_http_status_witness",
+        "durable_intent_and_epoch_consistency",
+        "no_unjustified_unsafe_witness"
+      ],
+      "does_not_imply": [
+        "network_recovery_qualified",
+        "public_bot_release"
+      ]
+    },
+    "recovery_qualified_offline": {
+      "requires": [
+        "containment_qualified_offline",
+        "frozen_fault_scenarios",
+        "new_epoch_confirmed_commit",
+        "exact_journal_reconciliation"
+      ],
+      "does_not_imply": [
+        "network_recovery_qualified",
+        "public_bot_release"
+      ]
+    },
+    "offline_smoke_qualified": {
+      "requires": [
+        "exact_executed_source_closure",
+        "actual_bot_actor_on_bot_turn",
+        "complete_http_status_request_identity",
+        "legal_game_and_pgn",
+        "read_only_durable_sqlite",
+        "scenario_fault_evidence",
+        "safe_retained_report"
+      ],
+      "does_not_imply": [
+        "offline_candidate_qualified",
+        "public_bot_release"
+      ]
+    },
+    "oci_sbom_verified": {
+      "requires": [
+        "same_archive_inode_integrity",
+        "complete_in_toto_statement_set",
+        "spdx_full_inventory_and_uri_schema",
+        "image_subject_binding"
+      ],
+      "does_not_imply": [
+        "publisher_signature_verified",
+        "public_bot_release"
+      ]
+    },
+    "oci_provenance_verified": {
+      "requires": [
+        "same_archive_inode_integrity",
+        "complete_in_toto_statement_set",
+        "slsa_versioned_field_shapes",
+        "slsa_resource_identity",
+        "slsa_timestamp_semantics",
+        "image_subject_binding"
+      ],
+      "does_not_imply": [
+        "publisher_signature_verified",
+        "public_bot_release"
+      ]
+    },
+    "image_integrity_qualified": {
+      "requires": [
+        "offline_smoke_qualified",
+        "oci_sbom_verified",
+        "oci_provenance_verified",
+        "exact_host_image_identity",
+        "complete_oci_layer_graph",
+        "safe_retained_report"
+      ],
+      "does_not_imply": [
+        "offline_candidate_qualified",
+        "public_bot_release"
+      ]
+    },
+    "offline_candidate_qualified": {
+      "requires": [
+        "image_integrity_qualified",
+        "os_and_wheel_lock_complete",
+        "controller_license_approved",
+        "source_availability_review",
+        "destination_host_qualified",
+        "live_transport_qualified",
+        "operator_live_approval"
+      ],
+      "does_not_imply": [
+        "public_bot_release"
+      ]
+    }
+  }
+}

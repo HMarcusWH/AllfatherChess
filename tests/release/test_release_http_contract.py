@@ -28,6 +28,12 @@ class SharedHTTPAdmissionTests(unittest.TestCase):
         spec.loader.exec_module(instance)
         self.assertEqual(instance.sanitize_report({
             "path":"/api/account?secret=CANARY"})["path"],"/api/account")
+        self.assertEqual(instance.sanitize_report({
+            "path":"/api/bot/game/off3b001/move/garbage"})["path"],
+            "__invalid_path__")
+        self.assertEqual(instance.sanitize_report({
+            "path":"/api/bot/game/off3b001/move/e2e4"})["path"],
+            "/api/bot/game/off3b001/move/e2e4")
 
     def test_standalone_release_verifiers_import_policy_without_pythonpath(self):
         # Identical invocation mode to the real OCI release workflow.

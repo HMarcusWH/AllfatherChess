@@ -67,6 +67,23 @@ class FakeAPITests(unittest.TestCase):
             self.assertTrue(record["target_canonical"])
             self.assertEqual(record["request_target"], target)
 
+    def test_rejected_move_suffixes_not_published(self):
+        prefix=f"/api/bot/game/{GAME_ID}/move/"
+        for target in (prefix+"garbage", prefix+"e2e4PRIVATE_CANARY",
+                       prefix+"e2e4/PRIVATE_CANARY",
+                       prefix+"e2e4?secret=PRIVATE_CANARY"):
+            with self.subTest(target=target):
+                self.assertEqual(self.call("POST",target),403)
+                record=self.fake.requests[-1]
+                self.assertEqual(record["path"],
+                                 prefix+"e2e4" if "?" in target
+                                 else "__invalid_path__")
+                self.assertFalse(record["target_canonical"])
+                self.assertIsNone(record["request_target"])
+                self.assertNotIn("PRIVATE_CANARY",str(record))
+                self.assertNotIn("PRIVATE_CANARY",
+                                 str(self.fake.attempted_forbidden))
+
     def test_network_path_bypasses_cpython_normalization_only_if_not_observed(self):
         import socket
         for target in ("//api/account", "///api/account",
@@ -88,8 +105,10 @@ class FakeAPITests(unittest.TestCase):
                 self.assertFalse(observed["target_canonical"])
                 self.assertIsNone(observed["request_target"])
                 self.assertEqual(len(observed["request_target_sha256"]),64)
-                self.assertIn("GET "+target.split("?",1)[0],
+                self.assertIn("GET __invalid_path__",
                               self.fake.attempted_forbidden)
+                self.assertNotIn(target, str(self.fake.requests))
+                self.assertNotIn(target, str(self.fake.attempted_forbidden))
 
     def test_raw_double_slash_post_never_becomes_valid_token_endpoint(self):
         import socket

@@ -181,6 +181,21 @@ class IndependentEvidenceTests(unittest.TestCase):
             {"method":"POST","path":"/api/token/test","status":500},
         ],[],"none")[0]["reason"],"unapproved_http_status")
 
+    def test_safe_path_requires_complete_approved_endpoint(self):
+        from scripts.sanitize_qualification_evidence import safe_path
+        prefix = "/api/bot/game/off3b001/move/"
+        for good in ("/api/account", "/api/users/status", "/api/token/test",
+                     prefix + "e2e4", prefix + "e7e8q"):
+            self.assertEqual(safe_path(good), good)
+        for bad in (prefix + "garbage", prefix + "0000",
+                    prefix + "e2e4PRIVATE_CANARY", prefix + "e2e4/more",
+                    prefix + "e2e9", "//api/account",
+                    "/arbitrary/path/CANARY", "/api/account%2fprivate"):
+            with self.subTest(bad=bad):
+                self.assertEqual(safe_path(bad), "__invalid_path__")
+        self.assertEqual(safe_path("/api/account?secret=PRIVATE_CANARY"),
+                         "/api/account")
+
     def test_retained_report_serializer_recursively_removes_canaries(self):
         from scripts.sanitize_qualification_evidence import sanitize_report
         sample={
@@ -203,6 +218,9 @@ class IndependentEvidenceTests(unittest.TestCase):
         data=json.dumps(result)
         self.assertNotIn("PRIVATE-CANARY",data)
         self.assertIn("/api/account",data)
+        self.assertEqual(sanitize_report({"path":
+            "/api/bot/game/off3b001/move/garbage"})["path"],
+            "__invalid_path__")
         self.assertTrue(result["unsafe_witnesses"][0]["behavior"]=="UNSAFE_WITNESS")
         self.assertFalse(result["harness_qualified"])
 

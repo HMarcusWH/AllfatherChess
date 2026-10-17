@@ -325,6 +325,8 @@ class OCIProofTests(unittest.TestCase):
             if predicate == "https://spdx.dev/Document":
                 if statement_wrapper == "array":
                     statement_document = {"statements": [statement_document]}
+                elif statement_wrapper == "array-null":
+                    statement_document = {"statements":[None,statement_document]}
                 elif statement_wrapper in ("null", "object", "empty", "string"):
                     statement_document["statements"] = {
                         "null": None, "object": {}, "empty": [],

@@ -46,14 +46,12 @@ class ScannerProbeContractTests(unittest.TestCase):
             # A structurally valid positive array is accepted.
             self.assertEqual(probe.inspect_scanner_output(tar)[
                 "spdx_document_count"],1)
-        # Direct structural check in the same admission condition: every
-        # element must be a supported in-toto statement object.
-        fake=[None,{"_type":oci_fixture.oci.STATEMENT,
-                    "predicateType":oci_fixture.oci.SPDX,
-                    "subject":[{"digest":{"sha256":"a"*64}}]}]
-        self.assertFalse(all(type(x) is dict and
-                             x.get("_type")==oci_fixture.oci.STATEMENT
-                             for x in fake))
+        with tempfile.TemporaryDirectory() as tmp:
+            tar,_,_=oci_fixture.OCIProofTests().fixture(
+                Path(tmp),statement_wrapper="array-null")
+            with self.assertRaisesRegex(ValueError,
+                                        "scanner in-toto statement element"):
+                probe.inspect_scanner_output(tar)
 
     def test_malformed_spdx_refused_at_scanner_boundary(self):
         for mode in ("missing-download","bogus-algorithm",

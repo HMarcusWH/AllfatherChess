@@ -20,7 +20,17 @@ from pathlib import Path
 from urllib.parse import unquote
 
 import chess
-from scripts.sanitize_qualification_evidence import sanitize_report
+# This is invoked as a standalone host-side script; do not rely on the repo
+# root or its optional package path being on sys.path.
+import importlib.util as _safe_importlib
+_safe_spec = _safe_importlib.spec_from_file_location(
+    "release1_sanitized_report",
+    Path(__file__).with_name("sanitize_qualification_evidence.py"))
+if _safe_spec is None or _safe_spec.loader is None:
+    raise ValueError("missing safe release report serializer")
+_safe_module = _safe_importlib.module_from_spec(_safe_spec)
+_safe_spec.loader.exec_module(_safe_module)
+sanitize_report = _safe_module.sanitize_report
 
 CASES = {"r00-white": ("R00", "white"),
          "r00-black": ("R00", "black"),

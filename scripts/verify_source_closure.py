@@ -40,7 +40,8 @@ PROFILES = {
                   "scripts/verify_source_closure.py"),
         "inputs": ("deploy/lichess/Dockerfile.offline",
                    ".github/workflows/online-recovery-v2.yml",
-                   "qualification/assurance-contract-v1.json"),
+                   "qualification/assurance-contract-v1.json",
+                   "qualification/online-recovery-v1.json"),
     },
 }
 

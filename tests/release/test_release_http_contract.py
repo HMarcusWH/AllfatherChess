@@ -20,6 +20,15 @@ aggregate=load("scripts/qualify-release-aggregate.py","release1_aggregate_http_t
 
 
 class SharedHTTPAdmissionTests(unittest.TestCase):
+    def test_safe_release_report_module_loads_without_tests_package(self):
+        import importlib.util as ilu
+        path=ROOT/"scripts/sanitize_qualification_evidence.py"
+        spec=ilu.spec_from_file_location("safe_report_test",path)
+        instance=ilu.module_from_spec(spec)
+        spec.loader.exec_module(instance)
+        self.assertEqual(instance.sanitize_report({
+            "path":"/api/account?secret=CANARY"})["path"],"/api/account")
+
     def test_standalone_release_verifiers_import_policy_without_pythonpath(self):
         # Identical invocation mode to the real OCI release workflow.
         with tempfile.TemporaryDirectory() as tmp:

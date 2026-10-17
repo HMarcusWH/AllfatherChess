@@ -172,6 +172,31 @@ class IndependentEvidenceTests(unittest.TestCase):
             {"method":"POST","path":"/api/token/test","status":500},
         ],[],"none")[0]["reason"],"unapproved_http_status")
 
+    def test_retained_report_serializer_recursively_removes_canaries(self):
+        from scripts.sanitize_qualification_evidence import sanitize_report
+        sample={
+            "harness_qualified":False,
+            "unsafe_witnesses":[{
+                "behavior":"UNSAFE_WITNESS",
+                "early_rate_limit_requests":[
+                    {"path":"/api/account?access_token=PRIVATE-CANARY",
+                     "request_target":"//private?PRIVATE-CANARY",
+                     "reason":"bad","status":403}],
+                "unusable_move_submissions":[{
+                    "path":"/api/account?access_token=PRIVATE-CANARY",
+                    "uci":"PRIVATE-CANARY", "status":400}],
+                "runner_errors":["PRIVATE-CANARY"],
+            }],
+            "harness_failures":[{"error":"PRIVATE-CANARY"}],
+            "malicious":{"exception":"PRIVATE-CANARY"},
+        }
+        result=sanitize_report(sample)
+        data=json.dumps(result)
+        self.assertNotIn("PRIVATE-CANARY",data)
+        self.assertIn("/api/account",data)
+        self.assertTrue(result["unsafe_witnesses"][0]["behavior"]=="UNSAFE_WITNESS")
+        self.assertFalse(result["harness_qualified"])
+
     def test_noncanonical_http_query_never_supports_safe_continuation(self):
         good={"method":"GET","path":"/api/account","status":200,
               "request_target":"/api/account","target_canonical":True}

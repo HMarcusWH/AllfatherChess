@@ -542,17 +542,19 @@ def validate_spdx_document(predicate: dict) -> None:
                 bool(item["name"].strip()) and
                 valid_spdx_download_location(item.get("downloadLocation")),
                 "SPDX SBOM package has invalid downloadLocation")
-        # SPDX 2.3 CopyrightText is required. filesAnalyzed is optional
-        # (default True), but its verification-code requirement is conditional.
-        # licenseConcluded and licenseDeclared are optional (NOASSERTION).
-        require(type(item.get("copyrightText")) is str and
-                bool(item["copyrightText"].strip()),
-                "SPDX package copyrightText absent or invalid")
+        # SPDX 2.3 copyrightText is optional (absent means NOASSERTION).
+        # filesAnalyzed defaults to True; a present verification code is
+        # validated, but SPDX does not require one for every analyzed package.
+        # The separate OCI/application subject checks provide image identity.
+        if "copyrightText" in item:
+            require(type(item["copyrightText"]) is str and
+                    bool(item["copyrightText"].strip()),
+                    "SPDX package copyrightText malformed")
         analyzed=item.get("filesAnalyzed", True)
         require(type(analyzed) is bool,
                 "SPDX package filesAnalyzed must be boolean")
         verification=item.get("packageVerificationCode")
-        if analyzed:
+        if analyzed and verification is not None:
             require(type(verification) is dict and
                     type(verification.get("packageVerificationCodeValue")) is str and
                     re.fullmatch(r"[0-9a-f]{40}",
@@ -561,7 +563,7 @@ def validate_spdx_document(predicate: dict) -> None:
                      or (type(verification["packageVerificationCodeExcludedFiles"]) is list
                          and all(type(name) is str and bool(name)
                                  for name in verification["packageVerificationCodeExcludedFiles"]))),
-                    "SPDX analyzed package requires verification code")
+                    "SPDX supplied package verification code malformed")
         else:
             require(verification is None and
                     "licenseInfoFromFiles" not in item,

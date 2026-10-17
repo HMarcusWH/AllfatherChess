@@ -671,13 +671,15 @@ class OCIProofTests(unittest.TestCase):
              "name":"sample", "downloadLocation":"NOASSERTION",
              "copyrightText":"NOASSERTION", "filesAnalyzed":False}
         self.assertTrue(oci.valid_spdx_download_location(pkg["downloadLocation"]))
-        # Optional field omission means files were analyzed; require the
-        # SHA1 verification code in that case, rather than guessing False.
-        with tempfile.TemporaryDirectory() as d:
-            archive,meta,inspection=self.fixture(Path(d),
-                                      spdx_case="missing-filesAnalyzed-without-code")
-            with self.assertRaisesRegex(ValueError,"verification code"):
-                oci.verify_archive(archive,meta,docker_inspect=inspection)
+        # Omitted filesAnalyzed defaults to True; the verification code
+        # is optional in SPDX 2.3, while a supplied one must be well formed.
+        for variant in ("missing-copyright",
+                        "missing-filesAnalyzed-without-code",
+                        "filesAnalyzed-without-code"):
+            with self.subTest(variant=variant),tempfile.TemporaryDirectory() as d:
+                archive,meta,inspection=self.fixture(Path(d),spdx_case=variant)
+                self.assertTrue(oci.verify_archive(
+                    archive,meta,docker_inspect=inspection)["oci_sbom_verified"])
 
     def test_spdx_file_only_inventory_uses_fileName_not_package_name(self):
         with tempfile.TemporaryDirectory() as d:
@@ -708,9 +710,8 @@ class OCIProofTests(unittest.TestCase):
                  "bad-namespace", "missing-created", "invalid-created",
                  "missing-creators", "bad-creator", "empty-inventory",
                  "bad-package", "missing-download", "invalid-download",
-                 "missing-copyright", "empty-copyright",
-                 "filesAnalyzed-invalid","missing-filesAnalyzed-without-code",
-                 "filesAnalyzed-without-code", "unanalysed-with-code",
+                 "empty-copyright", "filesAnalyzed-invalid",
+                 "unanalysed-with-code",
                  "unanalysed-with-file-licenses","invalid-license",
                  "download-unicode", "download-braces", "download-pipe",
                  "invalid-percent", "invalid-percent-host", "invalid-port",

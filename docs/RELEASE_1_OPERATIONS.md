@@ -100,6 +100,24 @@ bridge restart and R10 proves 60-second account-wide cooldown containment.
 The frozen ONLINE-4A and ONLINE-4B source harnesses remain separately
 qualified in their own CI workflows.
 
+## SLSA and SPDX assurance contract
+
+The scanner-only compatibility job uses the same explicit reviewed BuildKit
+`builder-id` as the full OCI export, with a separate SBOM attestation. The
+independent scanner verifier validates all recognized in-toto statement
+siblings and SLSA v1 builder fields. The builder ID is a declared build
+platform identity, **not** a publisher signature or distribution permission.
+Field-specific failures must be reported using fixed classifications, never
+by echoing arbitrary provenance strings into public CI logs.
+
+SPDX 2.2/2.3 structural validity is distinct from Allfather image policy.
+For example, a missing package `copyrightText` implies `NOASSERTION`; a
+missing `filesAnalyzed` defaults to true; and an optional
+`packageVerificationCode`, if present, must have a valid SHA-1 value.
+The image-level verifier still independently binds attestation subjects to
+the application manifest and checks the OCI layer graph and archive bytes.
+A syntactically valid inventory does not prove licensing compliance.
+
 ## Image, host, licensing and governance checks
 
 scripts/verify-release-candidate.py checks all packaged files against an

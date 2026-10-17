@@ -36,7 +36,7 @@ class OCIProofTests(unittest.TestCase):
                 index_platform="absent", inner_index_platform="absent",
                 double_nested=False, embedded_media="absent",
                 config_platform="valid", diagnostic_canary=None,
-                malformed_diagnostic=None):
+                malformed_diagnostic=None, statement_wrapper="singleton"):
         base = b"original uncompressed OCI application layer\n"
         expanded = (b"substituted uncompressed OCI application layer\n"
                     if replace_layer else base)
@@ -256,14 +256,24 @@ class OCIProofTests(unittest.TestCase):
                     del body["buildDefinition"]["externalParameters"]
             if invalid_predicate:
                 body = {"schema_version": 1}
-            statement = encode({
+            statement_document = {
                 "_type": diagnostic_canary or "https://in-toto.io/Statement/v1",
                 "predicateType": diagnostic_canary or predicate,
                 "subject": ([] if subject is None else
                             [{"name": diagnostic_canary or "offline-fixture",
                               "digest": {"sha256": subject}}]),
-                "predicate": body})
-            lid = store(statement)
+                "predicate": body}
+            if predicate == "https://spdx.dev/Document":
+                if statement_wrapper == "array":
+                    statement_document = {"statements": [statement_document]}
+                elif statement_wrapper in ("null", "object", "empty", "string"):
+                    statement_document["statements"] = {
+                        "null": None, "object": {}, "empty": [],
+                        "string": "malformed",
+                    }[statement_wrapper]
+                elif statement_wrapper != "singleton":
+                    raise ValueError("unsupported statement-wrapper fixture")
+            lid = store(encode(statement_document))
             layer = descriptor("application/vnd.in-toto+json", lid)
             if wrong_size == "statement":
                 layer["size"] += 1
@@ -592,6 +602,34 @@ class OCIProofTests(unittest.TestCase):
                     Path(d), spdx_case=variant)
                 with self.assertRaisesRegex(ValueError, "SPDX"):
                     oci.verify_archive(archive, meta, docker_inspect=inspection)
+
+    def test_in_toto_wrapper_requires_absence_or_nonempty_array(self):
+        diagnostic_spec=importlib.util.spec_from_file_location(
+            "release1_statement_wrapper_diagnostic",
+            ROOT/"scripts/inspect-release-oci.py")
+        mod=importlib.util.module_from_spec(diagnostic_spec)
+        diagnostic_spec.loader.exec_module(mod)
+        for kind in ("singleton", "array"):
+            with self.subTest(valid=kind),tempfile.TemporaryDirectory() as d:
+                archive,meta,inspection=self.fixture(
+                    Path(d),statement_wrapper=kind)
+                self.assertTrue(oci.verify_archive(
+                    archive,meta,docker_inspect=inspection)["integrity_verified"])
+                summary=mod.inspect(archive,meta)
+                self.assertFalse(summary["integrity_verified"])
+                self.assertEqual(
+                    len(summary["index_manifests"][0]["children"][1]
+                        ["layers"][0]["statements"]),1)
+        for kind in ("null", "object", "empty", "string"):
+            with self.subTest(invalid=kind),tempfile.TemporaryDirectory() as d:
+                archive,meta,inspection=self.fixture(
+                    Path(d),statement_wrapper=kind)
+                with self.assertRaisesRegex(ValueError,
+                        "in-toto statements wrapper"):
+                    oci.verify_archive(archive,meta,docker_inspect=inspection)
+                with self.assertRaisesRegex(ValueError,
+                        "invalid OCI diagnostic statement list"):
+                    mod.inspect(archive,meta)
 
     def test_real_small_oci_graph_binds_every_layer_and_attestation(self):
         with tempfile.TemporaryDirectory() as d:

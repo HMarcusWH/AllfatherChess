@@ -391,11 +391,14 @@ def verify_attestation_subjects(attestations: list[dict], image: dict) -> set[st
         require(item.get("layer_media_type") == "application/vnd.in-toto+json",
                 "unexpected attestation statement layer type")
         require(isinstance(statement, dict), "OCI attestation statement missing")
-        statements = statement.get("statements")
-        if statements is None:
+        # Absent wrapper means BuildKit's valid singleton in-toto statement.
+        # An explicitly present null/object/string/empty wrapper is invalid.
+        if "statements" in statement:
+            statements = statement["statements"]
+        else:
             statements = [statement]
-        require(isinstance(statements, list) and bool(statements),
-                "OCI attestation contains no in-toto statements")
+        require(type(statements) is list and bool(statements),
+                "OCI attestation has invalid in-toto statements wrapper")
         for row in statements:
             require(isinstance(row, dict) and row.get("_type") == STATEMENT,
                     "OCI attestation is not a supported in-toto statement")

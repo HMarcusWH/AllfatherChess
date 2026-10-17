@@ -227,10 +227,11 @@ def inspect(archive: Path, metadata: Path) -> dict:
                     statement = document("blobs/sha256/" + str(lid)[7:])
                     if type(statement) is not dict:
                         raise ValueError("invalid OCI diagnostic attestation object")
-                    statements = statement.get("statements")
-                    if statements is None:
-                        # BuildKit normally puts one in-toto statement in
-                        # each layer; arrays are also supported.
+                    # Only an *absent* wrapper authorizes singleton form.
+                    # Present null must never be reinterpreted as singleton.
+                    if "statements" in statement:
+                        statements = statement["statements"]
+                    else:
                         statements = [statement]
                     if type(statements) is not list or not statements:
                         raise ValueError("invalid OCI diagnostic statement list")

@@ -75,10 +75,16 @@ def inspect_scanner_output(archive: Path) -> dict:
                 require(isinstance(lid,str) and lid.startswith("sha256:"),
                         "scanner attestation statement digest malformed")
                 statement=read("blobs/sha256/"+lid[7:],lid,layer.get("size"))
-                rows=statement.get("statements")
-                if rows is None:
+                require(type(statement) is dict,
+                        "scanner statement envelope invalid")
+                # An absent field is BuildKit's valid singleton statement;
+                # explicitly present null/scalar/empty wrappers are invalid.
+                if "statements" in statement:
+                    rows=statement["statements"]
+                else:
                     rows=[statement]
-                require(type(rows) is list, "scanner statement envelope invalid")
+                require(type(rows) is list and bool(rows),
+                        "scanner statement envelope invalid")
                 for row in rows:
                     if isinstance(row,dict) and row.get("predicateType")==contract.SPDX:
                         require(row.get("_type")==contract.STATEMENT,

@@ -28,6 +28,14 @@ class ScannerProbeContractTests(unittest.TestCase):
             self.assertFalse(report["integrity_verified"])
             self.assertFalse(report["release_qualified"])
 
+    def test_null_statement_wrapper_cannot_qualify_a_scanner(self):
+        for kind in ("null","empty","object","string"):
+            with self.subTest(wrapper=kind),tempfile.TemporaryDirectory() as tmp:
+                tar,_,_=oci_fixture.OCIProofTests().fixture(
+                    Path(tmp),statement_wrapper=kind)
+                with self.assertRaisesRegex(ValueError,"scanner statement envelope"):
+                    probe.inspect_scanner_output(tar)
+
     def test_malformed_spdx_refused_at_scanner_boundary(self):
         for mode in ("missing-download","bogus-algorithm",
                      "namespace-fragment","empty-inventory"):

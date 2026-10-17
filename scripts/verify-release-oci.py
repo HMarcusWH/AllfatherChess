@@ -195,15 +195,11 @@ def valid_uri_syntax(value: object, allowed_schemes: set[str], *,
             return False
         host = uri.hostname
         if ":" in host:
+            # RFC3986 supports both IPv6 and IPvFuture bracketed IP-literals.
             if host.lower().startswith("v"):
-                # RFC3986 IPvFuture: v HEXDIG+ '.' 1*(unreserved/subdelims/:)
                 if re.fullmatch(
-                        r"v[0-9A-Fa-f]+\.[A-Za-z0-9._~!        if ":" in host:
-            try:
-                ipaddress.IPv6Address(host)
-            except ValueError:
-                return False'()*+,;=:-]+",
-                        host,re.IGNORECASE) is None:
+                        r"v[0-9A-Fa-f]+\.[A-Za-z0-9._~!$&'()*+,;=:-]+",
+                        host, re.IGNORECASE) is None:
                     return False
             else:
                 try:

@@ -25,6 +25,7 @@ sys.path.insert(0, str(ROOT))
 from tests.lichess.fault_plan import load_scenarios
 from tests.lichess.http_target_contract import canonical_target
 from scripts.verify_source_closure import verify_profile, verify_committed_bytes
+from scripts.http_evidence_verdict import unexpected_statuses
 
 POLICY = ROOT / "qualification/online-recovery-v1.json"
 
@@ -513,7 +514,8 @@ def validate_experiment(case_dir: Path, scenario: dict, color: str,
     unusable_moves = (invalid_move_submissions(http_requests) +
                       history["illegal_attempts"] +
                       history["stale_retry_attempts"] +
-                      unexpected_raw_targets(http_requests))
+                      unexpected_raw_targets(http_requests) +
+                      unexpected_statuses(http_requests,trace,scenario["action"]))
     if scenario["action"] == "none":
         ensure(history["bot_commits"] > 0 and logging is not None,
                "normal engine baseline did not play")

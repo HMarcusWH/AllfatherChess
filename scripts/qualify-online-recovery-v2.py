@@ -26,6 +26,7 @@ from tests.lichess.fault_plan import load_scenarios
 from tests.lichess.http_target_contract import canonical_target
 from deploy.lichess.reconcile import position_id
 from scripts.verify_source_closure import verify_profile, verify_committed_bytes
+from scripts.http_evidence_verdict import approved_status
 
 def _v1_module():
     spec = importlib.util.spec_from_file_location(
@@ -90,7 +91,8 @@ def verify_overlay_identity(manifest: dict, expected: dict) -> None:
 
 
 def verify_guarded_requests(requests: list[dict], trace: list[dict],
-                            game: dict, intents: list[dict]) -> dict:
+                            game: dict, intents: list[dict], *,
+                            scenario_action: str = "none") -> dict:
     """Bind every HTTP move attempt to a unique durable intent and legal board."""
     gid = game.get("game_id")
     moves = game.get("moves")
@@ -119,6 +121,8 @@ def verify_guarded_requests(requests: list[dict], trace: list[dict],
                 canonical_target(method, raw) and
                 request.get("path") == raw.split("?", 1)[0],
                 "guarded HTTP request target is not canonical")
+        require(approved_status(request, trace, scenario_action),
+                "guarded HTTP request has unqualified status or fault witness")
     http_moves = []
     for request in requests:
         if request.get("method") != "POST":
@@ -458,7 +462,8 @@ def verify_one(folder: Path, *, scenario: dict, color: str,
     invalid = v1.invalid_move_submissions(requests)
     require(not invalid, "guarded transport sent malformed or null UCI move")
     http_witness = verify_guarded_requests(requests, trace, game,
-                                           result["journal"]["intents"])
+                                           result["journal"]["intents"],
+                                           scenario_action=scenario["action"])
     runner_errors = result.get("runner_errors")
     require(isinstance(runner_errors, list) and not runner_errors,
             "harness startup/cleanup failed: " + str(runner_errors))

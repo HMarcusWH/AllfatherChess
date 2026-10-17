@@ -182,6 +182,14 @@ class AssuranceContractTests(unittest.TestCase):
             "license_approved":False,"destination_host_qualified":False,
             "image_integrity_qualified":True,"smoke":{},
             "offline_candidate_qualified":False,
+            "oci_archive_sha256":"a"*64,
+            "image_manifest_digest":"sha256:"+"b"*64,
+            "oci_evidence":{key:True for key in (
+                "integrity_verified","oci_layers_verified",
+                "oci_diff_ids_verified","oci_application_identity_verified",
+                "oci_attestation_references_verified",
+                "oci_attestation_subjects_verified",
+                "oci_sbom_verified","oci_provenance_verified")},
         }
         with self.assertRaisesRegex(ValueError,"verified packaged games"):
             claims.verify_report(report,"release_aggregate")

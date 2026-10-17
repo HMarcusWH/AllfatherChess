@@ -118,11 +118,18 @@ class OfflineReleaseContracts(unittest.TestCase):
         instructions = "\n".join(
             line for line in docker.splitlines()
             if not line.lstrip().startswith("#"))
+        apt_diagnostic = (
+            "E: Unable to fetch some archives, maybe run apt-get update "
+            "or try with --fix-missing?")
+        # APT may emit the exact transient-install diagnostic, but this
+        # must never become a shell command-line flag or fallback option.
+        self.assertLessEqual(helper.count(apt_diagnostic), 1)
+        code_without_apt_message = helper.replace(apt_diagnostic, "")
         for unsafe in ("--fix-missing", "trusted=yes", "allow-unauthenticated",
                        "Acquire::https::Verify-Peer=false",
                        "Acquire::https::Verify-Host=false"):
             self.assertNotIn(unsafe,instructions)
-            self.assertNotIn(unsafe,helper)
+            self.assertNotIn(unsafe,code_without_apt_message)
 
     def test_sbom_generator_is_reviewed_immutable_oci_index(self):
         image=json.loads((ROOT/"qualification/release-image-v1.json").read_text())

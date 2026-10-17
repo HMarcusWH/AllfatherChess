@@ -7,10 +7,25 @@ reconstructs chess legality, receipt timing, epochs and durable intent.
 """
 from __future__ import annotations
 import re
+import importlib.util
+from pathlib import Path
 
-from tests.lichess.http_target_contract import (
-    GAME_ID, MOVE_PREFIX, APPROVED_GETS, APPROVED_POSTS, UCI,
-    canonical_target)
+# Resolve the single approved policy by file identity. RELEASE-1's standalone
+# host verifier runs as a script, often with sys.path[0] = /repo/scripts;
+# importing a top-level "tests" package then depends on CWD/PYTHONPATH.
+_POLICY = Path(__file__).resolve().parents[1] / "tests/lichess/http_target_contract.py"
+_spec = importlib.util.spec_from_file_location("release1_http_target_policy", _POLICY)
+if _spec is None or _spec.loader is None:
+    raise ValueError("RELEASE-1 HTTP target policy not available")
+policy = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(policy)
+
+GAME_ID = policy.GAME_ID
+MOVE_PREFIX = policy.MOVE_PREFIX
+APPROVED_GETS = policy.APPROVED_GETS
+APPROVED_POSTS = policy.APPROVED_POSTS
+UCI = policy.UCI
+canonical_target = policy.canonical_target
 
 ALLOWED_GETS = APPROVED_GETS
 ALLOWED_POSTS = APPROVED_POSTS

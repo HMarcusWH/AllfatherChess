@@ -1,6 +1,10 @@
 """Shared fail-closed HTTP admission across smoke and aggregate."""
 from __future__ import annotations
 import importlib.util
+import os
+import subprocess
+import sys
+import tempfile
 import unittest
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[2]
@@ -16,6 +20,20 @@ aggregate=load("scripts/qualify-release-aggregate.py","release1_aggregate_http_t
 
 
 class SharedHTTPAdmissionTests(unittest.TestCase):
+    def test_standalone_release_verifiers_import_policy_without_pythonpath(self):
+        # Identical invocation mode to the real OCI release workflow.
+        with tempfile.TemporaryDirectory() as tmp:
+            environment = {k:v for k,v in os.environ.items() if k != "PYTHONPATH"}
+            for entry in ("scripts/qualify-release-smoke.py",
+                          "scripts/qualify-release-aggregate.py"):
+                with self.subTest(cli=entry):
+                    outcome = subprocess.run(
+                        [sys.executable, "-I", str(ROOT / entry), "--help"],
+                        cwd=tmp, env=environment, capture_output=True,
+                        text=True, timeout=20)
+                    self.assertEqual(outcome.returncode, 0, outcome.stderr)
+                    self.assertIn("usage:", outcome.stdout.lower())
+
     def test_each_allowed_get_and_case_agrees_across_both_verifiers(self):
         for case in smoke.CASES:
             for path in smoke.http_contract.ALLOWED_GETS:

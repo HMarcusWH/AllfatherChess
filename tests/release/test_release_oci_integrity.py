@@ -983,6 +983,30 @@ class OCIProofTests(unittest.TestCase):
                                                               "SLSA"):
                 oci.validate_slsa("https://slsa.dev/provenance/v0.2",bad)
 
+    def test_slsa_builder_diagnostics_are_field_specific_and_safe(self):
+        # Never echo producer-controlled URI or version data into logs.
+        kind="https://slsa.dev/provenance/v1"
+        good={"buildDefinition":{
+            "buildType":"https://mobyproject.org/buildkit@v1",
+            "externalParameters":{}},
+            "runDetails":{"builder":{"id":"https://github.com/moby/buildkit"}}}
+        oci.validate_slsa(kind,good)
+        variants=(
+            ({"runDetails":{"builder":{}}}, "builder ID"),
+            ({"runDetails":{"builder":{
+                "id":"https://github.com/moby/buildkit",
+                "version":"PRIVATE_CANARY"}}}, "builder version map"),
+            ({"runDetails":{"builder":{
+                "id":"https://github.com/moby/buildkit",
+                "builderDependencies":"PRIVATE_CANARY"}}}, "builderDependencies"),
+        )
+        for replacement,expected in variants:
+            with self.subTest(failure=expected):
+                corrupted={**good,**replacement}
+                with self.assertRaisesRegex(ValueError,expected) as caught:
+                    oci.validate_slsa(kind,corrupted)
+                self.assertNotIn("PRIVATE_CANARY",str(caught.exception))
+
     def test_slsa_predicates_cannot_be_schema_only(self):
         for mode in ("empty", "builder-empty", "bad-build-type", "no-external",
                      "resolved-as-string", "metadata-as-string",

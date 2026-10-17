@@ -18,6 +18,16 @@ oci_fixture=module("tests/release/test_release_oci_integrity.py",
                    "release1_fixture_scanner")
 
 class ScannerProbeContractTests(unittest.TestCase):
+    def test_real_scanner_declares_same_builder_identity_as_release(self):
+        workflow=(ROOT/".github/workflows/release-candidate.yml").read_text()
+        probe=workflow.split("  scanner-compatibility:",1)[1].split(
+            "  release-oci-integration:",1)[0]
+        self.assertIn(
+            "--attest type=provenance,mode=min,builder-id="
+            "https://github.com/HMarcusWH/AllfatherChess/actions/"
+            "workflows/release-candidate.yml",probe)
+        self.assertIn('--attest "type=sbom,generator=$SCANNER"',probe)
+
     def test_valid_spdx_probe_never_claims_release_authority(self):
         with tempfile.TemporaryDirectory() as tmp:
             tar, _, _ = oci_fixture.OCIProofTests().fixture(Path(tmp))

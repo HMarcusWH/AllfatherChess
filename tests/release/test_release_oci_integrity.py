@@ -602,6 +602,42 @@ class OCIProofTests(unittest.TestCase):
             self.assertEqual(report["oci_diff_id_count"],1)
             self.assertTrue(report["integrity_verified"])
 
+    def test_replacing_oci_path_during_verification_cannot_swap_digest(self):
+        import os
+        from unittest import mock
+        with tempfile.TemporaryDirectory() as d:
+            folder=Path(d)
+            first=folder/"first"
+            second=folder/"second"
+            first.mkdir()
+            second.mkdir()
+            archive,meta,inspection=self.fixture(first)
+            replacement,_,_=self.fixture(second,spdx_case="file-only-valid")
+            orig=oci.verify_attestation_subjects
+            def swap(*args):
+                os.replace(replacement,archive)
+                return orig(*args)
+            with mock.patch.object(oci,"verify_attestation_subjects",
+                                   side_effect=swap):
+                with self.assertRaisesRegex(ValueError,
+                                             "archive file was mutated or replaced"):
+                    oci.verify_archive(archive,meta,docker_inspect=inspection)
+
+    def test_oci_mutated_in_place_during_verification_is_refused(self):
+        from unittest import mock
+        with tempfile.TemporaryDirectory() as d:
+            archive,meta,inspection=self.fixture(Path(d))
+            orig=oci.verify_attestation_subjects
+            def mutate(*args):
+                with archive.open("ab") as writable:
+                    writable.write(b"tampered trailing bytes")
+                return orig(*args)
+            with mock.patch.object(oci,"verify_attestation_subjects",
+                                   side_effect=mutate):
+                with self.assertRaisesRegex(ValueError,
+                                             "archive file was mutated or replaced"):
+                    oci.verify_archive(archive,meta,docker_inspect=inspection)
+
     def test_rehashed_replacement_layer_still_rejected_by_rootfs(self):
         with tempfile.TemporaryDirectory() as d:
             archive,meta,inspection=self.fixture(Path(d),replace_layer=True)

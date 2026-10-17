@@ -325,6 +325,15 @@ class ReleaseAggregateContracts(unittest.TestCase):
                     root=self.root)
 
 
+    def test_atomically_replaced_archive_fails_downstream_verdict(self):
+        import os
+        with tempfile.TemporaryDirectory() as d:
+            replacement=Path(d)/"replacement.oci.tar"
+            replacement.write_bytes(b"other valid looking but unverified OCI bytes")
+            os.replace(replacement,self.oci_archive)
+            with self.assertRaisesRegex(ValueError,"OCI archive identity"):
+                self.qualify()
+
     def test_verifier_report_must_match_actual_oci_archive_bytes(self):
         self.oci_archive.write_bytes(b"tampered OCI archive")
         with self.assertRaisesRegex(ValueError,"OCI archive identity"):

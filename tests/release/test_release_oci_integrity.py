@@ -183,6 +183,12 @@ class OCIProofTests(unittest.TestCase):
                     del body["packages"][0]["downloadLocation"]
                 elif spdx_case == "invalid-download":
                     body["packages"][0]["downloadLocation"] = "garbage"
+                elif spdx_case == "download-unicode":
+                    body["packages"][0]["downloadLocation"] = "https://example.test/☃"
+                elif spdx_case == "download-braces":
+                    body["packages"][0]["downloadLocation"] = "https://example.test/{bad}"
+                elif spdx_case == "download-pipe":
+                    body["packages"][0]["downloadLocation"] = "https://example.test/a|b"
                 elif spdx_case == "invalid-percent":
                     body["packages"][0]["downloadLocation"] = "https://example.test/%zz"
                 elif spdx_case == "invalid-percent-host":
@@ -229,6 +235,12 @@ class OCIProofTests(unittest.TestCase):
                                       "fileName":"./file",
                                       "checksums":[{"algorithm":"SHA256",
                                                     "checksumValue":"a"*64}]}]
+                elif spdx_case == "namespace-unicode":
+                    body["documentNamespace"] = "https://example.test/snowman-☃"
+                elif spdx_case == "namespace-braces":
+                    body["documentNamespace"] = "https://example.test/{bad}"
+                elif spdx_case == "namespace-pipe":
+                    body["documentNamespace"] = "https://example.test/a|b"
                 elif spdx_case == "namespace-percent":
                     body["documentNamespace"] = "https://%zz/path"
                 elif spdx_case == "namespace-port":
@@ -552,9 +564,15 @@ class OCIProofTests(unittest.TestCase):
             self.assertTrue(oci.valid_identity_uri(uri))
         self.assertTrue(oci.valid_spdx_namespace(
             "https://example.test/spdx%20namespace"))
+        self.assertTrue(oci.valid_spdx_namespace(
+            "https://example.test/%E2%98%83"))
+        self.assertTrue(oci.valid_identity_uri(
+            "https://example.test/build?key=value&v=2"))
         for uri in ("https://%zz/path", "https://example.test:bogus/x",
                     "https://user:secret@example.test/x",
                     "https://example.test/a\x00", "https://example.test/a%2",
+                    "https://example.test/☃", "https://example.test/{bad}",
+                    "https://example.test/a|b", "https://example.test/^x",
                     "https://example.test/foo#"):
             with self.subTest(uri=uri):
                 self.assertFalse(oci.valid_spdx_namespace(uri))
@@ -590,12 +608,14 @@ class OCIProofTests(unittest.TestCase):
                  "bad-namespace", "missing-created", "invalid-created",
                  "missing-creators", "bad-creator", "empty-inventory",
                  "bad-package", "missing-download", "invalid-download",
+                 "download-unicode", "download-braces", "download-pipe",
                  "invalid-percent", "invalid-percent-host", "invalid-port",
                  "invalid-authority", "encoded-control", "bad-package-checksum", "short-sha256", "bogus-algorithm",
                  "missing-file-checksum", "bad-file-checksum", "duplicate-id", "namespace-fragment",
                  "namespace-trailing-fragment", "namespace-percent",
                  "namespace-port", "namespace-control", "namespace-userinfo",
-                 "namespace-encoded-path")
+                 "namespace-encoded-path", "namespace-unicode", "namespace-braces",
+                 "namespace-pipe")
         for variant in cases:
             with self.subTest(spdx=variant), tempfile.TemporaryDirectory() as d:
                 archive, meta, inspection = self.fixture(

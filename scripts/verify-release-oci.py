@@ -120,15 +120,63 @@ SLSA = {"https://slsa.dev/provenance/v0.2", "https://slsa.dev/provenance/v1"}
 STATEMENT = "https://in-toto.io/Statement/v1"
 
 
-def valid_identity_uri(value: object) -> bool:
-    """Require an actual URI for a SLSA build type or builder identity."""
-    if not isinstance(value, str) or not value.strip() or value != value.strip():
+def valid_uri_syntax(value: object, allowed_schemes: set[str], *,
+                     allow_git_ssh_user: bool = False) -> bool:
+    """One URI grammar for SPDX identities, downloads and SLSA identities.
+
+    Field-specific scheme, special-token and fragment policy is applied by
+    callers; urlsplit() alone does not check escapes, credentials or ports.
+    """
+    if not isinstance(value, str) or not value or value != value.strip():
         return False
-    parsed = urlsplit(value)
-    return ((parsed.scheme in ("https", "http") and bool(parsed.netloc)
-             and not any(ch.isspace() for ch in value))
-            or (parsed.scheme == "urn" and bool(parsed.path)
-                and ":" in parsed.path and not any(ch.isspace() for ch in value)))
+    if any(ord(c) < 33 or ord(c) == 127 for c in value):
+        return False
+    if (re.search(r"%(?![0-9A-Fa-f]{2})", value) or
+            re.search(r"%(?:0[0-9A-Fa-f]|1[0-9A-Fa-f]|7[fF])",
+                      value, re.IGNORECASE)):
+        return False
+    try:
+        uri = urlsplit(value)
+        if uri.scheme not in allowed_schemes:
+            return False
+        if uri.scheme == "urn":
+            return not uri.netloc and bool(uri.path) and ":" in uri.path
+        if (not uri.netloc or not uri.hostname or
+                "%" in uri.netloc or uri.netloc.count("@") > 1 or
+                uri.password is not None):
+            return False
+        port = uri.port
+        if port is not None and not (1 <= port <= 65535):
+            return False
+        if uri.username is not None and not (
+                allow_git_ssh_user and uri.username == "git" and
+                (uri.scheme == "ssh" or uri.scheme.endswith("+ssh"))):
+            return False
+        host = uri.hostname
+        if ":" in host:
+            try:
+                ipaddress.IPv6Address(host)
+            except ValueError:
+                return False
+        else:
+            labels = host.split(".")
+            if (len(host) > 253 or not all(re.fullmatch(
+                    r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?",
+                    label) for label in labels)):
+                return False
+        return True
+    except ValueError:
+        return False
+
+
+def valid_identity_uri(value: object) -> bool:
+    """SLSA identities support HTTP(S) and valid URNs, not user credentials."""
+    return valid_uri_syntax(value, {"https", "http", "urn"})
+
+
+def valid_spdx_namespace(value: object) -> bool:
+    """SPDX namespace uses a valid identity URI without any # delimiter."""
+    return valid_identity_uri(value) and "#" not in value
 
 
 def validate_slsa(kind: str, predicate: dict) -> None:
@@ -169,64 +217,14 @@ SPDX_CHECKSUM_HEX_LENGTH = {
 
 
 def valid_spdx_download_location(value: object) -> bool:
-    """Supported SPDX Download Location values: special token or URL/VCS URI.
-
-    This is syntax and release-profile validation, NOT reachability,
-    authenticity or evidence the package bytes came from this URI.
-    """
+    """Recognize SPDX special tokens or supported strictly valid URL/VCS URI."""
     if value in ("NONE", "NOASSERTION"):
         return True
-    if not isinstance(value, str) or not value or value.strip() != value:
-        return False
-    if any(ord(c) < 33 or ord(c) == 127 for c in value):
-        return False
-    # urlsplit is not a URI validator: %zz and a trailing % in the
-    # authority/path survive splitting. Allow valid escaping in the *path*
-    # without permitting ambiguous encoded hosts or control bytes.
-    if (re.search(r"%(?![0-9A-Fa-f]{2})", value) or
-            re.search(r"%(?:0[0-9A-Fa-f]|1[0-9A-Fa-f]|7[fF])",
-                      value, re.IGNORECASE)):
-        return False
-    try:
-        uri = urlsplit(value)
-        supported = {
-            "http", "https", "ftp", "ftps", "ssh", "git", "git+https",
-            "git+http", "git+ssh", "git+git", "svn", "svn+https",
-            "svn+ssh", "hg", "hg+https", "hg+ssh",
-        }
-        if (uri.scheme not in supported or not uri.netloc or not uri.hostname
-                or "%" in uri.netloc or uri.netloc.count("@") > 1):
-            return False
-        if uri.password is not None:
-            return False
-        # Force port range/decimal syntax validation, including :not-a-port.
-        port = uri.port
-        if port is not None and not (1 <= port <= 65535):
-            return False
-        # Only the standard public Git SSH user is supported; userinfo must
-        # not be carried in download locations for HTTP, FTP or other VCS.
-        if uri.username is not None and not (
-                (uri.scheme == "ssh" or uri.scheme.endswith("+ssh")) and
-                uri.username == "git"):
-            return False
-        host = uri.hostname
-        if ":" in host:
-            # Bracketed IPv6 is allowed, but IPv6 zone IDs are not pinned.
-            try:
-                ipaddress.IPv6Address(host)
-            except ValueError:
-                return False
-        else:
-            labels = host.split(".")
-            if (len(host) > 253 or
-                    not all(re.fullmatch(
-                        r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?",
-                        label) for label in labels)):
-                return False
-        return True
-    except ValueError:
-        return False
-
+    return valid_uri_syntax(value, {
+        "http", "https", "ftp", "ftps", "ssh", "git", "git+https",
+        "git+http", "git+ssh", "git+git", "svn", "svn+https",
+        "svn+ssh", "hg", "hg+https", "hg+ssh",
+    }, allow_git_ssh_user=True)
 
 def valid_spdx_checksums(value: object) -> bool:
     """Check every listed digest against the supported SPDX algorithm width."""
@@ -271,8 +269,7 @@ def validate_spdx_document(predicate: dict) -> None:
         predicate.get("dataLicense") == "CC0-1.0" and
         isinstance(predicate.get("name"), str) and
         bool(predicate["name"].strip()) and
-        valid_identity_uri(predicate.get("documentNamespace")) and
-        "#" not in predicate["documentNamespace"] and
+        valid_spdx_namespace(predicate.get("documentNamespace")) and
         valid_date and
         isinstance(creators, list) and bool(creators) and
         all(isinstance(creator, str) and

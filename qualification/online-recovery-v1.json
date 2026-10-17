@@ -62,6 +62,7 @@
     "scripts/http_evidence_verdict.py",
     "scripts/qualify-online-recovery.py",
     "scripts/sanitize_qualification_evidence.py",
+    "scripts/verify_assurance_contract.py",
     "scripts/verify_source_closure.py",
     "tests/fixtures/lichess/recovery_scenarios.json",
     "tests/lichess/fake_lichess_api.py",

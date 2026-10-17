@@ -31,6 +31,14 @@ if _safe_spec is None or _safe_spec.loader is None:
 _safe_module = _safe_importlib.module_from_spec(_safe_spec)
 _safe_spec.loader.exec_module(_safe_module)
 sanitize_report = _safe_module.sanitize_report
+_claim_spec = _safe_importlib.spec_from_file_location(
+    "release1_assurance_claims",
+    Path(__file__).with_name("verify_assurance_contract.py"))
+if _claim_spec is None or _claim_spec.loader is None:
+    raise ValueError("missing independent release assurance check")
+_claim_module = _safe_importlib.module_from_spec(_claim_spec)
+_claim_spec.loader.exec_module(_claim_module)
+verify_claims = _claim_module.verify_report
 
 CASES = {"r00-white": ("R00", "white"),
          "r00-black": ("R00", "black"),
@@ -571,6 +579,7 @@ def main() -> int:
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     report = sanitize_report(qualify_directory(args.smoke_dir))
+    verify_claims(report, "release_smoke")
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n",
                            encoding="utf-8")

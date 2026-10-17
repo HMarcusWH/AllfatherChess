@@ -191,7 +191,9 @@ def qualify(*, stage:Path, oci:Path, oci_archive:Path, host:Path, smoke_dir:Path
         "smoke":tests,"image_integrity_qualified":True,
         "frozen_dependency_lock_qualified":all(checked.values()),
         "dependency_lock_checks":checked,
-        "offline_candidate_qualified":all(checked.values()),
+        # Source and image integrity do not grant host/legal/live authority.
+        # This deliberately remains false even if dependency pins are filled.
+        "offline_candidate_qualified":False,
         "license_approved":False,"destination_host_qualified":False,
         "network_recovery_qualified":False,
         "artifact_distribution_authorized":False,
@@ -202,6 +204,14 @@ def qualify(*, stage:Path, oci:Path, oci_archive:Path, host:Path, smoke_dir:Path
              "destination_host_qualification","live_transport_qualification",
              "operator_live_play_approval"],
     }
+    spec = importlib.util.spec_from_file_location(
+        "release1_aggregate_claims",
+        ROOT/"scripts/verify_assurance_contract.py")
+    require(spec is not None and spec.loader is not None,
+            "missing RELEASE-1 independent claim contract")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    module.verify_report(source_contents,"release_aggregate")
     return source_contents
 
 

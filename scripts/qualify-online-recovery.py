@@ -27,6 +27,7 @@ from tests.lichess.http_target_contract import canonical_target
 from scripts.verify_source_closure import verify_profile, verify_committed_bytes
 from scripts.http_evidence_verdict import unexpected_statuses
 from scripts.sanitize_qualification_evidence import sanitize_report, safe_path
+from scripts.verify_assurance_contract import verify_report
 
 POLICY = ROOT / "qualification/online-recovery-v1.json"
 
@@ -610,6 +611,7 @@ def main() -> int:
             "release_blocked": True,
         }
     report=sanitize_report(report)
+    verify_report(report,"online4a")
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, sort_keys=True, indent=2, allow_nan=False) + "\n")
     print(json.dumps({k: v for k, v in report.items() if k != "scenario_results"},

@@ -18,9 +18,12 @@ spec.loader.exec_module(aggregate)
 
 
 def smoke_http_for_tests():
-    """Tests use the reference policy explicitly, never as a hidden import."""
-    from tests.release.test_release_http_contract import smoke
-    return smoke.http_contract
+    """Explicit test-only loading of the unmodified shared HTTP contract."""
+    spec=importlib.util.spec_from_file_location(
+        "release1_http_for_aggregate_test",ROOT/"scripts/release_http_contract.py")
+    module=importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def write_json(path: Path, data: dict) -> None:

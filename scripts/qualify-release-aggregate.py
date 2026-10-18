@@ -7,16 +7,34 @@ distribution authorization are deliberately impossible in this milestone.
 """
 from __future__ import annotations
 import argparse
+from contextlib import contextmanager
 import hashlib
 import importlib.util
 import json
 import re
 import subprocess
+import tempfile
 from pathlib import Path
 
 ROOT=Path(__file__).resolve().parents[1]
 GIT_SHA1_HEX=re.compile(r"^[0-9a-f]{40}$")
 SHA256_HEX=re.compile(r"^[0-9a-f]{64}$")
+# Declare all sources whose exact bytes can influence the RELEASE-1 verdict.
+# The committed stage attests these files independently of the producer's flags.
+VERDICT_SOURCE_PATHS=(
+    "scripts/qualify-release-aggregate.py",
+    "scripts/qualify-release-smoke.py",
+    "scripts/release_http_contract.py",
+    "scripts/sanitize_qualification_evidence.py",
+    "scripts/verify_assurance_contract.py",
+    "tests/lichess/http_target_contract.py",
+    "qualification/assurance-contract-v1.json",
+    "scripts/verify-release-oci.py",
+    "scripts/spdx_license_contract.py",
+    "qualification/spdx-license-identifiers-v3.29.0.json",
+    "scripts/check-release-scanner.py",
+    "qualification/release-image-v1.json",
+)
 
 
 def is_sha256_hex(value, *, prefixed=False):
@@ -46,29 +64,70 @@ def require(ok,reason):
         raise ValueError(reason)
 
 
-def check_smoke_evidence(path:Path, key:str) -> dict:
-    """Execute the independent host verifier, never trust the producer's ready."""
-    module_path=ROOT/"scripts/qualify-release-smoke.py"
-    spec=importlib.util.spec_from_file_location("release1_smoke_independent",module_path)
+def load_verified_module(root: Path, relative: str, namespace: str):
+    """Load only from an isolated private snapshot of committed source bytes."""
+    module_path=root/relative
+    spec=importlib.util.spec_from_file_location(namespace,module_path)
     require(spec is not None and spec.loader is not None,
-            "independent packaged-smoke verifier missing")
-    mod=importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod.verify_file(path,key)
+            "verified RELEASE-1 module loader unavailable")
+    module=importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
-# Read the exact same host-only HTTP admission contract as the independent
-# smoke verifier; the aggregate cannot silently widen allowed GETs.
-_http_spec = importlib.util.spec_from_file_location(
-    "release1_http_aggregate", ROOT/"scripts/release_http_contract.py")
-require(_http_spec is not None and _http_spec.loader is not None,
-        "shared RELEASE-1 HTTP admission contract missing")
-http_contract = importlib.util.module_from_spec(_http_spec)
-_http_spec.loader.exec_module(http_contract)
+@contextmanager
+def verified_release_snapshot(root: Path, source_sha: str, manifest: dict):
+    """Bind every verdict-critical local input to manifest AND Git bytes.
+
+    A mutable checkout with an unchanged HEAD cannot become an accepted
+    verifier. The modules are loaded from the private verified snapshot,
+    rather than reopening the original untrusted working-tree paths.
+    """
+    attested=manifest.get("source_attestation")
+    require(type(attested) is dict,
+            "RELEASE-1 source attestation absent")
+    require(type(source_sha) is str and GIT_SHA1_HEX.fullmatch(source_sha),
+            "RELEASE-1 source commit malformed")
+    trusted={}
+    for relative in VERDICT_SOURCE_PATHS:
+        local=root/relative
+        require(local.is_file() and not local.is_symlink() and
+                local.resolve().is_relative_to(root.resolve()),
+                "RELEASE-1 verdict source missing, linked or outside checkout")
+        raw=local.read_bytes()
+        require(isinstance(attested.get(relative),str) and
+                is_sha256_hex(attested[relative]) and
+                hashlib.sha256(raw).hexdigest()==attested[relative],
+                "RELEASE-1 executed source differs from staged attestation")
+        committed=subprocess.run(
+            ["git","-C",str(root),"show",source_sha+":"+relative],
+            capture_output=True,check=False,timeout=12)
+        require(committed.returncode==0 and committed.stdout==raw,
+                "RELEASE-1 executed source differs from Git committed bytes")
+        trusted[relative]=raw
+    with tempfile.TemporaryDirectory(prefix="allfather-release-verified-") as tmp:
+        sealed=Path(tmp)
+        for relative,raw in trusted.items():
+            target=sealed/relative
+            target.parent.mkdir(parents=True,exist_ok=True)
+            with target.open("xb") as handle:
+                handle.write(raw)
+            target.chmod(0o400)
+        yield sealed
 
 
-def allowed_release_http(row: object, case: str) -> bool:
-    return http_contract.allowed_release_http(row, case)
+def check_smoke_evidence(path:Path, key:str, verifier=None) -> dict:
+    """Use the exact pre-verified smoke module, never an unchecked path."""
+    require(verifier is not None,
+            "independent smoke verifier was not source-admitted")
+    return verifier.verify_file(path,key)
+
+
+def allowed_release_http(row: object, case: str, verified_contract=None) -> bool:
+    require(verified_contract is not None,
+            "shared RELEASE-1 HTTP verifier was not source-admitted")
+    return verified_contract.allowed_release_http(row,case)
+
 
 def qualify(*, stage:Path, oci:Path, oci_archive:Path, host:Path, smoke_dir:Path,
             os_inventory:Path, wheel_inventory:Path, source_sha:str, root:Path=ROOT):
@@ -123,102 +182,102 @@ def qualify(*, stage:Path, oci:Path, oci_archive:Path, host:Path, smoke_dir:Path
     require(qualification["artifact_distribution_authorized"] is False
             and qualification["release_promotion_authorized"] is False,
             "promotion gate unexpectedly opened")
-    tests={}
-    for key in ("r00-white","r00-black","r02-white","r10-white"):
-        target=smoke_dir/key/"result.json"
-        require(target.is_file(), "release-image smoke scenario missing: "+key)
-        result=load(target)
-        independent=check_smoke_evidence(target,key)
-        scenario,color=key.split("-",1)
-        require(independent.get("independent_qualified") is True and
-                independent.get("persisted_sqlite_verified") is True and
-                independent.get("release_blocked") is True and
-                independent.get("run_id") == key and
-                independent.get("scenario") == scenario.upper() and
-                independent.get("color") == color and
-                independent.get("public_bot_release") is False,
-                "independent chess/HTTP/SQLite evidence failed: "+key)
-        require(result.get("offline") is True and
-                result.get("ready") is True and
-                result.get("runner_errors")==[] and
-                result.get("public_bot_release") is False,
-                "release-image smoke failed: "+key)
-        game=result.get("game") or {}
-        require(game.get("forbidden_attempts")==[],
-                "release image simulator recorded forbidden API attempts: "+key)
-        requests=result.get("http")
-        require(isinstance(requests,list),
-                "release-image complete HTTP audit missing: "+key)
-        require(all(allowed_release_http(r,key) for r in requests),
-                "release image HTTP contains prohibited request: "+key)
-        if key=="r10-white":
-            require(result.get("rate_cooldown_verified") is True,
-                    "release-image 429 cooldown witness absent")
-        if key=="r02-white":
-            require(type(result.get("fresh_second_epoch_commits")) is int and
-                    result["fresh_second_epoch_commits"]>0,
-                    "release image restart has no fresh confirmed move")
-        if key!="r10-white":
-            require(result["game"]["complete"] is True,
-                    "offline completed-game requirement not met: "+key)
-        else:
-            require(result["game"]["complete"] is False,
-                    "rate-limit test unexpectedly marked game as complete")
-        tests[key]={"passed":True,"independent_evidence":independent,
-                    "accepted_moves":len(result["game"]["accepted"] or []),
-                    "phase_count":len(result["observations"])}
-    wheel_hash=digest(stage/"wheels/runtime-wheels.lock")
-    wheel_inv=digest(wheel_inventory)
-    native_hash=digest(os_inventory)
-    checked={
-        "os_lock":bool(image_policy["os_package_lock_complete"] and
-          image_policy.get("exact_os_package_inventory_sha256")==native_hash),
-        "wheel_lock":bool(image_policy["wheel_lock_complete"] and
-          image_policy.get("exact_runtime_wheel_lock_sha256")==wheel_hash and
-          image_policy.get("exact_runtime_wheel_inventory_sha256")==wheel_inv),
-    }
-    source_contents={
-        "schema_version":1,"source_commit":source,
-        "image_manifest_digest":oci_report["oci_image_manifest_digest"],
-        "oci_image_config_digest":oci_report["oci_config_digest"],
-        "oci_archive_sha256":oci_report["oci_archive_sha256"],
-        "base_image":image_policy["base_image"],
-        "apt_snapshot":image_policy["apt_snapshot"],
-        "native_inventory_sha256":native_hash,
-        "wheel_requirements_sha256":wheel_hash,
-        "wheel_inventory_sha256":wheel_inv,
-        "wheel_bytes":runtime_wheels["wheels"],
-        "smoke":tests,
-        "oci_evidence":{field:oci_report.get(field) for field in (
-            "integrity_verified","oci_layers_verified",
-            "oci_diff_ids_verified","oci_application_identity_verified",
-            "oci_attestation_references_verified",
-            "oci_attestation_subjects_verified",
-            "oci_sbom_verified","oci_provenance_verified")},
-        "image_integrity_qualified":True,
-        "frozen_dependency_lock_qualified":all(checked.values()),
-        "dependency_lock_checks":checked,
-        # Source and image integrity do not grant host/legal/live authority.
-        # This deliberately remains false even if dependency pins are filled.
-        "offline_candidate_qualified":False,
-        "license_approved":False,"destination_host_qualified":False,
-        "network_recovery_qualified":False,
-        "artifact_distribution_authorized":False,
-        "public_bot_release":False,"release_promotion_authorized":False,
-        "release_blocked":True,
-        "blockers":[name for name,ok in checked.items() if not ok]
-          + ["controller_license_review","source_availability_review",
-             "destination_host_qualification","live_transport_qualification",
-             "operator_live_play_approval"],
-    }
-    spec = importlib.util.spec_from_file_location(
-        "release1_aggregate_claims",
-        ROOT/"scripts/verify_assurance_contract.py")
-    require(spec is not None and spec.loader is not None,
-            "missing RELEASE-1 independent claim contract")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    module.verify_report(source_contents,"release_aggregate")
+    with verified_release_snapshot(root,source_sha,manifest) as sealed:
+        verified_http=load_verified_module(
+            sealed,"scripts/release_http_contract.py","release1_verified_http")
+        verified_smoke=load_verified_module(
+            sealed,"scripts/qualify-release-smoke.py","release1_verified_smoke")
+        tests={}
+        for key in ("r00-white","r00-black","r02-white","r10-white"):
+            target=smoke_dir/key/"result.json"
+            require(target.is_file(), "release-image smoke scenario missing: "+key)
+            result=load(target)
+            independent=check_smoke_evidence(target,key,verified_smoke)
+            scenario,color=key.split("-",1)
+            require(independent.get("independent_qualified") is True and
+                    independent.get("persisted_sqlite_verified") is True and
+                    independent.get("release_blocked") is True and
+                    independent.get("run_id") == key and
+                    independent.get("scenario") == scenario.upper() and
+                    independent.get("color") == color and
+                    independent.get("public_bot_release") is False,
+                    "independent chess/HTTP/SQLite evidence failed: "+key)
+            require(result.get("offline") is True and
+                    result.get("ready") is True and
+                    result.get("runner_errors")==[] and
+                    result.get("public_bot_release") is False,
+                    "release-image smoke failed: "+key)
+            game=result.get("game") or {}
+            require(game.get("forbidden_attempts")==[],
+                    "release image simulator recorded forbidden API attempts: "+key)
+            requests=result.get("http")
+            require(isinstance(requests,list),
+                    "release-image complete HTTP audit missing: "+key)
+            require(all(allowed_release_http(r,key,verified_http) for r in requests),
+                    "release image HTTP contains prohibited request: "+key)
+            if key=="r10-white":
+                require(result.get("rate_cooldown_verified") is True,
+                        "release-image 429 cooldown witness absent")
+            if key=="r02-white":
+                require(type(result.get("fresh_second_epoch_commits")) is int and
+                        result["fresh_second_epoch_commits"]>0,
+                        "release image restart has no fresh confirmed move")
+            if key!="r10-white":
+                require(result["game"]["complete"] is True,
+                        "offline completed-game requirement not met: "+key)
+            else:
+                require(result["game"]["complete"] is False,
+                        "rate-limit test unexpectedly marked game as complete")
+            tests[key]={"passed":True,"independent_evidence":independent,
+                        "accepted_moves":len(result["game"]["accepted"] or []),
+                        "phase_count":len(result["observations"])}
+        wheel_hash=digest(stage/"wheels/runtime-wheels.lock")
+        wheel_inv=digest(wheel_inventory)
+        native_hash=digest(os_inventory)
+        checked={
+            "os_lock":bool(image_policy["os_package_lock_complete"] and
+              image_policy.get("exact_os_package_inventory_sha256")==native_hash),
+            "wheel_lock":bool(image_policy["wheel_lock_complete"] and
+              image_policy.get("exact_runtime_wheel_lock_sha256")==wheel_hash and
+              image_policy.get("exact_runtime_wheel_inventory_sha256")==wheel_inv),
+        }
+        source_contents={
+            "schema_version":1,"source_commit":source,
+            "image_manifest_digest":oci_report["oci_image_manifest_digest"],
+            "oci_image_config_digest":oci_report["oci_config_digest"],
+            "oci_archive_sha256":oci_report["oci_archive_sha256"],
+            "base_image":image_policy["base_image"],
+            "apt_snapshot":image_policy["apt_snapshot"],
+            "native_inventory_sha256":native_hash,
+            "wheel_requirements_sha256":wheel_hash,
+            "wheel_inventory_sha256":wheel_inv,
+            "wheel_bytes":runtime_wheels["wheels"],
+            "smoke":tests,
+            "oci_evidence":{field:oci_report.get(field) for field in (
+                "integrity_verified","oci_layers_verified",
+                "oci_diff_ids_verified","oci_application_identity_verified",
+                "oci_attestation_references_verified",
+                "oci_attestation_subjects_verified",
+                "oci_sbom_verified","oci_provenance_verified")},
+            "image_integrity_qualified":True,
+            "frozen_dependency_lock_qualified":all(checked.values()),
+            "dependency_lock_checks":checked,
+            # Source and image integrity do not grant host/legal/live authority.
+            # This deliberately remains false even if dependency pins are filled.
+            "offline_candidate_qualified":False,
+            "license_approved":False,"destination_host_qualified":False,
+            "network_recovery_qualified":False,
+            "artifact_distribution_authorized":False,
+            "public_bot_release":False,"release_promotion_authorized":False,
+            "release_blocked":True,
+            "blockers":[name for name,ok in checked.items() if not ok]
+              + ["controller_license_review","source_availability_review",
+                 "destination_host_qualification","live_transport_qualification",
+                 "operator_live_play_approval"],
+        }
+        verified_claims=load_verified_module(
+            sealed,"scripts/verify_assurance_contract.py","release1_verified_claims")
+        verified_claims.verify_report(source_contents,"release_aggregate")
     return source_contents
 
 

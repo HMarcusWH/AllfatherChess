@@ -107,3 +107,24 @@ GitHub recorded 58 threads at the time of ledger construction: 42 outdated diff 
 4. Preserve independently verified source byte closure, chess legality, actor attribution, HTTP statuses, SQLite replay, OCI archive identity and all safe-output boundaries.
 5. Request fresh exact-head Codex code and security review. Reconcile every actionable new finding with source/test/CI evidence.
 6. Leave all source availability, distribution, licensing, operator, host, live transport, and publication gates closed.
+
+## October 18 Codex repair wave (source-implemented, exact-head CI pending)
+
+The five fresh [Codex findings](https://github.com/HMarcusWH/AllfatherChess/pull/71)
+from review of `16faccaba5` remain actionable until their source, negative
+counterexamples, **real pinned scanner**, packaged OCI integration and new
+exact-head review are reconciled. No finding is declared closed by this
+ledger alone.
+
+| Finding | Source repair | Required negative oracle |
+| --- | --- | --- |
+| [r4305073147](https://github.com/HMarcusWH/AllfatherChess/pull/71#discussion_r4305073147) SPDX 2.2/2.3 | Version-specific package fields, strict 2.2 analyzed package code, valid 2.3 optional semantics | Rehashed 2.2 missing fields reject; 2.3 valid optional cases accept |
+| [r4305073150](https://github.com/HMarcusWH/AllfatherChess/pull/71#discussion_r4305073150) SLSA probe | Require exactly one v1 provenance statement with pinned builder | Missing, duplicate, wrong-version, wrong-builder all reject |
+| [r4305073152](https://github.com/HMarcusWH/AllfatherChess/pull/71#discussion_r4305073152) License expressions | Offline SPDX 2.x parser and pinned 740-license/86-exception catalogue v3.29.0 | Unknown IDs, malformed operators and injected free text reject |
+| [r4305073153](https://github.com/HMarcusWH/AllfatherChess/pull/71#discussion_r4305073153) Verifier source | Compare stage/Git/executed bytes and import from private verified snapshot | Modified, rehashed, linked and post-snapshot mutations reject |
+| [r4305073154](https://github.com/HMarcusWH/AllfatherChess/pull/71#discussion_r4305073154) SPDX file checksums | Valid SHA-1 mandatory, others permitted if well-formed | SHA256-only, malformed and duplicate SHA-1 reject |
+
+**Stop rule:** all eleven exact-head workflow groups complete successfully,
+including real RELEASE-1 OCI/smoke, guarded recovery, LC0 and LOCAL-1;
+then a fresh exact-head Codex code/security review with no outstanding
+unaddressed findings. Offline test authority never becomes online authority.

@@ -110,13 +110,22 @@ platform identity, **not** a publisher signature or distribution permission.
 Field-specific failures must be reported using fixed classifications, never
 by echoing arbitrary provenance strings into public CI logs.
 
-SPDX 2.2/2.3 structural validity is distinct from Allfather image policy.
-For example, a missing package `copyrightText` implies `NOASSERTION`; a
-missing `filesAnalyzed` defaults to true; and an optional
-`packageVerificationCode`, if present, must have a valid SHA-1 value.
-The image-level verifier still independently binds attestation subjects to
-the application manifest and checks the OCI layer graph and archive bytes.
-A syntactically valid inventory does not prove licensing compliance.
+SPDX 2.2 and SPDX 2.3 have different package-field requirements. In the
+strict SPDX 2.2 profile, package copyright and concluded/declared license
+fields are mandatory, and analyzed packages require a verification code.
+SPDX 2.3 permits those package metadata fields and the verification code to
+be absent, with NOASSERTION semantics where specified. In both versions,
+`filesAnalyzed` defaults to true; a supplied verification code must be
+valid, and `filesAnalyzed=false` prohibits verification codes and
+file-license arrays. Every SPDX file record must contain a valid SHA-1
+checksum, with optional additional supported digests.
+
+Every supplied license field is checked by the source-attested offline SPDX
+2.x expression parser against the frozen SPDX License List v3.29.0
+(`qualification/spdx-license-identifiers-v3.29.0.json`); syntactically
+valid licenses do not establish actual copyright permissions. The OCI verifier
+independently checks application manifest subjects, the full layer graph,
+archive bytes and provenance, and never authorizes distribution.
 
 ## Image, host, licensing and governance checks
 
@@ -274,7 +283,16 @@ The green supporting workflows and full image smoke testing remain necessary but
 
 **Pinned snapshot acquisition:** The image still starts from the digest-pinned Ubuntu base and two native APT sources with GPG Signed-By and the frozen Snapshot field. The minimal base bootstraps CA trust from signed native HTTP indexes as before. Remaining packages are installed with deploy/release/install-pinned-apt.sh: up to four bounded attempts for transient HTTP 429/502/503/504 responses, with old index lists discarded after failure. Hash, signature, certificate or unrecognized download failures are fatal; there is no mirror or unsigned fallback. An availability-only snapshot preflight runs before expensive engine compilation and emits a sanitized JSON diagnostic. It does not replace APT signature validation.
 
-**Scanner preflight:** A separate scanner-compatibility job builds a minimal OCI candidate from only the pinned base image, without the chess engines or extra APT packages, and requests an SPDX SBOM from the digest-pinned Syft generator. scripts/check-release-scanner.py scans the real in-toto SPDX statement and verifies the supported document/inventory contract. This check proves generator compatibility, **not** full application subject binding, publisher signature, licensing, or release readiness. The actual RELEASE-1 OCI export still requires the independent full image/config/layers/SBOM/SLSA verifier after four packaged offline smoke scenarios.
+**Scanner preflight:** The scanner-compatibility job builds a minimal OCI
+candidate without chess engines, requests the digest-pinned Syft SBOM and
+minimal SLSA v1 provenance, then independently requires exactly one supported
+SPDX document and one SLSA v1 statement with the builder identity frozen in
+`qualification/release-image-v1.json`. Wrong/missing/duplicate provenance
+cannot be hidden behind a valid SPDX sibling. The result proves a bounded
+scanner/provenance interface only, **not** full image identity, publisher
+signature, licensing, or release readiness. The real OCI export still
+requires independently verified full-image attestation after four packaged
+offline smoke cases.
 
 **SPDX source rules:** Package downloadLocation may be NONE, NOASSERTION, or a supported syntactically valid URL/VCS location without embedded secrets. File and optional package checksums require supported exact algorithm and canonical lowercase fixed-width digest. Variable-width MD6 is explicitly unsupported in the release profile. A structurally valid SPDX document is not evidence of actual package-download provenance. The SPDX schema and release-profile policy are separate claims.
 
@@ -340,6 +358,26 @@ Review the current source closure, HTTP, OCI/SLSA and sanitized-report contract 
 
 An injected HTTP fault must be reflected in the *targeted request's observed HTTP status*, not just in an independent trace flag. The aggregate must independently link the OCI archive digest/layers and full SPDX/SLSA/subject graph to its positive `image_integrity_qualified` claim. Scanner preflight cannot select one valid SPDX sibling while silently dropping other malformed attestation statements.
 
-SPDX 2.3 package fields follow normative conditional rules: `copyrightText` is required; `filesAnalyzed` defaults to true when absent, and analyzed packages require a valid verification code. `licenseConcluded` and `licenseDeclared` are optional (NOASSERTION semantics when omitted); `filesAnalyzed=false` packages omit verification codes and file-license arrays. Strict malformed-field checks must not treat optional licenses as universally mandatory.
+The October 18 SPDX review exposed a version-confusion risk: SPDX 2.2 package
+copyright/license fields remain mandatory while SPDX 2.3 permits omission;
+the file SHA-1 checksum rule applies to both versions. Neither an optional
+verification code nor a missing one may bypass validation of supplied license
+information. This is now enforced by version-specific negative controls.
 
 The bounded APT acquisition retry remains restricted to individually recognized transient statuses. A valid `apt-get install` unable-to-fetch summary may accompany those statuses, but unknown errors never become retryable by including that summary. All green checks must originate at one exact Git SHA; smoke/OCI data from another head cannot grant release promotion.
+
+## October 18 — verified interpreter inputs before qualification
+
+The RELEASE-1 workflow independently compares its scanner/OCI and aggregate
+verifier files against Git's exact committed bytes **before execution**.
+During aggregation, `scripts/qualify-release-aggregate.py` additionally
+requires the stage's `source_attestation` hashes to match the actual
+working-tree bytes and `git show SOURCE_SHA:path`. It then runs the
+independent smoke, shared HTTP and claims verifiers from a private snapshot
+containing only those verified bytes, protecting against later mutation of
+the checkout. The aggregate cannot trust a changed smoke verifier merely
+because `git rev-parse HEAD` is unchanged.
+
+These checks bind a qualification to its source bytes; they do **not** confer
+operator authority, license clearance, authenticated publisher signatures,
+network recovery claims or rights to distribute a binary image.

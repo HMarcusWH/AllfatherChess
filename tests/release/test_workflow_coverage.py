@@ -60,6 +60,30 @@ class WorkflowCoverageTests(unittest.TestCase):
         self.assertNotIn("make build-online-engine-opt-v2",scanner)
         self.assertNotIn("release1-scanner/scanner.oci.tar\n          if",scanner)
 
+    def test_release_verdict_sources_are_git_attested_before_import(self):
+        source=(ROOT/".github/workflows/release-candidate.yml").read_text()
+        self.assertIn(
+            "Verify scanner and SPDX source against exact committed Git bytes",
+            source)
+        self.assertIn(
+            "Verify every offline verdict module before aggregate execution",
+            source)
+        self.assertIn("VERDICT_SOURCE_BYTES_DIFFER_FROM_GIT",source)
+        builder=(ROOT/"scripts/build-release-candidate.py").read_text()
+        for relative in (
+            "scripts/qualify-release-aggregate.py",
+            "scripts/qualify-release-smoke.py",
+            "scripts/release_http_contract.py",
+            "scripts/verify-release-oci.py",
+            "scripts/spdx_license_contract.py",
+            "qualification/spdx-license-identifiers-v3.29.0.json",
+        ):
+            with self.subTest(relative=relative):
+                self.assertIn('"' + relative + '"',builder)
+        source_code=(ROOT/"scripts/qualify-release-aggregate.py").read_text()
+        self.assertIn("with verified_release_snapshot",source_code)
+        self.assertIn("Git committed bytes",source_code)
+
     def test_release_artifacts_exclude_raw_provenance_and_image_bytes(self):
         content=(ROOT/".github/workflows/release-candidate.yml").read_text()
         upload=content.split("- name: Do not publish combined image",1)[1]

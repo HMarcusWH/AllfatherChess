@@ -54,6 +54,7 @@ SOURCE_FILES = (POLICY, BRIDGE_LOCK, "qualification/release-qualification-v1.jso
                 "deploy/release/scanner/Dockerfile",
                 "scripts/prepare-release-scanner.py",
                 "scripts/ci-release-scanner.py",
+                "scripts/check-release-scanner-content.py",
                 "scripts/qualify-release-aggregate.py",
                 "scripts/verify-release-oci.py",
                 "scripts/spdx_license_contract.py",

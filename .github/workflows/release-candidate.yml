@@ -63,6 +63,7 @@ jobs:
               "deploy/release/scanner/Dockerfile",
               "scripts/prepare-release-scanner.py",
               "scripts/ci-release-scanner.py",
+              "scripts/check-release-scanner-content.py",
           )
           for relative in critical:
               local=Path(relative)
@@ -102,6 +103,18 @@ jobs:
           python3 scripts/check-release-scanner.py \
             --archive build/test-results/release1-scanner/scanner.oci.tar \
             --output build/test-results/release1-scanner/scanner-contract.json
+      - name: Verify actual SHA1 and SHA256 against pinned Ubuntu regular-file bytes
+        run: |
+          set -euo pipefail
+          BASE="$(python3 -c 'import json;print(json.load(open("qualification/release-image-v1.json"))["base_image"])')"
+          REF_FILE="$RUNNER_TEMP/release1-reference-dpkg"
+          CONTAINER="$(docker create "$BASE" /bin/true)"
+          trap 'docker rm -f "$CONTAINER" >/dev/null 2>&1 || true; rm -f "$REF_FILE"' EXIT
+          docker cp "$CONTAINER:/usr/bin/dpkg" "$REF_FILE"
+          python3 scripts/check-release-scanner-content.py \
+            --archive build/test-results/release1-scanner/scanner.oci.tar \
+            --reference-file "$REF_FILE" \
+            --output build/test-results/release1-scanner/scanner-file-content.json
       - name: Require independently reviewed scanner manifest and binary
         run: python3 scripts/ci-release-scanner.py verify-approval
       - name: Tear down isolated scanner test builder
@@ -115,6 +128,7 @@ jobs:
           name: release1-scanner-contract
           path: |
             build/test-results/release1-scanner/scanner-contract.json
+            build/test-results/release1-scanner/scanner-file-content.json
             build/test-results/release1-scanner/scanner-candidate.json
             build/test-results/release1-scanner/scanner-source.json
           if-no-files-found: warn
@@ -336,6 +350,7 @@ jobs:
               "deploy/release/scanner/Dockerfile",
               "scripts/prepare-release-scanner.py",
               "scripts/ci-release-scanner.py",
+              "scripts/check-release-scanner-content.py",
           )
           for relative in critical:
               local=Path(relative)

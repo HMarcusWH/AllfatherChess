@@ -423,3 +423,14 @@ File records with SHA1 `000...000` (used by upstream Syft for entries without
 regular-file digest metadata) may be structurally allowed by SPDX, but are
 **not** proof of actual file contents. An independent known-regular-file hash
 test is required before claiming scanner content-hash qualification.
+
+### Independent real-file content-hash witness
+
+The real scanner probe also extracts `/usr/bin/dpkg` from the exact digest-
+pinned Ubuntu 24.04 base image without running the image. The independent host
+verifier compares SHA1 and SHA256 over those actual bytes with the corresponding
+SPDX `fileName` entry in the scanner's OCI-attested document. A hexadecimal
+SHA1 string, an absent file or the nonregular-file zero placeholder does not
+qualify. The reference executable is kept only in a temporary runner directory
+and is never uploaded. The published witness contains safe Boolean verdicts,
+not the raw file or SBOM.

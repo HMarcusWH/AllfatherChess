@@ -39,6 +39,7 @@ VERDICT_SOURCE_PATHS=(
     "deploy/release/scanner/Dockerfile",
     "scripts/prepare-release-scanner.py",
     "scripts/ci-release-scanner.py",
+    "scripts/check-release-scanner-content.py",
 )
 
 

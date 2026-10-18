@@ -82,6 +82,7 @@ class WorkflowCoverageTests(unittest.TestCase):
             "deploy/release/scanner/Dockerfile",
             "scripts/prepare-release-scanner.py",
             "scripts/ci-release-scanner.py",
+            "scripts/check-release-scanner-content.py",
         ):
             with self.subTest(relative=relative):
                 self.assertIn('"' + relative + '"',builder)

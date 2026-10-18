@@ -26,6 +26,8 @@ jobs:
         run: |
           python3 -m compileall -q controller common adapters scripts tests
           python3 -m py_compile allfather-chess
+          python3 scripts/check-current-status.py
+          python3 -m unittest tests.ci.test_current_status_contract -v
           for config in config/*.json; do python3 -m json.tool "$config" >/dev/null; done
 
       - name: Run engine-independent contract and controller suites

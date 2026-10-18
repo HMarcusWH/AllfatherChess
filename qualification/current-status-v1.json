@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "status_kind": "current-repository-mechanism-state",
+  "canonical_selection": "qualification/engine-opt-v2-selection.json",
+  "canonical_resource_catalog": "qualification/resource-profile-catalog-v1.json",
+  "canonical_runtime": "config/allfather.online-hybrid-v2.validation.json",
+  "release_image_policy": "qualification/release-image-v1.json",
+  "release_qualification_policy": "qualification/release-qualification-v1.json",
+  "distribution_policy": "qualification/license-compliance-v1.json",
+  "summary_file": "docs/CURRENT_STATUS.md",
+  "canonical_lc0_matrix_profile": "b4-p0-c256k-cold",
+  "canonical_lc0_options": {
+    "Backend": "blas",
+    "NNCacheSize": 262144,
+    "MinibatchSize": 4,
+    "MaxPrefetch": 0,
+    "AdaptivePrefetch": false
+  },
+  "historical_promotion_pr": 64,
+  "offline_assurance_pr": 71,
+  "public_bot_release": false,
+  "offline_candidate_qualified": false,
+  "playing_strength_qualified": false,
+  "artifact_distribution_authorized": false,
+  "destination_host_qualified": false,
+  "network_recovery_qualified": false
+}

@@ -1,6 +1,7 @@
 """Independent OFFLINE-4B evidence checks: actual SQLite bytes, not producer flags."""
 from __future__ import annotations
 import copy
+import hashlib
 import importlib.util
 import json
 import tempfile
@@ -17,6 +18,36 @@ spec.loader.exec_module(qual)
 
 
 class RecoveryV2EvidenceTests(unittest.TestCase):
+    def test_phase_logs_are_unique_exact_and_contained(self):
+        with tempfile.TemporaryDirectory() as td:
+            folder=Path(td)/"case"
+            folder.mkdir()
+            for phase in (1,2):
+                (folder/f"bridge-phase-{phase}.log").write_text(
+                    f"sanitized phase {phase}\n",encoding="utf-8")
+            def record(phase):
+                path=folder/f"bridge-phase-{phase}.log"
+                return {"phase":phase,"path":path.name,
+                        "capture":{"sanitized_sha256":qual.hash_file(path),
+                                   "sanitized_bytes":path.stat().st_size}}
+            good=[record(1),record(2)]
+            qual.verify_phase_logs(folder,good,[{},{}])
+            for bad in (
+                [good[0],good[0]],
+                [{**good[0],"phase":2},good[1]],
+                [{**good[0],"path":"../private.log"},good[1]],
+                [{**good[0],"path":"/tmp/private.log"},good[1]],
+            ):
+                with self.subTest(bad=bad),self.assertRaises(ValueError):
+                    qual.verify_phase_logs(folder,bad,[{},{}])
+            original=folder/"bridge-phase-1.log"
+            external=Path(td)/"external.log"
+            external.write_bytes(original.read_bytes())
+            original.unlink()
+            original.symlink_to(external)
+            with self.assertRaisesRegex(ValueError,"linked"):
+                qual.verify_phase_logs(folder,good,[{},{}])
+
     def test_http_target_policy_is_in_exact_guarded_source_closure(self):
         exact_sha="b"*40
         names=json.loads((ROOT/"qualification/online-recovery-v2.json")

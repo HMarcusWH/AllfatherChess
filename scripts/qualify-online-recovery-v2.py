@@ -418,6 +418,38 @@ def verify_fresh_epoch_recovery(phases: list[dict], journal: dict,
     return False
 
 
+def verify_phase_logs(folder: Path, logging: object,
+                      phases: list[dict]) -> None:
+    """Bind sanitized log bytes to the correct phase and exact child path.
+
+    A producer-supplied hash over a producer-selected arbitrary path does not
+    independently attest the configured phase or prevent symlink traversal.
+    """
+    require(type(logging) is list and len(logging)==len(phases),
+            "missing sanitized bridge phase logs")
+    root=folder.resolve()
+    for index, row in enumerate(logging, start=1):
+        expected=f"bridge-phase-{index}.log"
+        require(type(row) is dict and type(row.get("phase")) is int and
+                row["phase"]==index and row.get("path")==expected,
+                "bridge phase log index or filename mismatch")
+        capture=row.get("capture")
+        require(type(capture) is dict and
+                type(capture.get("sanitized_sha256")) is str and
+                type(capture.get("sanitized_bytes")) is int and
+                0<=capture["sanitized_bytes"]<=8*1024*1024,
+                "bridge log size or hash declaration invalid")
+        path=folder/expected
+        require(path.is_file() and not path.is_symlink() and
+                path.resolve().is_relative_to(root) and
+                path.parent.resolve()==root and
+                path.stat().st_size==capture["sanitized_bytes"] and
+                hash_file(path)==capture["sanitized_sha256"],
+                "bridge phase log is missing, linked, escaped or modified")
+        require("offline-fixture-token" not in path.read_text(errors="replace"),
+                "synthetic credentials appeared in sanitized log")
+
+
 def verify_one(folder: Path, *, scenario: dict, color: str,
                sha: str, bridge: str, attested_paths: list[str],
                expected_overlay: dict) -> dict:
@@ -475,17 +507,7 @@ def verify_one(folder: Path, *, scenario: dict, color: str,
             "missing or additional recovery phase")
     require(all(isinstance(p.get("bridge_exit"), int) for p in phases),
             "bridge process was not reaped")
-    logging = result.get("logging")
-    require(isinstance(logging, list) and len(logging) == len(phases),
-            "missing sanitized bridge phase logs")
-    for row in logging:
-        path = folder / row["path"]
-        capture = row["capture"]
-        require(path.is_file() and hash_file(path) == capture["sanitized_sha256"]
-                and path.stat().st_size == capture["sanitized_bytes"],
-                "bridge log evidence incomplete")
-        require("offline-fixture-token" not in path.read_text(errors="replace"),
-                "synthetic credentials appeared in sanitized log")
+    verify_phase_logs(folder, result.get("logging"), phases)
     journal = result.get("journal")
     verify_persisted_sqlite(folder, journal)
     details = verify_journal(journal, trace, game, result, guarded)

@@ -329,15 +329,31 @@ def verify_scenario_witness(scenario: dict, activation: dict,
                            for r in trace), "duplicate state witness absent")
 
 
+def replay_evidence_file(case_dir: Path, relative: str) -> Path:
+    """Resolve a replay file without following producer-controlled links."""
+    ensure(type(relative) is str and
+           relative.startswith("replays/") and
+           "\\" not in relative and
+           not Path(relative).is_absolute() and
+           not any(p in ("", ".", "..") for p in relative.split("/")),
+           "unsafe replay manifest path")
+    root=case_dir.resolve()
+    cursor=case_dir
+    for part in relative.split("/"):
+        cursor=cursor/part
+        ensure(not cursor.is_symlink(), "replay symlink evidence rejected")
+    ensure(cursor.is_file() and cursor.resolve().is_relative_to(root),
+           "replay evidence missing or escapes case directory")
+    return cursor
+
+
 def validate_replays(case_dir: Path) -> dict:
     rows = read_json(case_dir / "replay-index.json")
     ensure(isinstance(rows, list) and len(rows) <= 128, "invalid replay index")
     for row in rows:
         path = row.get("manifest")
-        ensure(isinstance(path, str) and path.startswith("replays/") and
-               ".." not in Path(path).parts, "unsafe replay manifest path")
-        manifest = case_dir / path
-        ensure(manifest.is_file() and digest(manifest) == row.get("sha256"),
+        manifest = replay_evidence_file(case_dir,path)
+        ensure(digest(manifest) == row.get("sha256"),
                "replay manifest bytes mismatch")
         document = read_json(manifest)
         ensure(document.get("run_id") == row.get("run_id") and
@@ -346,7 +362,9 @@ def validate_replays(case_dir: Path) -> dict:
         ensure((document.get("position") or {}).get("position_id") == row.get("position_id"),
                "replay position identity mismatch")
         if "route_sha256" in row:
-            ensure(digest(manifest.parent / "route.json") == row["route_sha256"],
+            route = replay_evidence_file(
+                case_dir, str(Path(path).parent / "route.json"))
+            ensure(digest(route) == row["route_sha256"],
                    "routing artifact tampered")
     return {"manifests_retained": len(rows),
             "game_to_replay_link_qualified": False}

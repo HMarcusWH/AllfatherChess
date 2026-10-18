@@ -24,6 +24,49 @@ SCENARIOS = load_scenarios(ROOT / "tests/fixtures/lichess/recovery_scenarios.jso
 
 
 class IndependentEvidenceTests(unittest.TestCase):
+    def test_replay_manifests_and_routes_cannot_escape_case_directory(self):
+        import hashlib
+        with tempfile.TemporaryDirectory() as td:
+            root=Path(td)
+            case=root/"case"
+            entry=case/"replays"/"generation-1"
+            entry.mkdir(parents=True)
+            manifest=entry/"manifest.json"
+            content={"run_id":"offline-test","generation":1,
+                     "position":{"position_id":"0"*64}}
+            manifest.write_text(json.dumps(content),encoding="utf-8")
+            route=entry/"route.json"
+            route.write_text("{}",encoding="utf-8")
+            record={"manifest":"replays/generation-1/manifest.json",
+                    "sha256":QUALIFIER.digest(manifest),
+                    "run_id":"offline-test","generation":1,
+                    "position_id":"0"*64,
+                    "route_sha256":QUALIFIER.digest(route)}
+            (case/"replay-index.json").write_text(json.dumps([record]))
+            QUALIFIER.validate_replays(case)
+            for bad in ("../external.json","replays/../external.json",
+                        "replays//generation-1/manifest.json"):
+                with self.subTest(path=bad):
+                    (case/"replay-index.json").write_text(
+                        json.dumps([{**record,"manifest":bad}]))
+                    with self.assertRaises(ValueError):
+                        QUALIFIER.validate_replays(case)
+            (case/"replay-index.json").write_text(json.dumps([record]))
+            outside=root/"outside.json"
+            outside.write_bytes(manifest.read_bytes())
+            manifest.unlink()
+            manifest.symlink_to(outside)
+            with self.assertRaisesRegex(ValueError,"symlink"):
+                QUALIFIER.validate_replays(case)
+            manifest.unlink()
+            manifest.write_bytes(outside.read_bytes())
+            external_route=root/"route.json"
+            external_route.write_bytes(route.read_bytes())
+            route.unlink()
+            route.symlink_to(external_route)
+            with self.assertRaisesRegex(ValueError,"symlink"):
+                QUALIFIER.validate_replays(case)
+
     def test_http_target_policy_is_source_attested_and_tamper_detected(self):
         exact_sha="a"*40
         names=json.loads((ROOT/"qualification/online-recovery-v1.json")

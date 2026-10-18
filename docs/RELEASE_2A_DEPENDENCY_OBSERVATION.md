@@ -36,8 +36,19 @@ It independently checks:
    characters; pinned core bridge packages must be present.
 4. Every one of the **12** staged wheel files against the staged wheel
    attestation, runtime installation lock, original source requirement lock
-   and the candidate manifest; mismatched hashes, extra wheels, missing
-   records and symlinks are refused.
+   and the candidate manifest. The complete wheelhouse directory must contain
+   **only** those 12 wheel files, `runtime-wheels.lock` and
+   `wheel-attestation.json`: extra .whl, .pth, .py, directories or symlinks
+   are rejected. The installed `pip freeze --all` inventory must match the
+   12 wheel distribution names and exact versions read from both wheel
+   filenames and their actual ZIP `.dist-info/METADATA`. The venv-provided
+   `pip` distribution is the **sole named exception**, still version-recorded
+   and subject to future reproducibility review.
+
+A successful observation explicitly records
+`installed_wheel_versions_verified=true` and `wheelhouse_closed=true`
+after byte-level and semantic package/version reconciliation. It does not
+authorize those versions or create approved lock hashes.
 
 The runner retains only a bounded structured report at
 `build/test-results/release1/dependency-observation.json`, beside the

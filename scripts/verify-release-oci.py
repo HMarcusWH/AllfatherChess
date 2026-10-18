@@ -644,13 +644,23 @@ def validate_target_platform(platform: object) -> None:
 
 
 def verify_attestation_subjects(attestations: list[dict], image: dict) -> set[str]:
-    """Independently bind BuildKit's in-toto subjects to the application manifest.
+    """Bind full-image attestations to the exact policy's SLSA v1 builder.
 
-    For an image-level qualification the image config or one component layer is
-    not an acceptable alternative subject. Attestations are NOT signatures.
+    A scanner-only compatibility probe is *not* provenance for the separately
+    exported application image. Attestations are not publisher signatures.
     """
+    policy=json.loads((Path(__file__).resolve().parents[1] /
+                       "qualification/release-image-v1.json").read_text())
+    required_type=policy.get("slsa_provenance_predicate_type")
+    required_builder=policy.get("slsa_builder_id")
+    require(policy.get("public_bot_release") is False and
+            required_type=="https://slsa.dev/provenance/v1" and
+            type(required_builder) is str and
+            valid_identity_uri(required_builder),
+            "full-image SLSA identity policy missing or invalid")
     image_digest = image["manifest_digest"]
     predicates = set()
+    provenance_count=0
     require(attestations, "OCI archive has no attestation manifests")
     for item in attestations:
         descriptor, statement = item["descriptor"], item["statement"]
@@ -706,11 +716,17 @@ def verify_attestation_subjects(attestations: list[dict], image: dict) -> set[st
             if kind == SPDX:
                 validate_spdx_document(predicate)
             else:
+                require(kind == required_type,
+                        "full-image SLSA provenance must use pinned v1 predicate")
                 validate_slsa(kind, predicate)
+                require(predicate["runDetails"]["builder"]["id"] ==
+                        required_builder,
+                        "full-image SLSA builder differs from pinned release policy")
+                provenance_count += 1
             predicates.add(kind)
     require(SPDX in predicates, "required image SBOM attestation not exported")
-    require(bool(predicates.intersection(SLSA)),
-            "required image provenance attestation not exported")
+    require(provenance_count == 1,
+            "full image requires exactly one pinned SLSA v1 provenance statement")
     return predicates
 
 def verify_archive(archive: Path, metadata: Path, *, docker_inspect: Path | None = None):

@@ -929,6 +929,26 @@ class OCIProofTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,"manifest subject"):
                 oci.verify_archive(archive,meta,docker_inspect=inspection)
 
+    def test_full_image_provenance_matches_exact_release_builder_and_version(self):
+        # Synthetic archives rehash *all* affected OCI layers/descriptors, so
+        # the negative is about provenance identity, not a checksum mismatch.
+        for variant, expected in (
+            ("other-builder", "builder differs from pinned"),
+            ("v02", "pinned v1 predicate"),
+        ):
+            with self.subTest(variant=variant), tempfile.TemporaryDirectory() as d:
+                archive, meta, inspection = self.fixture(
+                    Path(d), slsa_case=variant)
+                with self.assertRaisesRegex(ValueError, expected):
+                    oci.verify_archive(archive, meta, docker_inspect=inspection)
+
+    def test_duplicate_image_provenance_cannot_claim_integrity(self):
+        with tempfile.TemporaryDirectory() as d:
+            archive, meta, inspection = self.fixture(
+                Path(d), duplicate_slsa=True)
+            with self.assertRaisesRegex(ValueError, "exactly one pinned SLSA"):
+                oci.verify_archive(archive, meta, docker_inspect=inspection)
+
     def test_garbled_predicate_cannot_claim_sbom_or_provenance(self):
         with tempfile.TemporaryDirectory() as d:
             archive,meta,inspection=self.fixture(Path(d),invalid_predicate=True)

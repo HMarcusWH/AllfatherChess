@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "source": "frozen-offline-fake-lichess",
+  "non_move_status": 200,
+  "ordinary_move_status": 200,
+  "fault_specific_move_status": {
+    "drop_before_commit": 0,
+    "rate_limit_429": 429,
+    "commit_then_504": 504
+  },
+  "fault_requires_exact_trace_request_id": true,
+  "non_grants": {
+    "live_transport": false,
+    "public_bot_release": false
+  }
+}

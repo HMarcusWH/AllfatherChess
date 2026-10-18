@@ -10,6 +10,9 @@ import argparse
 import hashlib
 import importlib.util
 import json
+import tempfile
+from collections import Counter
+from urllib.parse import unquote
 import subprocess
 import sqlite3
 import sys
@@ -20,7 +23,12 @@ import chess.pgn
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from tests.lichess.fault_plan import load_scenarios
+from tests.lichess.http_target_contract import canonical_target
 from deploy.lichess.reconcile import position_id
+from scripts.verify_source_closure import verify_profile, verify_committed_bytes
+from scripts.http_evidence_verdict import approved_status
+from scripts.sanitize_qualification_evidence import sanitize_report
+from scripts.verify_assurance_contract import verify_report
 
 def _v1_module():
     spec = importlib.util.spec_from_file_location(
@@ -67,6 +75,143 @@ def attest(document: dict, exact_sha: str, paths: list[str]):
         require(files[name] == hash_file(target), "source hash mismatch: "+name)
 
 
+def independently_expected_overlay() -> dict:
+    """Rebuild the frozen overlay from verified upstream source, never evidence."""
+    from deploy.lichess import fetch_bridge, recovery_overlay
+    source = fetch_bridge.DEFAULT
+    lock = read(fetch_bridge.LOCK)
+    fetch_bridge.verify(source, lock)
+    with tempfile.TemporaryDirectory(prefix="offline-overlay-verifier-") as d:
+        staged = Path(d) / "bridge"
+        fetch_bridge.copy_tracked(source, staged)
+        return recovery_overlay.apply(staged)
+
+
+def verify_overlay_identity(manifest: dict, expected: dict) -> None:
+    require(manifest == expected,
+            "overlay files, original blob IDs or actual patched hashes differ from frozen source")
+
+
+def verify_guarded_requests(requests: list[dict], trace: list[dict],
+                            game: dict, intents: list[dict], *,
+                            scenario_action: str = "none") -> dict:
+    """Bind every HTTP move attempt to a unique durable intent and legal board."""
+    gid = game.get("game_id")
+    moves = game.get("moves")
+    color = game.get("color")
+    require(gid == "off3b001" and color in ("white", "black")
+            and isinstance(moves, list), "invalid authoritative game identity")
+    prefix = f"/api/bot/game/{gid}/move/"
+    allowed = {"/api/token/test", f"/api/challenge/{gid}/accept",
+               f"/api/challenge/{gid}/decline"}
+    require(isinstance(requests, list) and isinstance(trace, list)
+            and isinstance(intents, list), "missing source request/journal evidence")
+    forbidden = game.get("forbidden_attempts")
+    require(isinstance(forbidden, list)
+            and forbidden == ["POST " + r["path"] for r in requests
+                              if r.get("method") == "POST" and r.get("status") == 403],
+            "server forbidden-attempt audit differs from HTTP records")
+    require(not forbidden, "guard submitted forbidden HTTP operations")
+    # Audit *original raw request semantics*. Checking only the producer's
+    # normalized pathname would accept a forged GET query or a leading-//
+    # request that CPython normalized before dispatch.
+    for request in requests:
+        raw = request.get("request_target") if isinstance(request, dict) else None
+        method = request.get("method") if isinstance(request, dict) else None
+        require(isinstance(raw, str) and
+                request.get("target_canonical") is True and
+                canonical_target(method, raw) and
+                request.get("path") == raw.split("?", 1)[0],
+                "guarded HTTP request target is not canonical")
+        require(approved_status(request, trace, scenario_action),
+                "guarded HTTP request has unqualified status or fault witness")
+    http_moves = []
+    for request in requests:
+        if request.get("method") != "POST":
+            continue
+        path = request.get("path")
+        require(isinstance(path, str)
+                and (path in allowed or path.startswith(prefix)),
+                "unexpected guarded POST operation")
+        if path.startswith(prefix):
+            uci = unquote(path[len(prefix):])
+            require(uci and "/" not in uci and "?" not in uci and
+                    path == prefix + uci,
+                    "noncanonical guarded move URL")
+            try:
+                canonical = chess.Move.from_uci(uci)
+            except (ValueError, TypeError) as exc:
+                raise ValueError("malformed guarded move URL") from exc
+            require(canonical != chess.Move.null() and canonical.uci() == uci,
+                    "noncanonical guarded move URL")
+            rid = request.get("request_id")
+            require(isinstance(rid, str) and bool(rid),
+                    "guarded move HTTP request ID missing")
+            http_moves.append((path, rid))
+    raw_attempts = [r for r in trace if r.get("event") == "move_attempt"]
+    require(all(type(r.get("seq")) is int and r["seq"] > 0
+                for r in raw_attempts),
+            "guarded move trace sequence identity malformed")
+    require(Counter(http_moves) ==
+            Counter((r.get("path"), f"request-{r['seq']}")
+                    for r in raw_attempts),
+            "guarded move HTTP records, request IDs and trace attempts differ")
+
+    board = chess.Board()
+    seen = set()
+    ledger = {(i.get("game_id"),i.get("ply_before"),i.get("move")): i
+              for i in intents}
+    require(len(ledger) == len(intents), "duplicate durable intent identity")
+    validated = 0
+    for event in trace:
+        typ = event.get("event")
+        if typ == "board_commit":
+            uci = event.get("uci")
+            require(event.get("game_id") == gid and
+                    event.get("ply_before") == len(board.move_stack),
+                    "commit does not match authoritative ply")
+            try:
+                move = chess.Move.from_uci(uci)
+            except (ValueError,TypeError) as exc:
+                raise ValueError("non-UCI authoritative chess move") from exc
+            require(move in board.legal_moves, "illegal authoritative commit")
+            board.push(move)
+        if typ != "move_attempt":
+            continue
+        ply = len(board.move_stack)
+        uci = event.get("uci")
+        require(event.get("game_id") == gid and
+                type(event.get("ply_at_receipt")) is int and
+                event["ply_at_receipt"] == ply,
+                "move attempt does not match authoritative game/ply")
+        require(board.turn == (color == "white"),
+                "HTTP move attempt made on opponent turn")
+        try:
+            move = chess.Move.from_uci(uci)
+        except (ValueError,TypeError) as exc:
+            raise ValueError("malformed HTTP UCI move submission") from exc
+        require(move != chess.Move.null() and move.uci() == uci and
+                event.get("path") == prefix + uci,
+                "guarded move URL differs from traced canonical UCI")
+        require(move in board.legal_moves,
+                "position-illegal HTTP move submission")
+        key = (gid, ply, uci)
+        require(key not in seen, "blind repeat HTTP move submission")
+        seen.add(key)
+        intent = ledger.get(key)
+        require(intent is not None and
+                json.loads(intent["history_json"]) ==
+                    [m.uci() for m in board.move_stack],
+                "move attempt without exact authoritative durable intent")
+        validated += 1
+    require([m.uci() for m in board.move_stack] == moves,
+            "HTTP trace board does not reconstruct game history")
+    require(validated == len(raw_attempts),
+            "not every recorded HTTP move was independently checked")
+    return {"unique_legal_move_attempts": validated,
+            "forbidden_requests": 0}
+
+
 def verify_journal(journal: dict, trace: list[dict], game: dict,
                    result: dict, guard_events: list[dict]):
     require(isinstance(journal, dict) and isinstance(journal.get("owner_epoch"), str),
@@ -92,15 +237,22 @@ def verify_journal(journal: dict, trace: list[dict], game: dict,
             "conflicting intents for one authoritative ply")
     for row in intents:
         prior = tuple(json.loads(row["history_json"]))
+        ply = row.get("ply_before")
+        require(row.get("game_id") == game.get("game_id") and
+                type(ply) is int and 0 <= ply <= len(game["moves"]) and
+                prior == tuple(game["moves"][:ply]),
+                "journal intent not bound to authoritative game history")
         require(row["position_id"] == position_id(prior) and
-                row["ply_before"] == len(prior), "journal position identity drift")
+                ply == len(prior), "journal position identity drift")
         require(row["status"] in ("PREPARED", "SUBMITTING",
                                  "ACK_OBSERVED", "UNKNOWN_ACK", "CONFIRMED"),
                 "unknown move state")
         if row["status"] == "CONFIRMED":
-            require(any(r["ply_before"] == row["ply_before"]
-                        and r["uci"] == row["move"] for r in committed),
-                    "journal claims uncommitted move was confirmed")
+            require(len([r for r in committed
+                         if r.get("game_id") == row["game_id"] and
+                         r["ply_before"] == row["ply_before"]
+                         and r["uci"] == row["move"]]) == 1,
+                    "journal claims uncommitted or duplicated move confirmation")
     g = journal.get("games")
     require(isinstance(g, list) and len(g) <= 1, "unexpected concurrent games")
     if g:
@@ -266,8 +418,41 @@ def verify_fresh_epoch_recovery(phases: list[dict], journal: dict,
     return False
 
 
+def verify_phase_logs(folder: Path, logging: object,
+                      phases: list[dict]) -> None:
+    """Bind sanitized log bytes to the correct phase and exact child path.
+
+    A producer-supplied hash over a producer-selected arbitrary path does not
+    independently attest the configured phase or prevent symlink traversal.
+    """
+    require(type(logging) is list and len(logging)==len(phases),
+            "missing sanitized bridge phase logs")
+    root=folder.resolve()
+    for index, row in enumerate(logging, start=1):
+        expected=f"bridge-phase-{index}.log"
+        require(type(row) is dict and type(row.get("phase")) is int and
+                row["phase"]==index and row.get("path")==expected,
+                "bridge phase log index or filename mismatch")
+        capture=row.get("capture")
+        require(type(capture) is dict and
+                type(capture.get("sanitized_sha256")) is str and
+                type(capture.get("sanitized_bytes")) is int and
+                0<=capture["sanitized_bytes"]<=8*1024*1024,
+                "bridge log size or hash declaration invalid")
+        path=folder/expected
+        require(path.is_file() and not path.is_symlink() and
+                path.resolve().is_relative_to(root) and
+                path.parent.resolve()==root and
+                path.stat().st_size==capture["sanitized_bytes"] and
+                hash_file(path)==capture["sanitized_sha256"],
+                "bridge phase log is missing, linked, escaped or modified")
+        require("offline-fixture-token" not in path.read_text(errors="replace"),
+                "synthetic credentials appeared in sanitized log")
+
+
 def verify_one(folder: Path, *, scenario: dict, color: str,
-               sha: str, bridge: str, attested_paths: list[str]) -> dict:
+               sha: str, bridge: str, attested_paths: list[str],
+               expected_overlay: dict) -> dict:
     result = read(folder / "result.json")
     game = read(folder / "authoritative-game.json")
     plan = read(folder / "fault-plan.json")
@@ -291,9 +476,7 @@ def verify_one(folder: Path, *, scenario: dict, color: str,
             manifest.get("mode") == "OFFLINE-4B-ONLY" and
             manifest.get("public_bot_release") is False,
             "upstream recovery overlay identity invalid")
-    require(len(manifest.get("patched_upstream", {})) == 3 and
-            len(manifest.get("guard_modules", {})) == 4,
-            "source-locked overlay surface incomplete")
+    verify_overlay_identity(manifest, expected_overlay)
     require(commits == [r for r in trace if r.get("event") == "board_commit"],
             "server commit extract differs from raw trace")
     history = v1.verify_trace(trace, game)
@@ -311,9 +494,10 @@ def verify_one(folder: Path, *, scenario: dict, color: str,
                 r.get("method") in ("GET", "POST") for r in requests),
             "malformed HTTP request record")
     invalid = v1.invalid_move_submissions(requests)
-    forbidden = [r for r in requests if r["path"].endswith(
-        ("/abort", "/resign", "/chat", "/upgrade"))]
-    require(not invalid and not forbidden, "guarded transport sent invalid or prohibited operation")
+    require(not invalid, "guarded transport sent malformed or null UCI move")
+    http_witness = verify_guarded_requests(requests, trace, game,
+                                           result["journal"]["intents"],
+                                           scenario_action=scenario["action"])
     runner_errors = result.get("runner_errors")
     require(isinstance(runner_errors, list) and not runner_errors,
             "harness startup/cleanup failed: " + str(runner_errors))
@@ -323,20 +507,11 @@ def verify_one(folder: Path, *, scenario: dict, color: str,
             "missing or additional recovery phase")
     require(all(isinstance(p.get("bridge_exit"), int) for p in phases),
             "bridge process was not reaped")
-    logging = result.get("logging")
-    require(isinstance(logging, list) and len(logging) == len(phases),
-            "missing sanitized bridge phase logs")
-    for row in logging:
-        path = folder / row["path"]
-        capture = row["capture"]
-        require(path.is_file() and hash_file(path) == capture["sanitized_sha256"]
-                and path.stat().st_size == capture["sanitized_bytes"],
-                "bridge log evidence incomplete")
-        require("offline-fixture-token" not in path.read_text(errors="replace"),
-                "synthetic credentials appeared in sanitized log")
+    verify_phase_logs(folder, result.get("logging"), phases)
     journal = result.get("journal")
     verify_persisted_sqlite(folder, journal)
     details = verify_journal(journal, trace, game, result, guarded)
+    details.update(http_witness)
     terminal_confirmed = verify_terminal_confirmation(game, journal, phases)
     epochs = {p["epoch"] for p in phases}
     require(all(e.get("owner_epoch") in epochs for e in guarded),
@@ -399,8 +574,11 @@ def qualify(evidence: Path, source_sha: str):
     require(subprocess.check_output(["git", "-C", str(ROOT), "rev-parse", "HEAD"],
                                     text=True).strip() == source_sha,
             "not executing verifier on exact CI source head")
+    verify_profile("online-recovery-v2")
+    verify_committed_bytes(source_sha, policy["attested_paths"])
     scenarios = load_scenarios(ROOT / policy["scenario_source"])
     bridge = read(ROOT / policy["bridge_lock"])["commit"]
+    expected_overlay = independently_expected_overlay()
     results, failures = [], []
     for case, colors in policy["required"].items():
         require(case in scenarios and colors == scenarios[case]["colors"],
@@ -410,7 +588,8 @@ def qualify(evidence: Path, source_sha: str):
                 results.append(verify_one(
                     evidence / (case+"-"+color), scenario=scenarios[case],
                     color=color, sha=source_sha, bridge=bridge,
-                    attested_paths=policy["attested_paths"]))
+                    attested_paths=policy["attested_paths"],
+                    expected_overlay=expected_overlay))
             except (OSError, ValueError, TypeError, KeyError, IndexError,
                     json.JSONDecodeError) as exc:
                 failures.append({"scenario": case, "color": color, "error": str(exc)})
@@ -452,6 +631,8 @@ def main():
                   "qualification_failures": [{"error": str(exc)}],
                   "network_recovery_qualified": False, "public_bot_release": False,
                   "release_blocked": True}
+    report=sanitize_report(report)
+    verify_report(report,"online4b")
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
     print(json.dumps({k:v for k,v in report.items() if k!="scenario_results"},sort_keys=True))

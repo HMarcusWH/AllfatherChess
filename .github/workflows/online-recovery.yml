@@ -6,6 +6,20 @@ on:
       - 'tests/lichess/**'
       - 'tests/fixtures/lichess/**'
       - 'scripts/qualify-online-recovery.py'
+      - 'scripts/http_evidence_verdict.py'
+      - 'scripts/sanitize_qualification_evidence.py'
+      - 'scripts/verify_assurance_contract.py'
+      - 'scripts/verify_source_closure.py'
+      - 'qualification/assurance-contract-v1.json'
+      - 'qualification/http-evidence-contract-v1.json'
+      - 'qualification/schemas/**'
+      - 'scripts/release-manifest.py'
+      - 'scripts/package-online.py'
+      - 'scripts/build-online-engine-opt-v2.sh'
+      - 'scripts/qualify-engine-opt-v2.py'
+      - 'scripts/ci-install-apt-deps.sh'
+      - 'Makefile'
+      - 'deploy/bin/**'
       - 'qualification/online-recovery-v1.json'
       - '.github/workflows/online-recovery.yml'
       - 'docs/ONLINE_4_RECOVERY.md'
@@ -133,6 +147,7 @@ jobs:
 
   independent-recovery-evidence:
     needs: offline-fault-integration
+    if: ${{ always() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -146,15 +161,26 @@ jobs:
           bash scripts/ci-install-apt-deps.sh python3-pip python3-venv
           python3 -m pip install --break-system-packages 'chess==1.11.2'
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        continue-on-error: true
         with:
           name: online4a-raw-evidence
           path: build/test-results/online-recovery-v1
+      - name: Establish Git-committed independent verifier source before imports
+        run: |
+          set -euo pipefail
+          VERIFIED="$RUNNER_TEMP/online4a-verified-${GITHUB_RUN_ID}"
+          git worktree add --detach "$VERIFIED" "$ALLFATHER_SOURCE_SHA"
+          test "$(git -C "$VERIFIED" rev-parse HEAD)" = "$ALLFATHER_SOURCE_SHA"
+          git -C "$VERIFIED" diff --exit-code
+          python3 "$VERIFIED/scripts/verify_source_closure.py" \
+            --profile online-recovery-v1 --source-sha "$ALLFATHER_SOURCE_SHA"
+          echo "ONLINE4A_VERIFIED_ROOT=$VERIFIED" >> "$GITHUB_ENV"
       - name: Independently reconstruct commits and fault witnesses
         run: |
-          python3 scripts/qualify-online-recovery.py \
-            --evidence build/test-results/online-recovery-v1 \
+          python3 "$ONLINE4A_VERIFIED_ROOT/scripts/qualify-online-recovery.py" \
+            --evidence "$GITHUB_WORKSPACE/build/test-results/online-recovery-v1" \
             --source-sha "$ALLFATHER_SOURCE_SHA" \
-            --output build/test-results/online4a-verdict/report.json
+            --output "$GITHUB_WORKSPACE/build/test-results/online4a-verdict/report.json"
       - name: Publish diagnostic qualification summary
         if: always()
         run: |

@@ -1,7 +1,9 @@
 """Independent OFFLINE-4B evidence checks: actual SQLite bytes, not producer flags."""
 from __future__ import annotations
 import copy
+import hashlib
 import importlib.util
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -16,6 +18,61 @@ spec.loader.exec_module(qual)
 
 
 class RecoveryV2EvidenceTests(unittest.TestCase):
+    def test_phase_logs_are_unique_exact_and_contained(self):
+        with tempfile.TemporaryDirectory() as td:
+            folder=Path(td)/"case"
+            folder.mkdir()
+            for phase in (1,2):
+                (folder/f"bridge-phase-{phase}.log").write_text(
+                    f"sanitized phase {phase}\n",encoding="utf-8")
+            def record(phase):
+                path=folder/f"bridge-phase-{phase}.log"
+                return {"phase":phase,"path":path.name,
+                        "capture":{"sanitized_sha256":qual.hash_file(path),
+                                   "sanitized_bytes":path.stat().st_size}}
+            good=[record(1),record(2)]
+            qual.verify_phase_logs(folder,good,[{},{}])
+            for bad in (
+                [good[0],good[0]],
+                [{**good[0],"phase":2},good[1]],
+                [{**good[0],"path":"../private.log"},good[1]],
+                [{**good[0],"path":"/tmp/private.log"},good[1]],
+            ):
+                with self.subTest(bad=bad),self.assertRaises(ValueError):
+                    qual.verify_phase_logs(folder,bad,[{},{}])
+            original=folder/"bridge-phase-1.log"
+            external=Path(td)/"external.log"
+            external.write_bytes(original.read_bytes())
+            original.unlink()
+            original.symlink_to(external)
+            with self.assertRaisesRegex(ValueError,"linked"):
+                qual.verify_phase_logs(folder,good,[{},{}])
+
+    def test_independent_online4b_imports_only_after_git_source_check(self):
+        yml=(ROOT/".github/workflows/online-recovery-v2.yml").read_text()
+        step="Verify independent exact-source worktree before importing recovery code"
+        self.assertIn(step,yml)
+        self.assertIn('git worktree add --detach "$VERIFIED" "$ALLFATHER_SOURCE_SHA"',yml)
+        self.assertIn('--profile online-recovery-v2 --source-sha "$ALLFATHER_SOURCE_SHA"',yml)
+        self.assertIn(
+            '"$ONLINE4B_VERIFIED_ROOT/scripts/qualify-online-recovery-v2.py"',yml)
+        self.assertLess(yml.index(step),
+                        yml.index("Independently qualify guarded safety"))
+
+    def test_http_target_policy_is_in_exact_guarded_source_closure(self):
+        exact_sha="b"*40
+        names=json.loads((ROOT/"qualification/online-recovery-v2.json")
+                         .read_text())["attested_paths"]
+        path="tests/lichess/http_target_contract.py"
+        self.assertEqual(names.count(path),1)
+        file_hashes={name:qual.hash_file(ROOT/name) for name in names}
+        document={"source_commit":exact_sha,"files":file_hashes}
+        qual.attest(document,exact_sha,names)
+        forged=copy.deepcopy(document)
+        forged["files"][path]="0"*64
+        with self.assertRaisesRegex(ValueError,"source hash mismatch"):
+            qual.attest(forged,exact_sha,names)
+
     def test_persisted_journal_verifies_and_mutation_is_detected(self):
         with tempfile.TemporaryDirectory() as d:
             folder = Path(d)
@@ -210,6 +267,190 @@ class RecoveryV2EvidenceTests(unittest.TestCase):
         self.assertFalse(value["network_recovery_qualified"])
         self.assertFalse(value["public_bot_release"])
         self.assertFalse(value["deployment_host_qualified"])
+
+
+    def test_guarded_request_ledger_rejects_duplicate_illegal_and_forbidden(self):
+        gid = "off3b001"
+        path = f"/api/bot/game/{gid}/move/e2e4"
+        game = {"game_id": gid, "color": "white", "moves": ["e2e4"],
+                "forbidden_attempts": []}
+        requests = [{"method": "POST", "path": path,
+                     "request_target": path, "target_canonical": True,
+                     "status": 200, "request_id": "request-1"}]
+        trace = [
+            {"seq":1,"event":"move_attempt","game_id":gid,"uci":"e2e4",
+             "path":path,"ply_at_receipt":0},
+            {"seq":2,"event":"board_commit","game_id":gid,"origin":"allfather",
+             "uci":"e2e4","ply_before":0},
+        ]
+        intents=[{"game_id":gid,"ply_before":0,"move":"e2e4","history_json":"[]"}]
+        self.assertEqual(
+            qual.verify_guarded_requests(requests,trace,game,intents)["unique_legal_move_attempts"],
+            1)
+        invalid_cases = (
+            (requests + [{"method":"POST","path":path,"status":409}],
+             trace + [{"seq":3, "event":"move_attempt","game_id":gid,
+                       "uci":"e2e4","path":path,"ply_at_receipt":1}],game,intents),
+            ([{"method":"POST","path":f"/api/bot/game/{gid}/move/e7e5","status":400}],
+             [{"seq":1,"event":"move_attempt","game_id":gid,"uci":"e7e5",
+               "path":f"/api/bot/game/{gid}/move/e7e5","ply_at_receipt":0}],
+             {**game,"moves":[]},intents),
+            (requests+[{"method":"POST","path":f"/api/bot/game/{gid}/abort","status":403}],
+             trace, {**game,"forbidden_attempts":[f"POST /api/bot/game/{gid}/abort"]},intents),
+            (requests,trace,game,[{**intents[0],"history_json":'["d2d4"]'}]),
+        )
+        for mutated in invalid_cases:
+            with self.subTest(mutated=mutated),self.assertRaises(ValueError):
+                qual.verify_guarded_requests(*mutated)
+
+    def test_guarded_failed_nonmove_endpoint_never_qualifies(self):
+        gid="off3b001"
+        path=f"/api/bot/game/{gid}/move/e2e4"
+        base=[{"method":"POST","path":path,"request_target":path,
+               "target_canonical":True,"request_id":"request-1","status":200}]
+        trace=[{"seq":1,"event":"move_attempt","game_id":gid,
+                "uci":"e2e4","path":path,"ply_at_receipt":0},
+               {"seq":2,"event":"board_commit","game_id":gid,
+                "uci":"e2e4","origin":"allfather","ply_before":0}]
+        game={"game_id":gid,"color":"white","moves":["e2e4"],
+              "forbidden_attempts":[]}
+        intents=[{"game_id":gid,"ply_before":0,"move":"e2e4",
+                  "history_json":"[]"}]
+        for method,target,status in (("GET","/api/account",401),
+                                     ("GET","/api/account/playing",503),
+                                     ("POST","/api/token/test",500),
+                                     ("POST",f"/api/challenge/{gid}/accept",409)):
+            with self.subTest(target=target,status=status),self.assertRaisesRegex(
+                    ValueError,"unqualified status"):
+                qual.verify_guarded_requests(
+                    base+[{"method":method,"path":target,
+                           "request_target":target,"target_canonical":True,
+                           "status":status}],trace,game,intents)
+
+    def test_guarded_audit_cannot_swap_valid_move_request_ids(self):
+        gid="off3b001"
+        path=f"/api/bot/game/{gid}/move/e2e4"
+        trace=[{"seq":1,"event":"move_attempt","game_id":gid,
+                "uci":"e2e4","path":path,"ply_at_receipt":0},
+               {"seq":2,"event":"board_commit","game_id":gid,
+                "uci":"e2e4","origin":"allfather","ply_before":0}]
+        game={"game_id":gid,"color":"white","moves":["e2e4"],
+              "forbidden_attempts":[]}
+        intents=[{"game_id":gid,"ply_before":0,"move":"e2e4",
+                  "history_json":"[]"}]
+        for rid in ("request-2", "request-unseen", None):
+            with self.subTest(request_id=rid),self.assertRaisesRegex(
+                    ValueError,"request ID|request IDs"):
+                qual.verify_guarded_requests(
+                    [{"method":"POST","path":path,"request_target":path,
+                      "target_canonical":True,"request_id":rid,
+                      "status":200}],trace,game,intents)
+
+    def test_guarded_raw_get_semantics_cannot_be_forged(self):
+        gid="off3b001"
+        path=f"/api/bot/game/{gid}/move/e2e4"
+        requests=[{"method":"POST","path":path,
+                   "request_target":path,"target_canonical":True,
+                   "request_id":"request-1","status":200}]
+        trace=[{"seq":1,"event":"move_attempt","game_id":gid,
+                "uci":"e2e4","path":path,"ply_at_receipt":0},
+               {"seq":2,"event":"board_commit","game_id":gid,
+                "uci":"e2e4","origin":"allfather","ply_before":0}]
+        game={"game_id":gid,"color":"white","moves":["e2e4"],
+              "forbidden_attempts":[]}
+        intents=[{"game_id":gid,"ply_before":0,"move":"e2e4",
+                  "history_json":"[]"}]
+        expected=qual.verify_guarded_requests(
+            requests+[{"method":"GET","path":"/api/users/status",
+                       "request_target":"/api/users/status?ids=allfatherfixture",
+                       "target_canonical":True,"status":200}],
+            trace,game,intents)
+        self.assertEqual(expected["unique_legal_move_attempts"],1)
+        for raw in ("//api/account", "/api/account?access_token=secret",
+                    "/api/users/status?ids=other"):
+            with self.subTest(raw=raw),self.assertRaisesRegex(
+                    ValueError,"guarded HTTP request target"):
+                qual.verify_guarded_requests(
+                    requests+[{"method":"GET","path":raw.split("?",1)[0].lstrip("/"),
+                               "request_target":raw,
+                               "target_canonical":False,"status":200}],
+                    trace,game,intents)
+        # Even a producer-controlled "canonical" bit cannot override a
+        # mismatched raw target with the same approved visible pathname.
+        with self.assertRaisesRegex(ValueError,"guarded HTTP request target"):
+            qual.verify_guarded_requests(
+                requests+[{"method":"GET","path":"/api/account",
+                           "request_target":"/api/account?access_token=x",
+                           "target_canonical":True,"status":200}],
+                trace,game,intents)
+
+    def test_legal_but_different_guarded_move_url_is_not_traced_intent(self):
+        gid="off3b001"
+        path=f"/api/bot/game/{gid}/move/e2e4"
+        requests=[{"method":"POST","path":path,"request_target":path,
+                   "target_canonical":True,"status":200,
+                   "request_id":"request-1"}]
+        # d2d4 is independently legal, committed and durably prepared;
+        # the actual server URL submitted e2e4 instead.
+        trace=[{"seq":1,"event":"move_attempt","game_id":gid,
+                "uci":"d2d4","path":path,"ply_at_receipt":0},
+               {"seq":2,"event":"board_commit","game_id":gid,
+                "uci":"d2d4","origin":"allfather","ply_before":0}]
+        game={"game_id":gid,"color":"white","moves":["d2d4"],
+              "forbidden_attempts":[]}
+        intents=[{"game_id":gid,"ply_before":0,"move":"d2d4",
+                  "history_json":"[]"}]
+        with self.assertRaisesRegex(ValueError,
+                                    "guarded move URL differs from traced"):
+            qual.verify_guarded_requests(requests,trace,game,intents)
+
+    def test_encoded_move_url_aliases_are_rejected(self):
+        gid="off3b001"
+        encoded=f"/api/bot/game/{gid}/move/%65%32e4"
+        trace=[{"seq":1,"event":"move_attempt","game_id":gid,
+                "uci":"e2e4","path":encoded,"ply_at_receipt":0},
+               {"seq":2,"event":"board_commit","game_id":gid,
+                "uci":"e2e4","origin":"allfather","ply_before":0}]
+        game={"game_id":gid,"color":"white","moves":["e2e4"],
+              "forbidden_attempts":[]}
+        intents=[{"game_id":gid,"ply_before":0,"move":"e2e4",
+                  "history_json":"[]"}]
+        with self.assertRaisesRegex(ValueError,"guarded HTTP request target"):
+            qual.verify_guarded_requests(
+                [{"method":"POST","path":encoded,"request_target":encoded,
+                  "target_canonical":True,"status":200,
+                  "request_id":"request-1"}],
+                trace,game,intents)
+
+    def test_journal_history_must_equal_authoritative_prefix(self):
+        from deploy.lichess.reconcile import position_id
+        gid, epoch = "off3b001", "a"*32
+        game = {"game_id":gid,"moves":["e2e4","e7e5"]}
+        journal = {"owner_epoch":epoch,"events":[{"event_id":1,"event":"observe"}],
+                   "games":[],
+                   "intents":[{"game_id":gid,"ply_before":2,"move":"g1f3",
+                               "history_json":'["e2e4", "e7e5"]',
+                               "position_id":position_id(("e2e4","e7e5")),
+                               "status":"PREPARED"}]}
+        result={"phases":[{"epoch":epoch}]}
+        guarded=[{"event":"authoritative_snapshot_observed"}]
+        qual.verify_journal(journal,[],game,result,guarded)
+        wrong=copy.deepcopy(journal)
+        wrong["intents"][0]["history_json"]='["d2d4", "d7d5"]'
+        wrong["intents"][0]["position_id"]=position_id(("d2d4","d7d5"))
+        with self.assertRaisesRegex(ValueError,"authoritative game history"):
+            qual.verify_journal(wrong,[],game,result,guarded)
+
+    def test_overlay_verifier_compares_keys_and_digests_not_counts(self):
+        expected={"upstream_commit":"a"*40,"patched_upstream":{
+                  "lib/lichess.py":{"git_blob_sha1":"b"*40,"patched_sha256":"c"*64}},
+                  "guard_modules":{"guarded_transport.py":"d"*64},
+                  "mode":"OFFLINE-4B-ONLY","public_bot_release":False}
+        qual.verify_overlay_identity(expected,copy.deepcopy(expected))
+        mutated=copy.deepcopy(expected)
+        mutated["patched_upstream"]["lib/lichess.py"]["patched_sha256"]="e"*64
+        with self.assertRaisesRegex(ValueError,"overlay"):
+            qual.verify_overlay_identity(mutated,expected)
 
 
 if __name__ == "__main__":

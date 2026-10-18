@@ -1,0 +1,28 @@
+diff --git a/internal/target.go b/internal/target.go
+--- a/internal/target.go
++++ b/internal/target.go
+@@ -15,7 +15,10 @@
+ package internal
+ 
+ import (
+ 	"context"
++	"crypto"
++	_ "crypto/sha1"
++	_ "crypto/sha256"
+ 	"fmt"
+ 	"os"
+ 	"path/filepath"
+@@ -59,10 +62,13 @@
+ 		sr = pkgcataloging.NewSelectionRequest().WithExpression(strings.Split(v, ",")...)
+ 	}
+ 
++	fileHashes := filecataloging.DefaultConfig().WithHashers(crypto.SHA1, crypto.SHA256)
++
+ 	result, err := syft.CreateSBOM(
+ 		ctx,
+ 		src,
+ 		syft.DefaultCreateSBOMConfig().
++			WithFilesConfig(fileHashes).
+ 			WithCatalogerSelection(sr))
+ 	if err != nil {
+ 		return sbom.SBOM{}, err

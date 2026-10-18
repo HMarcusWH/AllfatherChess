@@ -60,5 +60,10 @@
   "ca_bootstrap_signed_http_only": true,
   "ca_bootstrap_snapshot_locked": false,
   "ca_bootstrap_sources": "deploy/release/bootstrap.sources",
-  "ca_bootstrap_source_reason": "Pinned minimal base has no usable CA trust before first HTTPS APT access; only signed native Ubuntu APT metadata may install ca-certificates. Exact bootstrap package version is part of generated runtime inventory; publication blocked until reviewed."
+  "ca_bootstrap_source_reason": "Pinned minimal base has no usable CA trust before first HTTPS APT access; only signed native Ubuntu APT metadata may install ca-certificates. Exact bootstrap package version is part of generated runtime inventory; publication blocked until reviewed.",
+  "sbom_generator_image": null,
+  "sbom_generator_evidence": "Source-locked v1.11.0 Syft scanner with dual SHA1+SHA256; digest-addressed ephemeral registry use only after reproducible binary and reviewed manifest approval.",
+  "slsa_provenance_predicate_type": "https://slsa.dev/provenance/v1",
+  "slsa_builder_id": "https://github.com/HMarcusWH/AllfatherChess/actions/workflows/release-candidate.yml",
+  "sbom_generator_policy": "qualification/release-scanner-v1.json"
 }

@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "source_spec": "SLSA provenance v1 and v0.2 BuildMetadata",
+  "spec_url": "https://slsa.dev/spec/v1.0/provenance#buildmetadata",
+  "timestamps": [
+    "startedOn",
+    "finishedOn",
+    "buildStartedOn",
+    "buildFinishedOn"
+  ],
+  "format": "RFC3339 timezone-aware",
+  "relative_order": "finish >= start",
+  "absent_null_empty": "permitted optional",
+  "public_authority_granted": false
+}

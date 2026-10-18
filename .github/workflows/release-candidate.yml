@@ -1,25 +1,8 @@
 name: RELEASE-1 immutable offline OCI candidate
 on:
   pull_request:
-    paths:
-      - 'deploy/release/**'
-      - 'deploy/lichess/**'
-      - 'scripts/build-release-candidate.py'
-      - 'scripts/verify-release-candidate.py'
-      - 'scripts/verify-release-oci.py'
-      - 'scripts/qualify-release-host.py'
-      - 'scripts/qualify-release-aggregate.py'
-      - 'scripts/prepare-online3b-wheels.py'
-      - 'qualification/release-*.json'
-      - 'qualification/license-compliance-v1.json'
-      - 'tests/release/**'
-      - '.github/workflows/release-candidate.yml'
-      - 'controller/**'
-      - 'common/**'
-      - 'adapters/**'
-      - 'engines/**'
-      - 'config/**'
-      - 'vendor.lock.json'
+  push:
+    branches: [main]
   workflow_dispatch:
 permissions:
   contents: read
@@ -54,8 +37,104 @@ jobs:
           path: build/test-results/release1/promotion-policy.json
           if-no-files-found: warn
           retention-days: 30
-  release-oci-integration:
+  scanner-compatibility:
     needs: release-contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+      - name: Verify scanner and SPDX source against exact committed Git bytes
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os, subprocess
+          from pathlib import Path
+          source=os.environ["SOURCE_SHA"]
+          critical=(
+              "scripts/check-release-scanner.py",
+              "scripts/verify-release-oci.py",
+              "scripts/spdx_license_contract.py",
+              "qualification/spdx-license-identifiers-v3.29.0.json",
+              "qualification/release-image-v1.json",
+              "qualification/release-scanner-v1.json",
+              "deploy/release/scanner/target.go.patch",
+              "deploy/release/scanner/Dockerfile",
+              "scripts/prepare-release-scanner.py",
+              "scripts/ci-release-scanner.py",
+              "scripts/check-release-scanner-content.py",
+          )
+          for relative in critical:
+              local=Path(relative)
+              if not local.is_file() or local.is_symlink():
+                  raise SystemExit("VERDICT_SOURCE_FILE_MISSING_OR_LINKED")
+              original=subprocess.run(
+                  ["git","show",source+":"+relative],
+                  check=False,capture_output=True,timeout=12)
+              if original.returncode or original.stdout!=local.read_bytes():
+                  raise SystemExit("VERDICT_SOURCE_BYTES_DIFFER_FROM_GIT")
+          PY
+      - uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00
+        with:
+          go-version: '1.25.8'
+          cache: false
+      - name: Prepare pinned scanner and isolated BuildKit registry
+        env:
+          RELEASE1_SCANNER_BUILDER: release1-scanner-probe
+        run: python3 scripts/ci-release-scanner.py setup
+      - name: Independently qualify pinned scanner protocol without engine build
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          BASE="$(python3 -c 'import json;print(json.load(open("qualification/release-image-v1.json"))["base_image"])')"
+          SCANNER="$RELEASE_SCANNER_REF"
+          mkdir -p build/test-results/release1-scanner
+          cat > "$RUNNER_TEMP/Scanner.Dockerfile" <<'EOF'
+          ARG BASE_IMAGE
+          FROM --platform=linux/amd64 ${BASE_IMAGE}
+          EOF
+          docker buildx build --platform linux/amd64 \
+            -f "$RUNNER_TEMP/Scanner.Dockerfile" --build-arg "BASE_IMAGE=$BASE" \
+            --tag allfather/scanner-probe:offline \
+            --attest type=provenance,mode=min,builder-id=https://github.com/HMarcusWH/AllfatherChess/actions/workflows/release-candidate.yml \
+            --attest "type=sbom,generator=$SCANNER" \
+            --output type=oci,dest=build/test-results/release1-scanner/scanner.oci.tar .
+          python3 scripts/check-release-scanner.py \
+            --archive build/test-results/release1-scanner/scanner.oci.tar \
+            --output build/test-results/release1-scanner/scanner-contract.json
+      - name: Verify actual SHA1 and SHA256 against pinned Ubuntu regular-file bytes
+        run: |
+          set -euo pipefail
+          BASE="$(python3 -c 'import json;print(json.load(open("qualification/release-image-v1.json"))["base_image"])')"
+          REF_FILE="$RUNNER_TEMP/release1-reference-dpkg"
+          CONTAINER="$(docker create "$BASE" /bin/true)"
+          trap 'docker rm -f "$CONTAINER" >/dev/null 2>&1 || true; rm -f "$REF_FILE"' EXIT
+          docker cp "$CONTAINER:/usr/bin/dpkg" "$REF_FILE"
+          python3 scripts/check-release-scanner-content.py \
+            --archive build/test-results/release1-scanner/scanner.oci.tar \
+            --reference-file "$REF_FILE" \
+            --output build/test-results/release1-scanner/scanner-file-content.json
+      - name: Require independently reviewed scanner manifest and binary
+        run: python3 scripts/ci-release-scanner.py verify-approval
+      - name: Tear down isolated scanner test builder
+        if: always()
+        env:
+          RELEASE1_SCANNER_BUILDER: release1-scanner-probe
+        run: python3 scripts/ci-release-scanner.py cleanup
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: release1-scanner-contract
+          path: |
+            build/test-results/release1-scanner/scanner-contract.json
+            build/test-results/release1-scanner/scanner-file-content.json
+            build/test-results/release1-scanner/scanner-candidate.json
+            build/test-results/release1-scanner/scanner-source.json
+          if-no-files-found: warn
+          retention-days: 30
+  release-oci-integration:
+    needs: [release-contracts, scanner-compatibility]
     runs-on: ubuntu-24.04
     timeout-minutes: 115
     env:
@@ -82,10 +161,17 @@ jobs:
           assert bootstrap.count('Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg') == 2
           assert 'trusted=yes' not in bootstrap and 'allow-unauthenticated' not in bootstrap
           PY
+      - name: Early signed-snapshot availability preflight
+        timeout-minutes: 3
+        run: |
+          python3 scripts/check-release-snapshot.py \
+            --policy qualification/release-image-v1.json \
+            --sources deploy/release/ubuntu.sources \
+            --output build/test-results/release1/snapshot-availability.json
       - name: Install exact engine and wheel preparation toolchain
         run: |
           bash scripts/ci-install-apt-deps.sh build-essential meson ninja-build pkg-config libprotobuf-dev protobuf-compiler zlib1g-dev libopenblas-dev python3-pip python3-venv
-          python3 -m pip install --break-system-packages 'pip-tools==7.5.2'
+          python3 -m pip install --break-system-packages 'pip-tools==7.5.2' 'chess==1.11.2'
       - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
           path: |
@@ -118,18 +204,60 @@ jobs:
           python3 scripts/verify-release-candidate.py \
             --stage build/release1-stage \
             --output build/test-results/release1/stage-report.json
+      - uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00
+        with:
+          go-version: '1.25.8'
+          cache: false
+      - name: Prepare identical source-locked scanner for OCI builder
+        env:
+          RELEASE1_SCANNER_BUILDER: release1-builder
+        run: python3 scripts/ci-release-scanner.py setup
       - name: Build and independently test actual offline Docker image
         timeout-minutes: 20
         run: |
           set -euo pipefail
           IMAGE_BASE="$(python3 -c 'import json; print(json.load(open("qualification/release-image-v1.json"))["base_image"])')"
           mkdir -p build/test-results/release1
-          docker buildx create --driver docker-container --name release1-builder --use
-          docker buildx inspect --bootstrap
-          docker buildx build --builder release1-builder --platform linux/amd64 \
+          docker buildx inspect --builder release1-builder --bootstrap
+          BUILD_LOG="$RUNNER_TEMP/release1-offline-image-build.log"
+          if docker buildx build --builder release1-builder --platform linux/amd64 \
             --file deploy/release/Dockerfile --build-arg "BASE_IMAGE=$IMAGE_BASE" \
             --metadata-file build/test-results/release1/docker-build-metadata.json \
-            --provenance=false --sbom=false --tag allfather/release1:offline --load .
+            --provenance=false --sbom=false --tag allfather/release1:offline --load . \
+            > "$BUILD_LOG" 2>&1; then
+            tail -n 16 "$BUILD_LOG"
+          else
+            # Store only bounded public package-failure metadata, not raw logs,
+            # images, credentials, or a rewritten/unpinned dependency source.
+            python3 - "$BUILD_LOG" <<'PY'
+          import json, os, re, sys
+          from pathlib import Path
+          lines = Path(sys.argv[1]).read_text(encoding="utf-8", errors="replace").splitlines()
+          snapshot = json.loads(Path("qualification/release-image-v1.json").read_text())["apt_snapshot"]
+          error_lines = [line for line in lines
+                         if any(word in line for word in (
+                             "503  Service Unavailable", "Failed to fetch",
+                             "Unable to fetch", "failed to solve", "ERROR:"))]
+          report = {
+              "schema_version": 1,
+              "stage": "offline-docker-image-build",
+              "source_sha": os.environ["SOURCE_SHA"],
+              "pinned_apt_snapshot": snapshot,
+              "failure_class": ("ubuntu_snapshot_http_503"
+                                if any("503  Service Unavailable" in l for l in lines)
+                                else "docker_build_failure_unclassified"),
+              "diagnostics": [
+                  re.sub(r"\x1b\[[0-9;]*m", "", line)[-400:]
+                  for line in error_lines[-12:]],
+              "candidate_qualified": False,
+              "public_bot_release": False,
+          }
+          output = Path("build/test-results/release1/snapshot-acquisition-failure.json")
+          output.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
+          PY
+            tail -n 45 "$BUILD_LOG"
+            exit 1
+          fi
           docker image inspect allfather/release1:offline \
             > build/test-results/release1/docker-inspect.json
           docker run --rm --network none --read-only \
@@ -168,42 +296,130 @@ jobs:
               | tee "build/test-results/release1/$CASE.log"
           done
           sudo chmod -R a+rX build/test-results/release1-volume
+      - name: Checkout isolated exact-commit source for every independent RELEASE-1 verifier
+        run: |
+          set -euo pipefail
+          VERIFIED="$RUNNER_TEMP/release1-verified-${GITHUB_RUN_ID}"
+          git worktree add --detach "$VERIFIED" "$SOURCE_SHA"
+          test "$(git -C "$VERIFIED" rev-parse HEAD)" = "$SOURCE_SHA"
+          git -C "$VERIFIED" diff --exit-code
+          echo "RELEASE1_VERIFIED_ROOT=$VERIFIED" >> "$GITHUB_ENV"
+      - name: Independently reconstruct all packaged chess and HTTP requests
+        run: |
+          python3 "$RELEASE1_VERIFIED_ROOT/scripts/qualify-release-smoke.py" \
+            --smoke-dir "$GITHUB_WORKSPACE/build/test-results/release1-volume" \
+            --output "$GITHUB_WORKSPACE/build/test-results/release1/smoke-verdict.json"
       - name: Export standalone OCI archive with SBOM/provenance attestations
         timeout-minutes: 20
         run: |
+          set -euo pipefail
           IMAGE_BASE="$(python3 -c 'import json; print(json.load(open("qualification/release-image-v1.json"))["base_image"])')"
+          SCANNER="$RELEASE_SCANNER_REF"
+          # The job-generated digest alone cannot authorize a scanner image.
+          python3 scripts/ci-release-scanner.py verify-approval
           docker buildx build --builder release1-builder --platform linux/amd64 \
             --file deploy/release/Dockerfile --build-arg "BASE_IMAGE=$IMAGE_BASE" \
+            --tag allfather/release1:offline \
             --metadata-file build/test-results/release1/oci-build-metadata.json \
-            --provenance=mode=min --sbom=true \
+            --attest type=provenance,mode=min,builder-id=https://github.com/HMarcusWH/AllfatherChess/actions/workflows/release-candidate.yml \
+            --attest "type=sbom,generator=$SCANNER" \
             --output type=oci,dest=build/release1-offline.oci.tar .
-          python3 scripts/verify-release-oci.py \
-            --archive build/release1-offline.oci.tar \
-            --metadata build/test-results/release1/oci-build-metadata.json \
-            --docker-inspect build/test-results/release1/docker-inspect.json \
-            --output build/test-results/release1/oci-report.json
+          # Both executables and the SPDX parser/catalogue come from the
+          # isolated Git checkout created after all mutable build steps.
+          test "$(git -C "$RELEASE1_VERIFIED_ROOT" rev-parse HEAD)" = "$SOURCE_SHA"
+          git -C "$RELEASE1_VERIFIED_ROOT" diff --exit-code
+          python3 "$RELEASE1_VERIFIED_ROOT/scripts/inspect-release-oci.py" \
+            --archive "$GITHUB_WORKSPACE/build/release1-offline.oci.tar" \
+            --metadata "$GITHUB_WORKSPACE/build/test-results/release1/oci-build-metadata.json" \
+            --output "$GITHUB_WORKSPACE/build/test-results/release1/oci-attestation-structure.json"
+          python3 "$RELEASE1_VERIFIED_ROOT/scripts/verify-release-oci.py" \
+            --archive "$GITHUB_WORKSPACE/build/release1-offline.oci.tar" \
+            --metadata "$GITHUB_WORKSPACE/build/test-results/release1/oci-build-metadata.json" \
+            --docker-inspect "$GITHUB_WORKSPACE/build/test-results/release1/docker-inspect.json" \
+            --output "$GITHUB_WORKSPACE/build/test-results/release1/oci-report.json"
+      - name: Verify every offline verdict module before aggregate execution
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os, subprocess
+          from pathlib import Path
+          source=os.environ["SOURCE_SHA"]
+          critical=(
+              "scripts/qualify-release-aggregate.py",
+              "scripts/qualify-release-smoke.py",
+              "scripts/release_http_contract.py",
+              "scripts/sanitize_qualification_evidence.py",
+              "scripts/verify_assurance_contract.py",
+              "tests/lichess/http_target_contract.py",
+              "qualification/assurance-contract-v1.json",
+              "scripts/verify-release-oci.py",
+              "scripts/spdx_license_contract.py",
+              "qualification/spdx-license-identifiers-v3.29.0.json",
+              "scripts/check-release-scanner.py",
+              "qualification/release-image-v1.json",
+              "qualification/release-scanner-v1.json",
+              "deploy/release/scanner/target.go.patch",
+              "deploy/release/scanner/Dockerfile",
+              "scripts/prepare-release-scanner.py",
+              "scripts/ci-release-scanner.py",
+              "scripts/check-release-scanner-content.py",
+          )
+          for relative in critical:
+              local=Path(relative)
+              if not local.is_file() or local.is_symlink():
+                  raise SystemExit("VERDICT_SOURCE_FILE_MISSING_OR_LINKED")
+              original=subprocess.run(
+                  ["git","show",source+":"+relative],
+                  check=False,capture_output=True,timeout=12)
+              if original.returncode or original.stdout!=local.read_bytes():
+                  raise SystemExit("VERDICT_SOURCE_BYTES_DIFFER_FROM_GIT")
+          PY
       - name: Observe test-runner capacity and aggregate evidence without promoting release
         run: |
-          python3 scripts/qualify-release-host.py \
-            --root . --persistent build/test-results/release1-volume \
-            --runtime /tmp --output build/test-results/release1/host-report.json
-          python3 scripts/qualify-release-aggregate.py \
-            --stage build/release1-stage \
-            --oci build/test-results/release1/oci-report.json \
-            --host build/test-results/release1/host-report.json \
-            --smoke-dir build/test-results/release1-volume \
-            --os-inventory build/test-results/release1/os-packages.txt \
-            --wheel-inventory build/release1-stage/wheels/wheel-attestation.json \
+          python3 "$RELEASE1_VERIFIED_ROOT/scripts/qualify-release-host.py" \
+            --root "$RELEASE1_VERIFIED_ROOT" \
+            --persistent "$GITHUB_WORKSPACE/build/test-results/release1-volume" \
+            --runtime /tmp \
+            --output "$GITHUB_WORKSPACE/build/test-results/release1/host-report.json"
+          python3 "$RELEASE1_VERIFIED_ROOT/scripts/qualify-release-aggregate.py" \
+            --stage "$GITHUB_WORKSPACE/build/release1-stage" \
+            --oci "$GITHUB_WORKSPACE/build/test-results/release1/oci-report.json" \
+            --oci-archive "$GITHUB_WORKSPACE/build/release1-offline.oci.tar" \
+            --host "$GITHUB_WORKSPACE/build/test-results/release1/host-report.json" \
+            --smoke-dir "$GITHUB_WORKSPACE/build/test-results/release1-volume" \
+            --os-inventory "$GITHUB_WORKSPACE/build/test-results/release1/os-packages.txt" \
+            --wheel-inventory "$GITHUB_WORKSPACE/build/release1-stage/wheels/wheel-attestation.json" \
             --source-sha "$SOURCE_SHA" \
-            --output build/test-results/release1/aggregate.json
-      - name: Do not publish combined image; retain only non-binary evidence
+            --output "$GITHUB_WORKSPACE/build/test-results/release1/aggregate.json"
+      - name: Tear down isolated release scanner registry and builder
+        if: always()
+        env:
+          RELEASE1_SCANNER_BUILDER: release1-builder
+        run: python3 scripts/ci-release-scanner.py cleanup
+      - name: Do not publish combined image; retain only approved evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: release1-offline-evidence
+          # Allowlisted diagnostic summaries; never upload raw BuildKit
+          # provenance, GitHub event payload, Docker inspection, OCI tar or SBOM.
           path: |
-            build/test-results/release1/*.json
-            build/test-results/release1/*.txt
-            build/test-results/release1/*.log
+            build/test-results/release1/stage-report.json
+            build/test-results/release1/verify-output.json
+            build/test-results/release1/snapshot-acquisition-failure.json
+            build/test-results/release1/snapshot-availability.json
+            build/test-results/release1/smoke-verdict.json
+            build/test-results/release1/oci-attestation-structure.json
+            build/test-results/release1/oci-report.json
+            build/test-results/release1/host-report.json
+            build/test-results/release1/aggregate.json
+            build/test-results/release1-scanner/scanner-candidate.json
+            build/test-results/release1-scanner/scanner-source.json
+            build/test-results/release1/os-packages.txt
+            build/test-results/release1/python-packages.txt
+            build/test-results/release1/r00-white.log
+            build/test-results/release1/r00-black.log
+            build/test-results/release1/r02-white.log
+            build/test-results/release1/r10-white.log
           if-no-files-found: warn
           retention-days: 30

@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "source_spec": "in-toto/attestation v1 ResourceDescriptor",
+  "spec_url": "https://github.com/in-toto/attestation/blob/main/spec/v1/resource_descriptor.md",
+  "identity_any_of": [
+    "uri",
+    "digest",
+    "content"
+  ],
+  "resource_uri": "absolute RFC3986 URI",
+  "digest": "nonempty validated algorithm/hex map",
+  "content": "strict Base64 byte encoding",
+  "public_authority_granted": false
+}

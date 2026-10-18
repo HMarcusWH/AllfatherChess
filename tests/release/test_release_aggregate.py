@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import importlib.util
+from contextlib import nullcontext
 import json
 import tempfile
 import unittest
@@ -16,6 +17,15 @@ aggregate = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(aggregate)
 
 
+def smoke_http_for_tests():
+    """Explicit test-only loading of the unmodified shared HTTP contract."""
+    spec=importlib.util.spec_from_file_location(
+        "release1_http_for_aggregate_test",ROOT/"scripts/release_http_contract.py")
+    module=importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def write_json(path: Path, data: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, sort_keys=True) + "\n", encoding="utf-8")
@@ -28,6 +38,8 @@ class ReleaseAggregateContracts(unittest.TestCase):
         self.root = Path(temp.name)
         self.stage = self.root / "stage"
         self.oci = self.root / "oci.json"
+        self.oci_archive = self.root / "image.oci.tar"
+        self.oci_archive.write_bytes(b"synthetic verified offline archive")
         self.host = self.root / "host.json"
         self.smoke_dir = self.root / "smoke"
         self.os_inventory = self.root / "os.txt"
@@ -51,11 +63,20 @@ class ReleaseAggregateContracts(unittest.TestCase):
         })
         write_json(self.oci, {
             "integrity_verified": True,
+            "oci_layers_verified": True,
+            "oci_diff_ids_verified": True,
+            "oci_application_identity_verified": True,
+            "oci_attestation_references_verified": True,
+            "oci_attestation_subjects_verified": True,
+            "oci_sbom_verified": True,
+            "oci_provenance_verified": True,
             "public_bot_release": False,
             "publisher_signature_verified": False,
             "oci_image_manifest_digest": "sha256:" + "c" * 64,
             "oci_config_digest": "sha256:" + "d" * 64,
-            "oci_archive_sha256": "e" * 64,
+            "oci_archive_sha256": aggregate.digest(self.oci_archive),
+            "oci_exported_root_digest": "sha256:" + "e"*64,
+            "buildkit_digest": "sha256:" + "e"*64,
         })
         write_json(self.host, {
             "test_host_observed": True,
@@ -74,7 +95,13 @@ class ReleaseAggregateContracts(unittest.TestCase):
             write_json(self.smoke_dir / key / "result.json", {
                 "offline": True, "ready": True, "runner_errors": [],
                 "public_bot_release": False,
-                "game": {"complete": key != "r10-white", "accepted": ["e2e4"]},
+                "game": {"complete": key != "r10-white", "accepted": ["e2e4"],
+                         "forbidden_attempts": []},
+                "http": [{"method": "POST", "path": "/api/token/test",
+                          "request_target": "/api/token/test",
+                          "target_canonical":True, "status": 200}],
+                "rate_cooldown_verified": key == "r10-white",
+                "fresh_second_epoch_commits": 1 if key == "r02-white" else None,
                 "observations": [{"phase": "synthetic"}],
             })
 
@@ -88,12 +115,23 @@ class ReleaseAggregateContracts(unittest.TestCase):
         raise AssertionError("unexpected git command")
 
     def qualify(self, **overrides):
-        arguments = dict(stage=self.stage, oci=self.oci, host=self.host,
+        arguments = dict(stage=self.stage, oci=self.oci,
+                         oci_archive=self.oci_archive, host=self.host,
                          smoke_dir=self.smoke_dir, os_inventory=self.os_inventory,
                          wheel_inventory=self.wheel_inventory, source_sha=self.source,
                          root=self.root)
         arguments.update(overrides)
-        with mock.patch.object(aggregate.subprocess, "check_output", side_effect=self.git):
+        with mock.patch.object(aggregate.subprocess, "check_output", side_effect=self.git), \
+             mock.patch.object(aggregate,"verified_release_snapshot",
+                               return_value=nullcontext(ROOT)), \
+             mock.patch.object(aggregate, "check_smoke_evidence",
+                 side_effect=lambda path,key,*args: {"independent_qualified":True,
+                                                "persisted_sqlite_verified":True,
+                                                "release_blocked":True,
+                                                "run_id":key,
+                                                "scenario":key.split("-")[0].upper(),
+                                                "color":key.split("-")[1],
+                                                "public_bot_release":False}):
             return aggregate.qualify(**arguments)
 
     def test_sha1_git_vs_sha256_artifacts(self):
@@ -110,6 +148,74 @@ class ReleaseAggregateContracts(unittest.TestCase):
         ):
             with self.subTest(digest=bad, prefixed=prefixed):
                 self.assertFalse(aggregate.is_sha256_hex(bad, prefixed=prefixed))
+
+    def test_forged_get_does_not_pass_aggregate(self):
+        case = "r00-white"
+        target = self.smoke_dir/case/"result.json"
+        original = json.loads(target.read_text())
+        for path, status in (("/api/account/email",200),
+                             ("/api/account",401),
+                             ("/api/stream/event?token=secret",200)):
+            with self.subTest(path=path):
+                target.write_text(json.dumps({**original,
+                    "http":original["http"]+[{
+                        "method":"GET","path":path,"status":status}]}))
+                with self.assertRaisesRegex(ValueError,
+                        "HTTP contains prohibited request"):
+                    self.qualify()
+        target.write_text(json.dumps(original))
+
+    def test_http_admission_is_consistent_with_independent_verifier(self):
+        token={"method":"POST","path":"/api/token/test",
+               "request_target":"/api/token/test",
+               "target_canonical":True,"status":200}
+        move={"method":"POST",
+              "path":"/api/bot/game/off3b001/move/e2e4",
+              "request_target":"/api/bot/game/off3b001/move/e2e4",
+              "target_canonical":True,
+              "status":200,"request_id":"request-1"}
+        self.assertTrue(aggregate.allowed_release_http(token,"r00-white",verified_contract=smoke_http_for_tests()))
+        self.assertTrue(aggregate.allowed_release_http(move,"r00-white",verified_contract=smoke_http_for_tests()))
+        for bad in ({**move,"status":400},
+                    {**move,"status":429},
+                    {**move,"request_id":None},
+                    {**move,"path":"/api/bot/game/off3b001/abort"},
+                    {**token,"status":500},
+                    {**token,"status":True}):
+            self.assertFalse(aggregate.allowed_release_http(bad,"r00-white",verified_contract=smoke_http_for_tests()))
+        self.assertTrue(aggregate.allowed_release_http(
+            {**move,"status":429},"r10-white",verified_contract=smoke_http_for_tests()))
+
+    def test_aggregate_requires_persisted_sqlite_qualified_and_specific_case(self):
+        for mutation in ("without-sqlite","wrong-case","wrong-disposition"):
+            def fake(path,key,*args):
+                report={"independent_qualified":True,
+                        "persisted_sqlite_verified":True,
+                        "release_blocked":True,
+                        "run_id":key,"scenario":key.split("-")[0].upper(),
+                        "color":key.split("-")[1],"public_bot_release":False}
+                if key=="r10-white":
+                    if mutation=="without-sqlite":
+                        report["persisted_sqlite_verified"]=False
+                    elif mutation=="wrong-case":
+                        report["scenario"]="R00"
+                    else:
+                        report["release_blocked"]=False
+                return report
+            with self.subTest(mutation=mutation), \
+                 mock.patch.object(aggregate.subprocess,"check_output",
+                                   side_effect=self.git), \
+                 mock.patch.object(aggregate,"verified_release_snapshot",
+                                   return_value=nullcontext(ROOT)), \
+                 mock.patch.object(aggregate,"check_smoke_evidence",
+                                   side_effect=fake):
+                with self.assertRaisesRegex(ValueError,"chess/HTTP/SQLite"):
+                    aggregate.qualify(
+                        stage=self.stage,oci=self.oci,
+                        oci_archive=self.oci_archive,host=self.host,
+                        smoke_dir=self.smoke_dir,os_inventory=self.os_inventory,
+                        wheel_inventory=self.wheel_inventory,
+                        source_sha=self.source,root=self.root)
 
     def test_valid_synthetic_aggregate_cannot_promote_public_release(self):
         report = self.qualify()
@@ -188,6 +294,65 @@ class ReleaseAggregateContracts(unittest.TestCase):
         license_doc["artifact_distribution_authorized"] = True
         write_json(path, license_doc)
         with self.assertRaisesRegex(ValueError, "licensing gate unexpectedly opened"):
+            self.qualify()
+
+
+    def test_aggregate_rejects_forbidden_requests_and_fake_cooldown(self):
+        key = "r10-white"
+        path = self.smoke_dir / key / "result.json"
+        original = json.loads(path.read_text())
+        for bad in (
+            {**original, "game": {**original["game"],
+                                  "forbidden_attempts": ["POST /api/bot/game/off3b001/abort"]}},
+            {**original, "http": original["http"] +
+                [{"method":"POST","path":"/api/bot/game/off3b001/abort","status":403}]},
+            {**original, "rate_cooldown_verified": False},
+        ):
+            with self.subTest(bad=bad):
+                write_json(path, bad)
+                with self.assertRaises(ValueError):
+                    self.qualify()
+        write_json(path, original)
+
+    def test_aggregate_requires_new_epoch_confirmed_move(self):
+        path = self.smoke_dir / "r02-white/result.json"
+        doc = json.loads(path.read_text())
+        write_json(path, {**doc, "fresh_second_epoch_commits": 0})
+        with self.assertRaisesRegex(ValueError, "no fresh confirmed move"):
+            self.qualify()
+
+
+    def test_no_producer_ready_bit_bypasses_independent_checker(self):
+        path=self.smoke_dir/"r00-white"/"result.json"
+        original=json.loads(path.read_text())
+        # The test deliberately leaves the producer saying ready=true.
+        self.assertTrue(original["ready"])
+        with mock.patch.object(aggregate.subprocess,"check_output",side_effect=self.git), \
+             mock.patch.object(aggregate,"verified_release_snapshot",
+                               return_value=nullcontext(ROOT)), \
+             mock.patch.object(aggregate,"check_smoke_evidence",
+                 side_effect=ValueError("illegal request in independently replayed trace")):
+            with self.assertRaisesRegex(ValueError,"illegal request"):
+                aggregate.qualify(
+                    stage=self.stage,oci=self.oci,
+                    oci_archive=self.oci_archive,host=self.host,
+                    smoke_dir=self.smoke_dir,os_inventory=self.os_inventory,
+                    wheel_inventory=self.wheel_inventory,source_sha=self.source,
+                    root=self.root)
+
+
+    def test_atomically_replaced_archive_fails_downstream_verdict(self):
+        import os
+        with tempfile.TemporaryDirectory() as d:
+            replacement=Path(d)/"replacement.oci.tar"
+            replacement.write_bytes(b"other valid looking but unverified OCI bytes")
+            os.replace(replacement,self.oci_archive)
+            with self.assertRaisesRegex(ValueError,"OCI archive identity"):
+                self.qualify()
+
+    def test_verifier_report_must_match_actual_oci_archive_bytes(self):
+        self.oci_archive.write_bytes(b"tampered OCI archive")
+        with self.assertRaisesRegex(ValueError,"OCI archive identity"):
             self.qualify()
 
 

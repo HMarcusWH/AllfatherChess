@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import importlib.util
+from contextlib import nullcontext
 import json
 import tempfile
 import unittest
@@ -14,6 +15,12 @@ spec = importlib.util.spec_from_file_location(
 )
 aggregate = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(aggregate)
+
+
+def smoke_http_for_tests():
+    """Tests use the reference policy explicitly, never as a hidden import."""
+    from tests.release.test_release_http_contract import smoke
+    return smoke.http_contract
 
 
 def write_json(path: Path, data: dict) -> None:
@@ -112,8 +119,10 @@ class ReleaseAggregateContracts(unittest.TestCase):
                          root=self.root)
         arguments.update(overrides)
         with mock.patch.object(aggregate.subprocess, "check_output", side_effect=self.git), \
+             mock.patch.object(aggregate,"verified_release_snapshot",
+                               return_value=nullcontext(ROOT)), \
              mock.patch.object(aggregate, "check_smoke_evidence",
-                 side_effect=lambda path,key: {"independent_qualified":True,
+                 side_effect=lambda path,key,*args: {"independent_qualified":True,
                                                 "persisted_sqlite_verified":True,
                                                 "release_blocked":True,
                                                 "run_id":key,
@@ -162,21 +171,21 @@ class ReleaseAggregateContracts(unittest.TestCase):
               "request_target":"/api/bot/game/off3b001/move/e2e4",
               "target_canonical":True,
               "status":200,"request_id":"request-1"}
-        self.assertTrue(aggregate.allowed_release_http(token,"r00-white"))
-        self.assertTrue(aggregate.allowed_release_http(move,"r00-white"))
+        self.assertTrue(aggregate.allowed_release_http(token,"r00-white",verified_contract=smoke_http_for_tests()))
+        self.assertTrue(aggregate.allowed_release_http(move,"r00-white",verified_contract=smoke_http_for_tests()))
         for bad in ({**move,"status":400},
                     {**move,"status":429},
                     {**move,"request_id":None},
                     {**move,"path":"/api/bot/game/off3b001/abort"},
                     {**token,"status":500},
                     {**token,"status":True}):
-            self.assertFalse(aggregate.allowed_release_http(bad,"r00-white"))
+            self.assertFalse(aggregate.allowed_release_http(bad,"r00-white",verified_contract=smoke_http_for_tests()))
         self.assertTrue(aggregate.allowed_release_http(
-            {**move,"status":429},"r10-white"))
+            {**move,"status":429},"r10-white",verified_contract=smoke_http_for_tests()))
 
     def test_aggregate_requires_persisted_sqlite_qualified_and_specific_case(self):
         for mutation in ("without-sqlite","wrong-case","wrong-disposition"):
-            def fake(path,key):
+            def fake(path,key,*args):
                 report={"independent_qualified":True,
                         "persisted_sqlite_verified":True,
                         "release_blocked":True,
@@ -193,6 +202,8 @@ class ReleaseAggregateContracts(unittest.TestCase):
             with self.subTest(mutation=mutation), \
                  mock.patch.object(aggregate.subprocess,"check_output",
                                    side_effect=self.git), \
+                 mock.patch.object(aggregate,"verified_release_snapshot",
+                                   return_value=nullcontext(ROOT)), \
                  mock.patch.object(aggregate,"check_smoke_evidence",
                                    side_effect=fake):
                 with self.assertRaisesRegex(ValueError,"chess/HTTP/SQLite"):
@@ -314,6 +325,8 @@ class ReleaseAggregateContracts(unittest.TestCase):
         # The test deliberately leaves the producer saying ready=true.
         self.assertTrue(original["ready"])
         with mock.patch.object(aggregate.subprocess,"check_output",side_effect=self.git), \
+             mock.patch.object(aggregate,"verified_release_snapshot",
+                               return_value=nullcontext(ROOT)), \
              mock.patch.object(aggregate,"check_smoke_evidence",
                  side_effect=ValueError("illegal request in independently replayed trace")):
             with self.assertRaisesRegex(ValueError,"illegal request"):

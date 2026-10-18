@@ -68,7 +68,7 @@ class SharedHTTPAdmissionTests(unittest.TestCase):
                 with self.subTest(case=case,path=path):
                     self.assertTrue(smoke.http_contract.allowed_release_http(
                         row,case))
-                    self.assertEqual(aggregate.allowed_release_http(row,case),
+                    self.assertEqual(aggregate.allowed_release_http(row,case,smoke.http_contract),
                                      smoke.http_contract.allowed_release_http(
                                          row,case))
 
@@ -95,7 +95,7 @@ class SharedHTTPAdmissionTests(unittest.TestCase):
             with self.subTest(row=row):
                 self.assertFalse(smoke.http_contract.allowed_release_http(
                     row,"r00-white"))
-                self.assertFalse(aggregate.allowed_release_http(row,"r00-white"))
+                self.assertFalse(aggregate.allowed_release_http(row,"r00-white",smoke.http_contract))
 
     def test_rejected_raw_query_is_hashed_before_audit(self):
         from tests.lichess.http_target_contract import safe_audit_fields
@@ -118,7 +118,7 @@ class SharedHTTPAdmissionTests(unittest.TestCase):
             row = {"method":method, "path":raw.split("?")[0],
                    "request_target":raw, "target_canonical":True,
                    "status":200,"request_id":rid}
-            self.assertTrue(aggregate.allowed_release_http(row,"r00-white"))
+            self.assertTrue(aggregate.allowed_release_http(row,"r00-white",smoke.http_contract))
 
 if __name__=="__main__":
     unittest.main()

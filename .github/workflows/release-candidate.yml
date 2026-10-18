@@ -45,6 +45,30 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           ref: ${{ env.SOURCE_SHA }}
+      - name: Verify scanner and SPDX source against exact committed Git bytes
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os, subprocess
+          from pathlib import Path
+          source=os.environ["SOURCE_SHA"]
+          critical=(
+              "scripts/check-release-scanner.py",
+              "scripts/verify-release-oci.py",
+              "scripts/spdx_license_contract.py",
+              "qualification/spdx-license-identifiers-v3.29.0.json",
+              "qualification/release-image-v1.json",
+          )
+          for relative in critical:
+              local=Path(relative)
+              if not local.is_file() or local.is_symlink():
+                  raise SystemExit("VERDICT_SOURCE_FILE_MISSING_OR_LINKED")
+              original=subprocess.run(
+                  ["git","show",source+":"+relative],
+                  check=False,capture_output=True,timeout=12)
+              if original.returncode or original.stdout!=local.read_bytes():
+                  raise SystemExit("VERDICT_SOURCE_BYTES_DIFFER_FROM_GIT")
+          PY
       - name: Independently qualify pinned scanner protocol without engine build
         run: |
           set -euo pipefail
@@ -261,6 +285,37 @@ jobs:
             --metadata build/test-results/release1/oci-build-metadata.json \
             --docker-inspect build/test-results/release1/docker-inspect.json \
             --output build/test-results/release1/oci-report.json
+      - name: Verify every offline verdict module before aggregate execution
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os, subprocess
+          from pathlib import Path
+          source=os.environ["SOURCE_SHA"]
+          critical=(
+              "scripts/qualify-release-aggregate.py",
+              "scripts/qualify-release-smoke.py",
+              "scripts/release_http_contract.py",
+              "scripts/sanitize_qualification_evidence.py",
+              "scripts/verify_assurance_contract.py",
+              "tests/lichess/http_target_contract.py",
+              "qualification/assurance-contract-v1.json",
+              "scripts/verify-release-oci.py",
+              "scripts/spdx_license_contract.py",
+              "qualification/spdx-license-identifiers-v3.29.0.json",
+              "scripts/check-release-scanner.py",
+              "qualification/release-image-v1.json",
+          )
+          for relative in critical:
+              local=Path(relative)
+              if not local.is_file() or local.is_symlink():
+                  raise SystemExit("VERDICT_SOURCE_FILE_MISSING_OR_LINKED")
+              original=subprocess.run(
+                  ["git","show",source+":"+relative],
+                  check=False,capture_output=True,timeout=12)
+              if original.returncode or original.stdout!=local.read_bytes():
+                  raise SystemExit("VERDICT_SOURCE_BYTES_DIFFER_FROM_GIT")
+          PY
       - name: Observe test-runner capacity and aggregate evidence without promoting release
         run: |
           python3 scripts/qualify-release-host.py \

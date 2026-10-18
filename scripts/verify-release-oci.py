@@ -12,6 +12,7 @@ from datetime import datetime
 import os
 import stat
 import hashlib
+import importlib.util
 import gzip
 import zlib
 import json
@@ -23,6 +24,15 @@ from pathlib import Path, PurePosixPath
 from urllib.parse import urlsplit
 
 HEX = re.compile(r"^[0-9a-f]{64}$")
+# The SPDX parser uses a reviewed, versioned, offline license/exception list.
+_spdx_path=Path(__file__).with_name("spdx_license_contract.py")
+_spdx_spec=importlib.util.spec_from_file_location("release1_spdx_license_contract",
+                                                 _spdx_path)
+if _spdx_spec is None or _spdx_spec.loader is None:
+    raise ValueError("SPDX offline expression validator absent")
+_spdx_mod=importlib.util.module_from_spec(_spdx_spec)
+_spdx_spec.loader.exec_module(_spdx_mod)
+valid_spdx_license_expression=_spdx_mod.valid_license_expression
 
 
 def require(ok, why):
@@ -520,6 +530,8 @@ def validate_spdx_document(predicate: dict) -> None:
             bool(creator.partition(": ")[2].strip()) for creator in creators),
         "SPDX SBOM lacks complete document creation identity")
     # SPDX 2.3 distinguishes package.name from file.fileName.
+    # Preserve the stricter SPDX 2.2 mandatory package fields separately.
+    version=predicate["spdxVersion"]
     # A single shared 'name' predicate wrongly rejected genuine Syft files.
     packages = predicate.get("packages", [])
     files = predicate.get("files", [])
@@ -542,45 +554,66 @@ def validate_spdx_document(predicate: dict) -> None:
                 bool(item["name"].strip()) and
                 valid_spdx_download_location(item.get("downloadLocation")),
                 "SPDX SBOM package has invalid downloadLocation")
-        # SPDX 2.3 copyrightText is optional (absent means NOASSERTION).
-        # filesAnalyzed defaults to True; a present verification code is
-        # validated, but SPDX does not require one for every analyzed package.
-        # The separate OCI/application subject checks provide image identity.
+        # SPDX 2.2 requires copyright and concluded/declared licenses.
+        # SPDX 2.3 permits omission with NOASSERTION semantics. This verifier
+        # validates present expressions but never grants distribution rights.
+        mandatory=("copyrightText","licenseConcluded","licenseDeclared")
+        if version=="SPDX-2.2":
+            require(all(field in item for field in mandatory),
+                    "SPDX 2.2 package mandatory fields absent")
         if "copyrightText" in item:
             require(type(item["copyrightText"]) is str and
                     bool(item["copyrightText"].strip()),
                     "SPDX package copyrightText malformed")
-        analyzed=item.get("filesAnalyzed", True)
+        for field in ("licenseConcluded","licenseDeclared"):
+            if field in item:
+                require(valid_spdx_license_expression(item[field]),
+                        "SPDX package license expression malformed")
+        analyzed=item.get("filesAnalyzed",True)
         require(type(analyzed) is bool,
                 "SPDX package filesAnalyzed must be boolean")
         verification=item.get("packageVerificationCode")
-        if analyzed and verification is not None:
-            require(type(verification) is dict and
-                    type(verification.get("packageVerificationCodeValue")) is str and
-                    re.fullmatch(r"[0-9a-f]{40}",
-                       verification["packageVerificationCodeValue"]) is not None and
-                    (verification.get("packageVerificationCodeExcludedFiles") is None
-                     or (type(verification["packageVerificationCodeExcludedFiles"]) is list
-                         and all(type(name) is str and bool(name)
-                                 for name in verification["packageVerificationCodeExcludedFiles"]))),
-                    "SPDX supplied package verification code malformed")
-        else:
-            require(verification is None and
-                    "licenseInfoFromFiles" not in item,
+        if not analyzed:
+            require(verification is None and "licenseInfoFromFiles" not in item,
                     "SPDX unanalyzed package must omit verification code and file licenses")
-        for field in ("licenseConcluded","licenseDeclared"):
-            if field in item:
-                require(type(item[field]) is str and bool(item[field].strip()),
-                        "SPDX package license field malformed")
+        else:
+            if version=="SPDX-2.2":
+                require(verification is not None,
+                        "SPDX 2.2 analyzed package requires verification code")
+            if verification is not None:
+                require(type(verification) is dict and
+                        type(verification.get("packageVerificationCodeValue")) is str and
+                        re.fullmatch(r"[0-9a-f]{40}",
+                           verification["packageVerificationCodeValue"]) is not None and
+                        (verification.get("packageVerificationCodeExcludedFiles") is None
+                         or (type(verification["packageVerificationCodeExcludedFiles"]) is list
+                             and all(type(name) is str and bool(name)
+                                     for name in verification["packageVerificationCodeExcludedFiles"]))),
+                        "SPDX supplied package verification code malformed")
+            if "licenseInfoFromFiles" in item:
+                require(type(item["licenseInfoFromFiles"]) is list and
+                        all(valid_spdx_license_expression(v)
+                            for v in item["licenseInfoFromFiles"]),
+                        "SPDX package licenseInfoFromFiles malformed")
         if "checksums" in item:
             require(valid_spdx_checksums(item["checksums"]),
                     "SPDX SBOM package contains invalid checksums")
     for item in files:
         spdx_id(item)
+        checksums=item.get("checksums")
         require(isinstance(item.get("fileName"), str) and
                 bool(item["fileName"].strip()) and
-                valid_spdx_checksums(item.get("checksums")),
-                "SPDX SBOM file contains invalid fileName or checksums")
+                valid_spdx_checksums(checksums) and
+                sum(c.get("algorithm")=="SHA1" for c in checksums)==1,
+                "SPDX file requires a valid SHA1 checksum")
+        if "licenseConcluded" in item:
+            require(valid_spdx_license_expression(item["licenseConcluded"]),
+                    "SPDX file licenseConcluded malformed")
+        if "licenseInfoInFiles" in item:
+            require(type(item["licenseInfoInFiles"]) is list and
+                    all(valid_spdx_license_expression(value)
+                        for value in item["licenseInfoInFiles"]),
+                    "SPDX file licenseInfoInFiles malformed")
 
 
 def validate_target_platform(platform: object) -> None:

@@ -116,20 +116,6 @@ def setup() -> dict:
                 time.sleep(1)
         else:
             raise ValueError("isolated scanner registry readiness failed")
-        hashes=[]
-        for index in (1,2):
-            image=REGISTRY_HOST+"/"+NAME+":candidate-"+str(index)
-            call(["docker","buildx","build","--builder","default",
-                  "--platform","linux/amd64","--no-cache","--pull=false",
-                  "--provenance=false","--sbom=false","--load",
-                  "--build-arg","SOURCE_DATE_EPOCH="+str(source["source_date_epoch"]),
-                  "-f",str(ROOT/"deploy/release/scanner/Dockerfile"),
-                  "-t",image,str(OUT)],timeout=360)
-            call(["docker","push",image],timeout=240)
-            hashes.append(response_digest("candidate-"+str(index)))
-        require(hashes[0]==hashes[1],
-                "scanner clean image rebuild changed OCI manifest bytes")
-        digest=hashes[0]
         config=OUT/"buildkitd.scanner.toml"
         config.write_text(
             '[registry."scanner-registry:5000"]\n  http = true\n',
@@ -139,19 +125,31 @@ def setup() -> dict:
               "--buildkitd-config",str(config),"--use"],timeout=90)
         call(["docker","buildx","inspect","--builder",builder_name(),
               "--bootstrap"],timeout=180)
-        ref=REGISTRY_BUILDKIT+"/"+NAME+"@"+digest
-        # The verifier always addresses the exact exported manifest, never
-        # a tag that a later producer could repoint.
-        env=Path(os.environ["GITHUB_ENV"])
-        with env.open("a",encoding="utf-8") as fd:
-            fd.write("RELEASE_SCANNER_REF="+ref+"\n")
-            fd.write("RELEASE_SCANNER_DIGEST="+digest+"\n")
-        record={
+        # Export directly from the reproducible BuildKit image exporter.
+        # Unlike Docker's legacy --load path this exposes timestamp rewriting
+        # and a stable OCI-format manifest, with no host Docker image store.
+        hashes=[]
+        for index in (1,2):
+            image=REGISTRY_BUILDKIT+"/"+NAME+":candidate-"+str(index)
+            call(["docker","buildx","build","--builder",builder_name(),
+                  "--platform","linux/amd64","--no-cache","--pull=false",
+                  "--provenance=false","--sbom=false",
+                  "--build-arg","SOURCE_DATE_EPOCH="+str(source["source_date_epoch"]),
+                  "-f",str(ROOT/"deploy/release/scanner/Dockerfile"),
+                  "--output","type=image,name="+image+
+                     ",push=true,registry.insecure=true,"
+                     "rewrite-timestamp=true,oci-mediatypes=true",
+                  str(OUT)],timeout=360)
+            hashes.append(response_digest("candidate-"+str(index)))
+        digest=hashes[0]
+        candidate={
             "schema_version":1,
             "upstream_commit":source["upstream_commit"],
             "binary_sha256":source["binary_sha256"],
             "manifest_digest":digest,
-            "image_reproducible":True,
+            "candidate_1_manifest_digest":hashes[0],
+            "candidate_2_manifest_digest":hashes[1],
+            "image_reproducible":hashes[0]==hashes[1],
             "binary_reproducible":True,
             "scanner_reference_kind":"ephemeral-local-registry-manifest",
             "public_bot_release":False,
@@ -161,9 +159,18 @@ def setup() -> dict:
                 and policy.get("approved_manifest_digest")==digest),
         }
         (OUT/"scanner-candidate.json").write_text(
-            json.dumps(record,indent=2,sort_keys=True)+"\n",encoding="utf-8")
-        print(json.dumps(record,sort_keys=True))
-        return record
+            json.dumps(candidate,indent=2,sort_keys=True)+"\n",encoding="utf-8")
+        print(json.dumps(candidate,sort_keys=True))
+        require(candidate["image_reproducible"],
+                "scanner independent BuildKit image exports differ")
+        ref=REGISTRY_BUILDKIT+"/"+NAME+"@"+digest
+        # The verifier always addresses the exact exported manifest, never
+        # a tag that a later producer could repoint.
+        env=Path(os.environ["GITHUB_ENV"])
+        with env.open("a",encoding="utf-8") as fd:
+            fd.write("RELEASE_SCANNER_REF="+ref+"\n")
+            fd.write("RELEASE_SCANNER_DIGEST="+digest+"\n")
+        return candidate
     except BaseException:
         cleanup()
         raise

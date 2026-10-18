@@ -27,6 +27,13 @@ class ScannerProbeContractTests(unittest.TestCase):
             "https://github.com/HMarcusWH/AllfatherChess/actions/"
             "workflows/release-candidate.yml",probe)
         self.assertIn('--attest "type=sbom,generator=$SCANNER"',probe)
+        self.assertIn("ci-release-scanner.py setup",probe)
+        self.assertIn("ci-release-scanner.py verify-approval",probe)
+        self.assertIn('SCANNER="$RELEASE_SCANNER_REF"',probe)
+        scanner_policy=(ROOT/"qualification/release-scanner-v1.json").read_text()
+        self.assertIn('"required_file_hash_algorithms": [',scanner_policy)
+        self.assertIn('"SHA1"',scanner_policy)
+        self.assertIn('"SHA256"',scanner_policy)
 
     def test_valid_spdx_probe_never_claims_release_authority(self):
         with tempfile.TemporaryDirectory() as tmp:

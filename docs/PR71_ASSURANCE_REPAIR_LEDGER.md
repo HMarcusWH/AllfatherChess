@@ -128,3 +128,9 @@ ledger alone.
 including real RELEASE-1 OCI/smoke, guarded recovery, LC0 and LOCAL-1;
 then a fresh exact-head Codex code/security review with no outstanding
 unaddressed findings. Offline test authority never becomes online authority.
+
+## October 18 — pinned SHA1 scanner follow-up (candidate-only)
+
+Real RELEASE-1 run [39087354015](https://github.com/HMarcusWH/AllfatherChess/actions/runs/39087354015) passed all 181 fast contracts and failed only at pinned scanner real SPDX files: `SPDX file requires a valid SHA1 checksum`. Source analysis of upstream v1.11.0 (commit `d88056b4e5b61d0ca037340df91be47d343b4386`) traced the default file hasher to SHA256 alone.
+
+Implementation now sources a single SHA1+SHA256 patch in `deploy/release/scanner/target.go.patch`, compiles it twice using vendored dependencies, and routes it through an isolated job-local OCI registry. A candidate scanner digest is **not an approved image**. Full qualification remains blocked until both `approved_binary_sha256` and `approved_manifest_digest` are independently reviewed, frozen and rerun at one SHA. Only after real scanner/OCI positives and new Codex review may the PR be considered for merge; all public distribution/live-play grants remain false.

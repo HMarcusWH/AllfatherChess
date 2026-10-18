@@ -275,7 +275,7 @@ OCI runtime selection: declared platforms on every selected runnable index/manif
 
 R10: the `rate_limit_hold_completed` event must be request-correlated and recorded after 61.25 seconds have elapsed since the targeted real HTTP 429 response completion. The independent host verifier rejects a completed hold less than 61 seconds after this event. A server write does not by itself prove client receipt: the same first-epoch `global_rate_limit_block` guard audit and persistent SQLite cooldown evidence are independently required. The producer's fixed 100-second scenario deadline remains a bounded fail-closed timeout.
 
-SBOM generator: the release image policy specifies the digest-pinned docker/buildkit-syft-scanner multi-platform image, with remote digest preflight. The default mutable scanner tag is not used during qualification. The pinned image digest is a historically available Docker Hub index and must be exercised in exact-head CI before claiming a valid generator. CI still computes full BuildKit metadata to verify attestation, but only allowlisted sanitized JSON reports, OS inventory and four local smoke logs are retained as download artifacts; private GitHub event payload and full provenance metadata are not retained.
+SBOM generator: RELEASE-1 no longer uses the historical SHA256-only Docker Hub scanner. The scanner-only source lock is `qualification/release-scanner-v1.json`, bound to docker/buildkit-syft-scanner v1.11.0 at commit `d88056b4`, Go 1.25.8, vendored Syft 1.42.3 and the SHA256-approved `deploy/release/scanner/target.go.patch`. The patch adds real SHA1 hashing beside SHA256; it does not modify SPDX evidence after scanning. The scanner is compiled twice with vendored-only dependencies and builds two disposable scratch images to test binary and image reproducibility. Its manifest is resolved in a loopback-bound, runner-local registry and passed to BuildKit by immutable digest, never a mutable tag. CI still computes full BuildKit metadata to verify attestation but uploads only allowlisted sanitized reports, OS inventory and four local smoke logs; full scanner binaries, OCI archives, raw SBOM/provenance and private event payloads are never uploaded.
 
 The green supporting workflows and full image smoke testing remain necessary but insufficient: standalone OCI attestation verification, final host aggregate, dependency qualification and a fresh review must pass. The publication/licensing/live-game prohibitions are unchanged.
 
@@ -283,16 +283,19 @@ The green supporting workflows and full image smoke testing remain necessary but
 
 **Pinned snapshot acquisition:** The image still starts from the digest-pinned Ubuntu base and two native APT sources with GPG Signed-By and the frozen Snapshot field. The minimal base bootstraps CA trust from signed native HTTP indexes as before. Remaining packages are installed with deploy/release/install-pinned-apt.sh: up to four bounded attempts for transient HTTP 429/502/503/504 responses, with old index lists discarded after failure. Hash, signature, certificate or unrecognized download failures are fatal; there is no mirror or unsigned fallback. An availability-only snapshot preflight runs before expensive engine compilation and emits a sanitized JSON diagnostic. It does not replace APT signature validation.
 
-**Scanner preflight:** The scanner-compatibility job builds a minimal OCI
-candidate without chess engines, requests the digest-pinned Syft SBOM and
-minimal SLSA v1 provenance, then independently requires exactly one supported
-SPDX document and one SLSA v1 statement with the builder identity frozen in
-`qualification/release-image-v1.json`. Wrong/missing/duplicate provenance
-cannot be hidden behind a valid SPDX sibling. The result proves a bounded
-scanner/provenance interface only, **not** full image identity, publisher
-signature, licensing, or release readiness. The real OCI export still
-requires independently verified full-image attestation after four packaged
-offline smoke cases.
+**Scanner preflight:** The scanner-compatibility job builds the v1.11.0
+source-locked generator with SHA1 + SHA256, starts a disposable local registry
+and builds a minimal test OCI image without chess engines. It requests one
+SPDX SBOM and one minimal SLSA v1 provenance statement, then independently
+verifies the exact builder ID frozen in `qualification/release-image-v1.json`.
+The actual manifest digest and binary SHA256 are recorded as **candidates**.
+They are never admitted just because the job produced them: the source lock's
+`approved_manifest_digest` and `approved_binary_sha256` must be populated
+through a separate review of clean reproducible builds. Until then the
+scanner-compatibility job deliberately fails after reporting the bounded
+candidate identities; the full OCI integration remains skipped. The completed
+image identity still cannot grant publisher signature, licensing, network or
+distribution authority.
 
 **SPDX source rules:** Package downloadLocation may be NONE, NOASSERTION, or a supported syntactically valid URL/VCS location without embedded secrets. File and optional package checksums require supported exact algorithm and canonical lowercase fixed-width digest. Variable-width MD6 is explicitly unsupported in the release profile. A structurally valid SPDX document is not evidence of actual package-download provenance. The SPDX schema and release-profile policy are separate claims.
 
@@ -381,3 +384,42 @@ because `git rev-parse HEAD` is unchanged.
 These checks bind a qualification to its source bytes; they do **not** confer
 operator authority, license clearance, authenticated publisher signatures,
 network recovery claims or rights to distribute a binary image.
+
+## October 18 — scanner source-build and approval procedure
+
+The upstream v1.11.0 scanner uses Syft file hashing configured for SHA256 by
+default; that conflicted with SPDX 2.x's required SHA1 on file records. The
+source-attested `target.go.patch` adds `crypto.SHA1` and `crypto.SHA256`
+through the existing Syft `WithFilesConfig(WithHashers(...))` API. A pinned
+Go 1.25.8 compiler action builds only vendored dependencies offline.
+
+The CI source scanner lifecycle is:
+
+1. Compare all scanner scripts, patch, Dockerfile and lock bytes with the exact
+   Git HEAD. Fetch only upstream commit `d88056b4`, check the Go/Syft version
+   and apply exactly one patch to `internal/target.go`.
+2. Compile twice and compare executable hashes. Build two `FROM scratch`
+   scanner images in the host Docker engine with a frozen source-date epoch.
+3. Push **only to the current GitHub runner's** loopback-bound, digest-pinned
+   `registry:2.8.3` container; compare both manifest digest responses.
+4. Configure a docker-container BuildKit daemon on the same Docker bridge,
+   allowing plain HTTP only for `scanner-registry:5000`, and address the
+   custom scanner by its manifest SHA256.
+5. Run the real scanner against the pinned Ubuntu fixture and require genuine
+   SPDX/SLSA validation. Before marking scanner compatibility green, compare
+   the measured manifest and binary hashes with separately reviewed values in
+   `qualification/release-scanner-v1.json`. All results are offline only.
+6. Recreate and verify the scanner independently on the full OCI integration
+   job. Destroy temporary registry, builder and network on exit.
+
+The scanner lock initially leaves approved binary and manifest SHA256 values
+`null`: this is an intentional **approval gate**, not a temporary release
+bypass. Review reproducibility and real SBOM evidence before committing the
+measured SHA values in a second commit; the following CI run must match them.
+No registry image or scanner binary is published, and no external credentials
+are required.
+
+File records with SHA1 `000...000` (used by upstream Syft for entries without
+regular-file digest metadata) may be structurally allowed by SPDX, but are
+**not** proof of actual file contents. An independent known-regular-file hash
+test is required before claiming scanner content-hash qualification.

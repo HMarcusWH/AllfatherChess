@@ -134,3 +134,20 @@ unaddressed findings. Offline test authority never becomes online authority.
 Real RELEASE-1 run [39087354015](https://github.com/HMarcusWH/AllfatherChess/actions/runs/39087354015) passed all 181 fast contracts and failed only at pinned scanner real SPDX files: `SPDX file requires a valid SHA1 checksum`. Source analysis of upstream v1.11.0 (commit `d88056b4e5b61d0ca037340df91be47d343b4386`) traced the default file hasher to SHA256 alone.
 
 Implementation now sources a single SHA1+SHA256 patch in `deploy/release/scanner/target.go.patch`, compiles it twice using vendored dependencies, and routes it through an isolated job-local OCI registry. A candidate scanner digest is **not an approved image**. Full qualification remains blocked until both `approved_binary_sha256` and `approved_manifest_digest` are independently reviewed, frozen and rerun at one SHA. Only after real scanner/OCI positives and new Codex review may the PR be considered for merge; all public distribution/live-play grants remain false.
+
+## Scanner reproducibility positive, approval lock frozen
+
+Source-bound [RELEASE-1 run 39130571069](https://github.com/HMarcusWH/AllfatherChess/actions/runs/39130571069):
+Go 1.25.8 produced two identical binary hashes,
+`a1043ee5fa8285740548b600fd24d106b4e68211327238b4edbbe70765bd67ca`;
+two BuildKit scratch exports produced the identical OCI manifest
+`sha256:fe9efbc9d42e6ddbbe44f0f35e2daa45299123891076c1700414a74978a51d2a`.
+The pinned Syft v1.11.0 patch then passed strict SPDX (93 packages, 2265 files)
+and SLSA v1 builder checks. The run correctly refused final compatibility at
+the independent **unapproved digest** gate, which now has these reviewed
+identities frozen in `qualification/release-scanner-v1.json`.
+
+The following exact-head run must independently remeasure those hashes and
+check actual base-image `/usr/bin/dpkg` contents against scanner SHA1/SHA256
+before any full RELEASE-1 image qualification. Code review, distribution and
+host/live authorizations remain separate, closed gates.

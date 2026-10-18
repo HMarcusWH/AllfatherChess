@@ -412,10 +412,15 @@ The CI source scanner lifecycle is:
 6. Recreate and verify the scanner independently on the full OCI integration
    job. Destroy temporary registry, builder and network on exit.
 
-The scanner lock initially leaves approved binary and manifest SHA256 values
-`null`: this is an intentional **approval gate**, not a temporary release
-bypass. Review reproducibility and real SBOM evidence before committing the
-measured SHA values in a second commit; the following CI run must match them.
+The initial scanner lock deliberately left binary and image identities
+`null`, so the real scanner could be tested without self-approving its
+manifest. Source-locked CI run 39130571069 built two matching Go binaries,
+produced identical OCI manifests and validated a real 93-package/2265-file
+SPDX document alongside the required SLSA v1 builder. Its measured binary
+SHA256 and manifest digest are now frozen in
+`qualification/release-scanner-v1.json`. Subsequent CI jobs must reproduce
+both exact identities, independently prove a known regular-file hash, and
+still satisfy all packaged OCI, safety and governance constraints.
 No registry image or scanner binary is published, and no external credentials
 are required.
 

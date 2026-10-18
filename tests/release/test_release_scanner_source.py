@@ -35,6 +35,14 @@ class ReleaseScannerSourceContractTests(unittest.TestCase):
         self.assertEqual(policy["toolchain_version"],"go1.25.8")
         self.assertEqual(policy["vendored_syft_version"],"v1.42.3")
 
+    def test_approved_binary_and_manifest_are_exact_reviewed_hashes(self):
+        policy=json.loads(source.LOCK.read_text())
+        self.assertEqual(policy["approved_binary_sha256"],
+            "a1043ee5fa8285740548b600fd24d106b4e68211327238b4edbbe70765bd67ca")
+        self.assertEqual(policy["approved_manifest_digest"],
+            "sha256:fe9efbc9d42e6ddbbe44f0f35e2daa45299123891076c1700414a74978a51d2a")
+        self.assertFalse(policy["public_bot_release"])
+
     def test_mutated_patch_cannot_keep_approved_digest(self):
         original=source.ROOT
         with tempfile.TemporaryDirectory() as td:

@@ -15,11 +15,13 @@
   ],
   "scanner_dockerfile": "deploy/release/scanner/Dockerfile",
   "registry_transport_image": "docker.io/library/registry@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373",
-  "approved_binary_sha256": null,
-  "approved_manifest_digest": null,
+  "approved_binary_sha256": "a1043ee5fa8285740548b600fd24d106b4e68211327238b4edbbe70765bd67ca",
+  "approved_manifest_digest": "sha256:fe9efbc9d42e6ddbbe44f0f35e2daa45299123891076c1700414a74978a51d2a",
   "reproducible_binary_required": true,
   "reproducible_image_required": true,
   "public_bot_release": false,
   "artifact_distribution_authorized": false,
-  "live_credentials_authorized": false
+  "live_credentials_authorized": false,
+  "approval_evidence_workflow": "https://github.com/HMarcusWH/AllfatherChess/actions/runs/39130571069",
+  "approval_basis": "Two source-locked binaries equal; two BuildKit image manifests equal; real scanner accepted SPDX 2.3 (93 packages, 2265 files, SHA1), SLSA v1 and expected builder. Additional independent file-content and packaged-OCI gates remain mandatory."
 }

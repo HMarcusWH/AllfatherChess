@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "scope": "offline-release-scanner-only",
+  "upstream_repository": "https://github.com/docker/buildkit-syft-scanner",
+  "upstream_tag": "v1.11.0",
+  "upstream_commit": "d88056b4e5b61d0ca037340df91be47d343b4386",
+  "toolchain_version": "go1.25.8",
+  "vendored_syft_version": "v1.42.3",
+  "patch_path": "deploy/release/scanner/target.go.patch",
+  "patch_sha256": "87fbe492c4b504374b41a6303ebc75833559bacb83addf9e5520b9768cc37d09",
+  "binary_path": "bin/syft-scanner",
+  "required_file_hash_algorithms": [
+    "SHA1",
+    "SHA256"
+  ],
+  "scanner_dockerfile": "deploy/release/scanner/Dockerfile",
+  "registry_transport_image": "docker.io/library/registry@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373",
+  "approved_binary_sha256": null,
+  "approved_manifest_digest": null,
+  "reproducible_binary_required": true,
+  "reproducible_image_required": true,
+  "public_bot_release": false,
+  "artifact_distribution_authorized": false,
+  "live_credentials_authorized": false
+}

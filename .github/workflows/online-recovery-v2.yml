@@ -166,8 +166,17 @@ jobs:
         run: |
           bash scripts/ci-install-apt-deps.sh python3-pip python3-venv
           python3 -m pip install --break-system-packages 'chess==1.11.2' 'PyYAML==6.0.3'
-      - name: Rebuild expected overlay from independent pinned upstream
-        run: python3 deploy/lichess/fetch_bridge.py
+      - name: Verify independent exact-source worktree before importing recovery code
+        run: |
+          set -euo pipefail
+          VERIFIED="$RUNNER_TEMP/online4b-verified-${GITHUB_RUN_ID}"
+          git worktree add --detach "$VERIFIED" "$ALLFATHER_SOURCE_SHA"
+          test "$(git -C "$VERIFIED" rev-parse HEAD)" = "$ALLFATHER_SOURCE_SHA"
+          git -C "$VERIFIED" diff --exit-code
+          python3 "$VERIFIED/scripts/verify_source_closure.py" \
+            --profile online-recovery-v2 --source-sha "$ALLFATHER_SOURCE_SHA"
+          python3 "$VERIFIED/deploy/lichess/fetch_bridge.py"
+          echo "ONLINE4B_VERIFIED_ROOT=$VERIFIED" >> "$GITHUB_ENV"
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         continue-on-error: true
         with:
@@ -175,10 +184,10 @@ jobs:
           path: build/test-results/online-recovery-v2
       - name: Independently qualify guarded safety and restart continuation
         run: |
-          python3 scripts/qualify-online-recovery-v2.py \
-            --evidence build/test-results/online-recovery-v2 \
+          python3 "$ONLINE4B_VERIFIED_ROOT/scripts/qualify-online-recovery-v2.py" \
+            --evidence "$GITHUB_WORKSPACE/build/test-results/online-recovery-v2" \
             --source-sha "$ALLFATHER_SOURCE_SHA" \
-            --output build/test-results/online4b-verdict/report.json
+            --output "$GITHUB_WORKSPACE/build/test-results/online4b-verdict/report.json"
       - name: Summarize containment versus recovery claims
         if: always()
         run: |

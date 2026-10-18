@@ -296,11 +296,19 @@ jobs:
               | tee "build/test-results/release1/$CASE.log"
           done
           sudo chmod -R a+rX build/test-results/release1-volume
+      - name: Checkout isolated exact-commit source for every independent RELEASE-1 verifier
+        run: |
+          set -euo pipefail
+          VERIFIED="$RUNNER_TEMP/release1-verified-${GITHUB_RUN_ID}"
+          git worktree add --detach "$VERIFIED" "$SOURCE_SHA"
+          test "$(git -C "$VERIFIED" rev-parse HEAD)" = "$SOURCE_SHA"
+          git -C "$VERIFIED" diff --exit-code
+          echo "RELEASE1_VERIFIED_ROOT=$VERIFIED" >> "$GITHUB_ENV"
       - name: Independently reconstruct all packaged chess and HTTP requests
         run: |
-          python3 scripts/qualify-release-smoke.py \
-            --smoke-dir build/test-results/release1-volume \
-            --output build/test-results/release1/smoke-verdict.json
+          python3 "$RELEASE1_VERIFIED_ROOT/scripts/qualify-release-smoke.py" \
+            --smoke-dir "$GITHUB_WORKSPACE/build/test-results/release1-volume" \
+            --output "$GITHUB_WORKSPACE/build/test-results/release1/smoke-verdict.json"
       - name: Export standalone OCI archive with SBOM/provenance attestations
         timeout-minutes: 20
         run: |
@@ -316,15 +324,19 @@ jobs:
             --attest type=provenance,mode=min,builder-id=https://github.com/HMarcusWH/AllfatherChess/actions/workflows/release-candidate.yml \
             --attest "type=sbom,generator=$SCANNER" \
             --output type=oci,dest=build/release1-offline.oci.tar .
-          python3 scripts/inspect-release-oci.py \
-            --archive build/release1-offline.oci.tar \
-            --metadata build/test-results/release1/oci-build-metadata.json \
-            --output build/test-results/release1/oci-attestation-structure.json
-          python3 scripts/verify-release-oci.py \
-            --archive build/release1-offline.oci.tar \
-            --metadata build/test-results/release1/oci-build-metadata.json \
-            --docker-inspect build/test-results/release1/docker-inspect.json \
-            --output build/test-results/release1/oci-report.json
+          # Both executables and the SPDX parser/catalogue come from the
+          # isolated Git checkout created after all mutable build steps.
+          test "$(git -C "$RELEASE1_VERIFIED_ROOT" rev-parse HEAD)" = "$SOURCE_SHA"
+          git -C "$RELEASE1_VERIFIED_ROOT" diff --exit-code
+          python3 "$RELEASE1_VERIFIED_ROOT/scripts/inspect-release-oci.py" \
+            --archive "$GITHUB_WORKSPACE/build/release1-offline.oci.tar" \
+            --metadata "$GITHUB_WORKSPACE/build/test-results/release1/oci-build-metadata.json" \
+            --output "$GITHUB_WORKSPACE/build/test-results/release1/oci-attestation-structure.json"
+          python3 "$RELEASE1_VERIFIED_ROOT/scripts/verify-release-oci.py" \
+            --archive "$GITHUB_WORKSPACE/build/release1-offline.oci.tar" \
+            --metadata "$GITHUB_WORKSPACE/build/test-results/release1/oci-build-metadata.json" \
+            --docker-inspect "$GITHUB_WORKSPACE/build/test-results/release1/docker-inspect.json" \
+            --output "$GITHUB_WORKSPACE/build/test-results/release1/oci-report.json"
       - name: Verify every offline verdict module before aggregate execution
         run: |
           set -euo pipefail
@@ -364,19 +376,21 @@ jobs:
           PY
       - name: Observe test-runner capacity and aggregate evidence without promoting release
         run: |
-          python3 scripts/qualify-release-host.py \
-            --root . --persistent build/test-results/release1-volume \
-            --runtime /tmp --output build/test-results/release1/host-report.json
-          python3 scripts/qualify-release-aggregate.py \
-            --stage build/release1-stage \
-            --oci build/test-results/release1/oci-report.json \
-            --oci-archive build/release1-offline.oci.tar \
-            --host build/test-results/release1/host-report.json \
-            --smoke-dir build/test-results/release1-volume \
-            --os-inventory build/test-results/release1/os-packages.txt \
-            --wheel-inventory build/release1-stage/wheels/wheel-attestation.json \
+          python3 "$RELEASE1_VERIFIED_ROOT/scripts/qualify-release-host.py" \
+            --root "$RELEASE1_VERIFIED_ROOT" \
+            --persistent "$GITHUB_WORKSPACE/build/test-results/release1-volume" \
+            --runtime /tmp \
+            --output "$GITHUB_WORKSPACE/build/test-results/release1/host-report.json"
+          python3 "$RELEASE1_VERIFIED_ROOT/scripts/qualify-release-aggregate.py" \
+            --stage "$GITHUB_WORKSPACE/build/release1-stage" \
+            --oci "$GITHUB_WORKSPACE/build/test-results/release1/oci-report.json" \
+            --oci-archive "$GITHUB_WORKSPACE/build/release1-offline.oci.tar" \
+            --host "$GITHUB_WORKSPACE/build/test-results/release1/host-report.json" \
+            --smoke-dir "$GITHUB_WORKSPACE/build/test-results/release1-volume" \
+            --os-inventory "$GITHUB_WORKSPACE/build/test-results/release1/os-packages.txt" \
+            --wheel-inventory "$GITHUB_WORKSPACE/build/release1-stage/wheels/wheel-attestation.json" \
             --source-sha "$SOURCE_SHA" \
-            --output build/test-results/release1/aggregate.json
+            --output "$GITHUB_WORKSPACE/build/test-results/release1/aggregate.json"
       - name: Tear down isolated release scanner registry and builder
         if: always()
         env:

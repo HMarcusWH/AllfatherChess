@@ -131,16 +131,21 @@ class OfflineReleaseContracts(unittest.TestCase):
             self.assertNotIn(unsafe,instructions)
             self.assertNotIn(unsafe,code_without_apt_message)
 
-    def test_sbom_generator_is_reviewed_immutable_oci_index(self):
+    def test_sbom_generator_is_source_locked_and_local_digest_addressed(self):
         image=json.loads((ROOT/"qualification/release-image-v1.json").read_text())
-        scanner=image["sbom_generator_image"]
-        self.assertRegex(scanner,
-            r"^docker\.io/docker/buildkit-syft-scanner@sha256:[0-9a-f]{64}$")
+        scanner=json.loads((ROOT/image["sbom_generator_policy"]).read_text())
+        self.assertIsNone(image["sbom_generator_image"])
+        self.assertEqual(scanner["upstream_commit"],
+            "d88056b4e5b61d0ca037340df91be47d343b4386")
+        self.assertEqual(scanner["required_file_hash_algorithms"],
+                         ["SHA1","SHA256"])
+        self.assertFalse(scanner["public_bot_release"])
+        self.assertFalse(scanner["artifact_distribution_authorized"])
         content=(ROOT/".github/workflows/release-candidate.yml").read_text()
-        self.assertIn('["sbom_generator_image"]',content)
+        self.assertEqual(content.count("ci-release-scanner.py setup"),2)
+        self.assertEqual(content.count("ci-release-scanner.py verify-approval"),2)
+        self.assertIn('SCANNER="$RELEASE_SCANNER_REF"',content)
         self.assertIn('--attest "type=sbom,generator=$SCANNER"',content)
-        self.assertIn('docker buildx imagetools inspect "$SCANNER" --raw',content)
-        self.assertNotIn("--attest type=sbom \\",content)
 
     def test_readonly_runtime_requires_separate_replay_bind_mount(self):
         p=json.loads((ROOT/"qualification/release-image-v1.json").read_text())

@@ -77,6 +77,11 @@ class WorkflowCoverageTests(unittest.TestCase):
             "scripts/verify-release-oci.py",
             "scripts/spdx_license_contract.py",
             "qualification/spdx-license-identifiers-v3.29.0.json",
+            "qualification/release-scanner-v1.json",
+            "deploy/release/scanner/target.go.patch",
+            "deploy/release/scanner/Dockerfile",
+            "scripts/prepare-release-scanner.py",
+            "scripts/ci-release-scanner.py",
         ):
             with self.subTest(relative=relative):
                 self.assertIn('"' + relative + '"',builder)

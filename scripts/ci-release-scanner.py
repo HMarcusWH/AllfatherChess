@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import os
 import subprocess
@@ -16,7 +17,14 @@ import time
 from pathlib import Path
 from urllib.request import Request, urlopen
 
-from scripts.prepare_release_scanner import ROOT, LOCK, prepare, require
+_source_path=Path(__file__).with_name("prepare-release-scanner.py")
+_spec=importlib.util.spec_from_file_location("release1_scanner_source",_source_path)
+if _spec is None or _spec.loader is None:
+    raise ValueError("scanner source verifier unavailable")
+_source=importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_source)
+ROOT, LOCK, prepare, require=(_source.ROOT,_source.LOCK,
+                              _source.prepare,_source.require)
 
 REGISTRY_HOST="127.0.0.1:5000"
 REGISTRY_BUILDKIT="scanner-registry:5000"

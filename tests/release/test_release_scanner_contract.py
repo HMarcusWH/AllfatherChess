@@ -35,8 +35,24 @@ class ScannerProbeContractTests(unittest.TestCase):
             self.assertEqual(report["spdx_document_count"],1)
             self.assertGreater(sum((report["spdx_package_count"],
                                     report["spdx_file_count"])),0)
+            self.assertTrue(report["scanner_slsa_v1_contract_verified"])
+            self.assertTrue(report["builder_identity_matched"])
+            self.assertEqual(report["slsa_statement_count"],1)
             self.assertFalse(report["integrity_verified"])
             self.assertFalse(report["release_qualified"])
+
+    def test_scanner_requires_one_exact_version_and_builder_provenance(self):
+        variants=(
+            ({"omit_slsa":True},"exactly one expected SLSA"),
+            ({"slsa_case":"other-builder"},"builder identity"),
+            ({"slsa_case":"v02"},"provenance version"),
+            ({"duplicate_slsa":True},"exactly one expected SLSA"),
+        )
+        for kwargs,reason in variants:
+            with self.subTest(kind=kwargs),tempfile.TemporaryDirectory() as td:
+                archive,_,_=oci_fixture.OCIProofTests().fixture(Path(td),**kwargs)
+                with self.assertRaisesRegex(ValueError,reason):
+                    probe.inspect_scanner_output(archive)
 
     def test_null_statement_wrapper_cannot_qualify_a_scanner(self):
         for kind in ("null","empty","object","string"):

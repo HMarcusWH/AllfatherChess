@@ -36,7 +36,8 @@ class OCIProofTests(unittest.TestCase):
                 index_platform="absent", inner_index_platform="absent",
                 double_nested=False, embedded_media="absent",
                 config_platform="valid", diagnostic_canary=None,
-                malformed_diagnostic=None, statement_wrapper="singleton"):
+                malformed_diagnostic=None, statement_wrapper="singleton",
+                omit_slsa=False, duplicate_slsa=False):
         base = b"original uncompressed OCI application layer\n"
         expanded = (b"substituted uncompressed OCI application layer\n"
                     if replace_layer else base)
@@ -135,6 +136,8 @@ class OCIProofTests(unittest.TestCase):
         attest_layers = []
         for predicate in ("https://spdx.dev/Document",
                           "https://slsa.dev/provenance/v1"):
+            if omit_slsa and predicate=="https://slsa.dev/provenance/v1":
+                continue
             subject = {"image": application[7:], "config": config[7:],
                        "layer": tar_layer[7:], "empty": None}[subject_kind]
             if bad_subject:
@@ -161,7 +164,7 @@ class OCIProofTests(unittest.TestCase):
                         "buildType": "https://mobyproject.org/buildkit@v1",
                         "externalParameters": {}},
                     "runDetails": {"builder": {
-                        "id": "https://github.com/moby/buildkit"}}})
+                        "id": "https://github.com/HMarcusWH/AllfatherChess/actions/workflows/release-candidate.yml"}}})
             if predicate == "https://spdx.dev/Document":
                 if spdx_case == "missing-license":
                     del body["dataLicense"]
@@ -289,6 +292,8 @@ class OCIProofTests(unittest.TestCase):
                     body = {"buildDefinition": {}, "runDetails": {}}
                 if slsa_case == "builder-empty":
                     body["runDetails"]["builder"]["id"] = ""
+                if slsa_case == "other-builder":
+                    body["runDetails"]["builder"]["id"] = "https://github.com/moby/buildkit"
                 if slsa_case == "bad-build-type":
                     body["buildDefinition"]["buildType"] = "not-a-uri"
                 if slsa_case == "no-external":
@@ -334,6 +339,12 @@ class OCIProofTests(unittest.TestCase):
                     body["runDetails"]["metadata"] = {
                         "invocationId":"offline-test"}
                     body["runDetails"]["byproducts"] = []
+            if slsa_case == "v02" and predicate.endswith("/v1"):
+                predicate="https://slsa.dev/provenance/v0.2"
+                body={"builder":{"id":
+                      "https://github.com/HMarcusWH/AllfatherChess/actions/workflows/release-candidate.yml"},
+                      "buildType":"https://mobyproject.org/buildkit@v1",
+                      "invocation":{}}
             if invalid_predicate:
                 body = {"schema_version": 1}
             statement_document = {
@@ -373,6 +384,8 @@ class OCIProofTests(unittest.TestCase):
             if wrong_size == "statement":
                 layer["size"] += 1
             attest_layers.append(layer)
+            if duplicate_slsa and predicate.startswith("https://slsa.dev/"):
+                attest_layers.append(layer)
         attest_data = {
             "schemaVersion": 2,
             "config": descriptor("application/vnd.oci.image.config.v1+json",

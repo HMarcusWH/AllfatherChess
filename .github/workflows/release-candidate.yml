@@ -40,7 +40,7 @@ jobs:
   scanner-compatibility:
     needs: release-contracts
     runs-on: ubuntu-24.04
-    timeout-minutes: 12
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -58,6 +58,11 @@ jobs:
               "scripts/spdx_license_contract.py",
               "qualification/spdx-license-identifiers-v3.29.0.json",
               "qualification/release-image-v1.json",
+              "qualification/release-scanner-v1.json",
+              "deploy/release/scanner/target.go.patch",
+              "deploy/release/scanner/Dockerfile",
+              "scripts/prepare-release-scanner.py",
+              "scripts/ci-release-scanner.py",
           )
           for relative in critical:
               local=Path(relative)
@@ -69,15 +74,20 @@ jobs:
               if original.returncode or original.stdout!=local.read_bytes():
                   raise SystemExit("VERDICT_SOURCE_BYTES_DIFFER_FROM_GIT")
           PY
+      - uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00
+        with:
+          go-version: '1.25.8'
+          cache: false
+      - name: Prepare pinned scanner and isolated BuildKit registry
+        env:
+          RELEASE1_SCANNER_BUILDER: release1-scanner-probe
+        run: python3 scripts/ci-release-scanner.py setup
       - name: Independently qualify pinned scanner protocol without engine build
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
           BASE="$(python3 -c 'import json;print(json.load(open("qualification/release-image-v1.json"))["base_image"])')"
-          SCANNER="$(python3 -c 'import json;print(json.load(open("qualification/release-image-v1.json"))["sbom_generator_image"])')"
-          docker buildx create --driver docker-container --name release1-scanner-probe --use
-          docker buildx inspect --bootstrap
-          docker buildx imagetools inspect "$SCANNER" --raw > /dev/null
+          SCANNER="$RELEASE_SCANNER_REF"
           mkdir -p build/test-results/release1-scanner
           cat > "$RUNNER_TEMP/Scanner.Dockerfile" <<'EOF'
           ARG BASE_IMAGE
@@ -92,11 +102,21 @@ jobs:
           python3 scripts/check-release-scanner.py \
             --archive build/test-results/release1-scanner/scanner.oci.tar \
             --output build/test-results/release1-scanner/scanner-contract.json
+      - name: Require independently reviewed scanner manifest and binary
+        run: python3 scripts/ci-release-scanner.py verify-approval
+      - name: Tear down isolated scanner test builder
+        if: always()
+        env:
+          RELEASE1_SCANNER_BUILDER: release1-scanner-probe
+        run: python3 scripts/ci-release-scanner.py cleanup
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
           name: release1-scanner-contract
-          path: build/test-results/release1-scanner/scanner-contract.json
+          path: |
+            build/test-results/release1-scanner/scanner-contract.json
+            build/test-results/release1-scanner/scanner-candidate.json
+            build/test-results/release1-scanner/scanner-source.json
           if-no-files-found: warn
           retention-days: 30
   release-oci-integration:
@@ -170,14 +190,21 @@ jobs:
           python3 scripts/verify-release-candidate.py \
             --stage build/release1-stage \
             --output build/test-results/release1/stage-report.json
+      - uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00
+        with:
+          go-version: '1.25.8'
+          cache: false
+      - name: Prepare identical source-locked scanner for OCI builder
+        env:
+          RELEASE1_SCANNER_BUILDER: release1-builder
+        run: python3 scripts/ci-release-scanner.py setup
       - name: Build and independently test actual offline Docker image
         timeout-minutes: 20
         run: |
           set -euo pipefail
           IMAGE_BASE="$(python3 -c 'import json; print(json.load(open("qualification/release-image-v1.json"))["base_image"])')"
           mkdir -p build/test-results/release1
-          docker buildx create --driver docker-container --name release1-builder --use
-          docker buildx inspect --bootstrap
+          docker buildx inspect --builder release1-builder --bootstrap
           BUILD_LOG="$RUNNER_TEMP/release1-offline-image-build.log"
           if docker buildx build --builder release1-builder --platform linux/amd64 \
             --file deploy/release/Dockerfile --build-arg "BASE_IMAGE=$IMAGE_BASE" \
@@ -265,10 +292,9 @@ jobs:
         run: |
           set -euo pipefail
           IMAGE_BASE="$(python3 -c 'import json; print(json.load(open("qualification/release-image-v1.json"))["base_image"])')"
-          SCANNER="$(python3 -c 'import json; print(json.load(open("qualification/release-image-v1.json"))["sbom_generator_image"])')"
-          # The pinned OCI index is a reviewed historic scanner baseline;
-          # never resolve the mutable stable-1 tag during qualification.
-          docker buildx imagetools inspect "$SCANNER" --raw > /dev/null
+          SCANNER="$RELEASE_SCANNER_REF"
+          # The job-generated digest alone cannot authorize a scanner image.
+          python3 scripts/ci-release-scanner.py verify-approval
           docker buildx build --builder release1-builder --platform linux/amd64 \
             --file deploy/release/Dockerfile --build-arg "BASE_IMAGE=$IMAGE_BASE" \
             --tag allfather/release1:offline \
@@ -305,6 +331,11 @@ jobs:
               "qualification/spdx-license-identifiers-v3.29.0.json",
               "scripts/check-release-scanner.py",
               "qualification/release-image-v1.json",
+              "qualification/release-scanner-v1.json",
+              "deploy/release/scanner/target.go.patch",
+              "deploy/release/scanner/Dockerfile",
+              "scripts/prepare-release-scanner.py",
+              "scripts/ci-release-scanner.py",
           )
           for relative in critical:
               local=Path(relative)
@@ -331,6 +362,11 @@ jobs:
             --wheel-inventory build/release1-stage/wheels/wheel-attestation.json \
             --source-sha "$SOURCE_SHA" \
             --output build/test-results/release1/aggregate.json
+      - name: Tear down isolated release scanner registry and builder
+        if: always()
+        env:
+          RELEASE1_SCANNER_BUILDER: release1-builder
+        run: python3 scripts/ci-release-scanner.py cleanup
       - name: Do not publish combined image; retain only approved evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -348,6 +384,8 @@ jobs:
             build/test-results/release1/oci-report.json
             build/test-results/release1/host-report.json
             build/test-results/release1/aggregate.json
+            build/test-results/release1-scanner/scanner-candidate.json
+            build/test-results/release1-scanner/scanner-source.json
             build/test-results/release1/os-packages.txt
             build/test-results/release1/python-packages.txt
             build/test-results/release1/r00-white.log

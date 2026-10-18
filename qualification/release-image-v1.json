@@ -62,5 +62,7 @@
   "ca_bootstrap_sources": "deploy/release/bootstrap.sources",
   "ca_bootstrap_source_reason": "Pinned minimal base has no usable CA trust before first HTTPS APT access; only signed native Ubuntu APT metadata may install ca-certificates. Exact bootstrap package version is part of generated runtime inventory; publication blocked until reviewed.",
   "sbom_generator_image": "docker.io/docker/buildkit-syft-scanner@sha256:79e7b013cbec16bbb436f312819a49a4a57752b2270c1a9332ae1a10fcc82a68",
-  "sbom_generator_evidence": "Docker Hub stable-1 multi-platform OCI index digest (reviewed pinned baseline; no floating tag at build time)"
+  "sbom_generator_evidence": "Docker Hub stable-1 multi-platform OCI index digest (reviewed pinned baseline; no floating tag at build time)",
+  "slsa_provenance_predicate_type": "https://slsa.dev/provenance/v1",
+  "slsa_builder_id": "https://github.com/HMarcusWH/AllfatherChess/actions/workflows/release-candidate.yml"
 }

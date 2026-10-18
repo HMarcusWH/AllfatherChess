@@ -11,6 +11,7 @@ from pathlib import Path
 
 MAX_JSON=8*1024*1024
 ROOT=Path(__file__).resolve().parents[1]
+POLICY=ROOT/"qualification/release-image-v1.json"
 spec=importlib.util.spec_from_file_location(
     "release1_oci_contract", ROOT/"scripts/verify-release-oci.py")
 contract=importlib.util.module_from_spec(spec)
@@ -22,6 +23,13 @@ def require(condition, reason):
 
 def inspect_scanner_output(archive: Path) -> dict:
     """This scanner-only probe verifies SPDX syntax, not image authority."""
+    policy=json.loads(POLICY.read_text(encoding="utf-8"))
+    require(policy.get("public_bot_release") is False and
+            policy.get("slsa_provenance_predicate_type")==
+                "https://slsa.dev/provenance/v1" and
+            type(policy.get("slsa_builder_id")) is str and
+            contract.valid_identity_uri(policy["slsa_builder_id"]),
+            "scanner pinned provenance policy invalid")
     with tarfile.open(archive,"r:*") as tar:
         members={m.name:m for m in tar.getmembers()
                  if m.isfile() and not m.issym() and not m.islnk()}
@@ -46,6 +54,7 @@ def inspect_scanner_output(archive: Path) -> dict:
                 type(index.get("manifests")) is list,
                 "scanner output missing OCI index")
         spdx=[]
+        slsa=[]
         def walk(descriptor,depth=0):
             require(depth<=8 and type(descriptor) is dict,
                     "scanner descriptor nesting invalid")
@@ -113,11 +122,23 @@ def inspect_scanner_output(archive: Path) -> dict:
                                      len(pred.get("files",[]))))
                     else:
                         contract.validate_slsa(row["predicateType"],pred)
+                        require(row["predicateType"]==
+                                    policy["slsa_provenance_predicate_type"],
+                                "scanner unexpected SLSA provenance version")
+                        require(pred["runDetails"]["builder"]["id"] ==
+                                    policy["slsa_builder_id"],
+                                "scanner provenance builder identity differs from policy")
+                        slsa.append(True)
         for root in index["manifests"]:
             walk(root)
         require(len(spdx)==1 and sum(spdx[0])>=1,
                 "scanner must export exactly one nonempty valid SPDX statement")
+        require(len(slsa)==1,
+                "scanner must export exactly one expected SLSA v1 statement")
         return {"schema_version":1,"scanner_spdx_contract_verified":True,
+                "scanner_slsa_v1_contract_verified":True,
+                "builder_identity_matched":True,
+                "slsa_statement_count":len(slsa),
                 "spdx_document_count":len(spdx),
                 "spdx_package_count":spdx[0][0],
                 "spdx_file_count":spdx[0][1],

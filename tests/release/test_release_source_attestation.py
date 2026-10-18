@@ -54,6 +54,24 @@ class ReleaseVerifierSourceAttestationTests(unittest.TestCase):
             self.assertTrue(callable(smoke.verify_file))
             self.assertNotEqual(sealed.resolve(),self.root.resolve())
 
+    def test_isolated_git_worktree_preserves_original_committed_verifier_bytes(self):
+        # A build step can mutate the producer checkout while preserving HEAD.
+        # A new detached worktree must execute Git's original bytes instead.
+        with tempfile.TemporaryDirectory(prefix="release1-isolated-") as td:
+            verified=Path(td)/"verified"
+            self.git("worktree","add","--detach",str(verified),self.source)
+            victim="scripts/qualify-release-smoke.py"
+            original=(verified/victim).read_bytes()
+            (self.root/victim).write_bytes(b"raise SystemExit('FORGED')\n")
+            self.assertEqual((verified/victim).read_bytes(),original)
+            with self.assertRaisesRegex(ValueError,"staged attestation"):
+                with aggregate.verified_release_snapshot(
+                        self.root,self.source,self.attestation):
+                    self.fail("mutable producer source was accepted")
+            with aggregate.verified_release_snapshot(
+                    verified,self.source,self.attestation) as sealed:
+                self.assertEqual((sealed/victim).read_bytes(),original)
+
     def test_worktree_mutation_cannot_reuse_old_manifest_and_head(self):
         path=self.root/"scripts/qualify-release-smoke.py"
         path.write_bytes(path.read_bytes()+b"\n# PRIVATE_CANARY\n")

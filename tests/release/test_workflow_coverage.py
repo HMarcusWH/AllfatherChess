@@ -90,6 +90,24 @@ class WorkflowCoverageTests(unittest.TestCase):
         self.assertIn("with verified_release_snapshot",source_code)
         self.assertIn("Git committed bytes",source_code)
 
+    def test_every_independent_release_verifier_uses_isolated_committed_source(self):
+        source=(ROOT/".github/workflows/release-candidate.yml").read_text()
+        self.assertIn("Checkout isolated exact-commit source",source)
+        self.assertIn('git worktree add --detach "$VERIFIED" "$SOURCE_SHA"',source)
+        for name in (
+            "qualify-release-smoke.py", "inspect-release-oci.py",
+            "verify-release-oci.py", "qualify-release-host.py",
+            "qualify-release-aggregate.py",
+        ):
+            with self.subTest(executable=name):
+                self.assertIn(
+                    '"$RELEASE1_VERIFIED_ROOT/scripts/'+name+'"',source)
+                self.assertNotIn("python3 scripts/"+name+" \\",source)
+        self.assertLess(source.index("Checkout isolated exact-commit source"),
+                        source.index("Independently reconstruct all packaged"))
+        self.assertLess(source.index("Checkout isolated exact-commit source"),
+                        source.index("Export standalone OCI archive"))
+
     def test_release_artifacts_exclude_raw_provenance_and_image_bytes(self):
         content=(ROOT/".github/workflows/release-candidate.yml").read_text()
         upload=content.split("- name: Do not publish combined image",1)[1]

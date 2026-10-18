@@ -439,3 +439,29 @@ SHA1 string, an absent file or the nonregular-file zero placeholder does not
 qualify. The reference executable is kept only in a temporary runner directory
 and is never uploaded. The published witness contains safe Boolean verdicts,
 not the raw file or SBOM.
+
+## October 18 — final independent-review repairs
+
+The manual final boarding review exposed a difference between the scanner-only
+SLSA identity check and the **real application OCI** gate. Full image provenance
+is now bound directly to `qualification/release-image-v1.json`:
+exactly one SLSA v1 predicate, pinned workflow builder ID and exact
+application-manifest subject, even when a caller supplies a correctly
+rehashed but different SLSA archive. A scanner-only success cannot waive it.
+
+Build and qualification now have separate execution source domains.
+The offline producer assembles chess evidence and an OCI archive in its
+working copy. The independent RELEASE-1 verifiers run *after those steps*
+from a new detached worktree at the exact head SHA; they do not import
+the potentially modified producer checkout. ONLINE-4A and ONLINE-4B
+independent jobs likewise create isolated worktrees and run
+`verify_source_closure.py` against committed bytes *before* loading local
+recovery code. The v2 verifier fetches its independently pinned bridge
+checkout under its own verified root. This prevents a stale green HEAD from
+authorizing a mutated executable module.
+
+ONLINE-4B accepts only distinct, phase-indexed `bridge-phase-N.log` evidence
+inside its scenario directory. ONLINE-4A refuses symlinked or
+path-escaping replay manifests and `route.json` before hashing.
+These checks are evidence admission rules, not declarations of successful
+live network recovery or host/public-play approval.

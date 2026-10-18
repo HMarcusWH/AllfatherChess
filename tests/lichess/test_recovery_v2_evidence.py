@@ -48,6 +48,17 @@ class RecoveryV2EvidenceTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,"linked"):
                 qual.verify_phase_logs(folder,good,[{},{}])
 
+    def test_independent_online4b_imports_only_after_git_source_check(self):
+        yml=(ROOT/".github/workflows/online-recovery-v2.yml").read_text()
+        step="Verify independent exact-source worktree before importing recovery code"
+        self.assertIn(step,yml)
+        self.assertIn('git worktree add --detach "$VERIFIED" "$ALLFATHER_SOURCE_SHA"',yml)
+        self.assertIn('--profile online-recovery-v2 --source-sha "$ALLFATHER_SOURCE_SHA"',yml)
+        self.assertIn(
+            '"$ONLINE4B_VERIFIED_ROOT/scripts/qualify-online-recovery-v2.py"',yml)
+        self.assertLess(yml.index(step),
+                        yml.index("Independently qualify guarded safety"))
+
     def test_http_target_policy_is_in_exact_guarded_source_closure(self):
         exact_sha="b"*40
         names=json.loads((ROOT/"qualification/online-recovery-v2.json")

@@ -67,6 +67,17 @@ class IndependentEvidenceTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,"symlink"):
                 QUALIFIER.validate_replays(case)
 
+    def test_independent_online4a_imports_only_from_git_worktree_after_closure(self):
+        yml=(ROOT/".github/workflows/online-recovery.yml").read_text()
+        step="Establish Git-committed independent verifier source before imports"
+        self.assertIn(step,yml)
+        self.assertIn('git worktree add --detach "$VERIFIED" "$ALLFATHER_SOURCE_SHA"',yml)
+        self.assertIn('--profile online-recovery-v1 --source-sha "$ALLFATHER_SOURCE_SHA"',yml)
+        self.assertIn(
+            '"$ONLINE4A_VERIFIED_ROOT/scripts/qualify-online-recovery.py"',yml)
+        self.assertLess(yml.index(step),
+                        yml.index("Independently reconstruct commits and fault witnesses"))
+
     def test_http_target_policy_is_source_attested_and_tamper_detected(self):
         exact_sha="a"*40
         names=json.loads((ROOT/"qualification/online-recovery-v1.json")

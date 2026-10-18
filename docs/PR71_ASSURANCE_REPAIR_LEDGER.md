@@ -151,3 +151,34 @@ The following exact-head run must independently remeasure those hashes and
 check actual base-image `/usr/bin/dpkg` contents against scanner SHA1/SHA256
 before any full RELEASE-1 image qualification. Code review, distribution and
 host/live authorizations remain separate, closed gates.
+
+## October 18 — independent manual review follow-up after green 11/11
+
+Independent exact-head [manual review](https://github.com/HMarcusWH/AllfatherChess/pull/71#pullrequestreview-5564010246)
+identified five source-admission and evidence-integrity counterexamples on
+`18b5e1f2fd65`: full-image SLSA builder/version not pinned; OCI verifier
+executed before committed-source check; ONLINE-4B phase log re-use and
+path escapes; ONLINE-4A replay route/manifest symlink escapes; ONLINE-4A/4B
+mutable imports executing before committed-byte verification.
+
+The source repair wave:
+- Full OCI verifies exactly one SLSA **v1** statement with the same pinned
+  builder ID as the actual release policy (not merely the scanner probe).
+- Rehashed image fixtures with v0.2, wrong builder, or duplicate provenance
+  fail even when all descriptor hashes match.
+- Independent RELEASE-1 smoke, OCI diagnostics, OCI assurance and aggregate
+  execute in a fresh detached `git worktree` at the exact source commit,
+  created after mutable build steps.
+- ONLINE-4A/4B separate independent verifier jobs construct their own
+  fresh detached exact-commit worktree and verify full attested source closure
+  **before any local recovery Python imports**; ONLINE-4B fetches independently
+  pinned bridge source inside that worktree.
+- ONLINE-4B binds sanitized bridge logs to exact phase index and
+  `bridge-phase-N.log` with file containment, symlink refusal and byte digest.
+- ONLINE-4A replay manifest and route files refuse symlink escapes,
+  nonregular files and lexical traversal.
+
+All five fixes have regression or source-runner contract tests. No item is
+declared qualified until the **new** exact-head real CI matrix and independent
+review pass. Prior green runs and historical comment resolution do not satisfy
+the new head's review gate.

@@ -49,6 +49,7 @@ SOURCE_FILES = (POLICY, BRIDGE_LOCK, "qualification/release-qualification-v1.jso
                 "deploy/release/Dockerfile",
                 "deploy/release/Dockerfile.dockerignore",
                 "scripts/build-release-candidate.py",
+                "scripts/observe-release-dependencies.py",
                 "qualification/release-scanner-v1.json",
                 "deploy/release/scanner/target.go.patch",
                 "deploy/release/scanner/Dockerfile",

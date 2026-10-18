@@ -12,6 +12,9 @@ import hashlib
 import json
 import re
 import subprocess
+import zipfile
+from email import policy as email_policy
+from email.parser import BytesParser
 from pathlib import Path
 
 ROOT=Path(__file__).resolve().parents[1]
@@ -23,10 +26,19 @@ OS_NAME=re.compile(r"[a-z0-9][a-z0-9+.-]*(?::amd64)?\Z")
 DEBIAN_VERSION=re.compile(r"[0-9][A-Za-z0-9.+:~_-]*\Z")
 PY_NAME=re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*\Z")
 PY_VERSION=re.compile(r"[0-9][A-Za-z0-9.!+_-]*\Z")
-WHEEL_NAME=re.compile(r"[A-Za-z0-9][A-Za-z0-9_.+-]{2,199}\.whl\Z")
+WHEEL_NAME=re.compile(
+    r"(?P<name>[A-Za-z0-9_][A-Za-z0-9_.]*)-"
+    r"(?P<version>[0-9][A-Za-z0-9_.!+]*)-"
+    r"(?:(?P<build>[0-9][A-Za-z0-9_.]*)-)?"
+    r"(?P<python>[A-Za-z0-9_.]+)-"
+    r"(?P<abi>[A-Za-z0-9_.]+)-"
+    r"(?P<platform>[A-Za-z0-9_.]+)\.whl\Z"
+)
 MAX_INVENTORY=1024*1024
 MAX_WHEEL=128*1024*1024
 MAX_WHEEL_TOTAL=512*1024*1024
+MAX_WHEEL_METADATA=1024*1024
+ALLOWED_INSTALLER_DISTRIBUTIONS=frozenset({"pip"})
 
 
 def require(ok: bool, message: str) -> None:
@@ -94,26 +106,78 @@ def parse_os_inventory(raw: bytes, required: list[str], *,
     return len(rows)
 
 
-def parse_python_inventory(raw: bytes, *, minimum: int=12) -> int:
+def normalize_python_name(name: str) -> str:
+    require(type(name) is str and PY_NAME.fullmatch(name) is not None,
+            "invalid Python distribution name")
+    return re.sub(r"[-_.]+", "-", name).casefold()
+
+
+def installed_python_versions(raw: bytes, *, minimum: int=12) -> dict[str,str]:
+    """Independently parse exact installed venv package names and versions."""
     rows=inventory_lines(raw,minimum=minimum,maximum=256)
-    normalized=[]
+    packages={}
+    ordered=[]
     for row in rows:
-        require(row.count("==")==1, "Python inventory not a pinned distribution")
+        require(row.count("==")==1,
+                "Python inventory not a pinned distribution")
         name,version=row.split("==",1)
         require(PY_NAME.fullmatch(name) is not None and
                 PY_VERSION.fullmatch(version) is not None,
                 "Python inventory has unpinned/unsafe requirement")
-        normalized.append(re.sub(r"[-_.]+","-",name).casefold())
-    require(normalized==sorted(normalized) and
-            len(normalized)==len(set(normalized)),
-            "Python inventory is unsorted or has duplicate packages")
-    require({"chess","requests","pyyaml"} <= set(normalized),
+        canonical=normalize_python_name(name)
+        require(canonical not in packages, "duplicate installed Python distribution")
+        packages[canonical]=version
+        ordered.append(canonical)
+    require(ordered==sorted(ordered),
+            "Python inventory has noncanonical distribution order")
+    require({"chess","requests","pyyaml"}<=set(packages),
             "essential installed bridge distributions missing")
-    return len(rows)
+    return packages
+
+
+def parse_python_inventory(raw: bytes, *, minimum: int=12) -> int:
+    return len(installed_python_versions(raw,minimum=minimum))
+
+
+def wheel_distribution_version(path: Path) -> tuple[str,str]:
+    """Bind wheel filename identity to the actual signed-byte ZIP metadata.
+
+    The separately verified wheel SHA256 authenticates these package bytes to
+    their staged manifest. ZIP member metadata is never extracted or executed.
+    """
+    filename=path.name
+    m=WHEEL_NAME.fullmatch(filename)
+    require(m is not None, "wheel filename does not encode a canonical distribution")
+    distribution=normalize_python_name(m["name"])
+    version=m["version"]
+    require(PY_VERSION.fullmatch(version) is not None,
+            "wheel filename version is malformed")
+    metadata=f'{m["name"]}-{version}.dist-info/METADATA'
+    try:
+        with zipfile.ZipFile(path,"r") as wheel:
+            hits=[info for info in wheel.infolist()
+                  if info.filename.endswith(".dist-info/METADATA")]
+            require(len(hits)==1 and hits[0].filename==metadata and
+                    not hits[0].is_dir() and
+                    0<hits[0].file_size<=MAX_WHEEL_METADATA,
+                    "wheel METADATA identity ambiguous, absent or oversized")
+            raw=wheel.read(hits[0])
+    except (zipfile.BadZipFile,RuntimeError,EOFError) as exc:
+        raise ValueError("wheel METADATA is unreadable") from exc
+    require(0<len(raw)<=MAX_WHEEL_METADATA,
+            "wheel METADATA decompressed size exceeds limit")
+    record=BytesParser(policy=email_policy.default).parsebytes(raw,headersonly=True)
+    names=record.get_all("Name",[])
+    versions=record.get_all("Version",[])
+    require(len(names)==1 and len(versions)==1 and
+            normalize_python_name(str(names[0]))==distribution and
+            str(versions[0])==version,
+            "wheel METADATA name/version differs from wheel filename")
+    return distribution,version
 
 
 def inspect_wheelhouse(stage: Path, source_lock: Path,
-                      manifest: dict) -> dict:
+                       manifest: dict, *, installed_inventory: bytes) -> dict:
     folder=stage/"wheels"
     require(folder.is_dir() and not folder.is_symlink(),
             "staged wheelhouse directory invalid")
@@ -135,29 +199,48 @@ def inspect_wheelhouse(stage: Path, source_lock: Path,
     listed=witness.get("wheels")
     require(type(listed) is dict and len(listed)==12,
             "wheel inventory must contain exactly 12 entries")
-    disk={p.name:p for p in folder.glob("*.whl")}
-    require(set(disk)==set(listed), "staged wheel files differ from attestation")
+    # The candidate builder copies the entire folder. Counting glob("*.whl")
+    # would silently accept unlisted executable .pth/.py files or directories.
+    expected=set(listed)|{"runtime-wheels.lock","wheel-attestation.json"}
+    entries=list(folder.iterdir())
+    require(len(entries)==len(expected) and
+            {item.name for item in entries}==expected and
+            all(item.is_file() and not item.is_symlink() and
+                item.resolve().parent==folder.resolve() for item in entries),
+            "wheelhouse has unapproved contents or linked paths")
     total=0
+    versions={}
     for name,hexdigest in sorted(listed.items()):
-        require(type(name) is str and WHEEL_NAME.fullmatch(name) is not None
-                and "/" not in name and "\\" not in name and
+        require(type(name) is str and len(name)<=240 and
+                WHEEL_NAME.fullmatch(name) is not None and
+                "/" not in name and "\\" not in name and
                 type(hexdigest) is str and SHA256.fullmatch(hexdigest),
                 "unsafe or unpinned wheel inventory entry")
-        item=disk[name]
+        item=folder/name
         require(item.is_file() and not item.is_symlink() and
                 0<item.stat().st_size<=MAX_WHEEL and
                 item.resolve().parent==folder.resolve(),
                 "wheel missing, linked, or outside stage")
         total+=item.stat().st_size
-        require(total<=MAX_WHEEL_TOTAL and
-                digest_file(item)==hexdigest,
+        require(total<=MAX_WHEEL_TOTAL and digest_file(item)==hexdigest,
                 "wheel bytes mismatch attested inventory")
+        canonical,version=wheel_distribution_version(item)
+        require(canonical not in versions,
+                "duplicate wheel distribution identity")
+        versions[canonical]=version
+    installed=installed_python_versions(installed_inventory)
+    require(set(installed)==set(versions)|ALLOWED_INSTALLER_DISTRIBUTIONS,
+            "installed Python distributions differ from staged wheels plus pip")
+    require(all(installed[name]==version for name,version in versions.items()),
+            "installed Python version differs from attested wheel METADATA")
     return {"wheel_count":len(listed),
             "wheel_total_bytes":total,
             "wheel_attestation_sha256":digest_file(attestation),
             "runtime_lock_sha256":runtime_hash,
-            "source_lock_sha256":source_hash}
-
+            "source_lock_sha256":source_hash,
+            "installed_wheel_versions_verified":True,
+            "wheelhouse_closed":True,
+            "installer_distribution_exceptions":len(ALLOWED_INSTALLER_DISTRIBUTIONS)}
 
 def validate_release_policy(policy: dict) -> None:
     require(type(policy) is dict and
@@ -212,9 +295,10 @@ def observe(*, stage: Path, os_inventory: Path, python_inventory: Path,
     require(type(attested) is dict and
             attested.get(SCRIPT)==digest_file(root/SCRIPT),
             "dependency observer executable not staged and source attested")
-    wheels=inspect_wheelhouse(stage,source_lock,manifest)
     os_raw=read_bounded(os_inventory)
     py_raw=read_bounded(python_inventory)
+    wheels=inspect_wheelhouse(
+        stage,source_lock,manifest,installed_inventory=py_raw)
     os_count=parse_os_inventory(os_raw,policy["required_native_packages"])
     py_count=parse_python_inventory(py_raw)
     return {
@@ -258,7 +342,7 @@ def main() -> None:
         args.output.write_text(json.dumps(report,sort_keys=True,indent=2)+"\n")
         print(json.dumps(report,sort_keys=True))
     except (OSError,ValueError,KeyError,TypeError,
-            UnicodeDecodeError,subprocess.SubprocessError) as exc:
+            UnicodeDecodeError,subprocess.SubprocessError,zipfile.BadZipFile) as exc:
         p.exit(2,"RELEASE-2A dependency observation refused: "+
                type(exc).__name__+"\n")
 

@@ -203,6 +203,34 @@ class OCIProofTests(unittest.TestCase):
                     body["packages"][0]["licenseInfoFromFiles"] = ["MIT"]
                 elif spdx_case == "invalid-license":
                     body["packages"][0]["licenseDeclared"] = 3
+                elif spdx_case == "invalid-license-expression":
+                    body["packages"][0]["licenseDeclared"] = "not a license expression"
+                elif spdx_case == "valid-license-expression":
+                    body["packages"][0]["licenseDeclared"] = "(MIT OR Apache-2.0) AND LicenseRef-Local"
+                    body["packages"][0]["licenseConcluded"] = (
+                        "GPL-2.0-only WITH Classpath-exception-2.0")
+                elif spdx_case == "valid-license-info-no-code":
+                    body["packages"][0]["filesAnalyzed"] = True
+                    body["packages"][0]["licenseInfoFromFiles"] = ["MIT","Apache-2.0 OR MIT"]
+                elif spdx_case == "invalid-license-info":
+                    body["packages"][0]["filesAnalyzed"] = True
+                    body["packages"][0]["licenseInfoFromFiles"] = [
+                        "MIT","PRIVATE_CANARY"]
+                elif spdx_case.startswith("spdx22-"):
+                    body["spdxVersion"] = "SPDX-2.2"
+                    body["packages"][0]["filesAnalyzed"] = True
+                    body["packages"][0]["packageVerificationCode"] = {
+                        "packageVerificationCodeValue": "a"*40}
+                    if spdx_case == "spdx22-missing-copyright":
+                        del body["packages"][0]["copyrightText"]
+                    elif spdx_case == "spdx22-missing-concluded":
+                        del body["packages"][0]["licenseConcluded"]
+                    elif spdx_case == "spdx22-missing-declared":
+                        del body["packages"][0]["licenseDeclared"]
+                    elif spdx_case == "spdx22-missing-code":
+                        del body["packages"][0]["packageVerificationCode"]
+                    elif spdx_case != "spdx22-valid":
+                        raise ValueError("unknown SPDX 2.2 fixture variant")
                 elif spdx_case == "missing-download":
                     del body["packages"][0]["downloadLocation"]
                 elif spdx_case == "invalid-download":
@@ -238,12 +266,23 @@ class OCIProofTests(unittest.TestCase):
                                       "fileName":"./opt/example",
                                       "checksums":[{"algorithm":"BOGUS",
                                                     "checksumValue":"0"}]}]
-                elif spdx_case == "file-only-valid":
+                elif spdx_case in ("file-only-valid","file-sha256-only",
+                                      "file-invalid-sha1","file-duplicate-sha1",
+                                      "file-invalid-license"):
                     body["packages"] = []
-                    body["files"] = [{"SPDXID": "SPDXRef-File-A",
-                                      "fileName": "./usr/bin/allfather",
-                                      "checksums": [{"algorithm": "SHA256",
-                                                     "checksumValue": "a" * 64}]}]
+                    entries=[{"algorithm":"SHA1","checksumValue":"b"*40},
+                             {"algorithm":"SHA256","checksumValue":"a"*64}]
+                    if spdx_case=="file-sha256-only":
+                        entries=entries[1:]
+                    if spdx_case=="file-invalid-sha1":
+                        entries[0]["checksumValue"]="PRIVATE_CANARY"
+                    if spdx_case=="file-duplicate-sha1":
+                        entries.append({"algorithm":"SHA1","checksumValue":"c"*40})
+                    file={"SPDXID":"SPDXRef-File-A",
+                          "fileName":"./usr/bin/allfather","checksums":entries}
+                    if spdx_case=="file-invalid-license":
+                        file["licenseConcluded"]="not a license expression"
+                    body["files"]=[file]
                 elif spdx_case == "missing-file-checksum":
                     body["packages"] = []
                     body["files"] = [{"SPDXID": "SPDXRef-File-A",
@@ -684,15 +723,32 @@ class OCIProofTests(unittest.TestCase):
              "name":"sample", "downloadLocation":"NOASSERTION",
              "copyrightText":"NOASSERTION", "filesAnalyzed":False}
         self.assertTrue(oci.valid_spdx_download_location(pkg["downloadLocation"]))
-        # Omitted filesAnalyzed defaults to True; the verification code
-        # is optional in SPDX 2.3, while a supplied one must be well formed.
+        # Omitted filesAnalyzed defaults to True; SPDX 2.3 permits
+        # missing copyright and absent verification code even when
+        # file-derived license information is provided.
         for variant in ("missing-copyright",
                         "missing-filesAnalyzed-without-code",
-                        "filesAnalyzed-without-code"):
+                        "filesAnalyzed-without-code",
+                        "valid-license-info-no-code",
+                        "valid-license-expression"):
             with self.subTest(variant=variant),tempfile.TemporaryDirectory() as d:
                 archive,meta,inspection=self.fixture(Path(d),spdx_case=variant)
                 self.assertTrue(oci.verify_archive(
                     archive,meta,docker_inspect=inspection)["oci_sbom_verified"])
+
+    def test_spdx22_and_23_mandatory_field_version_split(self):
+        with tempfile.TemporaryDirectory() as td:
+            a,meta,inspection=self.fixture(Path(td),spdx_case="spdx22-valid")
+            self.assertTrue(oci.verify_archive(
+                a,meta,docker_inspect=inspection)["oci_sbom_verified"])
+        for variant in ("spdx22-missing-copyright",
+                        "spdx22-missing-concluded",
+                        "spdx22-missing-declared",
+                        "spdx22-missing-code"):
+            with self.subTest(variant=variant),tempfile.TemporaryDirectory() as td:
+                a,meta,inspection=self.fixture(Path(td),spdx_case=variant)
+                with self.assertRaisesRegex(ValueError,"SPDX"):
+                    oci.verify_archive(a,meta,docker_inspect=inspection)
 
     def test_spdx_file_only_inventory_uses_fileName_not_package_name(self):
         with tempfile.TemporaryDirectory() as d:
@@ -724,6 +780,9 @@ class OCIProofTests(unittest.TestCase):
                  "missing-creators", "bad-creator", "empty-inventory",
                  "bad-package", "missing-download", "invalid-download",
                  "empty-copyright", "filesAnalyzed-invalid",
+                 "invalid-license-expression", "invalid-license-info",
+                 "file-sha256-only","file-invalid-sha1",
+                 "file-duplicate-sha1","file-invalid-license",
                  "unanalysed-with-code",
                  "unanalysed-with-file-licenses","invalid-license",
                  "download-unicode", "download-braces", "download-pipe",

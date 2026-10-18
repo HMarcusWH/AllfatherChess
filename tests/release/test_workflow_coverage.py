@@ -131,7 +131,7 @@ class WorkflowCoverageTests(unittest.TestCase):
         self.assertIn("scripts/qualify-release-smoke.py",content)
         self.assertLess(content.index("scripts/qualify-release-smoke.py"),
                         content.index("- name: Export standalone OCI archive"))
-        self.assertIn("--oci-archive build/release1-offline.oci.tar",content)
+        self.assertIn('--oci-archive "$GITHUB_WORKSPACE/build/release1-offline.oci.tar"',content)
         self.assertIn("snapshot-acquisition-failure.json",content)
         self.assertIn("snapshot-availability.json", content)
         self.assertLess(content.index("scripts/check-release-snapshot.py"),

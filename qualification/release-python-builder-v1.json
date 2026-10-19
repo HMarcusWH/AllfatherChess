@@ -7,7 +7,7 @@
   "image_digest_kind": "oci-index",
   "expected_python_version": "3.12.14",
   "dockerfile_path": "deploy/release/Dockerfile.wheel-builder",
-  "dockerfile_sha256": "14286031f6da5d8b6f1ec30b4784ac514b035ff99afab3a8fe2bef0ad6a8a550",
+  "dockerfile_sha256": "d890a92b5bcd16b42949c3ccdde2a3b9a0ab23541d88950171429f31a67a8463",
   "build_tools_path": "deploy/release/python-wheel-build-tools.lock",
   "build_tools_sha256": "4da3bb2a3247d8f3f55381c2abc7472ab99ba07e5d61c2186f50cbdca5184283",
   "tool_versions": {
@@ -31,8 +31,7 @@
     "LANG": "C.UTF-8",
     "LC_ALL": "C.UTF-8",
     "TZ": "UTC",
-    "PYTHONHASHSEED": "0",
-    "SOURCE_DATE_EPOCH": "1740500000"
+    "PYTHONHASHSEED": "0"
   },
   "builder_reviewed": false,
   "external_attestation": false,

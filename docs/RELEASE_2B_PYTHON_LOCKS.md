@@ -84,3 +84,12 @@ reproducibly produced a different **147,878-byte** wheel of SHA-256
 `b5772e0e46b1cbb502ce78e1045009bb6541a316da92bd1a8c9f46e83772227e`.
 This mismatch was rejected. The builder was revised to the historical
 versions; it remains a testable candidate until exact-head requalification.
+
+### Timestamp provenance experiment
+
+The first historical-toolchain attempt reproduced the original 147,776-byte
+wheel size but produced SHA-256 `d3cef0507f6911c9d825661f27ab325863352b3444fcdb1b6fb8120cff65de27`.
+The original Ubuntu runner did *not* set `SOURCE_DATE_EPOCH`; this experiment
+omits it explicitly to preserve source-archive mtime semantics and relies on
+two independent build directories and byte-for-byte equality as its measured
+stability check. No hash was relabeled or accepted without reproduction.

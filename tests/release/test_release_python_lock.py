@@ -114,6 +114,23 @@ class PythonLockTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "unexpected Python ABI"):
                 verifier.policy(root)
 
+    def test_py04_rebuilt_chess_output_byte_drift_is_vetoed(self):
+        # This is the pure fail-closed admission seam. The separate real
+        # GitHub Actions job proves the positive twin-build path.
+        spec = importlib.util.spec_from_file_location(
+            "release_2b1_prepare",
+            ROOT / "scripts/prepare-online3b-wheels.py")
+        self.assertIsNotNone(spec)
+        self.assertIsNotNone(spec.loader)
+        builder = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(builder)
+        with tempfile.TemporaryDirectory() as t:
+            victim = Path(t) / "chess-1.11.2-py3-none-any.whl"
+            victim.write_bytes(b"altered build with a plausible wheel name")
+            expected = verifier.policy(ROOT)[0]["wheels"][victim.name]
+            with self.assertRaisesRegex(ValueError, "unapproved dependency bytes"):
+                builder.ensure_hash(victim, expected)
+
     def test_py05_sdist_mismatch(self):
         with tempfile.TemporaryDirectory() as t:
             root = Path(t)

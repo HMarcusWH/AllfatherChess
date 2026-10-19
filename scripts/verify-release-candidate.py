@@ -158,7 +158,42 @@ def verify(manifest: dict, roots: dict[str, Path],
         path = "deploy/lichess/" + name
         insist(sha(roots["bridge"] / path) == value,
                "recovery guard module bytes drift: " + name)
+    # RELEASE-2B-1: independent source/policy binding; a producer's
+    # wheel-attestation success claim cannot create admission authority.
+    source_name = "deploy/lichess/requirements.release.lock"
+    selection_name = "qualification/release-python-wheels-v1.json"
+    builder_name = "qualification/release-python-builder-v1.json"
+    source = roots["tools"] / source_name
+    selection = roots["tools"] / selection_name
+    attested = manifest.get("source_attestation", {})
+    insist(source.is_file() and selection.is_file() and
+           sha(source) == attested.get(source_name) and
+           sha(selection) == attested.get(selection_name),
+           "selected Python source/selection inputs differ from source seal")
+    selected = read(selection)
+    insist(selected.get("scope") == "release-2b-python-wheel-candidate" and
+           selected.get("wheel_selection_reviewed") is False and
+           selected.get("public_bot_release") is False and
+           selected.get("expected_wheel_count") == 12 and
+           selected.get("committed_resolution_sha256") == sha(source) and
+           selected.get("wheel_builder_policy_sha256") == attested.get(builder_name),
+           "source-attested Python wheel lock policy drift")
     attest = read(roots["wheels"] / "wheel-attestation.json")
+    insist(attest.get("source_lock_sha256") == sha(source) and
+           attest.get("builder_policy_sha256") == attested.get(builder_name) and
+           attest.get("wheels") == selected.get("wheels") and
+           attest.get("trusted_chess_sdist_sha256") == selected.get("chess_source_archive_sha256") and
+           attest.get("built_chess_wheel_sha256") ==
+                selected.get("wheels", {}).get("chess-1.11.2-py3-none-any.whl"),
+           "wheels do not match source-attested candidate selection")
+    source_text = source.read_text(encoding="utf-8")
+    prefix = "chess==1.11.2 " + chr(92) + "\n    --hash=sha256:"
+    original = prefix + selected["chess_source_archive_sha256"]
+    replacement = prefix + selected["wheels"]["chess-1.11.2-py3-none-any.whl"]
+    insist(source_text.count(original) == 1 and
+           (roots["wheels"] / "runtime-wheels.lock").read_text(encoding="utf-8") ==
+                source_text.replace(original, replacement),
+           "runtime installer lock differs from committed selection")
     wheel_files = {p.name: sha(p) for p in roots["wheels"].glob("*.whl")}
     insist(len(wheel_files) == 12 and attest["wheels"] == wheel_files and
            sha(roots["wheels"] / "wheel-attestation.json") ==

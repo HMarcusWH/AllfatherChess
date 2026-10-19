@@ -176,7 +176,6 @@ def policy(root: Path = ROOT) -> tuple[dict, dict, dict]:
             "SOURCE_DATE_EPOCH=" in docker and
             " --require-hashes " in docker and " --no-deps " in docker,
             "builder is not pinned/hash-installed")
-    tools_pin = parse_lock(root / tools) if False else None
     tools_raw = bounded(root / tools, MAX_LOCK).decode("utf-8")
     for tool, version in builder.get("tool_versions", {}).items():
         require(tool + "==" + version + " \\" in tools_raw,
@@ -258,7 +257,12 @@ def check_zip(path: Path, filename: str, name: str, version: str) -> None:
             wheelmeta = raw_dist + "-" + version + ".dist-info/WHEEL"
             require(wheelmeta in z.namelist(), "wheel WHEEL metadata missing")
             tags = z.read(wheelmeta).decode("utf-8", "strict")
-            require("Tag: " + "-".join(filename[:-4].split("-")[-3:]) in tags,
+            py_tag, abi_tag, platform_tags = filename[:-4].split("-")[-3:]
+            expanded = {
+                "Tag: " + py_tag + "-" + abi_tag + "-" + platform_tag
+                for platform_tag in platform_tags.split(".")
+            }
+            require(any(tag in tags for tag in expanded),
                     "wheel ABI/platform tag disagrees with filename")
     except (zipfile.BadZipFile, RuntimeError, EOFError, UnicodeDecodeError) as exc:
         raise ValueError("invalid selected wheel archive") from exc

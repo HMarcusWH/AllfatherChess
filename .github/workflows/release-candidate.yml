@@ -168,7 +168,7 @@ jobs:
             --policy qualification/release-image-v1.json \
             --sources deploy/release/ubuntu.sources \
             --output build/test-results/release1/snapshot-availability.json
-      - name: Install engine and test-only chess oracle (wheel builder separately pinned)
+      - name: Install exact engine and test-only chess oracle (wheel builder separately pinned)
         run: |
           bash scripts/ci-install-apt-deps.sh build-essential meson ninja-build pkg-config libprotobuf-dev protobuf-compiler zlib1g-dev libopenblas-dev python3-pip python3-venv
           python3 -m pip install --break-system-packages 'chess==1.11.2'

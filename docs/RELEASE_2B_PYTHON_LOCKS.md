@@ -85,11 +85,23 @@ reproducibly produced a different **147,878-byte** wheel of SHA-256
 This mismatch was rejected. The builder was revised to the historical
 versions; it remains a testable candidate until exact-head requalification.
 
-### Timestamp provenance experiment
+### Timestamp provenance and exact historical reproduction
 
 The first historical-toolchain attempt reproduced the original 147,776-byte
-wheel size but produced SHA-256 `d3cef0507f6911c9d825661f27ab325863352b3444fcdb1b6fb8120cff65de27`.
-The original Ubuntu runner did *not* set `SOURCE_DATE_EPOCH`; this experiment
-omits it explicitly to preserve source-archive mtime semantics and relies on
-two independent build directories and byte-for-byte equality as its measured
-stability check. No hash was relabeled or accepted without reproduction.
+wheel size but produced SHA-256 `d3cef0507f6911c9d825661f27ab325863352b3444fcdb1b6fb8120cff65de27`
+because its `SOURCE_DATE_EPOCH=1740500000` differed from the original.
+Removing `SOURCE_DATE_EPOCH` caused fresh independent builds to diverge,
+which was also correctly refused.
+
+The actual RELEASE-1 job logs for job `117833117730` identify
+`SOURCE_DATE_EPOCH=1720000000`. Restoring that precise value with
+`pip==24.0`, `setuptools==68.1.2` and `wheel==0.42.0` yielded
+**two separate clean builds** of the historical
+`chess-1.11.2-py3-none-any.whl`, each 147,776 bytes and each
+SHA-256 `34bb710720cf88b78dda74a7a56892d376f84d13b1715d9113e98b7fa21685b4`.
+
+GitHub Actions candidate-only reproducibility run `39342057912`, job
+`118365768904`, passed the twelve-wheel byte/metadata/source verifier.
+It independently reacquired all eleven upstream published wheel bytes and
+one original chess sdist before construction. This is not independent
+two-job build attestation, OS dependency admission or distribution approval.

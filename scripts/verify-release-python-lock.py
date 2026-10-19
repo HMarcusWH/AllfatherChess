@@ -173,7 +173,7 @@ def policy(root: Path = ROOT) -> tuple[dict, dict, dict]:
             "builder toolchain file drift")
     docker = bounded(root / dockerpath, MAX_LOCK).decode("utf-8")
     require("FROM --platform=linux/amd64 " + image in docker and
-            "SOURCE_DATE_EPOCH=" not in docker and
+            "SOURCE_DATE_EPOCH=1720000000" in docker and
             " --require-hashes " in docker and " --no-deps " in docker,
             "builder is not pinned/hash-installed")
     tools_raw = bounded(root / tools, MAX_LOCK).decode("utf-8")
@@ -188,7 +188,7 @@ def policy(root: Path = ROOT) -> tuple[dict, dict, dict]:
             "unapproved local wheel construction")
     require(builder.get("env") == {
         "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8", "TZ": "UTC",
-        "PYTHONHASHSEED": "0",
+        "PYTHONHASHSEED": "0", "SOURCE_DATE_EPOCH": "1720000000",
     }, "builder environment drift")
 
     source_pins = parse_lock(root / selected["committed_resolution_path"])

@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "scope": "release-2b-python-wheel-candidate",
+  "platform": "linux/amd64",
+  "python_abi": "cp312",
+  "source_requirements_path": "deploy/lichess/requirements.in",
+  "source_requirements_sha256": "3dc8f55389100ffbc7de87f0570b69acdc36001f2792fdea7e1f8dff147a6874",
+  "committed_resolution_path": "deploy/lichess/requirements.release.lock",
+  "committed_resolution_sha256": "1b63ac53d5cbe7580cd804d7a06c9b0e5ce615e63b5fc2b1e7b987016501d85e",
+  "wheel_builder_policy": "qualification/release-python-builder-v1.json",
+  "wheel_builder_policy_sha256": "058b46c860b951c97a904b89d11d704fa62c36e3c39c0babe06e3aa50fa46f1d",
+  "chess_source_archive_sha256": "a8b43e5678fdb3000695bdaa573117ad683761e5ca38e591c4826eba6d25bb39",
+  "expected_wheel_count": 12,
+  "wheels": {
+    "backoff-2.2.1-py3-none-any.whl": "63579f9a0628e06278f7e47b7d7d5b6ce20dc65c5e96a6f3ca99a6adca0396e8",
+    "certifi-2026.10.18-py3-none-any.whl": "73191c47aaa79da394e8fee2dbc2ec827432cab56311122c9e47abf79e390f62",
+    "charset_normalizer-3.5.2-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl": "3d31298449090ab8d47b7b1b2a555ff73cac7ed438a08b7ac160980c7ebed649",
+    "chess-1.11.2-py3-none-any.whl": "34bb710720cf88b78dda74a7a56892d376f84d13b1715d9113e98b7fa21685b4",
+    "idna-3.20-py3-none-any.whl": "ab7ae7122974553370f0bdb919e1a960b2cd1bc1ef0276416d896db81c14582c",
+    "markdown_it_py-4.2.0-py3-none-any.whl": "9f7ebbcd14fe59494226453aed97c1070d83f8d24b6fc3a3bcf9a38092641c4a",
+    "mdurl-0.1.2-py3-none-any.whl": "84008a41e51615a49fc9966191ff91509e3c40b939176e643fd50a5c2196b8f8",
+    "pygments-2.21.0-py3-none-any.whl": "2363c69b61c4a97c838da3b130dcd6468f4848992b21a82f2a63ec34377137d9",
+    "pyyaml-6.0.3-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl": "ba1cc08a7ccde2d2ec775841541641e4548226580ab850948cbfda66a1befcdc",
+    "requests-2.34.2-py3-none-any.whl": "2a0d60c172f83ac6ab31e4554906c0f3b3588d37b5cb939b1c061f4907e278e0",
+    "rich-15.0.0-py3-none-any.whl": "33bd4ef74232fb73fe9279a257718407f169c09b78a87ad3d296f548e27de0bb",
+    "urllib3-2.8.0-py3-none-any.whl": "0cf3cae568d36aa9576b28dfb35f11328f1cb974ca7647d9475ebb86c75ac6e3"
+  },
+  "installer_exception": {
+    "distribution": "pip",
+    "exact_version": "24.0",
+    "origin": "Ubuntu24.04 venv bootstrap; OS/package provenance pending RELEASE-2B-2"
+  },
+  "wheel_selection_reviewed": false,
+  "public_bot_release": false,
+  "artifact_distribution_authorized": false
+}

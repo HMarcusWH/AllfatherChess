@@ -1,0 +1,6 @@
+# Builder-only tool wheels; upstream PyPI hashes verified 2026-10-20.
+# setuptools >=70 supplies bdist_wheel: no separate wheel distribution needed.
+pip==25.2 \
+    --hash=sha256:6d67a2b4e7f14d8b31b8b52648866fa717f45a1eb70e83002f4331d07e953717
+setuptools==83.0.0 \
+    --hash=sha256:29b23c360f22f414dc7336bb39178cc7bcbf6021ed2733cde173f09dba19abb3

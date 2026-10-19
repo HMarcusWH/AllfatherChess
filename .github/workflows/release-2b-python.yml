@@ -1,0 +1,76 @@
+name: RELEASE-2B-1 Python wheel candidate (no release authorization)
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+env:
+  SOURCE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+concurrency:
+  group: release2b1-python-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  source-lock-contracts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+      - name: Verify exact source
+        run: test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+      - name: Check candidate input closure and all PY negatives
+        run: |
+          set -euo pipefail
+          python3 scripts/verify-release-python-lock.py --root .
+          python3 -m unittest discover -s tests/release -p test_release_python_lock.py -v
+      - name: Assert candidate-only authority
+        run: |
+          python3 - <<'PY'
+          import json
+          for p in ("qualification/release-python-wheels-v1.json",
+                    "qualification/release-python-builder-v1.json"):
+              data=json.load(open(p))
+              assert data["public_bot_release"] is False
+              assert all(not data.get(key, False) for key in (
+                  "wheel_selection_reviewed", "builder_reviewed",
+                  "artifact_distribution_authorized"))
+          release=json.load(open("qualification/release-image-v1.json"))
+          assert release["public_bot_release"] is False
+          assert release["wheel_lock_complete"] is False
+          assert release["os_package_lock_complete"] is False
+          PY
+  twin-wheel-build:
+    needs: source-lock-contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+      - name: Verify exact source
+        run: test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+      - name: Install CI-only acquisition interpreter
+        run: bash scripts/ci-install-apt-deps.sh python3-pip python3-venv
+      - name: Build twice inside pinned isolated toolchain and compare historical bytes
+        timeout-minutes: 18
+        run: |
+          set -euo pipefail
+          mkdir -p build/test-results/release2b1
+          python3 scripts/prepare-online3b-wheels.py \
+            --source-lock deploy/lichess/requirements.release.lock \
+            --wheelhouse build/online3b-wheels
+          python3 scripts/verify-release-python-lock.py \
+            --wheelhouse build/online3b-wheels \
+            --output build/test-results/release2b1/wheels.json
+          cp build/online3b-wheels/wheel-attestation.json \
+             build/test-results/release2b1/wheel-attestation.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: release2b1-python-candidate-evidence
+          path: build/test-results/release2b1/
+          retention-days: 30
+          if-no-files-found: warn

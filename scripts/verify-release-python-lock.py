@@ -104,7 +104,7 @@ def parse_direct(path: Path) -> dict[str, tuple[str, str]]:
         line = raw_line.strip()
         if not line or line.startswith("#"):
             continue
-        match = RE.fullmatch(line)
+        match = REQ.fullmatch(line)
         require(match is not None, "unsupported top-level requirement")
         name, op, version = match.groups()
         name = norm(name)
@@ -295,7 +295,8 @@ def wheelhouse(root: Path, directory: Path, inventory: Path | None = None) -> di
             "wheel attestation/input-closure mismatch")
     if inventory is not None:
         rows = bounded(inventory, MAX_LOCK).decode("utf-8").splitlines()
-        require(rows == sorted(set(rows)) and len(rows) == 13,
+        order = [norm(row.partition("==")[0]) for row in rows]
+        require(order == sorted(set(order)) and len(rows) == 13,
                 "installed Python distribution closure invalid")
         recorded = {}
         for row in rows:

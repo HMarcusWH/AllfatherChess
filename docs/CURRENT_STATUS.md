@@ -1,5 +1,28 @@
 # AllfatherChess current build and release status
 
+> **Current source-backed status — 18 October 2026:** The **current canonical**
+> LC0 engine-opt profile is `b4-p0-c256k-cold` (BLAS, minibatch 4,
+> NNCacheSize 262144, MaxPrefetch 0). It was promoted in
+> [PR #64](https://github.com/HMarcusWH/AllfatherChess/pull/64), replacing
+> historical references to canonical b7. The resource catalog and current
+> online-hybrid validation configuration agree on b4.
+>
+> **Latest offline assurance:** [PR #71](https://github.com/HMarcusWH/AllfatherChess/pull/71)
+> merged a source-verified RELEASE-1 OCI/SLSA/SPDX and offline Lichess
+> recovery assurance pipeline. It remains **offline-only**: **no public bot release**,
+> no licensed combined distribution, no destination-host certification,
+> no authenticated image publication and no live transport/credentials.
+> OS/wheel reproducibility locks are unapproved; strength/superiority is
+> not established. RELEASE-2A dependency observation is candidate evidence,
+> not lock approval.
+>
+> The detailed dated milestone paragraphs below are **historical records**;
+> treat the current canonical selection and release policy files, verified
+> by `scripts/check-current-status.py`, as current-state authority.
+
+---
+
+
 > **Release update, 2026-10-12:** PR #68 / ONLINE-4B was merged as `f5eab35cf1682d79d939d4b1f5e63f8e96833a1b`. The pinned Lichess bridge has **10/10 offline recovery scenarios qualified**, including terminal confirmation and second-epoch move proof. RELEASE-1 (PR #69) now prepares an immutable, audited, **offline-only** image. Destination host, combined-distribution license and live transport remain **unqualified**. Earlier milestone tables below retain their historical context; consult [RELEASE_1_OPERATIONS.md](RELEASE_1_OPERATIONS.md) for present release boundaries.
 
 

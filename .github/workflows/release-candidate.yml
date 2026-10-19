@@ -391,6 +391,17 @@ jobs:
             --wheel-inventory "$GITHUB_WORKSPACE/build/release1-stage/wheels/wheel-attestation.json" \
             --source-sha "$SOURCE_SHA" \
             --output "$GITHUB_WORKSPACE/build/test-results/release1/aggregate.json"
+      - name: Observe candidate OS, Python and wheel dependency identities (no lock approval)
+        run: |
+          set -euo pipefail
+          test "$(git -C "$RELEASE1_VERIFIED_ROOT" rev-parse HEAD)" = "$SOURCE_SHA"
+          python3 "$RELEASE1_VERIFIED_ROOT/scripts/observe-release-dependencies.py" \
+            --stage "$GITHUB_WORKSPACE/build/release1-stage" \
+            --os-inventory "$GITHUB_WORKSPACE/build/test-results/release1/os-packages.txt" \
+            --python-inventory "$GITHUB_WORKSPACE/build/test-results/release1/python-packages.txt" \
+            --source-lock "$GITHUB_WORKSPACE/deploy/lichess/requirements.lock" \
+            --source-sha "$SOURCE_SHA" \
+            --output "$GITHUB_WORKSPACE/build/test-results/release1/dependency-observation.json"
       - name: Tear down isolated release scanner registry and builder
         if: always()
         env:
@@ -413,6 +424,7 @@ jobs:
             build/test-results/release1/oci-report.json
             build/test-results/release1/host-report.json
             build/test-results/release1/aggregate.json
+            build/test-results/release1/dependency-observation.json
             build/test-results/release1-scanner/scanner-candidate.json
             build/test-results/release1-scanner/scanner-source.json
             build/test-results/release1/os-packages.txt

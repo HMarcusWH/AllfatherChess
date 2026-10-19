@@ -108,6 +108,28 @@ class WorkflowCoverageTests(unittest.TestCase):
         self.assertLess(source.index("Checkout isolated exact-commit source"),
                         source.index("Export standalone OCI archive"))
 
+    def test_dependency_observation_is_source_attested_after_image_qualification(self):
+        workflow=(ROOT/".github/workflows/release-candidate.yml").read_text()
+        self.assertIn("scripts/observe-release-dependencies.py",workflow)
+        self.assertIn('"$RELEASE1_VERIFIED_ROOT/scripts/observe-release-dependencies.py"',workflow)
+        self.assertIn('--source-sha "$SOURCE_SHA"',workflow)
+        self.assertIn("dependency-observation.json",workflow)
+        self.assertLess(
+            workflow.index("- name: Observe test-runner capacity and aggregate evidence"),
+            workflow.index("- name: Observe candidate OS, Python and wheel"))
+        self.assertLess(
+            workflow.index("- name: Checkout isolated exact-commit source"),
+            workflow.index("- name: Observe candidate OS, Python and wheel"))
+        builder=(ROOT/"scripts/build-release-candidate.py").read_text()
+        self.assertIn('"scripts/observe-release-dependencies.py"',builder)
+        observer=(ROOT/"scripts/observe-release-dependencies.py").read_text()
+        for boundary in ('"dependency_lock_approved":False',
+                         '"cross_run_reproducibility_qualified":False',
+                         '"offline_candidate_qualified":False',
+                         '"artifact_distribution_authorized":False',
+                         '"public_bot_release":False'):
+            self.assertIn(boundary,observer)
+
     def test_release_artifacts_exclude_raw_provenance_and_image_bytes(self):
         content=(ROOT/".github/workflows/release-candidate.yml").read_text()
         upload=content.split("- name: Do not publish combined image",1)[1]

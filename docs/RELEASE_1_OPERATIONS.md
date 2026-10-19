@@ -465,3 +465,25 @@ inside its scenario directory. ONLINE-4A refuses symlinked or
 path-escaping replay manifests and `route.json` before hashing.
 These checks are evidence admission rules, not declarations of successful
 live network recovery or host/public-play approval.
+
+## RELEASE-2A — dependency observation after merged PR #71
+
+The next small, reviewable step is `RELEASE-2A_DEPENDENCY_OBSERVATION.md`.
+Its source-attested observer reads the **real installed image** OS/Python
+inventories and verifies all 12 staged Python wheels and both lock files
+before retaining only their bounded hashes and package counts. The source
+and application image build continue to be qualified by the original
+RELEASE-1 workflow. Candidate-only observation does **not** freeze a
+reproducibility lock, grant a signature or authorize distribution or live play.
+
+### RELEASE-2A follow-up: complete installed/wheel name and version closure
+
+The independent observer now checks exactly twelve staged wheel archives
+plus `runtime-wheels.lock` and `wheel-attestation.json`—no extra .pth/.py
+payload, directory, link or unlisted artifact. Each hash-verified wheel's
+canonical filename distribution/version must equal its actual
+`.dist-info/METADATA` and the installed `pip freeze --all` version. The
+only nonwheel installed distribution admitted is venv-provided `pip`,
+whose version remains an unapproved observation. This is dependency
+**observation** rather than a frozen release lock, signed image, licensing
+approval or public BOT deployment permission.

@@ -1,3 +1,5 @@
+> **Current execution (18 October 2026):** PR #71 merged into `main` as `952a2c5cddff842efc5418f21e5987f51bcad6bf` after 11/11 green exact-head workflows and independent code/security review. The offline RELEASE-1 image remains **release-blocked**, with OS/wheel locks and licensing, host, live transport, operator and publication gates still closed. **Next: RELEASE-2A**, candidate-only observation of exact installed OS and Python wheel dependencies (see [RELEASE-2A](RELEASE_2A_DEPENDENCY_OBSERVATION.md)). The older dated roadmap below is retained for historical execution lineage.
+
 > **Current RELEASE-1 entry point (2026-10-12):** PR #68 / ONLINE-4B merged at `f5eab35`, with exact-source offline recovery qualified. PR #69 adds immutable OCI candidate image/evidence only; destination host, licensing, live API and public game authorization remain blocked. [RELEASE-1 operations](RELEASE_1_OPERATIONS.md). Historical roadmap rows below are preserved.
 
 # AllfatherChess roadmap

@@ -487,3 +487,23 @@ only nonwheel installed distribution admitted is venv-provided `pip`,
 whose version remains an unapproved observation. This is dependency
 **observation** rather than a frozen release lock, signed image, licensing
 approval or public BOT deployment permission.
+
+## RELEASE-2B-1 — Python source-selected wheel candidate
+
+RELEASE-2B-1 replaces the live runtime resolver with the committed
+`deploy/lichess/requirements.release.lock`. Its hashes select eleven
+upstream wheels and one **chess sdist**, not a locally built chess wheel.
+`qualification/release-python-wheels-v1.json` separately selects the
+twelve exact CPython 3.12 linux/amd64 wheel filenames and SHA256 bytes.
+
+The digest-pinned builder reconstructs chess twice in independent scratch
+directories with frozen Python, tool wheels, environment and no build
+network. Both must equal the previously observed chess wheel SHA.
+Independently checked package metadata and runtime-wheels.lock are sealed
+in the stage. The Ubuntu-provided venv pip==24.0 remains a separate native
+origin exception, pending RELEASE-2B-2 provenance.
+
+This is a **candidate** lock. It does not approve native APT/bootstrap
+closure, dependency reproducibility, complete OCI byte reproduction,
+licensing, host, credentials, public distribution or live Lichess operation.
+See `docs/RELEASE_2B_PYTHON_LOCKS.md`.

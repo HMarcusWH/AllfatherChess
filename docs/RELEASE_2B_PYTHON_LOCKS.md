@@ -16,7 +16,7 @@ for CPython 3.12 on linux/amd64. A different ABI, platform, or byte stream
 is not admitted even when pip would otherwise accept it.
 
 The toolchain policy, qualification/release-python-builder-v1.json, binds a
-digest-pinned Python 3.12.14 image, digest-checked build tools, fixed
+digest-pinned Python 3.12.14 image and the original GitHub CI-observed pip 24.0 / setuptools 68.1.2 / wheel 0.42.0 build toolchain, digest-checked downloads, fixed
 locale, timezone, hash seed, SOURCE_DATE_EPOCH and the build command.
 The separate Dockerfile.wheel-builder is **not** the application image.
 The Ubuntu 24.04 venv-provided pip==24.0 is tracked as a nonwheel
@@ -72,3 +72,15 @@ are the only permitted entrypoints. Public distribution, licensing,
 credentials, live Lichess operation, host admission, playing strength
 and release-policy promotion remain prohibited. Repository branch
 protection is a separate governance task.
+
+## Historical builder reconstruction
+
+The original RELEASE-1 exact-head GitHub Actions job 117833117730 explicitly
+recorded `pip==24.0`, `setuptools==68.1.2`, and `wheel==0.42.0`
+and a `setup.py` chess wheel of **147,776 bytes** with SHA-256
+`34bb710720cf88b78dda74a7a56892d376f84d13b1715d9113e98b7fa21685b4`.
+The first 2B-1 candidate used pip 25.2 / setuptools 83.0.0 instead, which
+reproducibly produced a different **147,878-byte** wheel of SHA-256
+`b5772e0e46b1cbb502ce78e1045009bb6541a316da92bd1a8c9f46e83772227e`.
+This mismatch was rejected. The builder was revised to the historical
+versions; it remains a testable candidate until exact-head requalification.

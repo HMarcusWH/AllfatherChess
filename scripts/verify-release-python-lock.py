@@ -180,7 +180,7 @@ def policy(root: Path = ROOT) -> tuple[dict, dict, dict]:
     for tool, version in builder.get("tool_versions", {}).items():
         require(tool + "==" + version + " \\" in tools_raw,
                 "builder tool version missing from download lock")
-    require(builder.get("tool_versions") == {"pip": "25.2", "setuptools": "83.0.0"},
+    require(builder.get("tool_versions") == {"pip": "24.0", "setuptools": "68.1.2", "wheel": "0.42.0"},
             "unreviewed build-tool version")
     require(builder.get("build_command") ==
             ["python", "-m", "pip", "wheel", "--no-deps", "--no-build-isolation",

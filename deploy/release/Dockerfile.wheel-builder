@@ -1,5 +1,5 @@
-# RELEASE-2B-1 candidate builder, NOT the release application's runtime.
-# Digest-pinned official Python 3.12.14 slim-bookworm OCI multi-platform index.
+# Frozen candidate toolchain: original RELEASE-1 pip/setuptools/wheel versions.
+# The upstream Python base platform is linux/amd64, OCI index digest pinned.
 FROM --platform=linux/amd64 docker.io/library/python@sha256:392307d22300de8b5986851a12d9176dfc0fc073e65bf6523ebd7dcbeb23564e AS python-wheel-builder
 ENV LANG=C.UTF-8 LC_ALL=C.UTF-8 TZ=UTC PYTHONHASHSEED=0 \
     SOURCE_DATE_EPOCH=1740500000 PIP_NO_CACHE_DIR=1 \
@@ -9,5 +9,5 @@ RUN python -m pip install --no-deps --require-hashes \
       -r /tmp/python-wheel-build-tools.lock && \
     python -c "import sys; assert sys.version_info[:3] == (3,12,14)" && \
     python -m pip --version && \
-    python -c "import importlib.metadata as m; assert m.version('setuptools') == '83.0.0'; assert m.version('pip') == '25.2'"
+    python -c "import importlib.metadata as m; assert m.version('setuptools') == '68.1.2'; assert m.version('pip') == '24.0'; assert m.version('wheel') == '0.42.0'"
 WORKDIR /work

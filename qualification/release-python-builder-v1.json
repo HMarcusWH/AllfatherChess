@@ -7,12 +7,13 @@
   "image_digest_kind": "oci-index",
   "expected_python_version": "3.12.14",
   "dockerfile_path": "deploy/release/Dockerfile.wheel-builder",
-  "dockerfile_sha256": "d9f87548bc2f277a64db390fd443e3882cc5120eb6d8063adff91482fa5d1caf",
+  "dockerfile_sha256": "14286031f6da5d8b6f1ec30b4784ac514b035ff99afab3a8fe2bef0ad6a8a550",
   "build_tools_path": "deploy/release/python-wheel-build-tools.lock",
-  "build_tools_sha256": "a64c622cbfde6c1ef3d981e9bed4d4ef1b6225a58062da35edd4f6e2c662f29a",
+  "build_tools_sha256": "4da3bb2a3247d8f3f55381c2abc7472ab99ba07e5d61c2186f50cbdca5184283",
   "tool_versions": {
-    "pip": "25.2",
-    "setuptools": "83.0.0"
+    "pip": "24.0",
+    "setuptools": "68.1.2",
+    "wheel": "0.42.0"
   },
   "wheel_distribution_required": false,
   "build_command": [

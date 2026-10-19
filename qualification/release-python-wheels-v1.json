@@ -8,7 +8,7 @@
   "committed_resolution_path": "deploy/lichess/requirements.release.lock",
   "committed_resolution_sha256": "1b63ac53d5cbe7580cd804d7a06c9b0e5ce615e63b5fc2b1e7b987016501d85e",
   "wheel_builder_policy": "qualification/release-python-builder-v1.json",
-  "wheel_builder_policy_sha256": "058b46c860b951c97a904b89d11d704fa62c36e3c39c0babe06e3aa50fa46f1d",
+  "wheel_builder_policy_sha256": "893600219d5b260b0bd0adf6ae29dc97f58d3965a346249fbb7e8aa5b4297eda",
   "chess_source_archive_sha256": "a8b43e5678fdb3000695bdaa573117ad683761e5ca38e591c4826eba6d25bb39",
   "expected_wheel_count": 12,
   "wheels": {

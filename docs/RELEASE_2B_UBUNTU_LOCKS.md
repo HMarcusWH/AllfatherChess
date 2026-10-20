@@ -113,5 +113,59 @@ production authority. Direct gpgv calls in the successful CI verified
 all three frozen InRelease signatures under Ubuntu archive key
 F6ECB3762474EDA9D21B7022871920D1991BC93C.
 
-No lock approval flags have been raised and no release Docker
-application/dependency stage has yet been switched to this experiment.
+No lock approval flags have been raised. The actual release Dockerfile now
+uses one shared native/Python dependency stage, but neither this candidate
+nor its unreviewed transport CA is approved for public distribution.
+
+## Completed production dependency repair — RELEASE-2B-2 candidate
+
+PR #75 now contains one actual `release-dependencies` Docker stage
+inherited by `release-application`, instead of two different native or
+Python installers. Both source-declared `Snapshot:` stanzas remain fixed at
+20261001T000000Z. During runtime package acquisition the build derives
+direct dated snapshot URLs to eliminate APT's moving discovery indexes
+from package selection, retains the Ubuntu Signed-By keyring requirement,
+and verifies every retained InRelease with gpgv.
+
+The bootstrap's provisional transport CA bundle is copied from the exact
+digest-pinned Python wheel-builder image and checked against the frozen
+714d457d580922dbf1d0be8bd35ba236a842b50b0072ae791582a19adef772a5
+SHA256. Ubuntu's exact, signed native ca-certificates package then replaces
+the bootstrap transport trust through update-ca-certificates --fresh.
+The trust source remains marked unreviewed and candidate-only.
+
+The source-controlled direct native selections have ten pinned name/version
+records. The real stage performs a download-only acquisition against the
+frozen Ubuntu snapshot, retains downloaded .deb SHA256 and APT package-index
+records, and installs the full package set with the existing bounded
+retry/fail-closed classifier.
+
+The independently checked complete package inventories remain **92 base**,
+**94 after bootstrap**, and **120 final**. The native lock now contains
+three actual bootstrap .deb hashes and 26 runtime added/upgraded .deb hashes.
+The seven exact snapshot InRelease hashes (three bootstrap and four runtime)
+and their successful gpgv source identity are frozen as candidate evidence.
+
+The installation includes exactly twelve previously selected Python wheels,
+installed with --no-index and --require-hashes. There is no engine, move,
+resource router or chess-authority code change in this PR.
+
+### Exact CI evidence and claim limits
+
+At GitHub Actions run 39354219892, all of the following completed green:
+
+- source-bound native candidate/negative contracts;
+- actual signed Ubuntu CA bootstrap;
+- the real production `release-dependencies` build, with offline Python
+  wheels and independent exact-commit verification of the whole native
+  package and downloaded wheelhouse closure.
+
+This is a **candidate package acquisition and installation integrity result**,
+not external independent two-job reproducibility attestation. That comparison
+belongs to RELEASE-2B-3. Separate reviewed dependency-lock admission belongs
+to RELEASE-2B-4. No entire OCI byte-reproduction or licensing/public/host/
+live-network/playing-strength claims follow from 2B-2's success.
+
+The full RELEASE-1 OCI/SPDX/SLSA and genuine packaged-smoke workflow must be
+rechecked at the final exact head before PR #75 can be considered merge-ready.
+The repository's external authority and lock-approval booleans remain FALSE.

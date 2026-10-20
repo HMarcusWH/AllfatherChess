@@ -24,7 +24,7 @@ def digest(blob):return hashlib.sha256(blob).hexdigest()
 def get(uri,limit):
     check(uri.startswith(BASE+"/dists/") and len(uri)<220,"non-snapshot download URL")
     request=urllib.request.Request(uri,headers={"User-Agent":"AllfatherChess-native-provenance/2B2"})
-    for attempt in range(1,4):
+    for attempt in range(1,6):
         try:
             with urllib.request.urlopen(request,timeout=30) as f:
                 observed=f.geturl()
@@ -35,9 +35,12 @@ def get(uri,limit):
         except urllib.error.HTTPError as e:
             # Only bounded, explicitly transient acquisition responses retry.
             # Signature/hash/missing-index and 500 errors remain immediate stops.
-            if e.code not in (429,502,503,504) or attempt==3:
-                raise ValueError(f"signed Ubuntu snapshot HTTP {e.code} refused") from e
-            time.sleep(min(attempt*3,6))
+            if e.code not in (429,502,503,504) or attempt==5:
+                label=uri.split("/dists/",1)[-1][:130]
+                raise ValueError(
+                    f"signed Ubuntu snapshot {label} HTTP {e.code} "
+                    f"refused after {attempt} bounded attempt(s)") from e
+            time.sleep(min(attempt*4,12))
     raise ValueError("snapshot acquisition attempts exhausted")
 def parse_sha256_inrelease(data):
     content=data.decode("utf-8")

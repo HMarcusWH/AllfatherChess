@@ -124,19 +124,36 @@ def parse_debian_index(data):
             last=key
         yield item
 def decompress_index(raw):
-    check(len(raw)<=MAX_INDEX and raw.startswith(b"\xfd7zXZ\x00"),"invalid xz Packages index")
-    d=lzma.LZMADecompressor(format=lzma.FORMAT_XZ,memlimit=384*1024*1024)
-    plain=d.decompress(raw,max_length=MAX_PLAIN+1)
-    trailing=d.unused_data
-    # The XZ specification permits 4-byte-aligned zero stream padding.
-    # No nonzero or unaligned trailing payload may be accepted.
-    padding_ok=(not trailing or
-                (len(trailing)%4==0 and all(x==0 for x in trailing)))
-    check(len(plain)<=MAX_PLAIN and d.eof and padding_ok,
-          ("truncated/trailing/oversized Packages.xz: "+
-           f"compressed={len(raw)} plain={len(plain)} eof={d.eof} "+
-           f"trailing={len(trailing)}"))
-    return plain
+    # Ubuntu may publish a multi-stream XZ index. A single
+    # LZMADecompressor stops after one XZ stream and leaves the next stream
+    # (or legal stream padding) in unused_data. Accept both only after the
+    # compressed bytes have already matched the signed Release SHA256.
+    check(0<len(raw)<=MAX_INDEX and raw.startswith(b"\xfd7zXZ\x00"),
+          "invalid xz Packages index")
+    rest=raw
+    chunks=[]
+    total=0
+    streams=0
+    while rest:
+        # XZ stream padding must be four-byte aligned, and strictly zero.
+        if rest[0]==0:
+            pad=len(rest)-len(rest.lstrip(b"\x00"))
+            check(pad%4==0,"misaligned xz stream padding")
+            rest=rest[pad:]
+            continue
+        check(rest.startswith(b"\xfd7zXZ\x00") and streams<16,
+              "non-XZ trailing data or unbounded concatenated streams")
+        dec=lzma.LZMADecompressor(format=lzma.FORMAT_XZ,
+                                 memlimit=384*1024*1024)
+        part=dec.decompress(rest,max_length=MAX_PLAIN-total+1)
+        check(dec.eof and total+len(part)<=MAX_PLAIN,
+              "truncated or oversized signed Packages.xz stream")
+        chunks.append(part)
+        total+=len(part)
+        streams+=1
+        rest=dec.unused_data
+    check(streams>=1 and total>0,"signed Packages.xz empty")
+    return b"".join(chunks)
 def validate_receipt(root,evidence):
     policy=json.loads((root/"qualification/release-os-packages.lock").read_text())
     boot=json.loads((root/"qualification/release-bootstrap-v1.json").read_text())

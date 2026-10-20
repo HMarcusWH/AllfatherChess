@@ -206,7 +206,12 @@ def policy(root: Path = ROOT) -> tuple[dict, dict, dict]:
             len(lock["acquired_package_debs"]) == 26 and
             isinstance(lock.get("bootstrap_acquired_debs"), list) and
             len(lock["bootstrap_acquired_debs"]) == 3 and
-            lock.get("signed_index_evidence") is None and
+            isinstance(lock.get("signed_index_evidence"), dict) and
+            lock["signed_index_evidence"].get("scope") ==
+                "release-2b-2-source-bound-signed-index-candidate" and
+            lock["signed_index_evidence"].get("candidate_only") is True and
+            lock["signed_index_evidence"].get("third_party_attested") is False and
+            lock["signed_index_evidence"].get("independently_reviewed") is False and
             lock.get("acquired_package_hashes_measured") is True and
             lock.get("candidate_only") is True and
             lock.get("approved") is False and
@@ -246,6 +251,17 @@ def policy(root: Path = ROOT) -> tuple[dict, dict, dict]:
     require(len(inventory(("\n".join(lock["base_inventory"])+"\n").encode("ascii"))) == 92 and
             len(inventory(("\n".join(lock["observed_bootstrap_inventory"])+"\n").encode("ascii"))) == 94,
             "base/bootstrap raw native inventories not retained exactly")
+    recorded=lock["signed_index_evidence"]
+    boot=recorded.get("bootstrap_inrelease_sha256_lines")
+    runtime=recorded.get("runtime_inrelease_sha256_lines")
+    require(type(boot) is list and type(runtime) is list and
+            len(boot)==3 and len(runtime)==4 and
+            boot==sorted(set(boot)) and runtime==sorted(set(runtime)) and
+            {x[:64] for x in boot}==set(b["observed_snapshot_inrelease_sha256"].values()) and
+            all(re.fullmatch(
+                r"[a-f0-9]{64}  snapshot\.ubuntu\.com_ubuntu_20261001T000000Z_dists_[A-Za-z0-9_.-]+_InRelease",line)
+                for line in boot+runtime),
+            "source candidate signed Ubuntu index hashes mismatch")
     return b, n, lock
 
 

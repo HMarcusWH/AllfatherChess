@@ -144,8 +144,16 @@ def verify(*,root:Path=ROOT,evidence:Path,os_inventory:Path,
             bounded(evidence/"ca-deb.sha256").decode("ascii").strip()==
             bootstrap["candidate_ca"]["deb_sha256"],
             "bootstrap keyring, transport certificate or CA bytes differ")
+    bootstrap_candidates=native.get("bootstrap_acquired_debs")
+    require(type(bootstrap_candidates) is list and len(bootstrap_candidates)==3,
+            "measured bootstrap .deb hashes absent from source candidate")
     actual_boot=ledger(evidence,"bootstrap-debs.tsv","bootstrap-index-records",
-                       ca_delta,expected_hashes={"ca-certificates":bootstrap["candidate_ca"]["deb_sha256"]})
+                       ca_delta,expected_hashes={
+                           r["name"]:r["sha256"] for r in bootstrap_candidates})
+    require(actual_boot=={
+        r["name"]: {k:r[k] for k in ("version","architecture","sha256","filename")}
+        for r in bootstrap_candidates},
+        "bootstrap selected .deb identity differs from exact candidate lock")
     # Runtime-dependency manifest may start as a candidate observation: even
     # then it MUST bind each downloaded .deb to signed-Apt-selected metadata.
     candidates=native.get("acquired_package_debs")
@@ -155,6 +163,10 @@ def verify(*,root:Path=ROOT,evidence:Path,os_inventory:Path,
         must_equal={r["name"]:r["sha256"] for r in candidates}
     actual_runtime=ledger(evidence,"runtime-debs.tsv","runtime-index-records",
                           runtime_delta,expected_hashes=must_equal)
+    require(candidates is not None and actual_runtime=={
+        r["name"]: {k:r[k] for k in ("version","architecture","sha256","filename")}
+        for r in candidates},
+        "runtime acquired package/version/architecture SHA differs from source candidate")
     declared=bounded(evidence/"source-ubuntu-declared.sources").decode("ascii")
     require(declared==bounded(root/"deploy/release/ubuntu.sources").decode("ascii"),
             "runtime signed source declaration drift")
@@ -175,6 +187,16 @@ def verify(*,root:Path=ROOT,evidence:Path,os_inventory:Path,
             all(re.fullmatch(r"[a-f0-9]{64}  snapshot\.ubuntu\.com_ubuntu_20261001T000000Z_[A-Za-z0-9_.-]+_InRelease",x)
                 for x in index_rows),
             "runtime signed snapshot indexes incomplete or floating")
+    # The signed snapshot source identity will be reviewed separately.
+    # Candidate index hashes must be measured and then matched against a
+    # source-controlled lock before 2B-2's native hash gate is complete.
+    signed=native.get("signed_index_evidence")
+    if signed is not None:
+        require(type(signed) is dict and
+                signed.get("runtime_inrelease_sha256_lines")==index_rows and
+                signed.get("bootstrap_inrelease_sha256_lines")==
+                bounded(evidence/"inrelease-sha256.txt").decode("ascii").splitlines(),
+                "signed snapshot index hash identities differ from reviewed candidate")
     # Positive candidate wheel checks are delegated to the independent v2B-1
     # checker rather than trusting a producer's manifest.
     wheel_status="NOT_RUN"
@@ -195,7 +217,10 @@ def verify(*,root:Path=ROOT,evidence:Path,os_inventory:Path,
         "bootstrap_acquired_debs":actual_boot,"runtime_acquired_debs":actual_runtime,
         "signed_snapshot_gpgv_executed_in_build":True,
         "independent_signature_attestation":False,
-        "source_native_hash_lock_complete":candidates is not None,
+        "source_native_hash_lock_complete":candidates is not None and signed is not None,
+        "runtime_signed_index_hashes":index_rows,
+        "bootstrap_signed_index_hashes":bounded(
+            evidence/"inrelease-sha256.txt").decode("ascii").splitlines(),
         "python_selected_wheel_verdict":wheel_status,
         "dependency_lock_approved":False,
         "artifact_distribution_authorized":False,

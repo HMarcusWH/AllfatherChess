@@ -25,6 +25,9 @@ jobs:
           python3 scripts/verify-release-bootstrap-snapshot.py --root .
           python3 -m unittest discover -s tests/release -p test_release_bootstrap_lock.py -v
           python3 -m unittest discover -s tests/release -p test_release_dependency_build.py -v
+          python3 -m unittest discover -s tests/release -p test_release_native_admission.py -v
+          python3 -m unittest discover -s tests/release -p test_release_native_index_chain.py -v
+          python3 -m compileall -q scripts/compile-release-native-selection.py scripts/verify-release-native-index-chain.py
       - name: Confirm no release or dependency-lock authority
         run: |
           python3 - <<'PY'
@@ -122,6 +125,8 @@ jobs:
           trap 'docker rm -f "$CID" >/dev/null 2>&1 || true' EXIT
           docker cp "$CID:/opt/allfather-release/native-evidence/." \
             build/test-results/release2b2-dependencies/
+          docker cp "$CID:/usr/share/keyrings/ubuntu-archive-keyring.gpg" \
+            build/test-results/release2b2-dependencies/ubuntu-keyring.gpg
           docker cp "$CID:/opt/allfather-release/os-packages.txt" \
             build/test-results/release2b2-dependencies/os-packages.txt
           docker cp "$CID:/opt/allfather-release/python-packages.txt" \
@@ -137,6 +142,25 @@ jobs:
             --python-inventory build/test-results/release2b2-dependencies/python-packages.txt \
             --wheelhouse build/test-results/release2b2-dependencies/wheels \
             --output build/test-results/release2b2-stage-verdict.json
+          # Independently authenticate upstream signed raw InRelease and
+          # Packages.xz repository bytes, including package-specific pockets.
+          # Before candidates are frozen, discovery prints evidence but
+          # produces an INCONCLUSIVE status and fails the admission gate.
+          python3 "$RUNNER_TEMP/release2b2-source/scripts/verify-release-native-index-chain.py" \
+            --root "$RUNNER_TEMP/release2b2-source" \
+            --evidence-dir build/test-results/release2b2-dependencies \
+            --keyring build/test-results/release2b2-dependencies/ubuntu-keyring.gpg \
+            --allow-unlocked-discovery \
+            --output build/test-results/release2b2-index-chain.json
+          python3 - <<'PY'
+          import json
+          report=json.load(open("build/test-results/release2b2-index-chain.json"))
+          if report["verdict"]!="PASS" or not report["per_package_origins_source_locked"]:
+              raise SystemExit("INCONCLUSIVE: signed Packages-to-deb origins not yet source-locked")
+          assert report["exact_package_count"]==29
+          assert report["signed_source_provenance_verified"] is True
+          assert report["public_bot_release"] is False
+          PY
           # Candidate measurement cannot be silently upgraded to a native
           # lock when acquired-source evidence has not been admitted.
           python3 - <<'PY'
@@ -154,6 +178,7 @@ jobs:
           name: release2b2-native-dependency-stage-candidate-evidence
           path: |
             build/test-results/release2b2-stage-verdict.json
+            build/test-results/release2b2-index-chain.json
             build/test-results/release2b2-dependencies/os-packages.txt
             build/test-results/release2b2-dependencies/python-packages.txt
             build/test-results/release2b2-dependencies/bootstrap-debs.tsv

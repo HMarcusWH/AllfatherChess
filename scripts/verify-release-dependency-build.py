@@ -128,6 +128,18 @@ def verify(*,root:Path=ROOT,evidence:Path,os_inventory:Path,
     require(len(b)==92 and len(x)==94 and len(f)==120 and
             hashbytes(bounded(os_inventory))==native["expected_final_inventory_sha256"],
             "native exact final inventory/hash differs")
+    # These receipts were written by the source-controlled pre-install gate
+    # before the first maintainer script executes in RUN --network=none.
+    for phase,field in (("bootstrap","bootstrap_acquired_debs"),
+                        ("runtime","acquired_package_debs")):
+        selected=native.get(field)
+        require(type(selected) is list, "native pre-install SHA candidates missing")
+        expected="".join("\t".join(row[k] for k in
+            ("name","version","architecture","sha256","filename"))+"\n"
+            for row in sorted(selected,key=lambda r:r["name"]))
+        observed=bounded(evidence/(phase+"-preinstall-verified.tsv")).decode("ascii")
+        require(observed==expected,
+                "actual pre-install source SHA admission receipt mismatches committed lock")
     ca_delta=rows_from_delta(b,x)
     runtime_delta=rows_from_delta(x,f)
     require(ca_delta=={"ca-certificates":"20260601~24.04.1",
@@ -216,6 +228,7 @@ def verify(*,root:Path=ROOT,evidence:Path,os_inventory:Path,
         "native_inventory_sha256":hashbytes(bounded(os_inventory)),
         "bootstrap_acquired_debs":actual_boot,"runtime_acquired_debs":actual_runtime,
         "signed_snapshot_gpgv_executed_in_build":True,
+        "both_preinstall_sha_receipts_verified":True,
         "independent_signature_attestation":False,
         "source_native_hash_lock_complete":candidates is not None and signed is not None,
         "runtime_signed_index_hashes":index_rows,

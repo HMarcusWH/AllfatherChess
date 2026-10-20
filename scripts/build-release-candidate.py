@@ -65,6 +65,7 @@ SOURCE_FILES = (POLICY, BRIDGE_LOCK, "qualification/release-qualification-v1.jso
                 "qualification/release-os-apt-selections-v1.txt",
                 "scripts/verify-release-bootstrap-snapshot.py",
                 "scripts/verify-release-dependency-build.py",
+                "scripts/verify-release-native-index-chain.py",
                 "scripts/compile-release-native-selection.py",
                 "deploy/release/preinstall-native-gate.sh",
                 "deploy/release/finalize-native-bootstrap.sh",

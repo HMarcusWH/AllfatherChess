@@ -3,6 +3,12 @@ on:
   pull_request:
     paths:
       - 'deploy/lichess/**'
+      - 'qualification/release-python-wheels-v1.json'
+      - 'qualification/release-python-builder-v1.json'
+      - 'deploy/release/python-wheel-build-tools.lock'
+      - 'deploy/release/Dockerfile.wheel-builder'
+      - 'scripts/verify-release-python-lock.py'
+      - 'scripts/prepare-online3b-wheels.py'
       - 'tests/lichess/**'
       - 'scripts/qualify-online-bridge.py'
       - 'scripts/prepare-online3b-wheels.py'
@@ -43,10 +49,10 @@ jobs:
       - name: Prepare dependency hash lock candidate
         run: |
           bash scripts/ci-install-apt-deps.sh python3-pip python3-venv
-          python3 -m pip install --break-system-packages 'pip-tools==7.5.2'
+          # Contract-only host install; release artifact uses pinned builder.
+          python3 scripts/verify-release-python-lock.py
           mkdir -p build/online3b
-          python3 -m piptools compile --generate-hashes \
-            --output-file build/online3b/requirements.lock deploy/lichess/requirements.in
+          cp deploy/lichess/requirements.release.lock build/online3b/requirements.lock
           python3 -m pip install --break-system-packages --require-hashes \
             -r build/online3b/requirements.lock
           mkdir -p build/online3b/wheels
@@ -111,10 +117,10 @@ jobs:
         run: |
           python3 deploy/lichess/fetch_bridge.py
           mkdir -p build/online3b-wheels
-          python3 -m piptools compile --generate-hashes --output-file build/online3b-runtime.lock deploy/lichess/requirements.in
-          cp build/online3b-runtime.lock deploy/lichess/requirements.lock
-          python3 scripts/prepare-online3b-wheels.py --source-lock deploy/lichess/requirements.lock --wheelhouse build/online3b-wheels
-          python3 -m pip install --break-system-packages --require-hashes -r deploy/lichess/requirements.lock
+          python3 scripts/verify-release-python-lock.py
+          python3 scripts/prepare-online3b-wheels.py --source-lock deploy/lichess/requirements.release.lock --wheelhouse build/online3b-wheels
+          python3 scripts/verify-release-python-lock.py --wheelhouse build/online3b-wheels
+          python3 -m pip install --break-system-packages --require-hashes -r deploy/lichess/requirements.release.lock
       - name: Build isolated offline-only integration image
         timeout-minutes: 15
         run: |

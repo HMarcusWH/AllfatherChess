@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "scope": "release-2b-1-candidate-not-approved",
+  "platform": "linux/amd64",
+  "python_abi": "cp312",
+  "image_ref": "docker.io/library/python@sha256:392307d22300de8b5986851a12d9176dfc0fc073e65bf6523ebd7dcbeb23564e",
+  "image_digest_kind": "oci-index",
+  "expected_python_version": "3.12.14",
+  "dockerfile_path": "deploy/release/Dockerfile.wheel-builder",
+  "dockerfile_sha256": "15fc311cb72f9fb29524e3a00e6c48033b156e695dde61021c60ddad18c622da",
+  "build_tools_path": "deploy/release/python-wheel-build-tools.lock",
+  "build_tools_sha256": "4da3bb2a3247d8f3f55381c2abc7472ab99ba07e5d61c2186f50cbdca5184283",
+  "tool_versions": {
+    "pip": "24.0",
+    "setuptools": "68.1.2",
+    "wheel": "0.42.0"
+  },
+  "wheel_distribution_required": false,
+  "build_command": [
+    "python",
+    "-m",
+    "pip",
+    "wheel",
+    "--no-deps",
+    "--no-build-isolation",
+    "--wheel-dir",
+    "/output",
+    "/input/chess-1.11.2.tar.gz"
+  ],
+  "env": {
+    "LANG": "C.UTF-8",
+    "LC_ALL": "C.UTF-8",
+    "TZ": "UTC",
+    "PYTHONHASHSEED": "0",
+    "SOURCE_DATE_EPOCH": "1720000000"
+  },
+  "builder_reviewed": false,
+  "external_attestation": false,
+  "public_bot_release": false
+}

@@ -3,6 +3,12 @@ on:
   pull_request:
     paths:
       - 'deploy/lichess/**'
+      - 'qualification/release-python-wheels-v1.json'
+      - 'qualification/release-python-builder-v1.json'
+      - 'deploy/release/python-wheel-build-tools.lock'
+      - 'deploy/release/Dockerfile.wheel-builder'
+      - 'scripts/verify-release-python-lock.py'
+      - 'scripts/prepare-online3b-wheels.py'
       - 'tests/lichess/**'
       - 'tests/fixtures/lichess/**'
       - 'scripts/qualify-online-recovery-v2.py'
@@ -53,9 +59,9 @@ jobs:
       - name: Install frozen offline contract dependencies
         run: |
           bash scripts/ci-install-apt-deps.sh python3-pip python3-venv
-          python3 -m pip install --break-system-packages 'pip-tools==7.5.2'
-          python3 -m piptools compile --generate-hashes \
-            --output-file build-online4b-requirements.lock deploy/lichess/requirements.in
+          # Contract-only host install; release bytes selected elsewhere.
+          python3 scripts/verify-release-python-lock.py
+          cp deploy/lichess/requirements.release.lock build-online4b-requirements.lock
           python3 -m pip install --break-system-packages \
             --require-hashes -r build-online4b-requirements.lock
       - name: Fetch byte-locked upstream for patch-integrity contracts
@@ -103,11 +109,10 @@ jobs:
         run: |
           python3 deploy/lichess/fetch_bridge.py
           mkdir -p build/online3b-wheels
-          python3 -m piptools compile --generate-hashes \
-            --output-file build/online3b-runtime.lock deploy/lichess/requirements.in
-          cp build/online3b-runtime.lock deploy/lichess/requirements.lock
+          python3 scripts/verify-release-python-lock.py
           python3 scripts/prepare-online3b-wheels.py \
-            --source-lock deploy/lichess/requirements.lock --wheelhouse build/online3b-wheels
+            --source-lock deploy/lichess/requirements.release.lock --wheelhouse build/online3b-wheels
+          python3 scripts/verify-release-python-lock.py --wheelhouse build/online3b-wheels
       - name: Build offline fixture image only
         timeout-minutes: 15
         run: |

@@ -1,0 +1,9 @@
+# RELEASE-2B-1 historical wheel builder, from RELEASE-1 exact logs.
+# These are exact original PyPI wheel downloads, NOT the Ubuntu APT binaries.
+# Host original: pip 24.0, setuptools 68.1.2, wheel 0.42.0 (setup.py).
+pip==24.0 \
+    --hash=sha256:ba0d021a166865d2265246961bec0152ff124de910c5cc39f1156ce3fa7c69dc
+setuptools==68.1.2 \
+    --hash=sha256:3d8083eed2d13afc9426f227b24fd1659489ec107c0e86cec2ffdde5c92e790b
+wheel==0.42.0 \
+    --hash=sha256:177f9c9b0d45c47873b619f5b650346d632cdc35fb5e4d25058e09c9e581433d

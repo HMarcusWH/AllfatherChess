@@ -3,6 +3,12 @@ on:
   pull_request:
     paths:
       - 'deploy/lichess/**'
+      - 'qualification/release-python-wheels-v1.json'
+      - 'qualification/release-python-builder-v1.json'
+      - 'deploy/release/python-wheel-build-tools.lock'
+      - 'deploy/release/Dockerfile.wheel-builder'
+      - 'scripts/verify-release-python-lock.py'
+      - 'scripts/prepare-online3b-wheels.py'
       - 'tests/lichess/**'
       - 'tests/fixtures/lichess/**'
       - 'scripts/qualify-online-recovery.py'
@@ -99,9 +105,9 @@ jobs:
         run: |
           python3 deploy/lichess/fetch_bridge.py
           mkdir -p build/online3b-wheels
-          python3 -m piptools compile --generate-hashes --output-file build/online3b-runtime.lock deploy/lichess/requirements.in
-          cp build/online3b-runtime.lock deploy/lichess/requirements.lock
-          python3 scripts/prepare-online3b-wheels.py --source-lock deploy/lichess/requirements.lock --wheelhouse build/online3b-wheels
+          python3 scripts/verify-release-python-lock.py
+          python3 scripts/prepare-online3b-wheels.py --source-lock deploy/lichess/requirements.release.lock --wheelhouse build/online3b-wheels
+          python3 scripts/verify-release-python-lock.py --wheelhouse build/online3b-wheels
       - name: Build offline experiment image
         timeout-minutes: 15
         run: |

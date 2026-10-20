@@ -168,10 +168,10 @@ jobs:
             --policy qualification/release-image-v1.json \
             --sources deploy/release/ubuntu.sources \
             --output build/test-results/release1/snapshot-availability.json
-      - name: Install exact engine and wheel preparation toolchain
+      - name: Install exact engine and test-only chess oracle (wheel builder separately pinned)
         run: |
           bash scripts/ci-install-apt-deps.sh build-essential meson ninja-build pkg-config libprotobuf-dev protobuf-compiler zlib1g-dev libopenblas-dev python3-pip python3-venv
-          python3 -m pip install --break-system-packages 'pip-tools==7.5.2' 'chess==1.11.2'
+          python3 -m pip install --break-system-packages 'chess==1.11.2'
       - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
         with:
           path: |
@@ -193,11 +193,11 @@ jobs:
         run: |
           python3 deploy/lichess/fetch_bridge.py
           mkdir -p build/online3b-wheels
-          python3 -m piptools compile --generate-hashes \
-            --output-file build/online3b-runtime.lock deploy/lichess/requirements.in
-          cp build/online3b-runtime.lock deploy/lichess/requirements.lock
+          python3 scripts/verify-release-python-lock.py --root .
           python3 scripts/prepare-online3b-wheels.py \
-            --source-lock deploy/lichess/requirements.lock --wheelhouse build/online3b-wheels
+            --source-lock deploy/lichess/requirements.release.lock --wheelhouse build/online3b-wheels
+          python3 scripts/verify-release-python-lock.py --root . \
+            --wheelhouse build/online3b-wheels
       - name: Assemble and independently verify immutable staging tree
         run: |
           python3 scripts/build-release-candidate.py
@@ -395,11 +395,16 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git -C "$RELEASE1_VERIFIED_ROOT" rev-parse HEAD)" = "$SOURCE_SHA"
+          python3 "$RELEASE1_VERIFIED_ROOT/scripts/verify-release-python-lock.py" \
+            --root "$RELEASE1_VERIFIED_ROOT" \
+            --wheelhouse "$GITHUB_WORKSPACE/build/release1-stage/wheels" \
+            --python-inventory "$GITHUB_WORKSPACE/build/test-results/release1/python-packages.txt" \
+            --output "$GITHUB_WORKSPACE/build/test-results/release1/python-lock-verdict.json"
           python3 "$RELEASE1_VERIFIED_ROOT/scripts/observe-release-dependencies.py" \
             --stage "$GITHUB_WORKSPACE/build/release1-stage" \
             --os-inventory "$GITHUB_WORKSPACE/build/test-results/release1/os-packages.txt" \
             --python-inventory "$GITHUB_WORKSPACE/build/test-results/release1/python-packages.txt" \
-            --source-lock "$GITHUB_WORKSPACE/deploy/lichess/requirements.lock" \
+            --source-lock "$RELEASE1_VERIFIED_ROOT/deploy/lichess/requirements.release.lock" \
             --source-sha "$SOURCE_SHA" \
             --output "$GITHUB_WORKSPACE/build/test-results/release1/dependency-observation.json"
       - name: Tear down isolated release scanner registry and builder

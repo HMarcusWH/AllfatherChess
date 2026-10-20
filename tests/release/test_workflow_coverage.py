@@ -10,6 +10,34 @@ ROOT=Path(__file__).resolve().parents[2]
 
 
 class WorkflowCoverageTests(unittest.TestCase):
+
+    def test_release_2b1_resolver_is_immutable_and_source_attested(self):
+        required = (
+            "deploy/lichess/requirements.in",
+            "deploy/lichess/requirements.release.lock",
+            "qualification/release-python-wheels-v1.json",
+            "qualification/release-python-builder-v1.json",
+            "deploy/release/Dockerfile.wheel-builder",
+            "deploy/release/python-wheel-build-tools.lock",
+            "scripts/verify-release-python-lock.py",
+            "scripts/prepare-online3b-wheels.py",
+        )
+        stage = (ROOT / "scripts/build-release-candidate.py").read_text()
+        for path in required:
+            with self.subTest(attested=path):
+                self.assertIn('"' + path + '"', stage)
+        workflows = ("release-candidate.yml", "online-bridge.yml",
+                     "online-recovery.yml", "online-recovery-v2.yml")
+        for workflow in workflows:
+            with self.subTest(workflow=workflow):
+                text = (ROOT / ".github/workflows" / workflow).read_text()
+                self.assertNotIn("piptools compile", text)
+                self.assertNotIn("pip-compile", text)
+                self.assertIn("requirements.release.lock", text)
+        release = (ROOT / ".github/workflows/release-candidate.yml").read_text()
+        self.assertLess(release.index("scripts/verify-release-python-lock.py --root ."),
+                        release.index("scripts/build-release-candidate.py"))
+
     def test_online_bridge_contracts_trigger_for_assurance_dependencies(self):
         cfg=yaml.load((ROOT/".github/workflows/online-bridge.yml").read_text(),
                       Loader=yaml.BaseLoader)

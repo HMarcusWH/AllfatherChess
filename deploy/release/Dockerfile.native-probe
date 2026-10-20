@@ -1,20 +1,41 @@
-# DISPOSABLE RELEASE-2B-2 snapshot feasibility probe, NOT a release image.
-# Ephemeral diagnostics only: use pinned RELEASE-2B-1 Python builder's
-# certificate bundle solely to test the signed archive path after TLS trust.
-# The helper image/trust bundle is NOT approved for the actual release.
+# Candidate-only diagnostic. Uses the SAME source-bound pre-install gate as
+# production release-dependencies, never a separate native installer.
 ARG BASE_IMAGE
-FROM --platform=linux/amd64 docker.io/library/python@sha256:392307d22300de8b5986851a12d9176dfc0fc073e65bf6523ebd7dcbeb23564e AS ephemeral-ca-transport-probe
-COPY qualification/release-os-packages.lock /native-input/native-lock.json
-COPY scripts/compile-release-native-selection.py /native-input/compile-native.py
-RUN python3 /native-input/compile-native.py --lock /native-input/native-lock.json --out /native-selection
+FROM --platform=linux/amd64 ${BASE_IMAGE} AS native-ubuntu-keyring
+FROM --platform=linux/amd64 docker.io/library/python@sha256:392307d22300de8b5986851a12d9176dfc0fc073e65bf6523ebd7dcbeb23564e AS native-signed-byte-reader
+COPY --from=native-ubuntu-keyring /usr/share/keyrings/ubuntu-archive-keyring.gpg /native-keyring.gpg
+COPY qualification/release-os-packages.lock /native-source/qualification/release-os-packages.lock
+COPY qualification/release-bootstrap-v1.json /native-source/qualification/release-bootstrap-v1.json
+COPY qualification/release-image-v1.json /native-source/qualification/release-image-v1.json
+COPY qualification/release-os-apt-selections-v1.txt /native-source/qualification/release-os-apt-selections-v1.txt
+COPY deploy/release/ubuntu.sources /native-source/deploy/release/ubuntu.sources
+COPY scripts/verify-release-native-index-chain.py /native-source/scripts/verify-release-native-index-chain.py
+COPY scripts/prepare-release-native-bundle.py /native-source/scripts/prepare-release-native-bundle.py
+COPY scripts/compile-release-native-selection.py /native-source/scripts/compile-release-native-selection.py
+COPY build/release2b2-native-bundle/ /signed-native-bundle/
+RUN python3 /native-source/scripts/prepare-release-native-bundle.py \
+      --root /native-source --bundle /signed-native-bundle --keyring /native-keyring.gpg && \
+    python3 /native-source/scripts/compile-release-native-selection.py \
+      --lock /native-source/qualification/release-os-packages.lock --out /native-selection
+
 FROM --platform=linux/amd64 ${BASE_IMAGE} AS signed-bootstrap-probe
-COPY --from=ephemeral-ca-transport-probe /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+COPY --from=native-signed-byte-reader /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+COPY --from=native-signed-byte-reader /native-selection/ /usr/local/share/release-native-lock/
+COPY --from=native-signed-byte-reader /signed-native-bundle/dists/ /opt/allfather-release/native-input/dists/
+COPY --from=native-signed-byte-reader /signed-native-bundle/evidence/bootstrap/ /native-evidence/
+COPY --from=native-signed-byte-reader /signed-native-bundle/archives/bootstrap/ /var/cache/apt/archives/
 COPY deploy/release/bootstrap.sources /etc/apt/sources.list.d/bootstrap.sources
-COPY --from=ephemeral-ca-transport-probe /native-selection/ /usr/local/share/release-native-lock/
 COPY deploy/release/preinstall-native-gate.sh /usr/local/bin/preinstall-native-gate
 COPY deploy/release/finalize-native-bootstrap.sh /usr/local/bin/finalize-native-bootstrap
-COPY deploy/release/install-pinned-apt.sh /usr/local/bin/install-pinned-apt
-COPY deploy/release/probe-native-bootstrap.sh /usr/local/bin/probe-native-bootstrap
-RUN /bin/sh /usr/local/bin/probe-native-bootstrap --acquire-only
-RUN --network=none /bin/sh /usr/local/bin/preinstall-native-gate bootstrap --install && \
+COPY deploy/release/verify-native-bundle-signatures.sh /usr/local/bin/verify-native-bundle-signatures
+RUN /bin/sh /usr/local/bin/verify-native-bundle-signatures && \
+    test "$(sha256sum /etc/ssl/certs/ca-certificates.crt | cut -d ' ' -f 1)" = \
+      '714d457d580922dbf1d0be8bd35ba236a842b50b0072ae791582a19adef772a5'
+RUN --network=none LC_ALL=C dpkg-query -W -f='${Package}=${Version}\n' | LC_ALL=C sort \
+      > /native-evidence/base-packages.txt && \
+    sha256sum /usr/share/keyrings/ubuntu-archive-keyring.gpg | cut -d ' ' -f 1 \
+      > /native-evidence/keyring.sha256 && \
+    sha256sum /etc/ssl/certs/ca-certificates.crt | cut -d ' ' -f 1 \
+      > /native-evidence/transport-ca.sha256 && \
+    /bin/sh /usr/local/bin/preinstall-native-gate bootstrap --install && \
     /bin/sh /usr/local/bin/finalize-native-bootstrap

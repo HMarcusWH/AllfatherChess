@@ -1,5 +1,5 @@
 """Exact pre-install native SHA gate: wrong bytes must never invoke apt."""
-import hashlib,os,subprocess,tempfile,unittest
+import hashlib,os,subprocess,tempfile,unittest,json
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[2]
 SCRIPT=ROOT/"deploy/release/preinstall-native-gate.sh"
@@ -14,6 +14,24 @@ class NativePreinstallTests(unittest.TestCase):
         self.assertEqual(len(files["runtime"].splitlines()),26)
         self.assertTrue(all(len(s.split("\t"))==5
                             for raw in files.values() for s in raw.splitlines()))
+    def test_signed_origin_candidates_cannot_change_under_same_deb_sha(self):
+        import importlib.util
+        spec=importlib.util.spec_from_file_location("native_compiler",COMPILER)
+        native=importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(native)
+        with tempfile.TemporaryDirectory() as td:
+            original=json.loads((ROOT/"qualification/release-os-packages.lock").read_text())
+            for mode in ("bad-signed-inrelease","bad-signed-index","bad-component"):
+                doc=json.loads(json.dumps(original))
+                origin=doc["bootstrap_acquired_debs"][0]["signed_origins"][0]
+                if mode=="bad-signed-inrelease": origin["inrelease_sha256"]="f"*64
+                elif mode=="bad-signed-index": origin["packages_index_sha256"]="not-hex"
+                else: origin["component"]="restricted"
+                candidate=Path(td)/"native.lock"
+                candidate.write_text(json.dumps(doc))
+                with self.subTest(mode=mode),self.assertRaises(ValueError):
+                    native.compile_lock(candidate)
+
     def fixture(self, folder):
         archive=folder/"archives";archive.mkdir()
         manifest=folder/"manifest";manifest.mkdir()

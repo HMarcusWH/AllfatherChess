@@ -169,8 +169,14 @@ def policy(root: Path = ROOT) -> tuple[dict, dict, dict]:
     # permission or substitute for independent signed index review.
     require(ca.get("deb_sha256") == "6bac2a01979e210d9eac1d4d56747ec709ea60654744d66705dc3c36e7629e50" and
             ca.get("trust_keyring_sha256") == "80a36b0a6de2f69f49d2df75ef473ccde121e9e190b9ea01d20a4f63778d5c31" and
-            ca.get("signed_packages_index_sha256") is None and
-            ca.get("signed_inrelease_sha256") is None and
+            ca.get("signed_packages_index_sha256") ==
+                next(r["signed_origins"][0]["packages_index_sha256"]
+                     for r in lock["bootstrap_acquired_debs"] if r["name"]=="ca-certificates") and
+            ca.get("signed_inrelease_sha256") ==
+                next(r["signed_origins"][0]["inrelease_sha256"]
+                     for r in lock["bootstrap_acquired_debs"] if r["name"]=="ca-certificates") and
+            ca.get("selected_source_suite")=="noble-updates" and
+            ca.get("selected_source_component")=="main" and
             b.get("observed_snapshot_inrelease_sha256") == {
                 "noble": "cdb2f31d809f589719a53c6ad15f255b27569c4059542ada282aaa21b8e164b0",
                 "noble-updates": "d640d63e6299600d21a60091db91fb11407c942ebf38ea408a1718bbaf156d80",

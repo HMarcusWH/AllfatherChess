@@ -88,6 +88,16 @@ class SignedNativeBootstrapTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     native.policy(root)
 
+    def test_bootstrap_ca_origin_anchored_to_signed_native_index(self):
+        b, n, lock=native.policy(ROOT)
+        ca=next(x for x in lock["bootstrap_acquired_debs"] if x["name"]=="ca-certificates")
+        origin=ca["signed_origins"][0]
+        self.assertEqual(b["candidate_ca"]["signed_packages_index_sha256"],
+                         origin["packages_index_sha256"])
+        self.assertEqual(b["candidate_ca"]["signed_inrelease_sha256"],
+                         origin["inrelease_sha256"])
+        self.assertFalse(b["bootstrap_hash_reviewed"])
+
     def test_os04_prohibits_unsigned_or_untrusted_source(self):
         with tempfile.TemporaryDirectory() as td:
             root=Path(td);self.mk_root(root)

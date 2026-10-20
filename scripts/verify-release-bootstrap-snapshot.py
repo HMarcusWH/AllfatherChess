@@ -295,7 +295,7 @@ def probe(root: Path, proof: Path) -> dict:
         require(name not in seen and expected_versions.get(name) == version and
                 architecture in ("amd64", "all") and
                 HEX.fullmatch(digest_hex) and
-                re.fullmatch(r"[A-Za-z0-9_.+%:-]+\\.deb", filename),
+                re.fullmatch(r"[A-Za-z0-9_.+%:-]+\.deb", filename),
                 "native acquired .deb identity/version drift")
         metadata = bounded(records / (name + ".txt")).decode("utf-8")
         require("Package: " + name + "\n" in metadata and

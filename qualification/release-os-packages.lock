@@ -228,182 +228,494 @@
       "architecture": "amd64",
       "filename": "libexpat1_2.6.1-2ubuntu0.6_amd64.deb",
       "sha256": "494b8e672f722130c6bca6a7bc4cc31a43ca891a31d60d868bfdd699a3c20b13",
-      "version": "2.6.1-2ubuntu0.6"
+      "version": "2.6.1-2ubuntu0.6",
+      "signed_origins": [
+        {
+          "archive_size": 98940,
+          "component": "main",
+          "inrelease_sha256": "d640d63e6299600d21a60091db91fb11407c942ebf38ea408a1718bbaf156d80",
+          "packages_index_path": "main/binary-amd64/Packages.xz",
+          "packages_index_sha256": "1f8e5657e0d7ea2b701acfcef0b6ea270b0f6a205a841bb719b3d321300878c5",
+          "packages_index_size": 1341696,
+          "pool_filename": "pool/main/e/expat/libexpat1_2.6.1-2ubuntu0.6_amd64.deb",
+          "suite": "noble-updates"
+        }
+      ]
     },
     {
       "name": "libgfortran5",
       "architecture": "amd64",
       "filename": "libgfortran5_14.2.0-4ubuntu2~24.04.1_amd64.deb",
       "sha256": "2b05896c477275ad3473bb63a5ac5a5b8a7e4a6ad6ed7cb23c442ccd1abc28f5",
-      "version": "14.2.0-4ubuntu2~24.04.1"
+      "version": "14.2.0-4ubuntu2~24.04.1",
+      "signed_origins": [
+        {
+          "archive_size": 916316,
+          "component": "main",
+          "inrelease_sha256": "d640d63e6299600d21a60091db91fb11407c942ebf38ea408a1718bbaf156d80",
+          "packages_index_path": "main/binary-amd64/Packages.xz",
+          "packages_index_sha256": "1f8e5657e0d7ea2b701acfcef0b6ea270b0f6a205a841bb719b3d321300878c5",
+          "packages_index_size": 1341696,
+          "pool_filename": "pool/main/g/gcc-14/libgfortran5_14.2.0-4ubuntu2~24.04.1_amd64.deb",
+          "suite": "noble-updates"
+        }
+      ]
     },
     {
       "name": "libgomp1",
       "architecture": "amd64",
       "filename": "libgomp1_14.2.0-4ubuntu2~24.04.1_amd64.deb",
       "sha256": "e8a95ec58125b4933597f30ff56c2ae10edf90f287262e366d4b6edea3019144",
-      "version": "14.2.0-4ubuntu2~24.04.1"
+      "version": "14.2.0-4ubuntu2~24.04.1",
+      "signed_origins": [
+        {
+          "archive_size": 148062,
+          "component": "main",
+          "inrelease_sha256": "d640d63e6299600d21a60091db91fb11407c942ebf38ea408a1718bbaf156d80",
+          "packages_index_path": "main/binary-amd64/Packages.xz",
+          "packages_index_sha256": "1f8e5657e0d7ea2b701acfcef0b6ea270b0f6a205a841bb719b3d321300878c5",
+          "packages_index_size": 1341696,
+          "pool_filename": "pool/main/g/gcc-14/libgomp1_14.2.0-4ubuntu2~24.04.1_amd64.deb",
+          "suite": "noble-updates"
+        }
+      ]
     },
     {
       "name": "libopenblas0-pthread",
       "architecture": "amd64",
       "filename": "libopenblas0-pthread_0.3.26+ds-1ubuntu0.1_amd64.deb",
       "sha256": "7dc3b4384c02aecb87eb8b70fa26c5843a08af242f4638aa4b36922bdc4f5b04",
-      "version": "0.3.26+ds-1ubuntu0.1"
+      "version": "0.3.26+ds-1ubuntu0.1",
+      "signed_origins": [
+        {
+          "archive_size": 7183128,
+          "component": "universe",
+          "inrelease_sha256": "d640d63e6299600d21a60091db91fb11407c942ebf38ea408a1718bbaf156d80",
+          "packages_index_path": "universe/binary-amd64/Packages.xz",
+          "packages_index_sha256": "05fbd38a074570b65a932043204bc43baec6e08cd96ef611d015afbcc0ecaac1",
+          "packages_index_size": 1699404,
+          "pool_filename": "pool/universe/o/openblas/libopenblas0-pthread_0.3.26+ds-1ubuntu0.1_amd64.deb",
+          "suite": "noble-updates"
+        }
+      ]
     },
     {
       "name": "libprotobuf32t64",
       "architecture": "amd64",
       "filename": "libprotobuf32t64_3.21.12-8.2ubuntu0.3_amd64.deb",
       "sha256": "0b0dd45060288fbe5505b4b3c86e6222d6f4214574f653b2a7d0bbe72d5c6d87",
-      "version": "3.21.12-8.2ubuntu0.3"
+      "version": "3.21.12-8.2ubuntu0.3",
+      "signed_origins": [
+        {
+          "archive_size": 922638,
+          "component": "main",
+          "inrelease_sha256": "d640d63e6299600d21a60091db91fb11407c942ebf38ea408a1718bbaf156d80",
+          "packages_index_path": "main/binary-amd64/Packages.xz",
+          "packages_index_sha256": "1f8e5657e0d7ea2b701acfcef0b6ea270b0f6a205a841bb719b3d321300878c5",
+          "packages_index_size": 1341696,
+          "pool_filename": "pool/main/p/protobuf/libprotobuf32t64_3.21.12-8.2ubuntu0.3_amd64.deb",
+          "suite": "noble-updates"
+        }
+      ]
     },
     {
       "name": "libpython3-stdlib",
       "architecture": "amd64",
       "filename": "libpython3-stdlib_3.12.3-0ubuntu2.1_amd64.deb",
       "sha256": "57ebb378c59d2f9ef479bee0abc933c560878cc10e2c3af8e05d6fdb2ed63da4",
-      "version": "3.12.3-0ubuntu2.1"
+      "version": "3.12.3-0ubuntu2.1",
+      "signed_origins": [
+        {
+          "archive_size": 10080,
+          "component": "main",
+          "inrelease_sha256": "d640d63e6299600d21a60091db91fb11407c942ebf38ea408a1718bbaf156d80",
+          "packages_index_path": "main/binary-amd64/Packages.xz",
+          "packages_index_sha256": "1f8e5657e0d7ea2b701acfcef0b6ea270b0f6a205a841bb719b3d321300878c5",
+          "packages_index_size": 1341696,
+          "pool_filename": "pool/main/p/python3-defaults/libpython3-stdlib_3.12.3-0ubuntu2.1_amd64.deb",
+          "suite": "noble-updates"
+        }
+      ]
     },
     {
       "name": "libpython3.12-minimal",
       "architecture": "amd64",
       "filename": "libpython3.12-minimal_3.12.3-1ubuntu0.17_amd64.deb",
       "sha256": "d646ad7112b5adec21ba0e1af015f04ae8ca7f5efdc619622547dd6673c4c14b",
-      "version": "3.12.3-1ubuntu0.17"
+      "version": "3.12.3-1ubuntu0.17",
+      "signed_origins": [
+        {
+          "archive_size": 838536,
+          "component": "main",
+          "inrelease_sha256": "d640d63e6299600d21a60091db91fb11407c942ebf38ea408a1718bbaf156d80",
+          "packages_index_path": "main/binary-amd64/Packages.xz",
+          "packages_index_sha256": "1f8e5657e0d7ea2b701acfcef0b6ea270b0f6a205a841bb719b3d321300878c5",
+          "packages_index_size": 1341696,
+          "pool_filename": "pool/main/p/python3.12/libpython3.12-minimal_3.12.3-1ubuntu0.17_amd64.deb",
+          "suite": "noble-updates"
+        }
+      ]
     },
     {
       "name": "libpython3.12-stdlib",
       "architecture": "amd64",
       "filename": "libpython3.12-stdlib_3.12.3-1ubuntu0.17_amd64.deb",
       "sha256": "45d3f530ba1f9d6e879ad46b92046fabab13fe50a82450e4f65557a3bbad1489",
-      "version": "3.12.3-1ubuntu0.17"
+      "version": "3.12.3-1ubuntu0.17",
+      "signed_origins": [
+        {
+          "archive_size": 2070530,
+          "component": "main",
+          "inrelease_sha256": "d640d63e6299600d21a60091db91fb11407c942ebf38ea408a1718bbaf156d80",
+          "packages_index_path": "main/binary-amd64/Packages.xz",
+          "packages_index_sha256": "1f8e5657e0d7ea2b701acfcef0b6ea270b0f6a205a841bb719b3d321300878c5",
+          "packages_index_size": 1341696,
+          "pool_filename": "pool/main/p/python3.12/libpython3.12-stdlib_3.12.3-1ubuntu0.17_amd64.deb",
+          "suite": "noble-updates"
+        }
+      ]
     },
     {
       "name": "libreadline8t64",
       "architecture": "amd64",
       "filename": "libreadline8t64_8.2-4build1_amd64.deb",
       "sha256": "563977a16df03b611f5239cc1e9a0426e86479fcc616b5c9e200ea32063119e5",
-      "version": "8.2-4build1"
+      "version": "8.2-4build1",
+      "signed_origins": [
+        {
+          "archive_size": 152856,
+          "component": "main",
+          "inrelease_sha256": "cdb2f31d809f589719a53c6ad15f255b27569c4059542ada282aaa21b8e164b0",
+          "packages_index_path": "main/binary-amd64/Packages.xz",
+          "packages_index_sha256": "2a6a199e1031a5c279cb346646d594993f35b1c03dd4a82aaa0323980dd92451",
+          "packages_index_size": 1401160,
+          "pool_filename": "pool/main/r/readline/libreadline8t64_8.2-4build1_amd64.deb",
+          "suite": "noble"
+        }
+      ]
     },
     {
       "name": "libsqlite3-0",
       "architecture": "amd64",
       "filename": "libsqlite3-0_3.45.1-1ubuntu2.8_amd64.deb",
       "sha256": "b1190bb72359f5fcc47406aa46065eaf4f1ca208085c51224a52b04bedc0b4bb",
-      "version": "3.45.1-1ubuntu2.8"
+      "version": "3.45.1-1ubuntu2.8",
+      "signed_origins": [
+        {
+          "archive_size": 701602,
+          "component": "main",
+          "inrelease_sha256": "d640d63e6299600d21a60091db91fb11407c942ebf38ea408a1718bbaf156d80",
+          "packages_index_path": "main/binary-amd64/Packages.xz",
+          "packages_index_sha256": "1f8e5657e0d7ea2b701acfcef0b6ea270b0f6a205a841bb719b3d321300878c5",
+          "packages_index_size": 1341696,
+          "pool_filename": "pool/main/s/sqlite3/libsqlite3-0_3.45.1-1ubuntu2.8_amd64.deb",
+          "suite": "noble-updates"
+        }
+      ]
     },
     {
       "name": "media-types",
       "architecture": "all",
       "filename": "media-types_10.1.0_all.deb",
       "sha256": "31bfb7eec55ab6d34a50ba995150e1498d4cb897714085d8025e330d3b529747",
-      "version": "10.1.0"
+      "version": "10.1.0",
+      "signed_origins": [
+        {
+          "archive_size": 27474,
+          "component": "main",
+          "inrelease_sha256": "cdb2f31d809f589719a53c6ad15f255b27569c4059542ada282aaa21b8e164b0",
+          "packages_index_path": "main/binary-amd64/Packages.xz",
+          "packages_index_sha256": "2a6a199e1031a5c279cb346646d594993f35b1c03dd4a82aaa0323980dd92451",
+          "packages_index_size": 1401160,
+          "pool_filename": "pool/main/m/media-types/media-types_10.1.0_all.deb",
+          "suite": "noble"
+        }
+      ]
     },
     {
       "name": "netbase",
       "architecture": "all",
       "filename": "netbase_6.4_all.deb",
       "sha256": "8cdbc9c3dca01e660759bf9d840f72e45ac72faf5d19ca1faecacaf6a60c1a87",
-      "version": "6.4"
+      "version": "6.4",
+      "signed_origins": [
+        {
+          "archive_size": 13112,
+          "component": "main",
+          "inrelease_sha256": "cdb2f31d809f589719a53c6ad15f255b27569c4059542ada282aaa21b8e164b0",
+          "packages_index_path": "main/binary-amd64/Packages.xz",
+          "packages_index_sha256": "2a6a199e1031a5c279cb346646d594993f35b1c03dd4a82aaa0323980dd92451",
+          "packages_index_size": 1401160,
+          "pool_filename": "pool/main/n/netbase/netbase_6.4_all.deb",
+          "suite": "noble"
+        }
+      ]
     },
     {
       "name": "python3",
       "architecture": "amd64",
       "filename": "python3_3.12.3-0ubuntu2.1_amd64.deb",
       "sha256": "e691b9cc40841c41bbdc50bd794c876cb1b1801306ea27b06e9a1458180df1e9",
-      "version": "3.12.3-0ubuntu2.1"
+      "version": "3.12.3-0ubuntu2.1",
+      "signed_origins": [
+        {
+          "archive_size": 23004,
+          "component": "main",
+          "inrelease_sha256": "d640d63e6299600d21a60091db91fb11407c942ebf38ea408a1718bbaf156d80",
+          "packages_index_path": "main/binary-amd64/Packages.xz",
+          "packages_index_sha256": "1f8e5657e0d7ea2b701acfcef0b6ea270b0f6a205a841bb719b3d321300878c5",
+          "packages_index_size": 1341696,
+          "pool_filename": "pool/main/p/python3-defaults/python3_3.12.3-0ubuntu2.1_amd64.deb",
+          "suite": "noble-updates"
+        }
+      ]
     },
     {
       "name": "python3-minimal",
       "architecture": "amd64",
       "filename": "python3-minimal_3.12.3-0ubuntu2.1_amd64.deb",
       "sha256": "9ba5dd55cdcf6121c147dc5cb87403169b5933e3a56da0de57774f2ce819cf06",
-      "version": "3.12.3-0ubuntu2.1"
+      "version": "3.12.3-0ubuntu2.1",
+      "signed_origins": [
+        {
+          "archive_size": 27442,
+          "component": "main",
+          "inrelease_sha256": "d640d63e6299600d21a60091db91fb11407c942ebf38ea408a1718bbaf156d80",
+          "packages_index_path": "main/binary-amd64/Packages.xz",
+          "packages_index_sha256": "1f8e5657e0d7ea2b701acfcef0b6ea270b0f6a205a841bb719b3d321300878c5",
+          "packages_index_size": 1341696,
+          "pool_filename": "pool/main/p/python3-defaults/python3-minimal_3.12.3-0ubuntu2.1_amd64.deb",
+          "suite": "noble-updates"
+        }
+      ]
     },
     {
       "name": "python3-pip",
       "architecture": "all",
       "filename": "python3-pip_24.0+dfsg-1ubuntu1.3_all.deb",
       "sha256": "4e1af0b6f0b52c847ffa7b192b9f650845b99ff300138af05ab9a6252eb75682",
-      "version": "24.0+dfsg-1ubuntu1.3"
+      "version": "24.0+dfsg-1ubuntu1.3",
+      "signed_origins": [
+        {
+          "archive_size": 1319940,
+          "component": "universe",
+          "inrelease_sha256": "d640d63e6299600d21a60091db91fb11407c942ebf38ea408a1718bbaf156d80",
+          "packages_index_path": "universe/binary-amd64/Packages.xz",
+          "packages_index_sha256": "05fbd38a074570b65a932043204bc43baec6e08cd96ef611d015afbcc0ecaac1",
+          "packages_index_size": 1699404,
+          "pool_filename": "pool/universe/p/python-pip/python3-pip_24.0+dfsg-1ubuntu1.3_all.deb",
+          "suite": "noble-updates"
+        }
+      ]
     },
     {
       "name": "python3-pip-whl",
       "architecture": "all",
       "filename": "python3-pip-whl_24.0+dfsg-1ubuntu1.3_all.deb",
       "sha256": "4b7c50db8f261b208c1d9cde8db148c1f682cc516957b986ada5088cfcee1359",
-      "version": "24.0+dfsg-1ubuntu1.3"
+      "version": "24.0+dfsg-1ubuntu1.3",
+      "signed_origins": [
+        {
+          "archive_size": 1706638,
+          "component": "universe",
+          "inrelease_sha256": "d640d63e6299600d21a60091db91fb11407c942ebf38ea408a1718bbaf156d80",
+          "packages_index_path": "universe/binary-amd64/Packages.xz",
+          "packages_index_sha256": "05fbd38a074570b65a932043204bc43baec6e08cd96ef611d015afbcc0ecaac1",
+          "packages_index_size": 1699404,
+          "pool_filename": "pool/universe/p/python-pip/python3-pip-whl_24.0+dfsg-1ubuntu1.3_all.deb",
+          "suite": "noble-updates"
+        }
+      ]
     },
     {
       "name": "python3-pkg-resources",
       "architecture": "all",
       "filename": "python3-pkg-resources_68.1.2-2ubuntu1.2_all.deb",
       "sha256": "13caaa69d5ba8b02e90087d4bcef714c0581e591e820804d15d12f582055147a",
-      "version": "68.1.2-2ubuntu1.2"
+      "version": "68.1.2-2ubuntu1.2",
+      "signed_origins": [
+        {
+          "archive_size": 167914,
+          "component": "main",
+          "inrelease_sha256": "d640d63e6299600d21a60091db91fb11407c942ebf38ea408a1718bbaf156d80",
+          "packages_index_path": "main/binary-amd64/Packages.xz",
+          "packages_index_sha256": "1f8e5657e0d7ea2b701acfcef0b6ea270b0f6a205a841bb719b3d321300878c5",
+          "packages_index_size": 1341696,
+          "pool_filename": "pool/main/s/setuptools/python3-pkg-resources_68.1.2-2ubuntu1.2_all.deb",
+          "suite": "noble-updates"
+        }
+      ]
     },
     {
       "name": "python3-setuptools",
       "architecture": "all",
       "filename": "python3-setuptools_68.1.2-2ubuntu1.2_all.deb",
       "sha256": "27ede03d8c5046c30cf1dcdc8835708408d27bdd3561e881b5d66656e6ff23e7",
-      "version": "68.1.2-2ubuntu1.2"
+      "version": "68.1.2-2ubuntu1.2",
+      "signed_origins": [
+        {
+          "archive_size": 396614,
+          "component": "main",
+          "inrelease_sha256": "d640d63e6299600d21a60091db91fb11407c942ebf38ea408a1718bbaf156d80",
+          "packages_index_path": "main/binary-amd64/Packages.xz",
+          "packages_index_sha256": "1f8e5657e0d7ea2b701acfcef0b6ea270b0f6a205a841bb719b3d321300878c5",
+          "packages_index_size": 1341696,
+          "pool_filename": "pool/main/s/setuptools/python3-setuptools_68.1.2-2ubuntu1.2_all.deb",
+          "suite": "noble-updates"
+        }
+      ]
     },
     {
       "name": "python3-setuptools-whl",
       "architecture": "all",
       "filename": "python3-setuptools-whl_68.1.2-2ubuntu1.2_all.deb",
       "sha256": "edfa94cc1f6a33af99cfaf6ebfe35dbcd9c4bdd8555b90c0d8e78479faf5c8f0",
-      "version": "68.1.2-2ubuntu1.2"
+      "version": "68.1.2-2ubuntu1.2",
+      "signed_origins": [
+        {
+          "archive_size": 716284,
+          "component": "universe",
+          "inrelease_sha256": "d640d63e6299600d21a60091db91fb11407c942ebf38ea408a1718bbaf156d80",
+          "packages_index_path": "universe/binary-amd64/Packages.xz",
+          "packages_index_sha256": "05fbd38a074570b65a932043204bc43baec6e08cd96ef611d015afbcc0ecaac1",
+          "packages_index_size": 1699404,
+          "pool_filename": "pool/universe/s/setuptools/python3-setuptools-whl_68.1.2-2ubuntu1.2_all.deb",
+          "suite": "noble-updates"
+        }
+      ]
     },
     {
       "name": "python3-venv",
       "architecture": "amd64",
       "filename": "python3-venv_3.12.3-0ubuntu2.1_amd64.deb",
       "sha256": "16d50387b7656796b79e2c059d06774dfe9fe3f42808d8d50b332ceb780f508a",
-      "version": "3.12.3-0ubuntu2.1"
+      "version": "3.12.3-0ubuntu2.1",
+      "signed_origins": [
+        {
+          "archive_size": 1032,
+          "component": "universe",
+          "inrelease_sha256": "d640d63e6299600d21a60091db91fb11407c942ebf38ea408a1718bbaf156d80",
+          "packages_index_path": "universe/binary-amd64/Packages.xz",
+          "packages_index_sha256": "05fbd38a074570b65a932043204bc43baec6e08cd96ef611d015afbcc0ecaac1",
+          "packages_index_size": 1699404,
+          "pool_filename": "pool/universe/p/python3-defaults/python3-venv_3.12.3-0ubuntu2.1_amd64.deb",
+          "suite": "noble-updates"
+        }
+      ]
     },
     {
       "name": "python3-wheel",
       "architecture": "all",
       "filename": "python3-wheel_0.42.0-2_all.deb",
       "sha256": "e1a4076425d3d1f1772b11bff6a025055723b2d0a4972f9519849ddaa8cd3953",
-      "version": "0.42.0-2"
+      "version": "0.42.0-2",
+      "signed_origins": [
+        {
+          "archive_size": 53052,
+          "component": "universe",
+          "inrelease_sha256": "cdb2f31d809f589719a53c6ad15f255b27569c4059542ada282aaa21b8e164b0",
+          "packages_index_path": "universe/binary-amd64/Packages.xz",
+          "packages_index_sha256": "ba9057fa1b91438cc8a1d26808d00c85389fe101d0c1496254df97236405599a",
+          "packages_index_size": 15037908,
+          "pool_filename": "pool/universe/w/wheel/python3-wheel_0.42.0-2_all.deb",
+          "suite": "noble"
+        }
+      ]
     },
     {
       "name": "python3.12",
       "architecture": "amd64",
       "filename": "python3.12_3.12.3-1ubuntu0.17_amd64.deb",
       "sha256": "6745c9463432e619d7402b117ad4ac86c31dcd3999ba20daa9e395f6f9909d86",
-      "version": "3.12.3-1ubuntu0.17"
+      "version": "3.12.3-1ubuntu0.17",
+      "signed_origins": [
+        {
+          "archive_size": 650732,
+          "component": "main",
+          "inrelease_sha256": "d640d63e6299600d21a60091db91fb11407c942ebf38ea408a1718bbaf156d80",
+          "packages_index_path": "main/binary-amd64/Packages.xz",
+          "packages_index_sha256": "1f8e5657e0d7ea2b701acfcef0b6ea270b0f6a205a841bb719b3d321300878c5",
+          "packages_index_size": 1341696,
+          "pool_filename": "pool/main/p/python3.12/python3.12_3.12.3-1ubuntu0.17_amd64.deb",
+          "suite": "noble-updates"
+        }
+      ]
     },
     {
       "name": "python3.12-minimal",
       "architecture": "amd64",
       "filename": "python3.12-minimal_3.12.3-1ubuntu0.17_amd64.deb",
       "sha256": "d452689b9660845345a4c3e05e4ad82c082d5474e04031b7aa47f1a6d5610a6e",
-      "version": "3.12.3-1ubuntu0.17"
+      "version": "3.12.3-1ubuntu0.17",
+      "signed_origins": [
+        {
+          "archive_size": 2334634,
+          "component": "main",
+          "inrelease_sha256": "d640d63e6299600d21a60091db91fb11407c942ebf38ea408a1718bbaf156d80",
+          "packages_index_path": "main/binary-amd64/Packages.xz",
+          "packages_index_sha256": "1f8e5657e0d7ea2b701acfcef0b6ea270b0f6a205a841bb719b3d321300878c5",
+          "packages_index_size": 1341696,
+          "pool_filename": "pool/main/p/python3.12/python3.12-minimal_3.12.3-1ubuntu0.17_amd64.deb",
+          "suite": "noble-updates"
+        }
+      ]
     },
     {
       "name": "python3.12-venv",
       "architecture": "amd64",
       "filename": "python3.12-venv_3.12.3-1ubuntu0.17_amd64.deb",
       "sha256": "b8d4bfea3df63945b6a202bd0773caf7727dde86d2df91df6e88a8ccf7c18b7e",
-      "version": "3.12.3-1ubuntu0.17"
+      "version": "3.12.3-1ubuntu0.17",
+      "signed_origins": [
+        {
+          "archive_size": 5684,
+          "component": "universe",
+          "inrelease_sha256": "d640d63e6299600d21a60091db91fb11407c942ebf38ea408a1718bbaf156d80",
+          "packages_index_path": "universe/binary-amd64/Packages.xz",
+          "packages_index_sha256": "05fbd38a074570b65a932043204bc43baec6e08cd96ef611d015afbcc0ecaac1",
+          "packages_index_size": 1699404,
+          "pool_filename": "pool/universe/p/python3.12/python3.12-venv_3.12.3-1ubuntu0.17_amd64.deb",
+          "suite": "noble-updates"
+        }
+      ]
     },
     {
       "name": "readline-common",
       "architecture": "all",
       "filename": "readline-common_8.2-4build1_all.deb",
       "sha256": "879bfd7f8a9bc4c0f7cdc777cdd8bc6de5f8c4a2ac80c060322a1b22f13504bb",
-      "version": "8.2-4build1"
+      "version": "8.2-4build1",
+      "signed_origins": [
+        {
+          "archive_size": 56484,
+          "component": "main",
+          "inrelease_sha256": "cdb2f31d809f589719a53c6ad15f255b27569c4059542ada282aaa21b8e164b0",
+          "packages_index_path": "main/binary-amd64/Packages.xz",
+          "packages_index_sha256": "2a6a199e1031a5c279cb346646d594993f35b1c03dd4a82aaa0323980dd92451",
+          "packages_index_size": 1401160,
+          "pool_filename": "pool/main/r/readline/readline-common_8.2-4build1_all.deb",
+          "suite": "noble"
+        }
+      ]
     },
     {
       "name": "tzdata",
       "architecture": "all",
       "filename": "tzdata_2026c-0ubuntu0.24.04.1_all.deb",
       "sha256": "ef12c9ef81905b5ac558504b2f8c20da9be5f28861020b3fb5e8b15fb3fae2f6",
-      "version": "2026c-0ubuntu0.24.04.1"
+      "version": "2026c-0ubuntu0.24.04.1",
+      "signed_origins": [
+        {
+          "archive_size": 279816,
+          "component": "main",
+          "inrelease_sha256": "d640d63e6299600d21a60091db91fb11407c942ebf38ea408a1718bbaf156d80",
+          "packages_index_path": "main/binary-amd64/Packages.xz",
+          "packages_index_sha256": "1f8e5657e0d7ea2b701acfcef0b6ea270b0f6a205a841bb719b3d321300878c5",
+          "packages_index_size": 1341696,
+          "pool_filename": "pool/main/t/tzdata/tzdata_2026c-0ubuntu0.24.04.1_all.deb",
+          "suite": "noble-updates"
+        }
+      ]
     }
   ],
   "signed_index_evidence": {
@@ -429,7 +741,52 @@
     "apt_signature_checks": "gpgv and signed APT index metadata in pinned builder",
     "third_party_attested": false,
     "independently_reviewed": false,
-    "candidate_only": true
+    "candidate_only": true,
+    "verified_packages_index_candidates": [
+      {
+        "suite": "noble-updates",
+        "component": "main",
+        "packages_index_path": "main/binary-amd64/Packages.xz",
+        "packages_index_sha256": "1f8e5657e0d7ea2b701acfcef0b6ea270b0f6a205a841bb719b3d321300878c5",
+        "packages_index_size": 1341696,
+        "inrelease_sha256": "d640d63e6299600d21a60091db91fb11407c942ebf38ea408a1718bbaf156d80"
+      },
+      {
+        "suite": "noble-updates",
+        "component": "universe",
+        "packages_index_path": "universe/binary-amd64/Packages.xz",
+        "packages_index_sha256": "05fbd38a074570b65a932043204bc43baec6e08cd96ef611d015afbcc0ecaac1",
+        "packages_index_size": 1699404,
+        "inrelease_sha256": "d640d63e6299600d21a60091db91fb11407c942ebf38ea408a1718bbaf156d80"
+      },
+      {
+        "suite": "noble",
+        "component": "main",
+        "packages_index_path": "main/binary-amd64/Packages.xz",
+        "packages_index_sha256": "2a6a199e1031a5c279cb346646d594993f35b1c03dd4a82aaa0323980dd92451",
+        "packages_index_size": 1401160,
+        "inrelease_sha256": "cdb2f31d809f589719a53c6ad15f255b27569c4059542ada282aaa21b8e164b0"
+      },
+      {
+        "suite": "noble",
+        "component": "universe",
+        "packages_index_path": "universe/binary-amd64/Packages.xz",
+        "packages_index_sha256": "ba9057fa1b91438cc8a1d26808d00c85389fe101d0c1496254df97236405599a",
+        "packages_index_size": 15037908,
+        "inrelease_sha256": "cdb2f31d809f589719a53c6ad15f255b27569c4059542ada282aaa21b8e164b0"
+      }
+    ],
+    "origin_observation": {
+      "source_commit": "2e0d0b18dd38fe4e22ef3f21da4ace2aec7615e5",
+      "workflow_run_id": 39431452612,
+      "job_id": 118657492401,
+      "artifact_id": 12268546280,
+      "exact_package_count": 29,
+      "verified_index_count": 4,
+      "third_party_attested": false,
+      "independently_reviewed": false,
+      "candidate_only": true
+    }
   },
   "base_inventory_measured": true,
   "acquired_package_hashes_measured": true,
@@ -555,21 +912,57 @@
       "architecture": "all",
       "filename": "ca-certificates_20260601~24.04.1_all.deb",
       "sha256": "6bac2a01979e210d9eac1d4d56747ec709ea60654744d66705dc3c36e7629e50",
-      "version": "20260601~24.04.1"
+      "version": "20260601~24.04.1",
+      "signed_origins": [
+        {
+          "archive_size": 139430,
+          "component": "main",
+          "inrelease_sha256": "d640d63e6299600d21a60091db91fb11407c942ebf38ea408a1718bbaf156d80",
+          "packages_index_path": "main/binary-amd64/Packages.xz",
+          "packages_index_sha256": "1f8e5657e0d7ea2b701acfcef0b6ea270b0f6a205a841bb719b3d321300878c5",
+          "packages_index_size": 1341696,
+          "pool_filename": "pool/main/c/ca-certificates/ca-certificates_20260601~24.04.1_all.deb",
+          "suite": "noble-updates"
+        }
+      ]
     },
     {
       "name": "libssl3t64",
       "architecture": "amd64",
       "filename": "libssl3t64_3.0.13-0ubuntu3.16_amd64.deb",
       "sha256": "219f43b1cd836a4da550938db5fda93160d269d39a4edcf1f1ce698a470db797",
-      "version": "3.0.13-0ubuntu3.16"
+      "version": "3.0.13-0ubuntu3.16",
+      "signed_origins": [
+        {
+          "archive_size": 1945300,
+          "component": "main",
+          "inrelease_sha256": "d640d63e6299600d21a60091db91fb11407c942ebf38ea408a1718bbaf156d80",
+          "packages_index_path": "main/binary-amd64/Packages.xz",
+          "packages_index_sha256": "1f8e5657e0d7ea2b701acfcef0b6ea270b0f6a205a841bb719b3d321300878c5",
+          "packages_index_size": 1341696,
+          "pool_filename": "pool/main/o/openssl/libssl3t64_3.0.13-0ubuntu3.16_amd64.deb",
+          "suite": "noble-updates"
+        }
+      ]
     },
     {
       "name": "openssl",
       "architecture": "amd64",
       "filename": "openssl_3.0.13-0ubuntu3.16_amd64.deb",
       "sha256": "675b84971ffd4467707008c25ef7520f90ea7c23ef27b7a76b0dccf1d7c4dc3f",
-      "version": "3.0.13-0ubuntu3.16"
+      "version": "3.0.13-0ubuntu3.16",
+      "signed_origins": [
+        {
+          "archive_size": 1003702,
+          "component": "main",
+          "inrelease_sha256": "d640d63e6299600d21a60091db91fb11407c942ebf38ea408a1718bbaf156d80",
+          "packages_index_path": "main/binary-amd64/Packages.xz",
+          "packages_index_sha256": "1f8e5657e0d7ea2b701acfcef0b6ea270b0f6a205a841bb719b3d321300878c5",
+          "packages_index_size": 1341696,
+          "pool_filename": "pool/main/o/openssl/openssl_3.0.13-0ubuntu3.16_amd64.deb",
+          "suite": "noble-updates"
+        }
+      ]
     }
   ],
   "observed_runtime_acquisition": {

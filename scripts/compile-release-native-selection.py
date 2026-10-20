@@ -39,8 +39,8 @@ def compile_lock(path):
         check(len(delta)==n and type(records) is list and len(records)==n,"native .deb closure incomplete")
         entries=[]
         for x in records:
-            check(type(x) is dict and set(x)=={"name","version","architecture","sha256","filename"},
-                  "native record schema invalid")
+            check(type(x) is dict and set(x)=={"name","version","architecture","sha256","filename","signed_origins"},
+                  "native record schema invalid or source origin absent")
             package=x["name"];version=x["version"];arch=x["architecture"];sha=x["sha256"];filename=x["filename"]
             check(type(package) is str and NAME.fullmatch(package) and
                   type(version) is str and VER.fullmatch(version) and delta.get(package)==version and
@@ -48,6 +48,33 @@ def compile_lock(path):
                   type(filename) is str and DEB.fullmatch(filename) and
                   filename.startswith(package+"_") and filename.endswith("_"+arch+".deb"),
                   "native .deb identity/sha mismatch")
+            origins=x["signed_origins"]
+            check(type(origins) is list and len(origins)==1 and
+                  type(origins[0]) is dict and
+                  set(origins[0])=={"suite","component","packages_index_path",
+                                    "packages_index_sha256","packages_index_size",
+                                    "inrelease_sha256","pool_filename","archive_size"},
+                  "native package must have one fully identified signed candidate origin")
+            origin=origins[0]
+            sources=d["signed_index_evidence"]["runtime_inrelease_sha256_lines"]
+            known={line.split("  ")[1].split("_dists_")[1].removesuffix("_InRelease"):line[:64]
+                   for line in sources}
+            check(origin["suite"] in known and
+                  origin["inrelease_sha256"]==known[origin["suite"]] and
+                  origin["component"] in ("main","universe") and
+                  origin["packages_index_path"]==
+                    origin["component"]+"/binary-amd64/Packages.xz" and
+                  type(origin["packages_index_sha256"]) is str and
+                  HEX.fullmatch(origin["packages_index_sha256"]) and
+                  type(origin["packages_index_size"]) is int and
+                  origin["packages_index_size"]>0 and
+                  type(origin["archive_size"]) is int and
+                  origin["archive_size"]>0 and
+                  type(origin["pool_filename"]) is str and
+                  origin["pool_filename"].startswith("pool/") and
+                  origin["pool_filename"].endswith("/"+filename) and
+                  ".." not in origin["pool_filename"].split("/"),
+                  "native candidate package lacks source-locked signed index")
             entries.append((package,version,arch,sha,filename))
         entries.sort()
         check([e[0] for e in entries]==sorted(delta) and

@@ -11,9 +11,11 @@
     "version": "20260601~24.04.1",
     "architecture": "all",
     "deb_sha256": "6bac2a01979e210d9eac1d4d56747ec709ea60654744d66705dc3c36e7629e50",
-    "signed_packages_index_sha256": null,
-    "signed_inrelease_sha256": null,
-    "trust_keyring_sha256": "80a36b0a6de2f69f49d2df75ef473ccde121e9e190b9ea01d20a4f63778d5c31"
+    "signed_packages_index_sha256": "1f8e5657e0d7ea2b701acfcef0b6ea270b0f6a205a841bb719b3d321300878c5",
+    "signed_inrelease_sha256": "d640d63e6299600d21a60091db91fb11407c942ebf38ea408a1718bbaf156d80",
+    "trust_keyring_sha256": "80a36b0a6de2f69f49d2df75ef473ccde121e9e190b9ea01d20a4f63778d5c31",
+    "selected_source_suite": "noble-updates",
+    "selected_source_component": "main"
   },
   "bootstrap_snapshot_proved": false,
   "bootstrap_hash_reviewed": false,

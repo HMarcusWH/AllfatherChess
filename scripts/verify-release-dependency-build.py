@@ -88,7 +88,7 @@ def ledger(directory: Path, filename: str, evidence_subdir: str,
         name,version,architecture,sha,filename=cols
         require(name not in result and delta.get(name)==version and
                 architecture in ("amd64","all") and DIGEST.fullmatch(sha) and
-                re.fullmatch(r"[A-Za-z0-9_.+%:-]+\.deb",filename),
+                re.fullmatch(r"[A-Za-z0-9_.+%:~-]+\.deb",filename),
                 "downloaded native package version/hash format mismatch")
         record=bounded(indexed/(name+".txt")).decode("utf-8")
         for needle in ("Package: "+name+"\n","Version: "+version+"\n",

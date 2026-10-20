@@ -2,8 +2,8 @@
 # Ephemeral diagnostics only: use pinned RELEASE-2B-1 Python builder's
 # certificate bundle solely to test the signed archive path after TLS trust.
 # The helper image/trust bundle is NOT approved for the actual release.
-FROM --platform=linux/amd64 docker.io/library/python@sha256:392307d22300de8b5986851a12d9176dfc0fc073e65bf6523ebd7dcbeb23564e AS ephemeral-ca-transport-probe
 ARG BASE_IMAGE
+FROM --platform=linux/amd64 docker.io/library/python@sha256:392307d22300de8b5986851a12d9176dfc0fc073e65bf6523ebd7dcbeb23564e AS ephemeral-ca-transport-probe
 FROM --platform=linux/amd64 ${BASE_IMAGE} AS signed-bootstrap-probe
 COPY --from=ephemeral-ca-transport-probe /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY deploy/release/bootstrap.sources /etc/apt/sources.list.d/bootstrap.sources

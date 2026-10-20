@@ -148,6 +148,17 @@ def policy(root: Path = ROOT) -> tuple[dict, dict, dict]:
             "source role/path differs from policy")
     stanzas(root / b["source_path"], transport="http", snapshot=SNAPSHOT)
     stanzas(root / n["runtime_source"], transport="https", snapshot=SNAPSHOT)
+    # A pinned foreign-image CA is a diagnostic TLS transport experiment,
+    # never independent signature/provenance or production trust approval.
+    transient = b.get("experimental_tls_transport_ca")
+    builder = read_json(root / "qualification/release-python-builder-v1.json")
+    require(type(transient) is dict and
+            transient.get("reference") == builder.get("image_ref") and
+            transient.get("source_path") == "/etc/ssl/certs/ca-certificates.crt" and
+            transient.get("expected_source_file_sha256") is None and
+            transient.get("trust_source_reviewed") is False and
+            transient.get("actual_release_inclusion_authorized") is False,
+            "unreviewed bootstrap TLS transport authority")
     ca = b.get("candidate_ca", {})
     require(ca.get("package") == "ca-certificates" and
             ca.get("architecture") == "all" and

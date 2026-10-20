@@ -20,5 +20,12 @@
   "source_acquisition_signatures_independently_verified": false,
   "public_bot_release": false,
   "artifact_distribution_authorized": false,
-  "offline_candidate_qualified": false
+  "offline_candidate_qualified": false,
+  "experimental_tls_transport_ca": {
+    "reference": "docker.io/library/python@sha256:392307d22300de8b5986851a12d9176dfc0fc073e65bf6523ebd7dcbeb23564e",
+    "source_path": "/etc/ssl/certs/ca-certificates.crt",
+    "expected_source_file_sha256": null,
+    "trust_source_reviewed": false,
+    "actual_release_inclusion_authorized": false
+  }
 }

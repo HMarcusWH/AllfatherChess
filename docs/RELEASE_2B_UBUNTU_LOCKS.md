@@ -48,3 +48,23 @@ wheel_lock_complete false until separately reviewed approval in 2B-4.
 All public/licensing/live/host/credentials authorization remains false.
 A signed HTTP snapshot failure is a bounded blocker; do not work around
 it using floating repositories, trusted=yes or disabled GPG/TLS checks.
+
+## First probe failure and alternative transport experiment
+
+The initial real signed-HTTP snapshot Docker build (GitHub Actions run
+39346907615) failed with CA trust errors: APT converts the requested
+Snapshot field into HTTPS URLs under snapshot.ubuntu.com, which the
+minimal pinned Ubuntu base cannot verify before ca-certificates exists.
+
+This is a genuine bootstrap dependency cycle, not a permission to use
+live repos or disable TLS. The next disposable probe borrows only the
+certificate bundle from the already digest-pinned RELEASE-2B-1 Python
+wheel builder image. That additional trust root is explicitly
+**unreviewed**, used only in the diagnostic Dockerfile.native-probe,
+and not permitted inside the production release image. The experiment
+tests feasibility of the signed Ubuntu snapshot *after* transport CA
+trust is supplied.
+
+Even a green experiment cannot promote native locks until a separate
+exact signed-index-bound CA .deb bootstrap and complete provenance
+are reviewed, and the actual release-dependencies stage is qualified.

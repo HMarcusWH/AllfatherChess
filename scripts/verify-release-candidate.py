@@ -178,6 +178,25 @@ def verify(manifest: dict, roots: dict[str, Path],
            selected.get("committed_resolution_sha256") == sha(source) and
            selected.get("wheel_builder_policy_sha256") == attested.get(builder_name),
            "source-attested Python wheel lock policy drift")
+    # The native stage's input declarations must match source-sealed bytes.
+    for name in (
+        "qualification/release-bootstrap-v1.json",
+        "qualification/release-native-build-v1.json",
+        "qualification/release-os-packages.lock",
+        "qualification/release-os-apt-selections-v1.txt",
+        "scripts/verify-release-dependency-build.py",
+        "deploy/release/bootstrap.sources",
+        "deploy/release/ubuntu.sources",
+    ):
+        local = roots["tools"] / name
+        insist(local.is_file() and not local.is_symlink() and
+               sha(local) == attested.get(name),
+               "native dependency-stage source identity not verified: " + name)
+    native = read(roots["tools"] / "qualification/release-native-build-v1.json")
+    insist(native.get("lock_approved") is False and
+           native.get("public_bot_release") is False and
+           native.get("acquired_package_hashes_reviewed") is False,
+           "native dependency policy illegally claims approval")
     attest = read(roots["wheels"] / "wheel-attestation.json")
     insist(attest.get("source_lock_sha256") == sha(source) and
            attest.get("builder_policy_sha256") == attested.get(builder_name) and
@@ -202,6 +221,25 @@ def verify(manifest: dict, roots: dict[str, Path],
            attest["runtime_lock_sha256"] ==
            manifest["runtime_wheel_lock_sha256"],
            "wheel inventory or hash-locked requirements mismatch")
+    if installed:
+        # The real image must inherit exactly the native stage already checked
+        # by its source-controlled verifier; the probe alone is insufficient.
+        import importlib.util
+        native_spec = importlib.util.spec_from_file_location(
+            "release2b_native",
+            roots["tools"] / "scripts/verify-release-dependency-build.py")
+        insist(native_spec is not None and native_spec.loader is not None,
+               "native installed dependency verifier missing")
+        native_module = importlib.util.module_from_spec(native_spec)
+        native_spec.loader.exec_module(native_module)
+        native_report = native_module.verify(
+            root=roots["tools"],
+            evidence=Path("/opt/allfather-release/native-evidence"),
+            os_inventory=Path("/opt/allfather-release/os-packages.txt"))
+        insist(native_report.get("verdict") == "PASS" and
+               native_report.get("dependency_lock_approved") is False and
+               native_report.get("public_bot_release") is False,
+               "installed native dependency stage did not pass")
     executable = roots["allfather"] / "deploy/bin/allfather-online"
     check = subprocess.run([sys.executable, str(executable), "--check"],
                            cwd=roots["allfather"], timeout=50,

@@ -101,8 +101,12 @@ class PinnedSnapshotRetryTests(unittest.TestCase):
             (d/"lists").mkdir()
             stale=d/"lists/old-index"
             stale.write_text("not admissible")
+            selections=d/"versions.txt"
+            selections.write_text("".join(
+                f"pinned-native-{i}=1.0\\n" for i in range(10)))
             env={**os.environ,"PATH":str(d/"bin")+":"+os.environ["PATH"],
                  "APT_TEST_COUNTER":str(d),"APT_TEST_MODE":mode,
+                 "APT_SELECTIONS_FILE":str(selections),
                  "APT_LISTS_DIR":str(d/"lists"),"APT_RETRY_BACKOFF_SECONDS":"0",
                  "APT_LOG":str(d/"trace.log")}
             outcome=subprocess.run(["/bin/sh",str(SCRIPT)],env=env,

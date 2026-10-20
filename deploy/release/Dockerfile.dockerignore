@@ -8,3 +8,10 @@
 !build/release1-stage/
 !build/release1-stage/**
 !deploy/release/install-pinned-apt.sh
+!build/online3b-wheels/
+!build/online3b-wheels/**
+!qualification/
+!qualification/release-os-apt-selections-v1.txt
+!deploy/release/probe-native-bootstrap.sh
+!deploy/release/prepare-direct-snapshot-sources.sh
+!deploy/release/prepare-native-acquisition.sh

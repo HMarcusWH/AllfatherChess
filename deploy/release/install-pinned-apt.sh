@@ -109,7 +109,20 @@ apt_attempt() {
 }
 
 apt_attempt update -o APT::Update::Error-Mode=any
-apt_attempt install -y --no-install-recommends \
-    python3 python3-venv python3-pip ca-certificates procps \
-    libopenblas0-pthread libprotobuf32t64 libstdc++6 libgomp1 zlib1g
+# The release installer only admits ten explicitly pinned native selections.
+# The unit-test harness supplies an isolated selections path, but the release
+# Dockerfile uses the immutable source-controlled default.
+APT_SELECTIONS_FILE="${APT_SELECTIONS_FILE:-/usr/local/share/release-os-apt-selections-v1.txt}"
+[ -f "$APT_SELECTIONS_FILE" ] && [ ! -L "$APT_SELECTIONS_FILE" ] || {
+    echo "missing exact native selection file" >&2
+    exit 100
+}
+set --
+while IFS= read -r selection; do
+    case "$selection" in *=*) ;; *) echo "unpinned native selection" >&2; exit 100 ;; esac
+    [ -n "$selection" ] || exit 100
+    set -- "$@" "$selection"
+done < "$APT_SELECTIONS_FILE"
+[ "$#" -eq 10 ] || { echo "native selection count differs" >&2; exit 100; }
+apt_attempt install -y --no-install-recommends "$@"
 rm -rf "$APT_LISTS_DIR"/*

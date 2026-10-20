@@ -155,7 +155,8 @@ def policy(root: Path = ROOT) -> tuple[dict, dict, dict]:
     require(type(transient) is dict and
             transient.get("reference") == builder.get("image_ref") and
             transient.get("source_path") == "/etc/ssl/certs/ca-certificates.crt" and
-            transient.get("expected_source_file_sha256") is None and
+            transient.get("expected_source_file_sha256") ==
+              "714d457d580922dbf1d0be8bd35ba236a842b50b0072ae791582a19adef772a5" and
             transient.get("trust_source_reviewed") is False and
             transient.get("actual_release_inclusion_authorized") is False,
             "unreviewed bootstrap TLS transport authority")
@@ -194,15 +195,23 @@ def policy(root: Path = ROOT) -> tuple[dict, dict, dict]:
             n.get("expected_final_inventory_sha256") ==
             "859bca91d5aa9d152424b9d839641fa942a06e55e4af8b5c50c8d7e6258c4f5a",
             "historical exact final native inventory drift")
-    require(lock.get("base_inventory") is None and
+    # Historical final (120), exact base (92), and post-bootstrap (94)
+    # observations are distinct. The acquired package *hash* closure remains
+    # separate and must not be inferred from these package/version records.
+    require(type(lock.get("base_inventory")) is list and
+            type(lock.get("observed_bootstrap_inventory")) is list and
+            lock.get("base_inventory_measured") is True and
+            lock.get("base_inventory_reviewed") is False and
             lock.get("acquired_package_debs") is None and
             lock.get("signed_index_evidence") is None and
-            lock.get("base_inventory_measured") is False and
             lock.get("acquired_package_hashes_measured") is False and
             lock.get("candidate_only") is True and
             lock.get("approved") is False and
             lock.get("public_bot_release") is False,
             "candidate base/acquisition origin silently promoted")
+    require(len(inventory(("\n".join(lock["base_inventory"])+"\n").encode("ascii"))) == 92 and
+            len(inventory(("\n".join(lock["observed_bootstrap_inventory"])+"\n").encode("ascii"))) == 94,
+            "base/bootstrap raw native inventories not retained exactly")
     return b, n, lock
 
 
@@ -226,6 +235,9 @@ def probe(root: Path, proof: Path) -> dict:
             "exact pinned CA/trust package not installed")
     # The pinned base is not necessarily the final 120-row installed image:
     # identify base and acquired rows separately, without conflating them.
+    require(base_raw == ("\n".join(lock["base_inventory"])+"\n").encode("ascii") and
+            installed_raw == ("\n".join(lock["observed_bootstrap_inventory"])+"\n").encode("ascii"),
+            "base/bootstrap native row evidence disagrees with retained observations")
     require(base != installed and len(installed) >= len(base) and
             digest(base_raw) == n.get("observed_base_inventory_sha256") and
             digest(installed_raw) == n.get("observed_bootstrap_inventory_sha256") and
@@ -235,7 +247,9 @@ def probe(root: Path, proof: Path) -> dict:
     keyring_sha = bounded(proof / "keyring.sha256").decode("ascii").strip()
     ca_hash = bounded(proof / "ca-deb.sha256").decode("ascii").strip()
     transport_ca_hash = bounded(proof / "transport-ca.sha256").decode("ascii").strip()
-    require(bool(HEX.fullmatch(transport_ca_hash)), "unmeasured transport CA bundle")
+    require(transport_ca_hash ==
+            b["experimental_tls_transport_ca"]["expected_source_file_sha256"],
+            "transient TLS bundle bytes differ from exact candidate observation")
     require(keyring_sha == b["candidate_ca"]["trust_keyring_sha256"] and
             ca_hash == b["candidate_ca"]["deb_sha256"],
             "CA/Ubuntu keyring bytes differ from independently observed candidate hashes")

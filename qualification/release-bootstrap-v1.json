@@ -24,7 +24,7 @@
   "experimental_tls_transport_ca": {
     "reference": "docker.io/library/python@sha256:392307d22300de8b5986851a12d9176dfc0fc073e65bf6523ebd7dcbeb23564e",
     "source_path": "/etc/ssl/certs/ca-certificates.crt",
-    "expected_source_file_sha256": null,
+    "expected_source_file_sha256": "714d457d580922dbf1d0be8bd35ba236a842b50b0072ae791582a19adef772a5",
     "trust_source_reviewed": false,
     "actual_release_inclusion_authorized": false
   },
@@ -41,5 +41,12 @@
     "candidate_verdict": "PASS",
     "retained_signed_snapshot_only": true,
     "independent_approval": false
+  },
+  "observed_gpg_signer_fingerprint": "F6ECB3762474EDA9D21B7022871920D1991BC93C",
+  "observed_gpgv_probe": {
+    "workflow_run_id": 39347952009,
+    "job_id": 118385068752,
+    "source_commit": "c0f9a5a0689036ec2ed45d5e80052fb66f1f744c",
+    "candidate_only": true
   }
 }

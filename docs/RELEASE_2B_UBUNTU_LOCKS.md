@@ -92,3 +92,26 @@ and noble-security are recorded in the candidate bootstrap policy and
 must remain identical. The next revision adds direct gpgv checking and
 captures the ephemeral transport trust-bundle hash. This evidence is
 candidate observation, not independent release attestation or public authority.
+
+## Exact base and post-bootstrap inventories from the authenticated probe
+
+The CI job 118385068752 retained and printed the **complete 92-row
+base image dpkg inventory** and **94-row post-bootstrap inventory** from
+the same digest-pinned Ubuntu image. Both are now committed as measured,
+unreviewed evidence in qualification/release-os-packages.lock. The distinct
+historical full release inventory remains 120 rows.
+
+The CA bootstrap installs ca-certificates and openssl and upgrades
+libssl3t64. These are observed package-name/version transitions only;
+only the CA .deb currently has measured SHA. The openssl and libssl3t64
+.deb SHA256/index provenance remains an explicit blocker.
+
+The temporary transport trust bundle has the measured SHA256
+714d457d580922dbf1d0be8bd35ba236a842b50b0072ae791582a19adef772a5.
+This remains an **experimental, unreviewed trust input**, not a
+production authority. Direct gpgv calls in the successful CI verified
+all three frozen InRelease signatures under Ubuntu archive key
+F6ECB3762474EDA9D21B7022871920D1991BC93C.
+
+No lock approval flags have been raised and no release Docker
+application/dependency stage has yet been switched to this experiment.

@@ -24,6 +24,7 @@ class SignedNativeBootstrapTests(unittest.TestCase):
 
     def mk_root(self, folder):
         for name in (native.BOOTSTRAP,native.NATIVE,native.OS_LOCK,native.RELEASE,
+                     "qualification/release-python-builder-v1.json",
                      "deploy/release/bootstrap.sources","deploy/release/ubuntu.sources"):
             path=folder/name
             path.parent.mkdir(parents=True,exist_ok=True)

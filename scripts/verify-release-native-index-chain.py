@@ -44,9 +44,12 @@ def parse_sha256_inrelease(data):
         if not line.strip():continue
         fields=line.split()
         check(len(fields)==3 and HEX.fullmatch(fields[0]) and
-              fields[1].isdecimal() and int(fields[1])>0 and
-              INDEX_PATH.fullmatch(fields[2]) and ".." not in fields[2].split("/"),
-              "malformed/unsafe signed index entry")
+              fields[1].isdecimal() and int(fields[1])>=0 and
+              0<len(fields[2])<=300 and not fields[2].startswith("/") and
+              "\\\\" not in fields[2] and
+              all(33<=ord(c)<=126 for c in fields[2]) and
+              ".." not in fields[2].split("/"),
+              "malformed/unsafe signed index entry: " + repr(line.strip()[:135]))
         filename=fields[2]
         check(filename not in answer,"duplicate signed Packages path")
         answer[filename]=(fields[0],int(fields[1]))

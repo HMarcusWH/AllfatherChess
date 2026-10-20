@@ -2,6 +2,9 @@
 # One actual native/Python dependency installer, inherited by the application.
 ARG BASE_IMAGE
 FROM --platform=linux/amd64 docker.io/library/python@sha256:392307d22300de8b5986851a12d9176dfc0fc073e65bf6523ebd7dcbeb23564e AS candidate-transport-ca
+COPY qualification/release-os-packages.lock /native-input/native-lock.json
+COPY scripts/compile-release-native-selection.py /native-input/compile-native.py
+RUN python3 /native-input/compile-native.py --lock /native-input/native-lock.json --out /native-selection
 FROM --platform=linux/amd64 ${BASE_IMAGE} AS release-dependencies
 
 ENV DEBIAN_FRONTEND=noninteractive \
@@ -18,8 +21,13 @@ COPY --from=candidate-transport-ca /etc/ssl/certs/ca-certificates.crt /etc/ssl/c
 RUN test "$(sha256sum /etc/ssl/certs/ca-certificates.crt | cut -d ' ' -f 1)" = \
       '714d457d580922dbf1d0be8bd35ba236a842b50b0072ae791582a19adef772a5'
 COPY deploy/release/bootstrap.sources /etc/apt/sources.list.d/bootstrap.sources
+COPY --from=candidate-transport-ca /native-selection/ /usr/local/share/release-native-lock/
+COPY deploy/release/preinstall-native-gate.sh /usr/local/bin/preinstall-native-gate
+COPY deploy/release/finalize-native-bootstrap.sh /usr/local/bin/finalize-native-bootstrap
 COPY deploy/release/probe-native-bootstrap.sh /usr/local/bin/probe-native-bootstrap
-RUN /bin/sh /usr/local/bin/probe-native-bootstrap && \
+RUN /bin/sh /usr/local/bin/probe-native-bootstrap --acquire-only
+RUN --network=none /bin/sh /usr/local/bin/preinstall-native-gate bootstrap --install && \
+    /bin/sh /usr/local/bin/finalize-native-bootstrap && \
     test -s /etc/ssl/certs/ca-certificates.crt && \
     mkdir -p /opt/allfather-release/native-evidence && \
     cp -a /native-evidence/. /opt/allfather-release/native-evidence/ && \
@@ -34,8 +42,8 @@ COPY deploy/release/prepare-native-acquisition.sh /usr/local/bin/prepare-native-
 COPY deploy/release/install-pinned-apt.sh /usr/local/bin/install-pinned-apt
 COPY qualification/release-os-apt-selections-v1.txt /usr/local/share/release-os-apt-selections-v1.txt
 RUN /bin/sh /usr/local/bin/prepare-direct-snapshot-sources && \
-    /bin/sh /usr/local/bin/prepare-native-acquisition && \
-    /bin/sh /usr/local/bin/install-pinned-apt && \
+    /bin/sh /usr/local/bin/prepare-native-acquisition
+RUN --network=none /bin/sh /usr/local/bin/preinstall-native-gate runtime --install && \
     dpkg-query -W -f='${Package}=${Version}\n' \
       | LC_ALL=C sort > /opt/allfather-release/os-packages.txt && \
     test "$(sha256sum /opt/allfather-release/os-packages.txt | cut -d ' ' -f 1)" = \

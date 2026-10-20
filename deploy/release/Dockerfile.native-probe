@@ -4,8 +4,16 @@
 # The helper image/trust bundle is NOT approved for the actual release.
 ARG BASE_IMAGE
 FROM --platform=linux/amd64 docker.io/library/python@sha256:392307d22300de8b5986851a12d9176dfc0fc073e65bf6523ebd7dcbeb23564e AS ephemeral-ca-transport-probe
+COPY qualification/release-os-packages.lock /native-input/native-lock.json
+COPY scripts/compile-release-native-selection.py /native-input/compile-native.py
+RUN python3 /native-input/compile-native.py --lock /native-input/native-lock.json --out /native-selection
 FROM --platform=linux/amd64 ${BASE_IMAGE} AS signed-bootstrap-probe
 COPY --from=ephemeral-ca-transport-probe /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY deploy/release/bootstrap.sources /etc/apt/sources.list.d/bootstrap.sources
+COPY --from=ephemeral-ca-transport-probe /native-selection/ /usr/local/share/release-native-lock/
+COPY deploy/release/preinstall-native-gate.sh /usr/local/bin/preinstall-native-gate
+COPY deploy/release/finalize-native-bootstrap.sh /usr/local/bin/finalize-native-bootstrap
 COPY deploy/release/probe-native-bootstrap.sh /usr/local/bin/probe-native-bootstrap
-RUN /bin/sh /usr/local/bin/probe-native-bootstrap
+RUN /bin/sh /usr/local/bin/probe-native-bootstrap --acquire-only
+RUN --network=none /bin/sh /usr/local/bin/preinstall-native-gate bootstrap --install && \
+    /bin/sh /usr/local/bin/finalize-native-bootstrap

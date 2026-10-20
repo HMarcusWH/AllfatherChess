@@ -15,3 +15,8 @@
 !deploy/release/probe-native-bootstrap.sh
 !deploy/release/prepare-direct-snapshot-sources.sh
 !deploy/release/prepare-native-acquisition.sh
+!scripts/
+!scripts/compile-release-native-selection.py
+!qualification/release-os-packages.lock
+!deploy/release/preinstall-native-gate.sh
+!deploy/release/finalize-native-bootstrap.sh

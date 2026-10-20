@@ -20,8 +20,12 @@ class NativeDependencyBuildTests(unittest.TestCase):
         self.assertIn(" AS release-dependencies",df)
         self.assertIn("FROM release-dependencies AS release-application",df)
         self.assertEqual(df.count("/opt/online3b/bin/python -m pip install"),1)
-        self.assertEqual(df.count("/bin/sh /usr/local/bin/probe-native-bootstrap"),1)
-        self.assertEqual(df.count("/bin/sh /usr/local/bin/install-pinned-apt"),1)
+        self.assertEqual(df.count("/bin/sh /usr/local/bin/probe-native-bootstrap --acquire-only"),1)
+        self.assertEqual(df.count("/bin/sh /usr/local/bin/preinstall-native-gate bootstrap --install"),1)
+        self.assertEqual(df.count("/bin/sh /usr/local/bin/preinstall-native-gate runtime --install"),1)
+        self.assertEqual(df.count("RUN --network=none"),2)
+        self.assertLess(df.index("preinstall-native-gate bootstrap --install"),
+                        df.index("preinstall-native-gate runtime --install"))
         self.assertLess(df.index("AS release-dependencies"),
                         df.index("FROM release-dependencies AS release-application"))
         self.assertIn("COPY build/online3b-wheels/",df)

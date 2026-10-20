@@ -113,7 +113,10 @@ class OfflineReleaseContracts(unittest.TestCase):
         self.assertIn('only_transient_acquisition_failures',helper)
         self.assertIn('if ! only_transient_acquisition_failures',helper)
         self.assertIn("COPY deploy/release/install-pinned-apt.sh",docker)
-        self.assertIn("/bin/sh /usr/local/bin/install-pinned-apt",docker)
+        self.assertIn("COPY deploy/release/install-pinned-apt.sh",docker)
+        self.assertIn("/bin/sh /usr/local/bin/preinstall-native-gate bootstrap --install",docker)
+        self.assertIn("/bin/sh /usr/local/bin/preinstall-native-gate runtime --install",docker)
+        self.assertEqual(docker.count("RUN --network=none"),2)
         self.assertIn("COPY deploy/release/ubuntu.sources",docker)
         instructions = "\n".join(
             line for line in docker.splitlines()

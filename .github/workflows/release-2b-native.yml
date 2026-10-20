@@ -129,7 +129,6 @@ jobs:
             --root . \
             --evidence-dir build/test-results/release2b2-index-source \
             --keyring build/test-results/release2b2-index-source/keyring.gpg \
-            --allow-unlocked-discovery \
             --output build/test-results/release2b2-index-source-verdict.json
           python3 - <<'PY'
           import json
@@ -211,7 +210,6 @@ jobs:
             --root "$RUNNER_TEMP/release2b2-source" \
             --evidence-dir build/test-results/release2b2-dependencies \
             --keyring build/test-results/release2b2-dependencies/ubuntu-keyring.gpg \
-            --allow-unlocked-discovery \
             --output build/test-results/release2b2-index-chain.json
           python3 - <<'PY'
           import json

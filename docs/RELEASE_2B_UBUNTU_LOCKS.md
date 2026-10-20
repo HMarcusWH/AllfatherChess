@@ -169,3 +169,39 @@ live-network/playing-strength claims follow from 2B-2's success.
 The full RELEASE-1 OCI/SPDX/SLSA and genuine packaged-smoke workflow must be
 rechecked at the final exact head before PR #75 can be considered merge-ready.
 The repository's external authority and lock-approval booleans remain FALSE.
+
+## Signed native package-index provenance closure (source candidates)
+
+Signed source evidence from the exact-head independent source verification
+([GitHub Actions run 39431452612](https://github.com/HMarcusWH/AllfatherChess/actions/runs/39431452612),
+job 118657492401) authenticated all **29 of 29** acquired native package
+records in four signed Ubuntu `Packages.xz` indexes from
+`noble-updates/main`, `noble-updates/universe`, `noble/main` and
+`noble/universe`. The verification directly checked `InRelease` with
+the pinned Ubuntu signing key fingerprint, matched each downloaded
+`Packages.xz` SHA256 and compressed size against signed metadata,
+decompressed and parsed matching package stanzas, and matched exact
+version, architecture, pool filename and archive SHA256. A package is
+associated with **one proven eligible origin**, not claimed to have only
+one possible Ubuntu pocket.
+
+The 29 source-selected `signed_origins` records are now committed into
+`qualification/release-os-packages.lock`. The signed `Packages` and
+`InRelease` SHA256 for ca-certificates are also bound in
+`qualification/release-bootstrap-v1.json`. The manifest compiler refuses
+missing, contradictory or altered package origin metadata even when the
+five exact `.deb` fields remain unchanged. The actual Docker installer
+still admits only original verified package SHA bytes during an
+explicitly networkless build step.
+
+**No positive approval:** third-party attestation, OS/wheel lock
+approval, release/public distribution, credentials and real online play
+remain false. A signed origin's source lock is candidate acquisition
+integrity evidence, not RELEASE-2B-3 independent clean-build comparison
+or RELEASE-2B-4 formal dependency-lock admission. CI MUST independently
+reproduce signed provenance at the PR's exact final Git SHA.
+
+The Ubuntu snapshot service returned intermittent HTTP 500/502/503 and
+socket timeouts during development. All checks fail closed on missing
+source evidence; no live/unpinned Ubuntu archive substitute is allowed.
+A green earlier head is not a successful final-head qualification.

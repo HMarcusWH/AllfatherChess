@@ -1,0 +1,6 @@
+# DISPOSABLE RELEASE-2B-2 snapshot feasibility probe, NOT a release image.
+ARG BASE_IMAGE
+FROM --platform=linux/amd64 ${BASE_IMAGE} AS signed-bootstrap-probe
+COPY deploy/release/bootstrap.sources /etc/apt/sources.list.d/bootstrap.sources
+COPY deploy/release/probe-native-bootstrap.sh /usr/local/bin/probe-native-bootstrap
+RUN /bin/sh /usr/local/bin/probe-native-bootstrap

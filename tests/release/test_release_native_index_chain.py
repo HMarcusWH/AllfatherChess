@@ -7,7 +7,7 @@ spec=importlib.util.spec_from_file_location("native_signed_index",
                                            ROOT/"scripts/verify-release-native-index-chain.py")
 m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
 def sample_release():
-    hashes="".join(" "+"a"*64+f" {100+i} main/binary-amd64/Index-{i}.xz\n"
+    hashes="".join(" "+"a"*64+f" {100+i} main/binary-amd64/index-{i}.xz\n"
                    for i in range(11))
     return ("-----BEGIN PGP SIGNED MESSAGE-----\nHash: SHA512\n\n"
             "Origin: Ubuntu\nSuite: noble\nSHA256:\n"+hashes+
@@ -21,13 +21,13 @@ class IndexChainNegatives(unittest.TestCase):
     def test_valid_signed_release_index_catalogue(self):
         d=m.parse_sha256_inrelease(sample_release())
         self.assertEqual(len(d),11)
-        self.assertEqual(d["main/binary-amd64/Index-1.xz"],("a"*64,101))
+        self.assertEqual(d["main/binary-amd64/index-1.xz"],("a"*64,101))
     def test_bad_or_duplicate_signed_release_paths_refused(self):
         orig=sample_release()
         changes=[
             orig.replace(b"SHA256:",b"SHA1:"),
-            orig.replace(b"main/binary-amd64/Index-1.xz",b"../outside/index.xz"),
-            orig.replace(b"main/binary-amd64/Index-2.xz",b"main/binary-amd64/Index-1.xz"),
+            orig.replace(b"main/binary-amd64/index-1.xz",b"../outside/index.xz"),
+            orig.replace(b"main/binary-amd64/index-2.xz",b"main/binary-amd64/index-1.xz"),
             orig.replace(b" "+"a"*64,b" "+"c"*62+b"xx",1),
         ]
         for x in changes:

@@ -68,3 +68,27 @@ trust is supplied.
 Even a green experiment cannot promote native locks until a separate
 exact signed-index-bound CA .deb bootstrap and complete provenance
 are reviewed, and the actual release-dependencies stage is qualified.
+
+## Reproducible snapshot bootstrap acquisition evidence
+
+The disposable source-bound build at GitHub run 39347616409 (job
+118384046507; artifact 12231726879) passed after removal of APT's
+discovery-only live indexes from the selection cache. APT authenticated
+the final pinned snapshots, and the downloaded CA .deb SHA agreed with
+the signed-index APT package metadata.
+
+Observed candidate identities:
+- base Ubuntu dpkg inventory: 92 records; SHA256
+  c9ec22da6aac2bed9dff11162a66e5bb4bf4c15f3485528ac4358901cb1156f5
+- after CA bootstrap: 94 records; SHA256
+  43165ad782a6d9f161cf3e60f4846cfe051a35d8fa9f0170ab0046ae4acb33a9
+- ca-certificates=20260601~24.04.1 .deb SHA256
+  6bac2a01979e210d9eac1d4d56747ec709ea60654744d66705dc3c36e7629e50
+- pinned Ubuntu archive keyring SHA256
+  80a36b0a6de2f69f49d2df75ef473ccde121e9e190b9ea01d20a4f63778d5c31
+
+The exact frozen InRelease SHA256 values for noble, noble-updates,
+and noble-security are recorded in the candidate bootstrap policy and
+must remain identical. The next revision adds direct gpgv checking and
+captures the ephemeral transport trust-bundle hash. This evidence is
+candidate observation, not independent release attestation or public authority.

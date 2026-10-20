@@ -9,6 +9,9 @@ test "$(grep -c '^Snapshot: 20261001T000000Z$' /etc/apt/sources.list.d/bootstrap
 test "$(grep -c '^Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg$' /etc/apt/sources.list.d/bootstrap.sources)" -eq 2
 test -s /usr/share/keyrings/ubuntu-archive-keyring.gpg
 sha256sum /usr/share/keyrings/ubuntu-archive-keyring.gpg | awk '{print $1}' > /native-evidence/keyring.sha256
+# Transport CA is only a pinned helper-image diagnostic input, not a native
+# package or approved release root. Record its exact bytes separately.
+sha256sum /etc/ssl/certs/ca-certificates.crt | awk '{print $1}' > /native-evidence/transport-ca.sha256
 rm -f /etc/apt/sources.list /etc/apt/sources.list.d/ubuntu.sources
 for f in /etc/apt/sources.list.d/*; do
   [ ! -e "$f" ] && continue
@@ -47,6 +50,9 @@ for item in /var/lib/apt/lists/*_InRelease; do
     *20261001T000000Z*_InRelease) ;;
     *) echo "non-snapshot APT InRelease: $item" >&2; exit 31 ;;
   esac
+  # Prove every retained snapshot Release is actually signed by the pinned
+  # Ubuntu archive keyring, independently of APT's successful update.
+  gpgv --keyring /usr/share/keyrings/ubuntu-archive-keyring.gpg "$item" >&2
   sha256sum "$item" | sed 's|/var/lib/apt/lists/||' >> /native-evidence/inrelease-sha256.txt
   count=$((count + 1))
 done

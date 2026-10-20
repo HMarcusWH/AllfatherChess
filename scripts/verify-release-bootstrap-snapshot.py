@@ -164,10 +164,17 @@ def policy(root: Path = ROOT) -> tuple[dict, dict, dict]:
             ca.get("architecture") == "all" and
             ca.get("version") == VERSION,
             "CA package source/version drift")
-    require(all(ca.get(k) is None for k in (
-        "deb_sha256", "signed_packages_index_sha256",
-        "signed_inrelease_sha256", "trust_keyring_sha256")),
-        "do not invent/hardcode unreviewed signed acquisition hashes")
+    # Measured from a real candidate CI execution; recorded hashes are not
+    # permission or substitute for independent signed index review.
+    require(ca.get("deb_sha256") == "6bac2a01979e210d9eac1d4d56747ec709ea60654744d66705dc3c36e7629e50" and
+            ca.get("trust_keyring_sha256") == "80a36b0a6de2f69f49d2df75ef473ccde121e9e190b9ea01d20a4f63778d5c31" and
+            ca.get("signed_packages_index_sha256") is None and
+            ca.get("signed_inrelease_sha256") is None and
+            b.get("observed_snapshot_inrelease_sha256") == {
+                "noble": "cdb2f31d809f589719a53c6ad15f255b27569c4059542ada282aaa21b8e164b0",
+                "noble-updates": "d640d63e6299600d21a60091db91fb11407c942ebf38ea408a1718bbaf156d80",
+                "noble-security": "15e060b23470663563fc5a1dafc7797a71e4446ab587656ba7937be89564cca8",
+            }, "candidate observed Ubuntu native hashes differ")
     require(all(b.get(x) is False for x in (
         "bootstrap_snapshot_proved", "bootstrap_hash_reviewed",
         "source_acquisition_signatures_independently_verified",
@@ -203,7 +210,7 @@ def probe(root: Path, proof: Path) -> dict:
     b, n, lock = policy(root)
     require(proof.is_dir() and not proof.is_symlink(), "probe directory invalid")
     needed = {"base-packages.txt", "bootstrap-packages.txt",
-              "keyring.sha256", "inrelease-sha256.txt",
+              "keyring.sha256", "transport-ca.sha256", "inrelease-sha256.txt",
               "ca-package-index.txt", "ca-deb.sha256", "disposition.txt"}
     files = list(proof.iterdir())
     require({p.name for p in files} == needed and len(files) == len(needed),
@@ -219,12 +226,19 @@ def probe(root: Path, proof: Path) -> dict:
             "exact pinned CA/trust package not installed")
     # The pinned base is not necessarily the final 120-row installed image:
     # identify base and acquired rows separately, without conflating them.
-    require(base != installed and len(installed) >= len(base),
-            "signed bootstrap did not yield a genuine native transition")
+    require(base != installed and len(installed) >= len(base) and
+            digest(base_raw) == n.get("observed_base_inventory_sha256") and
+            digest(installed_raw) == n.get("observed_bootstrap_inventory_sha256") and
+            len(base) == n.get("observed_base_package_count") == 92 and
+            len(installed) == n.get("observed_bootstrap_package_count") == 94,
+            "signed bootstrap native inventory differs from candidate observation")
     keyring_sha = bounded(proof / "keyring.sha256").decode("ascii").strip()
     ca_hash = bounded(proof / "ca-deb.sha256").decode("ascii").strip()
-    require(bool(HEX.fullmatch(keyring_sha)) and bool(HEX.fullmatch(ca_hash)),
-            "CA/Ubuntu keyring byte hashes absent")
+    transport_ca_hash = bounded(proof / "transport-ca.sha256").decode("ascii").strip()
+    require(bool(HEX.fullmatch(transport_ca_hash)), "unmeasured transport CA bundle")
+    require(keyring_sha == b["candidate_ca"]["trust_keyring_sha256"] and
+            ca_hash == b["candidate_ca"]["deb_sha256"],
+            "CA/Ubuntu keyring bytes differ from independently observed candidate hashes")
     candidate = bounded(proof / "ca-package-index.txt").decode("ascii")
     require(re.search(r"(?m)^Package: ca-certificates$", candidate) and
             re.search(r"(?m)^Version: " + re.escape(VERSION) + r"$", candidate) and
@@ -240,6 +254,9 @@ def probe(root: Path, proof: Path) -> dict:
                 m.group(2).endswith("_InRelease") and
                 "snapshot.ubuntu.com" in m.group(2),
                 "non-snapshot or unqualified signed APT index")
+    expected_index_hashes = set(b["observed_snapshot_inrelease_sha256"].values())
+    require({x[:64] for x in index} == expected_index_hashes,
+            "signed snapshot InRelease bytes differ from observed candidate")
     require(bounded(proof / "disposition.txt") ==
             b"SIGNED_APT_SNAPSHOT_PROBE_COMPLETE\n",
             "real signed package verification did not complete")
@@ -251,6 +268,7 @@ def probe(root: Path, proof: Path) -> dict:
             "bootstrap_package_count":len(installed),
             "ca_package_version":VERSION, "ca_deb_sha256":ca_hash,
             "trust_keyring_sha256":keyring_sha,
+            "transport_ca_sha256":transport_ca_hash,
             "inrelease_sha256_lines":index,
             "apt_authentication_performed_by_pinned_docker_build":True,
             "independent_signature_attestation":False,

@@ -17,5 +17,9 @@
   "lock_approved": false,
   "public_bot_release": false,
   "artifact_distribution_authorized": false,
-  "offline_candidate_qualified": false
+  "offline_candidate_qualified": false,
+  "observed_base_inventory_sha256": "c9ec22da6aac2bed9dff11162a66e5bb4bf4c15f3485528ac4358901cb1156f5",
+  "observed_bootstrap_inventory_sha256": "43165ad782a6d9f161cf3e60f4846cfe051a35d8fa9f0170ab0046ae4acb33a9",
+  "observed_base_package_count": 92,
+  "observed_bootstrap_package_count": 94
 }

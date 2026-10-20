@@ -65,6 +65,12 @@ jobs:
           python3 scripts/verify-release-bootstrap-snapshot.py \
             --probe-dir build/test-results/release2b2-bootstrap \
             --output build/test-results/release2b2-bootstrap-report.json
+          echo 'PINNED_BASE_INVENTORY_START'
+          cat build/test-results/release2b2-bootstrap/base-packages.txt
+          echo 'PINNED_BASE_INVENTORY_END'
+          echo 'BOOTSTRAP_NATIVE_INVENTORY_START'
+          cat build/test-results/release2b2-bootstrap/bootstrap-packages.txt
+          echo 'BOOTSTRAP_NATIVE_INVENTORY_END'
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:

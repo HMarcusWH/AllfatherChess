@@ -201,10 +201,13 @@ def verify(root,evidence,keyring,allow_unlocked=False):
                 archive=item.get("Filename","")
                 size=item.get("Size","")
                 check(archive.startswith("pool/") and
-                      INDEX_PATH.fullmatch(archive) is not None and
+                      len(archive)<=260 and
+                      re.fullmatch(r"[A-Za-z0-9._+%:~/-]+",archive) and
+                      ".." not in archive.split("/") and
                       archive.endswith("/"+rec["filename"]) and
                       size.isdecimal() and int(size)>0,
-                      "signed package archive pool identity/size invalid")
+                      "signed package archive pool identity/size invalid for "+
+                      str(name)+": "+repr(archive[:125]))
                 origin={"suite":suite,"component":component,
                         "packages_index_path":rel,
                         "packages_index_sha256":signed_entry[0],

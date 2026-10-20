@@ -48,6 +48,7 @@ class IndexChainNegatives(unittest.TestCase):
         plain=stanza()
         blob=lzma.compress(plain,format=lzma.FORMAT_XZ)
         self.assertEqual(m.decompress_index(blob),plain)
+        self.assertEqual(m.decompress_index(blob+b"\x00"*4),plain)
         for bad in (blob+b"tail",blob[:20],b"not-an-xz"):
             with self.subTest(bad=bad[:10]),self.assertRaises(ValueError):
                 m.decompress_index(bad)

@@ -93,8 +93,15 @@ def decompress_index(raw):
     check(len(raw)<=MAX_INDEX and raw.startswith(b"\xfd7zXZ\x00"),"invalid xz Packages index")
     d=lzma.LZMADecompressor(format=lzma.FORMAT_XZ,memlimit=384*1024*1024)
     plain=d.decompress(raw,max_length=MAX_PLAIN+1)
-    check(len(plain)<=MAX_PLAIN and d.eof and not d.unused_data,
-          "truncated/trailing/oversized Packages.xz")
+    trailing=d.unused_data
+    # The XZ specification permits 4-byte-aligned zero stream padding.
+    # No nonzero or unaligned trailing payload may be accepted.
+    padding_ok=(not trailing or
+                (len(trailing)%4==0 and all(x==0 for x in trailing)))
+    check(len(plain)<=MAX_PLAIN and d.eof and padding_ok,
+          ("truncated/trailing/oversized Packages.xz: "+
+           f"compressed={len(raw)} plain={len(plain)} eof={d.eof} "+
+           f"trailing={len(trailing)}"))
     return plain
 def validate_receipt(root,evidence):
     policy=json.loads((root/"qualification/release-os-packages.lock").read_text())

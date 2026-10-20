@@ -40,7 +40,10 @@ def inputs(root):
     insist(data["candidate_only"] is True and data["approved"] is False and
            data["public_bot_release"] is False and
            release["public_bot_release"] is False and
-           release["artifact_distribution_authorized"] is False and
+           release["allow_real_credentials"] is False and
+           release["os_package_lock_complete"] is False and
+           release["wheel_lock_complete"] is False and
+           release.get("artifact_distribution_authorized",False) is False and
            release["apt_snapshot"]=="20261001T000000Z" and
            data["apt_snapshot"]==release["apt_snapshot"] and
            signed["independently_reviewed"] is False,

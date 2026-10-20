@@ -220,11 +220,14 @@ def probe(root: Path, proof: Path) -> dict:
     require(proof.is_dir() and not proof.is_symlink(), "probe directory invalid")
     needed = {"base-packages.txt", "bootstrap-packages.txt",
               "keyring.sha256", "transport-ca.sha256", "inrelease-sha256.txt",
-              "ca-package-index.txt", "ca-deb.sha256", "disposition.txt"}
+              "ca-package-index.txt", "ca-deb.sha256", "disposition.txt",
+              "bootstrap-debs.tsv", "bootstrap-index-records"}
     files = list(proof.iterdir())
     require({p.name for p in files} == needed and len(files) == len(needed),
             "bootstrap evidence must have exact known file set")
-    require(all(p.is_file() and not p.is_symlink() for p in files),
+    require(all(not p.is_symlink() and
+                (p.is_dir() if p.name == "bootstrap-index-records"
+                 else p.is_file()) for p in files),
             "linked or nonregular evidence")
     base_raw = bounded(proof / "base-packages.txt")
     installed_raw = bounded(proof / "bootstrap-packages.txt")
@@ -271,6 +274,39 @@ def probe(root: Path, proof: Path) -> dict:
     expected_index_hashes = set(b["observed_snapshot_inrelease_sha256"].values())
     require({x[:64] for x in index} == expected_index_hashes,
             "signed snapshot InRelease bytes differ from observed candidate")
+    # The actual downloaded CA, openssl, and libssl packages must each
+    # have a matching exact-version APT candidate/index SHA witness.
+    ledger = bounded(proof / "bootstrap-debs.tsv").decode("ascii").splitlines()
+    records = proof / "bootstrap-index-records"
+    require(len(ledger) == 3 and ledger == sorted(set(ledger)),
+            "signed bootstrap package ledger incomplete")
+    expected_versions = {"ca-certificates": VERSION,
+                         "openssl": "3.0.13-0ubuntu3.16",
+                         "libssl3t64": "3.0.13-0ubuntu3.16"}
+    seen = set()
+    require({f.name for f in records.iterdir()} ==
+            {x + ".txt" for x in expected_versions} and
+            all(f.is_file() and not f.is_symlink() for f in records.iterdir()),
+            "signed bootstrap package-index witnesses incomplete")
+    for record in ledger:
+        cols = record.split("\t")
+        require(len(cols) == 5, "native package ledger format malformed")
+        name, version, architecture, digest_hex, filename = cols
+        require(name not in seen and expected_versions.get(name) == version and
+                architecture in ("amd64", "all") and
+                HEX.fullmatch(digest_hex) and
+                re.fullmatch(r"[A-Za-z0-9_.+%:-]+\\.deb", filename),
+                "native acquired .deb identity/version drift")
+        metadata = bounded(records / (name + ".txt")).decode("utf-8")
+        require("Package: " + name + "\n" in metadata and
+                "Version: " + version + "\n" in metadata and
+                "Architecture: " + architecture + "\n" in metadata and
+                "SHA256: " + digest_hex + "\n" in metadata,
+                "acquired native package hash not in trusted snapshot index")
+        if name == "ca-certificates":
+            require(digest_hex == ca_hash, "CA acquired ledger hash mismatch")
+        seen.add(name)
+    require(seen == set(expected_versions), "missing native bootstrap .debs")
     require(bounded(proof / "disposition.txt") ==
             b"SIGNED_APT_SNAPSHOT_PROBE_COMPLETE\n",
             "real signed package verification did not complete")
@@ -284,6 +320,7 @@ def probe(root: Path, proof: Path) -> dict:
             "trust_keyring_sha256":keyring_sha,
             "transport_ca_sha256":transport_ca_hash,
             "inrelease_sha256_lines":index,
+            "bootstrap_native_acquisitions":ledger,
             "apt_authentication_performed_by_pinned_docker_build":True,
             "independent_signature_attestation":False,
             "dependency_lock_approved":False,

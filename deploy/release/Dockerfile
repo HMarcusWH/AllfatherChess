@@ -42,7 +42,8 @@ COPY --from=candidate-transport-ca /signed-native-bundle/archives/bootstrap/ /va
 RUN /bin/sh /usr/local/bin/verify-native-bundle-signatures && \
     test "$(sha256sum /usr/share/keyrings/ubuntu-archive-keyring.gpg | cut -d ' ' -f 1)" = \
       '80a36b0a6de2f69f49d2df75ef473ccde121e9e190b9ea01d20a4f63778d5c31'
-RUN --network=none LC_ALL=C dpkg-query -W -f='${Package}=${Version}\n' | LC_ALL=C sort \
+RUN --network=none rm -f /etc/apt/sources.list /etc/apt/sources.list.d/ubuntu.sources && \
+    LC_ALL=C dpkg-query -W -f='${Package}=${Version}\n' | LC_ALL=C sort \
       > /native-evidence/base-packages.txt && \
     test "$(sha256sum /native-evidence/base-packages.txt | cut -d ' ' -f 1)" = \
       'c9ec22da6aac2bed9dff11162a66e5bb4bf4c15f3485528ac4358901cb1156f5' && \

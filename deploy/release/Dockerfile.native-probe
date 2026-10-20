@@ -31,7 +31,8 @@ COPY deploy/release/verify-native-bundle-signatures.sh /usr/local/bin/verify-nat
 RUN /bin/sh /usr/local/bin/verify-native-bundle-signatures && \
     test "$(sha256sum /etc/ssl/certs/ca-certificates.crt | cut -d ' ' -f 1)" = \
       '714d457d580922dbf1d0be8bd35ba236a842b50b0072ae791582a19adef772a5'
-RUN --network=none LC_ALL=C dpkg-query -W -f='${Package}=${Version}\n' | LC_ALL=C sort \
+RUN --network=none rm -f /etc/apt/sources.list /etc/apt/sources.list.d/ubuntu.sources && \
+    LC_ALL=C dpkg-query -W -f='${Package}=${Version}\n' | LC_ALL=C sort \
       > /native-evidence/base-packages.txt && \
     sha256sum /usr/share/keyrings/ubuntu-archive-keyring.gpg | cut -d ' ' -f 1 \
       > /native-evidence/keyring.sha256 && \

@@ -202,13 +202,47 @@ def policy(root: Path = ROOT) -> tuple[dict, dict, dict]:
             type(lock.get("observed_bootstrap_inventory")) is list and
             lock.get("base_inventory_measured") is True and
             lock.get("base_inventory_reviewed") is False and
-            lock.get("acquired_package_debs") is None and
+            isinstance(lock.get("acquired_package_debs"), list) and
+            len(lock["acquired_package_debs"]) == 26 and
+            isinstance(lock.get("bootstrap_acquired_debs"), list) and
+            len(lock["bootstrap_acquired_debs"]) == 3 and
             lock.get("signed_index_evidence") is None and
-            lock.get("acquired_package_hashes_measured") is False and
+            lock.get("acquired_package_hashes_measured") is True and
             lock.get("candidate_only") is True and
             lock.get("approved") is False and
             lock.get("public_bot_release") is False,
             "candidate base/acquisition origin silently promoted")
+    expected = {
+        "bootstrap_acquired_debs": {
+            "ca-certificates": "20260601~24.04.1",
+            "libssl3t64": "3.0.13-0ubuntu3.16",
+            "openssl": "3.0.13-0ubuntu3.16",
+        },
+        "acquired_package_debs": {
+            row.split("=", 1)[0]: row.split("=", 1)[1]
+            for row in lock["expected_final_inventory"]
+            if row.split("=", 1)[0] not in
+               {b.split("=", 1)[0] for b in lock["observed_bootstrap_inventory"]}
+        },
+    }
+    expected["acquired_package_debs"].update({
+        row.split("=", 1)[0]: row.split("=", 1)[1]
+        for row in lock["expected_final_inventory"]
+        if row.split("=", 1)[0] in
+           {b.split("=", 1)[0] for b in lock["observed_bootstrap_inventory"]}
+        and row not in lock["observed_bootstrap_inventory"]
+    })
+    for field, required in expected.items():
+        recorded = lock[field]
+        require([r.get("name") for r in recorded] ==
+                sorted(required) and
+                all(r.get("version") == required[r["name"]] and
+                    r.get("architecture") in ("amd64", "all") and
+                    isinstance(r.get("sha256"), str) and
+                    HEX.fullmatch(r["sha256"]) and
+                    isinstance(r.get("filename"), str) and
+                    r["filename"].endswith(".deb") for r in recorded),
+                "native acquired SHA256 candidate lock missing/drifted: " + field)
     require(len(inventory(("\n".join(lock["base_inventory"])+"\n").encode("ascii"))) == 92 and
             len(inventory(("\n".join(lock["observed_bootstrap_inventory"])+"\n").encode("ascii"))) == 94,
             "base/bootstrap raw native inventories not retained exactly")
@@ -303,6 +337,14 @@ def probe(root: Path, proof: Path) -> dict:
                 "Architecture: " + architecture + "\n" in metadata and
                 "SHA256: " + digest_hex + "\n" in metadata,
                 "acquired native package hash not in trusted snapshot index")
+        expected_debs = {r["name"]: r for r in lock["bootstrap_acquired_debs"]}
+        expected_deb = expected_debs.get(name)
+        require(expected_deb is not None and
+                expected_deb["version"] == version and
+                expected_deb["architecture"] == architecture and
+                expected_deb["sha256"] == digest_hex and
+                expected_deb["filename"] == filename,
+                "bootstrap acquired candidate .deb identity differs from measured lock")
         if name == "ca-certificates":
             require(digest_hex == ca_hash, "CA acquired ledger hash mismatch")
         seen.add(name)

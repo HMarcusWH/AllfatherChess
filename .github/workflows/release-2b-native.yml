@@ -85,6 +85,67 @@ jobs:
           retention-days: 14
           if-no-files-found: warn
 
+  signed-index-source-chain:
+    needs: native-source-contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+      - name: Verify exact source and obtain pinned Ubuntu signing key
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          BASE="$(python3 -c 'import json;print(json.load(open("qualification/release-image-v1.json"))["base_image"])')"
+          CID="$(docker create "$BASE" /bin/true)"
+          trap 'docker rm -f "$CID" >/dev/null 2>&1 || true' EXIT
+          mkdir -p build/test-results/release2b2-index-source
+          docker cp "$CID:/usr/share/keyrings/ubuntu-archive-keyring.gpg" \
+            build/test-results/release2b2-index-source/keyring.gpg
+      - name: Reconstruct candidate native source records and test signed index chain
+        timeout-minutes: 16
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          lock=json.load(open("qualification/release-os-packages.lock"))
+          out=Path("build/test-results/release2b2-index-source")
+          for phase,key in (("bootstrap","bootstrap_acquired_debs"),
+                            ("runtime","acquired_package_debs")):
+              rows=sorted(lock[key],key=lambda r:r["name"])
+              (out/(phase+"-debs.tsv")).write_text("".join(
+                  "\t".join(r[k] for k in
+                      ("name","version","architecture","sha256","filename"))+"\n"
+                  for r in rows))
+          index=lock["signed_index_evidence"]
+          (out/"inrelease-sha256.txt").write_text(
+              "\n".join(index["bootstrap_inrelease_sha256_lines"])+"\n")
+          (out/"runtime-inrelease-sha256.txt").write_text(
+              "\n".join(index["runtime_inrelease_sha256_lines"])+"\n")
+          PY
+          python3 scripts/verify-release-native-index-chain.py \
+            --root . \
+            --evidence-dir build/test-results/release2b2-index-source \
+            --keyring build/test-results/release2b2-index-source/keyring.gpg \
+            --allow-unlocked-discovery \
+            --output build/test-results/release2b2-index-source-verdict.json
+          python3 - <<'PY'
+          import json
+          v=json.load(open("build/test-results/release2b2-index-source-verdict.json"))
+          if not v["per_package_origins_source_locked"] or v["verdict"]!="PASS":
+              raise SystemExit("INCONCLUSIVE: authenticated package origin catalogue must be committed")
+          assert v["exact_package_count"]==29
+          assert v["native_lock_approved"] is False
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: release2b2-signed-index-source-evidence
+          path: build/test-results/release2b2-index-source-verdict.json
+          retention-days: 14
+          if-no-files-found: warn
   release-dependency-stage:
     needs: native-source-contracts
     runs-on: ubuntu-24.04

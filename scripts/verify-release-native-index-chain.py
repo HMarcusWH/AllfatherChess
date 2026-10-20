@@ -167,9 +167,9 @@ def verify(root,evidence,keyring,allow_unlocked=False):
                 name=item.get("Package")
                 if name not in expected:continue
                 phase,rec=expected[name]
-                if item.get("Version")!=rec["version"] or
-                   item.get("Architecture")!=rec["architecture"] or
-                   item.get("SHA256")!=rec["sha256"]:
+                if (item.get("Version")!=rec["version"] or
+                    item.get("Architecture")!=rec["architecture"] or
+                    item.get("SHA256")!=rec["sha256"]):
                     continue
                 archive=item.get("Filename","")
                 size=item.get("Size","")

@@ -2,6 +2,7 @@
 # RELEASE-2B-2: disposable signed HTTP snapshot acquisition probe.
 # No fallback, no live/public release, no dependency lock approval.
 set -eu
+[ "${1:-}" = "--acquire-only" ] || { echo "bootstrap only accepts --acquire-only; installation requires pre-install gate" >&2; exit 39; }
 export DEBIAN_FRONTEND=noninteractive
 mkdir -p /native-evidence
 test -f /etc/apt/sources.list.d/bootstrap.sources
@@ -95,13 +96,6 @@ done
 LC_ALL=C sort -o /native-evidence/bootstrap-debs.tsv /native-evidence/bootstrap-debs.tsv
 dpkg-deb -f "$1" Package | grep -Fx 'ca-certificates'
 dpkg-deb -f "$1" Version | grep -Fx "$version"
-apt-get install -y --no-install-recommends "ca-certificates=$version"
-test -s /etc/ssl/certs/ca-certificates.crt
-dpkg-query -W -f='${Version}\n' ca-certificates | grep -Fx "$version"
-dpkg-query -W -f='${Version}\n' openssl | grep -Fx '3.0.13-0ubuntu3.16'
-dpkg-query -W -f='${Version}\n' libssl3t64 | grep -Fx '3.0.13-0ubuntu3.16'
-# Regenerate trusted roots from the newly installed exact Ubuntu CA package,
-# replacing the provisional helper-image HTTPS transport material.
-update-ca-certificates --fresh >/dev/null
-LC_ALL=C dpkg-query -W -f='${Package}=${Version}\n' | LC_ALL=C sort > /native-evidence/bootstrap-packages.txt
-printf 'SIGNED_APT_SNAPSHOT_PROBE_COMPLETE\n' > /native-evidence/disposition.txt
+rm -f "$1"
+test "$(wc -l < /native-evidence/bootstrap-debs.tsv | tr -d ' ')" -eq 3
+echo "Signed Ubuntu bootstrap acquired; no packages installed in this step"

@@ -28,7 +28,7 @@ class IndexChainNegatives(unittest.TestCase):
             orig.replace(b"SHA256:",b"SHA1:"),
             orig.replace(b"main/binary-amd64/index-1.xz",b"../outside/index.xz"),
             orig.replace(b"main/binary-amd64/index-2.xz",b"main/binary-amd64/index-1.xz"),
-            orig.replace(b" "+"a"*64,b" "+"c"*62+b"xx",1),
+            orig.replace(b" "+b"a"*64,b" "+b"c"*62+b"xx",1),
         ]
         for x in changes:
             with self.subTest(mutation=x[:40]),self.assertRaises(ValueError):

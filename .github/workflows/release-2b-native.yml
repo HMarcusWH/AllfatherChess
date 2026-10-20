@@ -1,0 +1,76 @@
+name: RELEASE-2B-2 signed Ubuntu bootstrap feasibility (candidate)
+on:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+env:
+  SOURCE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+concurrency:
+  group: release2b2-bootstrap-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  native-source-contracts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+      - name: Verify exact Git checkout
+        run: test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+      - name: Run native candidate source and destructive contracts
+        run: |
+          set -euo pipefail
+          python3 scripts/verify-release-bootstrap-snapshot.py --root .
+          python3 -m unittest discover -s tests/release -p test_release_bootstrap_lock.py -v
+      - name: Confirm no release or dependency-lock authority
+        run: |
+          python3 - <<'PY'
+          import json
+          r=json.load(open("qualification/release-image-v1.json"))
+          b=json.load(open("qualification/release-bootstrap-v1.json"))
+          n=json.load(open("qualification/release-native-build-v1.json"))
+          assert r["ca_bootstrap_snapshot_locked"] is False
+          assert r["os_package_lock_complete"] is False
+          assert r["wheel_lock_complete"] is False
+          assert r["public_bot_release"] is False
+          assert b["bootstrap_snapshot_proved"] is False
+          assert n["lock_approved"] is False
+          PY
+  signed-bootstrap-probe:
+    needs: native-source-contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+      - name: Verify exact source
+        run: test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+      - name: Pull exact pinned OCI base and execute real signed APT snapshot
+        timeout-minutes: 24
+        run: |
+          set -euo pipefail
+          BASE="$(python3 -c 'import json;print(json.load(open("qualification/release-image-v1.json"))["base_image"])')"
+          mkdir -p build/test-results/release2b2-bootstrap
+          docker build --no-cache --platform linux/amd64 \
+            --build-arg "BASE_IMAGE=$BASE" \
+            -f deploy/release/Dockerfile.native-probe \
+            -t allfather/native-bootstrap-probe:offline .
+          test "$(docker image inspect -f '{{.Os}}/{{.Architecture}}' allfather/native-bootstrap-probe:offline)" = 'linux/amd64'
+          cid="$(docker create allfather/native-bootstrap-probe:offline /bin/true)"
+          trap 'docker rm -f "$cid" >/dev/null 2>&1 || true' EXIT
+          docker cp "$cid:/native-evidence/." build/test-results/release2b2-bootstrap/
+          python3 scripts/verify-release-bootstrap-snapshot.py \
+            --probe-dir build/test-results/release2b2-bootstrap \
+            --output build/test-results/release2b2-bootstrap-report.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: release2b2-signed-bootstrap-candidate-evidence
+          path: |
+            build/test-results/release2b2-bootstrap-report.json
+            build/test-results/release2b2-bootstrap/
+          retention-days: 14
+          if-no-files-found: warn

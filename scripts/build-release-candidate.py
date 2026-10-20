@@ -66,6 +66,8 @@ SOURCE_FILES = (POLICY, BRIDGE_LOCK, "qualification/release-qualification-v1.jso
                 "scripts/verify-release-bootstrap-snapshot.py",
                 "scripts/verify-release-dependency-build.py",
                 "scripts/verify-release-native-index-chain.py",
+                "scripts/prepare-release-native-bundle.py",
+                "deploy/release/verify-native-bundle-signatures.sh",
                 "scripts/compile-release-native-selection.py",
                 "deploy/release/preinstall-native-gate.sh",
                 "deploy/release/finalize-native-bootstrap.sh",

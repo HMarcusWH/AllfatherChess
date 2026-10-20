@@ -20,6 +20,25 @@ rm -rf /var/lib/apt/lists/*
 mkdir -p /var/lib/apt/lists/partial
 # APT signature and index-hash validation must succeed.
 apt-get update -o APT::Update::Error-Mode=any -o Acquire::Retries=0
+# APT 2.8 first fetches live signed Ubuntu release metadata to discover the
+# snapshot facility, *then* fetches the specified immutable snapshot. The
+# former is not permitted to supply a package candidate or installation.
+# Remove every non-snapshot package index before any apt-cache lookup/install.
+discovery=0
+for item in /var/lib/apt/lists/*; do
+  [ -f "$item" ] || continue
+  case "$item" in
+    */lock) ;;
+    *snapshot.ubuntu.com_ubuntu_20261001T000000Z*) ;;
+    *archive.ubuntu.com_ubuntu*|*security.ubuntu.com_ubuntu*)
+      rm -f "$item"
+      discovery=$((discovery + 1))
+      ;;
+    *) echo "unexpected non-snapshot APT index: $item" >&2; exit 30 ;;
+  esac
+done
+[ "$discovery" -gt 0 ] || { echo "missing observed snapshot-discovery metadata" >&2; exit 34; }
+echo "Removed $discovery discovery-only current Ubuntu indexes; package selection snapshot-only"
 count=0
 : > /native-evidence/inrelease-sha256.txt
 for item in /var/lib/apt/lists/*_InRelease; do

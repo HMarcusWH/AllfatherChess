@@ -13,6 +13,7 @@ COPY deploy/release/bootstrap.sources /etc/apt/sources.list.d/bootstrap.sources
 COPY --from=ephemeral-ca-transport-probe /native-selection/ /usr/local/share/release-native-lock/
 COPY deploy/release/preinstall-native-gate.sh /usr/local/bin/preinstall-native-gate
 COPY deploy/release/finalize-native-bootstrap.sh /usr/local/bin/finalize-native-bootstrap
+COPY deploy/release/install-pinned-apt.sh /usr/local/bin/install-pinned-apt
 COPY deploy/release/probe-native-bootstrap.sh /usr/local/bin/probe-native-bootstrap
 RUN /bin/sh /usr/local/bin/probe-native-bootstrap --acquire-only
 RUN --network=none /bin/sh /usr/local/bin/preinstall-native-gate bootstrap --install && \

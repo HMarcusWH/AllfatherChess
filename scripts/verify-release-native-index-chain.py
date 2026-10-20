@@ -5,7 +5,7 @@ Runs from an exact-source CI worktree with actual pinned Ubuntu keyring
 extracted from the release image. No positive public/distribution authority.
 """
 from __future__ import annotations
-import argparse,hashlib,json,lzma,re,subprocess,tempfile,urllib.request
+import argparse,hashlib,json,lzma,re,subprocess,tempfile,time,urllib.request,urllib.error
 from pathlib import Path
 
 SNAP="20261001T000000Z"
@@ -24,12 +24,21 @@ def digest(blob):return hashlib.sha256(blob).hexdigest()
 def get(uri,limit):
     check(uri.startswith(BASE+"/dists/") and len(uri)<220,"non-snapshot download URL")
     request=urllib.request.Request(uri,headers={"User-Agent":"AllfatherChess-native-provenance/2B2"})
-    with urllib.request.urlopen(request,timeout=30) as f:
-        observed=f.geturl()
-        check(observed==uri,"unapproved signed-index HTTP redirect")
-        data=f.read(limit+1)
-    check(0<len(data)<=limit,"empty/oversize signed Ubuntu index")
-    return data
+    for attempt in range(1,4):
+        try:
+            with urllib.request.urlopen(request,timeout=30) as f:
+                observed=f.geturl()
+                check(observed==uri,"unapproved signed-index HTTP redirect")
+                data=f.read(limit+1)
+            check(0<len(data)<=limit,"empty/oversize signed Ubuntu index")
+            return data
+        except urllib.error.HTTPError as e:
+            # Only bounded, explicitly transient acquisition responses retry.
+            # Signature/hash/missing-index and 500 errors remain immediate stops.
+            if e.code not in (429,502,503,504) or attempt==3:
+                raise ValueError(f"signed Ubuntu snapshot HTTP {e.code} refused") from e
+            time.sleep(min(attempt*3,6))
+    raise ValueError("snapshot acquisition attempts exhausted")
 def parse_sha256_inrelease(data):
     content=data.decode("utf-8")
     check(content.startswith("-----BEGIN PGP SIGNED MESSAGE-----\n") and

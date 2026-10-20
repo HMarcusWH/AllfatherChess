@@ -25,7 +25,7 @@ LC_ALL=C dpkg-query -W -f='${Package}=${Version}\n' | LC_ALL=C sort > /native-ev
 rm -rf /var/lib/apt/lists/*
 mkdir -p /var/lib/apt/lists/partial
 # APT signature and index-hash validation must succeed.
-apt-get update -o APT::Update::Error-Mode=any -o Acquire::Retries=0
+/bin/sh /usr/local/bin/install-pinned-apt --update-only
 # APT 2.8 first fetches live signed Ubuntu release metadata to discover the
 # snapshot facility, *then* fetches the specified immutable snapshot. The
 # former is not permitted to supply a package candidate or installation.

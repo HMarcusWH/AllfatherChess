@@ -108,7 +108,18 @@ apt_attempt() {
     return 100
 }
 
-apt_attempt update -o APT::Update::Error-Mode=any
+# Acquisition-only calls may retry transient snapshot HTTP errors, but
+# MUST NOT install anything. Installation is exclusively the offline SHA gate.
+case "${1:-}" in
+    --update-only)
+        apt_attempt update -o APT::Update::Error-Mode=any
+        exit 0 ;;
+    "")
+        apt_attempt update -o APT::Update::Error-Mode=any ;;
+    *)
+        echo "unsupported signed APT mode" >&2
+        exit 100 ;;
+esac
 # The release installer only admits ten explicitly pinned native selections.
 # The unit-test harness supplies an isolated selections path, but the release
 # Dockerfile uses the immutable source-controlled default.

@@ -7,7 +7,7 @@ inputs=/usr/local/share/release-os-apt-selections-v1.txt
 test -f "$inputs" && test -s "$inputs"
 test "$(wc -l < "$inputs" | tr -d ' ')" -eq 10
 test "$(grep -c '^URIs: https://snapshot.ubuntu.com/ubuntu/20261001T000000Z$' /etc/apt/sources.list.d/ubuntu.sources)" -eq 2
-apt-get update -o APT::Update::Error-Mode=any -o Acquire::Retries=0
+/bin/sh /usr/local/bin/install-pinned-apt --update-only
 # Direct snapshots, no moving discovery; reject *every* unrecognized index.
 mkdir -p "$list"
 : > "$list/runtime-inrelease-sha256.txt"

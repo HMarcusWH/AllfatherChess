@@ -24,6 +24,7 @@ COPY deploy/release/bootstrap.sources /etc/apt/sources.list.d/bootstrap.sources
 COPY --from=candidate-transport-ca /native-selection/ /usr/local/share/release-native-lock/
 COPY deploy/release/preinstall-native-gate.sh /usr/local/bin/preinstall-native-gate
 COPY deploy/release/finalize-native-bootstrap.sh /usr/local/bin/finalize-native-bootstrap
+COPY deploy/release/install-pinned-apt.sh /usr/local/bin/install-pinned-apt
 COPY deploy/release/probe-native-bootstrap.sh /usr/local/bin/probe-native-bootstrap
 RUN /bin/sh /usr/local/bin/probe-native-bootstrap --acquire-only
 RUN --network=none /bin/sh /usr/local/bin/preinstall-native-gate bootstrap --install && \
@@ -39,7 +40,7 @@ RUN --network=none /bin/sh /usr/local/bin/preinstall-native-gate bootstrap --ins
 COPY deploy/release/ubuntu.sources /etc/apt/sources.list.d/ubuntu.sources
 COPY deploy/release/prepare-direct-snapshot-sources.sh /usr/local/bin/prepare-direct-snapshot-sources
 COPY deploy/release/prepare-native-acquisition.sh /usr/local/bin/prepare-native-acquisition
-COPY deploy/release/install-pinned-apt.sh /usr/local/bin/install-pinned-apt
+
 COPY qualification/release-os-apt-selections-v1.txt /usr/local/share/release-os-apt-selections-v1.txt
 RUN /bin/sh /usr/local/bin/prepare-direct-snapshot-sources && \
     /bin/sh /usr/local/bin/prepare-native-acquisition

@@ -406,7 +406,31 @@
       "version": "2026c-0ubuntu0.24.04.1"
     }
   ],
-  "signed_index_evidence": null,
+  "signed_index_evidence": {
+    "schema_version": 1,
+    "scope": "release-2b-2-source-bound-signed-index-candidate",
+    "base_image": "docker.io/library/ubuntu@sha256:224a1869083a311ef3f13648a154ba79832fbef6364d31493642ca03082da254",
+    "apt_snapshot": "20261001T000000Z",
+    "bootstrap_inrelease_sha256_lines": [
+      "15e060b23470663563fc5a1dafc7797a71e4446ab587656ba7937be89564cca8  snapshot.ubuntu.com_ubuntu_20261001T000000Z_dists_noble-security_InRelease",
+      "cdb2f31d809f589719a53c6ad15f255b27569c4059542ada282aaa21b8e164b0  snapshot.ubuntu.com_ubuntu_20261001T000000Z_dists_noble_InRelease",
+      "d640d63e6299600d21a60091db91fb11407c942ebf38ea408a1718bbaf156d80  snapshot.ubuntu.com_ubuntu_20261001T000000Z_dists_noble-updates_InRelease"
+    ],
+    "runtime_inrelease_sha256_lines": [
+      "15e060b23470663563fc5a1dafc7797a71e4446ab587656ba7937be89564cca8  snapshot.ubuntu.com_ubuntu_20261001T000000Z_dists_noble-security_InRelease",
+      "cdb2f31d809f589719a53c6ad15f255b27569c4059542ada282aaa21b8e164b0  snapshot.ubuntu.com_ubuntu_20261001T000000Z_dists_noble_InRelease",
+      "d01600bd734c4c7c67f860cc13abd867179e31f1ff13ff413920b43993ca6c3f  snapshot.ubuntu.com_ubuntu_20261001T000000Z_dists_noble-backports_InRelease",
+      "d640d63e6299600d21a60091db91fb11407c942ebf38ea408a1718bbaf156d80  snapshot.ubuntu.com_ubuntu_20261001T000000Z_dists_noble-updates_InRelease"
+    ],
+    "source_commit": "5523c668229075a19059afc949027dc5ce2e33ee",
+    "workflow_run_id": 39353916397,
+    "job_id": 118404273821,
+    "artifact_id": 12234562971,
+    "apt_signature_checks": "gpgv and signed APT index metadata in pinned builder",
+    "third_party_attested": false,
+    "independently_reviewed": false,
+    "candidate_only": true
+  },
   "base_inventory_measured": true,
   "acquired_package_hashes_measured": true,
   "candidate_only": true,

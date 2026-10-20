@@ -44,6 +44,25 @@ def get(uri,limit):
                     f"signed Ubuntu snapshot {label} HTTP {e.code} "
                     f"refused after {attempt} bounded attempt(s)") from e
             time.sleep(min(attempt*4,12))
+        except (TimeoutError, ConnectionResetError) as exc:
+            # Loss of transport bytes is never evidence for a native source.
+            # Retry only bounded socket read/reset events; never GPG, TLS
+            # certificate, index digest, redirect, or package mismatches.
+            if attempt==5:
+                label=uri.split("/dists/",1)[-1][:130]
+                raise ValueError(
+                    f"signed Ubuntu snapshot {label} transport timeout "
+                    f"refused after {attempt} bounded attempt(s)") from exc
+            time.sleep(min(attempt*4,12))
+        except urllib.error.URLError as exc:
+            if not isinstance(exc.reason,(TimeoutError,ConnectionResetError)):
+                raise ValueError("signed Ubuntu snapshot transport identity failure") from exc
+            if attempt==5:
+                label=uri.split("/dists/",1)[-1][:130]
+                raise ValueError(
+                    f"signed Ubuntu snapshot {label} transport timeout "
+                    f"refused after {attempt} bounded attempt(s)") from exc
+            time.sleep(min(attempt*4,12))
     raise ValueError("snapshot acquisition attempts exhausted")
 def parse_sha256_inrelease(data):
     content=data.decode("utf-8")
@@ -176,7 +195,7 @@ def verify(root,evidence,keyring,allow_unlocked=False):
         except ValueError as err:
             # An unavailable suite contributes ZERO trusted evidence. Skip only
             # if another signed suite ultimately proves every package.
-            if not re.search(r"HTTP (429|500|502|503|504) refused after",str(err)):
+            if not re.search(r"(HTTP (429|500|502|503|504)|transport timeout) refused after",str(err)):
                 raise
             unavailable_suites.append({"suite":suite,"reason":"snapshot_release_unavailable"})
             continue
@@ -204,7 +223,7 @@ def verify(root,evidence,keyring,allow_unlocked=False):
                 try:
                     blob=get(byhash,MAX_INDEX)
                 except ValueError as other:
-                    if not (re.search(r"HTTP (429|500|502|503|504) refused after",str(other))
+                    if not (re.search(r"(HTTP (429|500|502|503|504)|transport timeout) refused after",str(other))
                             or "HTTP 404 refused" in str(other)):
                         raise
                     unavailable_indices.append({"suite":suite,"component":component,

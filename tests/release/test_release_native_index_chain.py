@@ -57,6 +57,28 @@ class IndexChainNegatives(unittest.TestCase):
         target=(m.digest(compressed),len(compressed))
         self.assertEqual(target,(m.digest(compressed),len(compressed)))
         self.assertNotEqual(target,(m.digest(compressed+b"x"),len(compressed)+1))
+    def test_bounded_transport_read_timeout_does_not_admit_source(self):
+        from unittest.mock import patch
+        url=m.BASE+"/dists/noble/InRelease"
+        with patch.object(m.urllib.request,"urlopen",
+                          side_effect=TimeoutError("read timed out")) as opener, \
+             patch.object(m.time,"sleep") as sleeper:
+            with self.assertRaisesRegex(ValueError,
+                                        "transport timeout refused after 5"):
+                m.get(url,m.MAX_RELEASE)
+        self.assertEqual(opener.call_count,5)
+        self.assertEqual(sleeper.call_count,4)
+
+    def test_unclassified_server_http_500_is_immediate_failure(self):
+        from unittest.mock import patch
+        from urllib.error import HTTPError
+        url=m.BASE+"/dists/noble/InRelease"
+        err=HTTPError(url,500,"Server Error",{},None)
+        with patch.object(m.urllib.request,"urlopen",side_effect=err) as opener:
+            with self.assertRaisesRegex(ValueError,"HTTP 500 refused after 1"):
+                m.get(url,m.MAX_RELEASE)
+        self.assertEqual(opener.call_count,1)
+
     def test_expected_suite_and_snapshot_are_constant(self):
         self.assertEqual(m.SNAP,"20261001T000000Z")
         self.assertEqual(len(m.SUITES),4)

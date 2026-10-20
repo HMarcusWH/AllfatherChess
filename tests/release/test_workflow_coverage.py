@@ -184,7 +184,12 @@ class WorkflowCoverageTests(unittest.TestCase):
         self.assertIn('--oci-archive "$GITHUB_WORKSPACE/build/release1-offline.oci.tar"',content)
         self.assertIn("snapshot-acquisition-failure.json",content)
         self.assertIn("snapshot-availability.json", content)
-        self.assertLess(content.index("scripts/check-release-snapshot.py"),
+        # Cold signed byte acquisition or strict cached revalidation must
+        # occur before expensive engine builds; cache presence is NOT proof.
+        self.assertIn("scripts/prepare-release-native-bundle.py",content)
+        self.assertIn("actions/cache/restore@",content)
+        self.assertIn("actions/cache/save@",content)
+        self.assertLess(content.index("scripts/prepare-release-native-bundle.py"),
                         content.index("- name: Install exact engine"))
         self.assertIn('exit 1',content.split("snapshot-acquisition-failure.json",1)[1])
         self.assertIn("candidate_qualified",content)

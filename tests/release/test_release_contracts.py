@@ -99,9 +99,12 @@ class OfflineReleaseContracts(unittest.TestCase):
                           "Verify-Host=false"):
             self.assertNotIn(forbidden,bootstrap)
         docker=(ROOT/"deploy/release/Dockerfile").read_text()
-        self.assertLess(docker.index("COPY deploy/release/bootstrap.sources"),
-                        docker.index("COPY deploy/release/ubuntu.sources"))
-        self.assertIn("test -s /etc/ssl/certs/ca-certificates.crt",docker)
+        self.assertLess(
+            docker.index("COPY deploy/release/bootstrap.sources /etc/apt/sources.list.d/bootstrap.sources"),
+            docker.index("COPY deploy/release/ubuntu.sources /etc/apt/sources.list.d/ubuntu.sources"))
+        self.assertIn("sha256sum /etc/ssl/certs/ca-certificates.crt",docker)
+        self.assertIn("/bin/sh /usr/local/bin/finalize-native-bootstrap",docker)
+        self.assertIn("/bin/sh /usr/local/bin/verify-native-bundle-signatures",docker)
 
     def test_pinned_snapshot_retries_are_bounded_without_mirror_fallback(self):
         docker=(ROOT/"deploy/release/Dockerfile").read_text()
@@ -112,8 +115,15 @@ class OfflineReleaseContracts(unittest.TestCase):
         self.assertIn("apt-get",helper)
         self.assertIn('only_transient_acquisition_failures',helper)
         self.assertIn('if ! only_transient_acquisition_failures',helper)
-        self.assertIn("COPY deploy/release/install-pinned-apt.sh",docker)
-        self.assertIn("/bin/sh /usr/local/bin/install-pinned-apt",docker)
+        self.assertIn("COPY build/release2b2-native-bundle/ /signed-native-bundle/",docker)
+        self.assertIn("scripts/prepare-release-native-bundle.py",docker)
+        self.assertIn("/bin/sh /usr/local/bin/verify-native-bundle-signatures",docker)
+        self.assertIn("COPY build/release2b2-native-bundle/ /signed-native-bundle/",docker)
+        self.assertIn("scripts/prepare-release-native-bundle.py",docker)
+        self.assertIn("/bin/sh /usr/local/bin/verify-native-bundle-signatures",docker)
+        self.assertIn("/bin/sh /usr/local/bin/preinstall-native-gate bootstrap --install",docker)
+        self.assertIn("/bin/sh /usr/local/bin/preinstall-native-gate runtime --install",docker)
+        self.assertEqual(docker.count("RUN --network=none"),2)
         self.assertIn("COPY deploy/release/ubuntu.sources",docker)
         instructions = "\n".join(
             line for line in docker.splitlines()

@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "scope": "release-2b-2-candidate-signed-http-ubuntu-bootstrap",
+  "platform": "linux/amd64",
+  "base_image": "docker.io/library/ubuntu@sha256:224a1869083a311ef3f13648a154ba79832fbef6364d31493642ca03082da254",
+  "apt_snapshot": "20261001T000000Z",
+  "source_path": "deploy/release/bootstrap.sources",
+  "signed_by": "/usr/share/keyrings/ubuntu-archive-keyring.gpg",
+  "candidate_ca": {
+    "package": "ca-certificates",
+    "version": "20260601~24.04.1",
+    "architecture": "all",
+    "deb_sha256": "6bac2a01979e210d9eac1d4d56747ec709ea60654744d66705dc3c36e7629e50",
+    "signed_packages_index_sha256": "1f8e5657e0d7ea2b701acfcef0b6ea270b0f6a205a841bb719b3d321300878c5",
+    "signed_inrelease_sha256": "d640d63e6299600d21a60091db91fb11407c942ebf38ea408a1718bbaf156d80",
+    "trust_keyring_sha256": "80a36b0a6de2f69f49d2df75ef473ccde121e9e190b9ea01d20a4f63778d5c31",
+    "selected_source_suite": "noble-updates",
+    "selected_source_component": "main"
+  },
+  "bootstrap_snapshot_proved": false,
+  "bootstrap_hash_reviewed": false,
+  "source_acquisition_signatures_independently_verified": false,
+  "public_bot_release": false,
+  "artifact_distribution_authorized": false,
+  "offline_candidate_qualified": false,
+  "experimental_tls_transport_ca": {
+    "reference": "docker.io/library/python@sha256:392307d22300de8b5986851a12d9176dfc0fc073e65bf6523ebd7dcbeb23564e",
+    "source_path": "/etc/ssl/certs/ca-certificates.crt",
+    "expected_source_file_sha256": "714d457d580922dbf1d0be8bd35ba236a842b50b0072ae791582a19adef772a5",
+    "trust_source_reviewed": false,
+    "actual_release_inclusion_authorized": false
+  },
+  "observed_snapshot_inrelease_sha256": {
+    "noble": "cdb2f31d809f589719a53c6ad15f255b27569c4059542ada282aaa21b8e164b0",
+    "noble-updates": "d640d63e6299600d21a60091db91fb11407c942ebf38ea408a1718bbaf156d80",
+    "noble-security": "15e060b23470663563fc5a1dafc7797a71e4446ab587656ba7937be89564cca8"
+  },
+  "observed_candidate_evidence": {
+    "source_commit": "da8fded85fb54dac3dbd452f8bf81a859d529849",
+    "workflow_run_id": 39347616409,
+    "job_id": 118384046507,
+    "artifact_id": 12231726879,
+    "candidate_verdict": "PASS",
+    "retained_signed_snapshot_only": true,
+    "independent_approval": false
+  },
+  "observed_gpg_signer_fingerprint": "F6ECB3762474EDA9D21B7022871920D1991BC93C",
+  "observed_gpgv_probe": {
+    "workflow_run_id": 39347952009,
+    "job_id": 118385068752,
+    "source_commit": "c0f9a5a0689036ec2ed45d5e80052fb66f1f744c",
+    "candidate_only": true
+  }
+}

@@ -1,0 +1,252 @@
+name: RELEASE-2B-2 signed Ubuntu bootstrap feasibility (candidate)
+on:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+env:
+  SOURCE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+concurrency:
+  group: release2b2-bootstrap-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  native-source-contracts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+      - name: Verify exact Git checkout
+        run: test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+      - name: Run native candidate source and destructive contracts
+        run: |
+          set -euo pipefail
+          python3 scripts/verify-release-bootstrap-snapshot.py --root .
+          python3 -m unittest discover -s tests/release -p test_release_bootstrap_lock.py -v
+          python3 -m unittest discover -s tests/release -p test_release_dependency_build.py -v
+          python3 -m unittest discover -s tests/release -p test_release_native_admission.py -v
+          python3 -m unittest discover -s tests/release -p test_release_native_index_chain.py -v
+          python3 -m unittest discover -s tests/release -p test_release_native_bundle.py -v
+          python3 -m compileall -q scripts/compile-release-native-selection.py scripts/verify-release-native-index-chain.py scripts/prepare-release-native-bundle.py
+      - name: Confirm no release or dependency-lock authority
+        run: |
+          python3 - <<'PY'
+          import json
+          r=json.load(open("qualification/release-image-v1.json"))
+          b=json.load(open("qualification/release-bootstrap-v1.json"))
+          n=json.load(open("qualification/release-native-build-v1.json"))
+          assert r["ca_bootstrap_snapshot_locked"] is False
+          assert r["os_package_lock_complete"] is False
+          assert r["wheel_lock_complete"] is False
+          assert r["public_bot_release"] is False
+          assert b["bootstrap_snapshot_proved"] is False
+          assert n["lock_approved"] is False
+          PY
+  signed-bootstrap-probe:
+    needs: [native-source-contracts, signed-index-source-chain]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+      - name: Verify exact source
+        run: test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+      - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: build/release2b2-native-bundle
+          key: release2b2-ubuntu-20261001-signed-bytes-${{ hashFiles('qualification/release-os-packages.lock', 'qualification/release-bootstrap-v1.json') }}
+      - name: Build actual source-verified offline bootstrap probe
+
+        timeout-minutes: 24
+        run: |
+          set -euo pipefail
+          BASE="$(python3 -c 'import json;print(json.load(open("qualification/release-image-v1.json"))["base_image"])')"
+          mkdir -p build/test-results/release2b2-bootstrap
+          docker build --no-cache --platform linux/amd64 \
+            --build-arg "BASE_IMAGE=$BASE" \
+            -f deploy/release/Dockerfile.native-probe \
+            -t allfather/native-bootstrap-probe:offline .
+          test "$(docker image inspect -f '{{.Os}}/{{.Architecture}}' allfather/native-bootstrap-probe:offline)" = 'linux/amd64'
+          cid="$(docker create allfather/native-bootstrap-probe:offline /bin/true)"
+          trap 'docker rm -f "$cid" >/dev/null 2>&1 || true' EXIT
+          docker cp "$cid:/native-evidence/." build/test-results/release2b2-bootstrap/
+          python3 scripts/verify-release-bootstrap-snapshot.py \
+            --probe-dir build/test-results/release2b2-bootstrap \
+            --output build/test-results/release2b2-bootstrap-report.json
+          echo 'PINNED_BASE_INVENTORY_START'
+          cat build/test-results/release2b2-bootstrap/base-packages.txt
+          echo 'PINNED_BASE_INVENTORY_END'
+          echo 'BOOTSTRAP_NATIVE_INVENTORY_START'
+          cat build/test-results/release2b2-bootstrap/bootstrap-packages.txt
+          echo 'BOOTSTRAP_NATIVE_INVENTORY_END'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: release2b2-signed-bootstrap-candidate-evidence
+          path: |
+            build/test-results/release2b2-bootstrap-report.json
+            build/test-results/release2b2-bootstrap/
+          retention-days: 14
+          if-no-files-found: warn
+
+  signed-index-source-chain:
+    needs: native-source-contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+      - name: Verify exact source and obtain pinned Ubuntu signing key
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          BASE="$(python3 -c 'import json;print(json.load(open("qualification/release-image-v1.json"))["base_image"])')"
+          CID="$(docker create "$BASE" /bin/true)"
+          trap 'docker rm -f "$CID" >/dev/null 2>&1 || true' EXIT
+          mkdir -p build/test-results/release2b2-index-source
+          docker cp "$CID:/usr/share/keyrings/ubuntu-archive-keyring.gpg" \
+            build/test-results/release2b2-index-source/keyring.gpg
+      - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
+        id: native-bytes
+        with:
+          path: build/release2b2-native-bundle
+          key: release2b2-ubuntu-20261001-signed-bytes-${{ hashFiles('qualification/release-os-packages.lock', 'qualification/release-bootstrap-v1.json') }}
+      - name: Acquire once if missing, independently verify every cached signed native input
+        timeout-minutes: 17
+        run: |
+          set -euo pipefail
+          python3 scripts/prepare-release-native-bundle.py \
+            --root . \
+            --bundle build/release2b2-native-bundle \
+            --keyring build/test-results/release2b2-index-source/keyring.gpg \
+            --populate-if-missing \
+            --output build/test-results/release2b2-index-source-verdict.json
+          python3 - <<'PY'
+          import json
+          r=json.load(open("build/test-results/release2b2-index-source-verdict.json"))
+          assert r["verdict"]=="PASS"
+          assert r["verified_native_archives"]==29
+          assert r["verified_signed_releases"]==4
+          assert r["verified_signed_package_indexes"]==4
+          assert r["public_bot_release"] is False and r["approved"] is False
+          PY
+      - uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
+        if: steps.native-bytes.outputs.cache-hit != 'true'
+        with:
+          path: build/release2b2-native-bundle
+          key: release2b2-ubuntu-20261001-signed-bytes-${{ hashFiles('qualification/release-os-packages.lock', 'qualification/release-bootstrap-v1.json') }}
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: release2b2-signed-index-source-evidence
+          path: build/test-results/release2b2-index-source-verdict.json
+          retention-days: 14
+          if-no-files-found: warn
+  release-dependency-stage:
+    needs: [native-source-contracts, signed-index-source-chain]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 38
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+      - name: Verify exact Git checkout
+        run: test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+      - name: Install CI acquisition prerequisites
+        run: bash scripts/ci-install-apt-deps.sh python3-pip python3-venv
+      - name: Prepare identical frozen twelve-wheel runtime dependency inputs
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          python3 scripts/verify-release-python-lock.py --root .
+          python3 scripts/prepare-online3b-wheels.py \
+            --source-lock deploy/lichess/requirements.release.lock \
+            --wheelhouse build/online3b-wheels
+          python3 scripts/verify-release-python-lock.py \
+            --wheelhouse build/online3b-wheels
+      - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: build/release2b2-native-bundle
+          key: release2b2-ubuntu-20261001-signed-bytes-${{ hashFiles('qualification/release-os-packages.lock', 'qualification/release-bootstrap-v1.json') }}
+      - name: Build the ACTUAL offline release dependency stage only
+        timeout-minutes: 18
+        run: |
+          set -euo pipefail
+          BASE="$(python3 -c 'import json;print(json.load(open("qualification/release-image-v1.json"))["base_image"])')"
+          docker build --no-cache --platform linux/amd64 \
+            --target release-dependencies \
+            --build-arg "BASE_IMAGE=$BASE" \
+            --file deploy/release/Dockerfile \
+            --tag allfather/release2b2-dependencies:offline .
+      - name: Independently verify native, Python and acquired package bytes
+        run: |
+          set -euo pipefail
+          mkdir -p build/test-results/release2b2-dependencies/wheels
+          CID="$(docker create allfather/release2b2-dependencies:offline /bin/true)"
+          trap 'docker rm -f "$CID" >/dev/null 2>&1 || true' EXIT
+          docker cp "$CID:/opt/allfather-release/native-evidence/." \
+            build/test-results/release2b2-dependencies/
+          docker cp "$CID:/usr/share/keyrings/ubuntu-archive-keyring.gpg" \
+            build/test-results/release2b2-dependencies/ubuntu-keyring.gpg
+          docker cp "$CID:/opt/allfather-release/os-packages.txt" \
+            build/test-results/release2b2-dependencies/os-packages.txt
+          docker cp "$CID:/opt/allfather-release/python-packages.txt" \
+            build/test-results/release2b2-dependencies/python-packages.txt
+          docker cp "$CID:/opt/allfather-release/wheels/." \
+            build/test-results/release2b2-dependencies/wheels/
+          git worktree add --detach "$RUNNER_TEMP/release2b2-source" "$SOURCE_SHA"
+          test "$(git -C "$RUNNER_TEMP/release2b2-source" rev-parse HEAD)" = "$SOURCE_SHA"
+          python3 "$RUNNER_TEMP/release2b2-source/scripts/verify-release-dependency-build.py" \
+            --root "$RUNNER_TEMP/release2b2-source" \
+            --evidence-dir build/test-results/release2b2-dependencies \
+            --os-inventory build/test-results/release2b2-dependencies/os-packages.txt \
+            --python-inventory build/test-results/release2b2-dependencies/python-packages.txt \
+            --wheelhouse build/test-results/release2b2-dependencies/wheels \
+            --output build/test-results/release2b2-stage-verdict.json
+          # Independently authenticate upstream signed raw InRelease and
+          # Packages.xz repository bytes, including package-specific pockets.
+          # Before candidates are frozen, discovery prints evidence but
+          # produces an INCONCLUSIVE status and fails the admission gate.
+          python3 "$RUNNER_TEMP/release2b2-source/scripts/verify-release-native-index-chain.py" \
+            --root "$RUNNER_TEMP/release2b2-source" \
+            --evidence-dir build/test-results/release2b2-dependencies \
+            --keyring build/test-results/release2b2-dependencies/ubuntu-keyring.gpg \
+            --output build/test-results/release2b2-index-chain.json
+          python3 - <<'PY'
+          import json
+          report=json.load(open("build/test-results/release2b2-index-chain.json"))
+          if report["verdict"]!="PASS" or not report["per_package_origins_source_locked"]:
+              raise SystemExit("INCONCLUSIVE: signed Packages-to-deb origins not yet source-locked")
+          assert report["exact_package_count"]==29
+          assert report["signed_source_provenance_verified"] is True
+          assert report["public_bot_release"] is False
+          PY
+          # Candidate measurement cannot be silently upgraded to a native
+          # lock when acquired-source evidence has not been admitted.
+          python3 - <<'PY'
+          import json
+          v=json.load(open("build/test-results/release2b2-stage-verdict.json"))
+          assert v["dependency_lock_approved"] is False
+          assert v["public_bot_release"] is False
+          assert v["python_selected_wheel_verdict"]=="PASS"
+          if not v["source_native_hash_lock_complete"]:
+              raise SystemExit("INCONCLUSIVE: acquired native hash lock still unreviewed")
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: release2b2-native-dependency-stage-candidate-evidence
+          path: |
+            build/test-results/release2b2-stage-verdict.json
+            build/test-results/release2b2-index-chain.json
+            build/test-results/release2b2-dependencies/os-packages.txt
+            build/test-results/release2b2-dependencies/python-packages.txt
+            build/test-results/release2b2-dependencies/bootstrap-debs.tsv
+            build/test-results/release2b2-dependencies/runtime-debs.tsv
+            build/test-results/release2b2-dependencies/inrelease-sha256.txt
+            build/test-results/release2b2-dependencies/runtime-inrelease-sha256.txt
+          retention-days: 14
+          if-no-files-found: warn

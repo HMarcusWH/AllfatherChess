@@ -161,13 +161,31 @@ jobs:
           assert bootstrap.count('Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg') == 2
           assert 'trusted=yes' not in bootstrap and 'allow-unauthenticated' not in bootstrap
           PY
-      - name: Early signed-snapshot availability preflight
-        timeout-minutes: 3
+      - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
+        id: release-native-bytes
+        with:
+          path: build/release2b2-native-bundle
+          key: release2b2-ubuntu-20261001-signed-bytes-${{ hashFiles('qualification/release-os-packages.lock', 'qualification/release-bootstrap-v1.json') }}
+      - name: Early exact signed Ubuntu source-byte admission (cache is untrusted)
+        timeout-minutes: 18
         run: |
-          python3 scripts/check-release-snapshot.py \
-            --policy qualification/release-image-v1.json \
-            --sources deploy/release/ubuntu.sources \
+          set -euo pipefail
+          IMAGE_BASE="$(python3 -c 'import json; print(json.load(open("qualification/release-image-v1.json"))["base_image"])')"
+          mkdir -p build/test-results/release1
+          CID="$(docker create "$IMAGE_BASE" /bin/true)"
+          trap 'docker rm -f "$CID" >/dev/null 2>&1 || true' EXIT
+          docker cp "$CID:/usr/share/keyrings/ubuntu-archive-keyring.gpg" \
+            "$RUNNER_TEMP/release1-source-ubuntu-keyring.gpg"
+          python3 scripts/prepare-release-native-bundle.py \
+            --root . --bundle build/release2b2-native-bundle \
+            --keyring "$RUNNER_TEMP/release1-source-ubuntu-keyring.gpg" \
+            --populate-if-missing \
             --output build/test-results/release1/snapshot-availability.json
+      - uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
+        if: steps.release-native-bytes.outputs.cache-hit != 'true'
+        with:
+          path: build/release2b2-native-bundle
+          key: release2b2-ubuntu-20261001-signed-bytes-${{ hashFiles('qualification/release-os-packages.lock', 'qualification/release-bootstrap-v1.json') }}
       - name: Install exact engine and test-only chess oracle (wheel builder separately pinned)
         run: |
           bash scripts/ci-install-apt-deps.sh build-essential meson ninja-build pkg-config libprotobuf-dev protobuf-compiler zlib1g-dev libopenblas-dev python3-pip python3-venv

@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "scope": "release-2b-2-native-build-candidate",
+  "base_image": "docker.io/library/ubuntu@sha256:224a1869083a311ef3f13648a154ba79832fbef6364d31493642ca03082da254",
+  "platform": "linux/amd64",
+  "ubuntu_release": "noble",
+  "apt_snapshot": "20261001T000000Z",
+  "bootstrap_source": "deploy/release/bootstrap.sources",
+  "runtime_source": "deploy/release/ubuntu.sources",
+  "native_inventory_lock": "qualification/release-os-packages.lock",
+  "bootstrap_policy": "qualification/release-bootstrap-v1.json",
+  "python_wheels_policy": "qualification/release-python-wheels-v1.json",
+  "expected_final_inventory_sha256": "859bca91d5aa9d152424b9d839641fa942a06e55e4af8b5c50c8d7e6258c4f5a",
+  "signed_index_acquisition_reviewed": false,
+  "acquired_package_hashes_reviewed": false,
+  "base_inventory_reviewed": false,
+  "lock_approved": false,
+  "public_bot_release": false,
+  "artifact_distribution_authorized": false,
+  "offline_candidate_qualified": false
+}

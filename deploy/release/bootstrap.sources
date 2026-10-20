@@ -6,6 +6,7 @@ Suites: noble noble-updates
 Components: main
 Architectures: amd64
 Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+Snapshot: 20261001T000000Z
 
 Types: deb
 URIs: http://security.ubuntu.com/ubuntu
@@ -13,3 +14,4 @@ Suites: noble-security
 Components: main
 Architectures: amd64
 Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+Snapshot: 20261001T000000Z

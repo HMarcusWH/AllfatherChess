@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "scope": "release-2b-2-candidate-signed-http-ubuntu-bootstrap",
+  "platform": "linux/amd64",
+  "base_image": "docker.io/library/ubuntu@sha256:224a1869083a311ef3f13648a154ba79832fbef6364d31493642ca03082da254",
+  "apt_snapshot": "20261001T000000Z",
+  "source_path": "deploy/release/bootstrap.sources",
+  "signed_by": "/usr/share/keyrings/ubuntu-archive-keyring.gpg",
+  "candidate_ca": {
+    "package": "ca-certificates",
+    "version": "20260601~24.04.1",
+    "architecture": "all",
+    "deb_sha256": null,
+    "signed_packages_index_sha256": null,
+    "signed_inrelease_sha256": null,
+    "trust_keyring_sha256": null
+  },
+  "bootstrap_snapshot_proved": false,
+  "bootstrap_hash_reviewed": false,
+  "source_acquisition_signatures_independently_verified": false,
+  "public_bot_release": false,
+  "artifact_distribution_authorized": false,
+  "offline_candidate_qualified": false
+}

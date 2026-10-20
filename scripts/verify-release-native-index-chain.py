@@ -160,6 +160,7 @@ def verify(root,evidence,keyring,allow_unlocked=False):
     signatures={}
     releases={}
     scanned=[]
+    unavailable_indices=[]
     for suite in SUITES:
         raw=get(f"{BASE}/dists/{suite}/InRelease",MAX_RELEASE)
         want={x.split("  ")[1].split("_dists_")[1].removesuffix("_InRelease"):x.split("  ")[0]
@@ -176,7 +177,27 @@ def verify(root,evidence,keyring,allow_unlocked=False):
             rel=f"{component}/binary-amd64/Packages.xz"
             signed_entry=releases[suite].get(rel)
             check(signed_entry is not None,"missing signed Packages.xz entry for "+suite+"/"+component)
-            blob=get(f"{BASE}/dists/{suite}/{rel}",MAX_INDEX)
+            original_uri=f"{BASE}/dists/{suite}/{rel}"
+            try:
+                blob=get(original_uri,MAX_INDEX)
+            except ValueError as e:
+                # Only a transiently unavailable optional signed pocket may
+                # be skipped. Missing mandatory package provenance still
+                # fails after all permitted pocket candidates are checked.
+                if not re.search(r"HTTP (429|502|503|504) refused after",str(e)):
+                    raise
+                byhash=f"{BASE}/dists/{suite}/{component}/binary-amd64/by-hash/SHA256/{signed_entry[0]}"
+                try:
+                    blob=get(byhash,MAX_INDEX)
+                except ValueError as other:
+                    if not (re.search(r"HTTP (429|502|503|504) refused after",str(other))
+                            or "HTTP 404 refused" in str(other)):
+                        raise
+                    unavailable_indices.append({"suite":suite,"component":component,
+                                                "index_path":rel,
+                                                "index_sha256":signed_entry[0],
+                                                "reason":"temporary_signed_snapshot_index_unavailable"})
+                    continue
             check((digest(blob),len(blob))==signed_entry,
                   "Packages.xz bytes/size differ from signed InRelease")
             plain=decompress_index(blob)
@@ -235,6 +256,7 @@ def verify(root,evidence,keyring,allow_unlocked=False):
             "candidate_only":True,"native_lock_approved":False,
             "public_bot_release":False,
             "origin_candidates":found,"signed_index_catalogue":scanned,
+            "unavailable_optional_signed_indices":unavailable_indices,
             "signature_fingerprints":signatures,
             "per_package_origins_source_locked":locked}
 def main():

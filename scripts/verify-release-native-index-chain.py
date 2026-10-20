@@ -11,6 +11,9 @@ from pathlib import Path
 SNAP="20261001T000000Z"
 BASE=f"https://snapshot.ubuntu.com/ubuntu/{SNAP}"
 SUITES=("noble","noble-updates","noble-backports","noble-security")
+# A deterministic proof needs at least one authenticated matching archive
+# record, not every mirror/pocket that happens to publish identical bytes.
+INDEX_SCAN_ORDER=("noble-updates","noble-security","noble","noble-backports")
 COMPONENTS=("main","universe")
 FINGERPRINT="F6ECB3762474EDA9D21B7022871920D1991BC93C"
 HEX=re.compile(r"[0-9a-f]{64}\Z")
@@ -166,8 +169,10 @@ def verify(root,evidence,keyring,allow_unlocked=False):
         signatures[suite]=check_gpgv(raw,keyring)
         releases[suite]=parse_sha256_inrelease(raw)
     found={n:[] for n in expected}
-    for suite in SUITES:
+    for suite in INDEX_SCAN_ORDER:
         for component in COMPONENTS:
+            if all(found.values()):
+                break
             rel=f"{component}/binary-amd64/Packages.xz"
             signed_entry=releases[suite].get(rel)
             check(signed_entry is not None,"missing signed Packages.xz entry for "+suite+"/"+component)
@@ -207,6 +212,8 @@ def verify(root,evidence,keyring,allow_unlocked=False):
                         "inrelease_sha256":scanned[-1]["inrelease_sha256"],
                         "pool_filename":archive,"archive_size":int(size)}
                 found[name].append(origin)
+        if all(found.values()):
+            break
     missing=sorted(n for n,origins in found.items() if not origins)
     check(not missing,"29 acquired packages not linked to signed Packages metadata: "+",".join(missing))
     for n in found:

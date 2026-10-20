@@ -133,7 +133,9 @@ class SignedNativeBootstrapTests(unittest.TestCase):
         self.assertEqual(len(c["acquired_package_debs"]),26)
         self.assertEqual(len(c["bootstrap_acquired_debs"]),3)
         self.assertTrue(c["acquired_package_hashes_measured"])
-        self.assertIsNone(c["signed_index_evidence"])
+        self.assertEqual(len(c["signed_index_evidence"]["runtime_inrelease_sha256_lines"]),4)
+        self.assertEqual(len(c["signed_index_evidence"]["bootstrap_inrelease_sha256_lines"]),3)
+        self.assertFalse(c["signed_index_evidence"]["independently_reviewed"])
         self.assertEqual(len(c["base_inventory"]),92)
         self.assertEqual(len(c["observed_bootstrap_inventory"]),94)
 

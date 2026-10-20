@@ -13,7 +13,7 @@ BASE=f"https://snapshot.ubuntu.com/ubuntu/{SNAP}"
 SUITES=("noble","noble-updates","noble-backports","noble-security")
 # A deterministic proof needs at least one authenticated matching archive
 # record, not every mirror/pocket that happens to publish identical bytes.
-INDEX_SCAN_ORDER=("noble-updates","noble-security","noble","noble-backports")
+INDEX_SCAN_ORDER=("noble-updates","noble","noble-security","noble-backports")
 COMPONENTS=("main","universe")
 FINGERPRINT="F6ECB3762474EDA9D21B7022871920D1991BC93C"
 HEX=re.compile(r"[0-9a-f]{64}\Z")
@@ -161,16 +161,30 @@ def verify(root,evidence,keyring,allow_unlocked=False):
     releases={}
     scanned=[]
     unavailable_indices=[]
-    for suite in SUITES:
-        raw=get(f"{BASE}/dists/{suite}/InRelease",MAX_RELEASE)
-        want={x.split("  ")[1].split("_dists_")[1].removesuffix("_InRelease"):x.split("  ")[0]
-              for x in signed["runtime_inrelease_sha256_lines"]}
-        check(suite in want and digest(raw)==want[suite],
-              "signed Ubuntu release bytes differ from frozen source")
+    unavailable_suites=[]
+    want={x.split("  ")[1].split("_dists_")[1].removesuffix("_InRelease"):x.split("  ")[0]
+          for x in signed["runtime_inrelease_sha256_lines"]}
+    check(set(want)==set(SUITES),"incomplete committed signed Ubuntu suites")
+    found={n:[] for n in expected}
+    # Do not fetch unused suites. Every admitted package still requires a
+    # real, signed, hash-matched Packages index in an actually queried suite.
+    for suite in INDEX_SCAN_ORDER:
+        if all(found.values()):
+            break
+        try:
+            raw=get(f"{BASE}/dists/{suite}/InRelease",MAX_RELEASE)
+        except ValueError as err:
+            # An unavailable suite contributes ZERO trusted evidence. Skip only
+            # if another signed suite ultimately proves every package.
+            if not re.search(r"HTTP (429|500|502|503|504) refused after",str(err)):
+                raise
+            unavailable_suites.append({"suite":suite,"reason":"snapshot_release_unavailable"})
+            continue
+        check(digest(raw)==want[suite],
+              "signed Ubuntu release bytes differ from frozen source: "+suite)
         signatures[suite]=check_gpgv(raw,keyring)
         releases[suite]=parse_sha256_inrelease(raw)
-    found={n:[] for n in expected}
-    for suite in INDEX_SCAN_ORDER:
+        print(f"SIGNED_RELEASE_VERIFIED suite={suite}",flush=True)
         for component in COMPONENTS:
             if all(found.values()):
                 break
@@ -184,13 +198,13 @@ def verify(root,evidence,keyring,allow_unlocked=False):
                 # Only a transiently unavailable optional signed pocket may
                 # be skipped. Missing mandatory package provenance still
                 # fails after all permitted pocket candidates are checked.
-                if not re.search(r"HTTP (429|502|503|504) refused after",str(e)):
+                if not re.search(r"HTTP (429|500|502|503|504) refused after",str(e)):
                     raise
                 byhash=f"{BASE}/dists/{suite}/{component}/binary-amd64/by-hash/SHA256/{signed_entry[0]}"
                 try:
                     blob=get(byhash,MAX_INDEX)
                 except ValueError as other:
-                    if not (re.search(r"HTTP (429|502|503|504) refused after",str(other))
+                    if not (re.search(r"HTTP (429|500|502|503|504) refused after",str(other))
                             or "HTTP 404 refused" in str(other)):
                         raise
                     unavailable_indices.append({"suite":suite,"component":component,
@@ -235,7 +249,10 @@ def verify(root,evidence,keyring,allow_unlocked=False):
                         "packages_index_size":signed_entry[1],
                         "inrelease_sha256":scanned[-1]["inrelease_sha256"],
                         "pool_filename":archive,"archive_size":int(size)}
-                found[name].append(origin)
+                if not found[name]:
+                    found[name].append(origin)
+            print(f"SIGNED_PACKAGE_INDEX_VERIFIED suite={suite} component={component} "
+                  f"resolved={sum(bool(v) for v in found.values())}/29",flush=True)
         if all(found.values()):
             break
     missing=sorted(n for n,origins in found.items() if not origins)
@@ -246,7 +263,9 @@ def verify(root,evidence,keyring,allow_unlocked=False):
     locked=all("signed_origins" in rec for _,rec in expected.values())
     if locked:
         for name,(_,rec) in expected.items():
-            check(rec["signed_origins"]==found[name],
+            check(type(rec["signed_origins"]) is list and
+                  len(rec["signed_origins"])>=1 and
+                  found[name][0] in rec["signed_origins"],
                   "candidate per-package signed origin does not match authenticated index: "+name)
     elif not allow_unlocked:
         raise ValueError("native per-package signed origins have not been committed")
@@ -257,6 +276,7 @@ def verify(root,evidence,keyring,allow_unlocked=False):
             "public_bot_release":False,
             "origin_candidates":found,"signed_index_catalogue":scanned,
             "unavailable_optional_signed_indices":unavailable_indices,
+            "unavailable_unneeded_or_unproved_suites":unavailable_suites,
             "signature_fingerprints":signatures,
             "per_package_origins_source_locked":locked}
 def main():

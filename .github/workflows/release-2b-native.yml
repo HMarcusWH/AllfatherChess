@@ -43,7 +43,7 @@ jobs:
           assert n["lock_approved"] is False
           PY
   signed-bootstrap-probe:
-    needs: native-source-contracts
+    needs: [native-source-contracts, signed-index-source-chain]
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     steps:
@@ -52,7 +52,12 @@ jobs:
           ref: ${{ env.SOURCE_SHA }}
       - name: Verify exact source
         run: test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
-      - name: Pull exact pinned OCI base and execute real signed APT snapshot
+      - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: build/release2b2-native-bundle
+          key: release2b2-ubuntu-20261001-signed-bytes-${{ hashFiles('qualification/release-os-packages.lock', 'qualification/release-bootstrap-v1.json') }}
+      - name: Build actual source-verified offline bootstrap probe
+
         timeout-minutes: 24
         run: |
           set -euo pipefail
@@ -103,41 +108,35 @@ jobs:
           mkdir -p build/test-results/release2b2-index-source
           docker cp "$CID:/usr/share/keyrings/ubuntu-archive-keyring.gpg" \
             build/test-results/release2b2-index-source/keyring.gpg
-      - name: Reconstruct candidate native source records and test signed index chain
-        timeout-minutes: 16
+      - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
+        id: native-bytes
+        with:
+          path: build/release2b2-native-bundle
+          key: release2b2-ubuntu-20261001-signed-bytes-${{ hashFiles('qualification/release-os-packages.lock', 'qualification/release-bootstrap-v1.json') }}
+      - name: Acquire once if missing, independently verify every cached signed native input
+        timeout-minutes: 17
         run: |
           set -euo pipefail
-          python3 - <<'PY'
-          import json
-          from pathlib import Path
-          lock=json.load(open("qualification/release-os-packages.lock"))
-          out=Path("build/test-results/release2b2-index-source")
-          for phase,key in (("bootstrap","bootstrap_acquired_debs"),
-                            ("runtime","acquired_package_debs")):
-              rows=sorted(lock[key],key=lambda r:r["name"])
-              (out/(phase+"-debs.tsv")).write_text("".join(
-                  "\t".join(r[k] for k in
-                      ("name","version","architecture","sha256","filename"))+"\n"
-                  for r in rows))
-          index=lock["signed_index_evidence"]
-          (out/"inrelease-sha256.txt").write_text(
-              "\n".join(index["bootstrap_inrelease_sha256_lines"])+"\n")
-          (out/"runtime-inrelease-sha256.txt").write_text(
-              "\n".join(index["runtime_inrelease_sha256_lines"])+"\n")
-          PY
-          python3 scripts/verify-release-native-index-chain.py \
+          python3 scripts/prepare-release-native-bundle.py \
             --root . \
-            --evidence-dir build/test-results/release2b2-index-source \
+            --bundle build/release2b2-native-bundle \
             --keyring build/test-results/release2b2-index-source/keyring.gpg \
+            --populate-if-missing \
             --output build/test-results/release2b2-index-source-verdict.json
           python3 - <<'PY'
           import json
-          v=json.load(open("build/test-results/release2b2-index-source-verdict.json"))
-          if not v["per_package_origins_source_locked"] or v["verdict"]!="PASS":
-              raise SystemExit("INCONCLUSIVE: authenticated package origin catalogue must be committed")
-          assert v["exact_package_count"]==29
-          assert v["native_lock_approved"] is False
+          r=json.load(open("build/test-results/release2b2-index-source-verdict.json"))
+          assert r["verdict"]=="PASS"
+          assert r["verified_native_archives"]==29
+          assert r["verified_signed_releases"]==4
+          assert r["verified_signed_package_indexes"]==4
+          assert r["public_bot_release"] is False and r["approved"] is False
           PY
+      - uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
+        if: steps.native-bytes.outputs.cache-hit != 'true'
+        with:
+          path: build/release2b2-native-bundle
+          key: release2b2-ubuntu-20261001-signed-bytes-${{ hashFiles('qualification/release-os-packages.lock', 'qualification/release-bootstrap-v1.json') }}
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
@@ -146,7 +145,7 @@ jobs:
           retention-days: 14
           if-no-files-found: warn
   release-dependency-stage:
-    needs: native-source-contracts
+    needs: [native-source-contracts, signed-index-source-chain]
     runs-on: ubuntu-24.04
     timeout-minutes: 38
     steps:
@@ -167,6 +166,10 @@ jobs:
             --wheelhouse build/online3b-wheels
           python3 scripts/verify-release-python-lock.py \
             --wheelhouse build/online3b-wheels
+      - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: build/release2b2-native-bundle
+          key: release2b2-ubuntu-20261001-signed-bytes-${{ hashFiles('qualification/release-os-packages.lock', 'qualification/release-bootstrap-v1.json') }}
       - name: Build the ACTUAL offline release dependency stage only
         timeout-minutes: 18
         run: |

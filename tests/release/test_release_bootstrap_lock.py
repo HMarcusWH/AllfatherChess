@@ -128,7 +128,11 @@ class SignedNativeBootstrapTests(unittest.TestCase):
         self.assertFalse(a["public_bot_release"])
         self.assertFalse(b["lock_approved"])
         self.assertFalse(c["approved"])
-        self.assertFalse(c["base_inventory_measured"])
+        self.assertTrue(c["base_inventory_measured"])
+        self.assertFalse(c["base_inventory_reviewed"])
+        self.assertIsNone(c["acquired_package_debs"])
+        self.assertEqual(len(c["base_inventory"]),92)
+        self.assertEqual(len(c["observed_bootstrap_inventory"]),94)
 
 if __name__=="__main__":
     unittest.main()

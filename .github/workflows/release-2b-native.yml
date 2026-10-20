@@ -27,7 +27,8 @@ jobs:
           python3 -m unittest discover -s tests/release -p test_release_dependency_build.py -v
           python3 -m unittest discover -s tests/release -p test_release_native_admission.py -v
           python3 -m unittest discover -s tests/release -p test_release_native_index_chain.py -v
-          python3 -m compileall -q scripts/compile-release-native-selection.py scripts/verify-release-native-index-chain.py
+          python3 -m unittest discover -s tests/release -p test_release_native_bundle.py -v
+          python3 -m compileall -q scripts/compile-release-native-selection.py scripts/verify-release-native-index-chain.py scripts/prepare-release-native-bundle.py
       - name: Confirm no release or dependency-lock authority
         run: |
           python3 - <<'PY'

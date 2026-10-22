@@ -43,6 +43,77 @@ install_packages noble amd64 python3-pip
         self.assertIn("no APT index acquisition",out.stdout)
         self.assertNotIn("UNEXPECTED-APT",out.stderr)
 
+    def test_missing_host_package_needs_signed_refresh_and_fails_closed(self):
+        import os
+        import tempfile
+        with tempfile.TemporaryDirectory() as temp:
+            command=f"""set -euo pipefail
+source "{SCRIPT}"
+dpkg-query() {{
+  if [[ "$2" == -f=* ]]; then
+    printf 'deinstall ok config-files'
+  else
+    printf 'unqualified-package\\n'
+  fi
+}}
+apt_run() {{ printf 'signed package acquisition unavailable\\n' >&2; return 124; }}
+sudo() {{
+  if [[ "$1" != rm ]]; then return 97; fi
+  shift
+  command rm "$@"
+}}
+install_packages noble amd64 python3-venv
+"""
+            env=dict(os.environ,TMPDIR=temp)
+            result=subprocess.run(["bash","-c",command],env=env,
+                                  capture_output=True,text=True,timeout=15)
+            self.assertEqual(result.returncode,124,result.stderr)
+            self.assertIn("APT update failed/expired",result.stderr)
+            self.assertNotIn("APT dependencies installed",result.stdout)
+            self.assertEqual(list(pathlib.Path(temp).iterdir()),[],
+                             "partial signed APT lists leaked after failure")
+
+    def test_signature_or_hash_error_never_promotes_installed_dependencies(self):
+        import os
+        import tempfile
+        with tempfile.TemporaryDirectory() as temp:
+            command=f"""set -euo pipefail
+source "{SCRIPT}"
+dpkg-query() {{ printf 'unavailable'; return 1; }}
+apt_run() {{
+  printf 'BADSIG: source identity failed\\n' >&2
+  return 100
+}}
+sudo() {{
+  if [[ "$1" != rm ]]; then return 97; fi
+  shift
+  command rm "$@"
+}}
+install_packages noble amd64 libopenblas-dev
+"""
+            result=subprocess.run(["bash","-c",command],capture_output=True,
+                                  text=True,timeout=15,
+                                  env=dict(os.environ,TMPDIR=temp))
+            self.assertEqual(result.returncode,100,result.stderr)
+            self.assertIn("BADSIG",result.stderr)
+            self.assertIn("no stale-index fallback",result.stderr)
+            self.assertNotIn("APT dependencies installed",result.stdout)
+            self.assertEqual(list(pathlib.Path(temp).iterdir()),[])
+
+    def test_bad_package_name_rejected_before_any_apt_operation(self):
+        command=f"""set -euo pipefail
+source "{SCRIPT}"
+dpkg-query() {{ printf 'unexpected query' >&2; return 96; }}
+apt_run() {{ printf 'UNEXPECTED-APT' >&2; return 97; }}
+install_packages noble amd64 'python3-pip;rm'
+"""
+        result=subprocess.run(["bash","-c",command],capture_output=True,
+                              text=True,timeout=10)
+        self.assertNotEqual(result.returncode,0)
+        self.assertIn("Invalid APT package argument",result.stderr)
+        self.assertNotIn("UNEXPECTED-APT",result.stderr)
+        self.assertNotIn("unexpected query",result.stderr)
+
     def test_helper_never_ignores_signature_or_hash_errors(self):
         txt=SCRIPT.read_text()
         self.assertIn("APT::Update::Error-Mode=any",txt)

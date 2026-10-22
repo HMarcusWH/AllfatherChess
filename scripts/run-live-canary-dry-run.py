@@ -20,14 +20,32 @@ import subprocess
 import sys
 import tempfile
 import time
+import sys
+import re
 from pathlib import Path
 
 ROOT=Path(__file__).resolve().parents[1]
 COMPOSE=ROOT/"deploy/live_canary/compose.test.yml"
 
 def cmd(args,*,env=None,timeout=30):
-    return subprocess.check_output(args,text=True,stderr=subprocess.PIPE,
-                                   cwd=ROOT,env=env,timeout=timeout).strip()
+    """Invoke a local tool with bounded, credential-redacted failure evidence.
+
+    During offline PR-A no real credentials exist. Do not leak even a seeded
+    test token or arbitrary stderr content into GitHub Actions.
+    """
+    result=subprocess.run(args,text=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE,
+                          cwd=ROOT,env=env,timeout=timeout,check=False)
+    if result.returncode:
+        # Compose errors are commonly stderr-only. Retain the *cause*, but
+        # never propagate Authorization or synthetic credential bytes.
+        message=" ".join(result.stderr.splitlines()[-6:])[-1100:]
+        message=re.sub(r"(?i)bearer\s+[^\s]+", "Bearer <REDACTED>", message)
+        message=re.sub(r"synthetic-only-[A-Za-z0-9_\-]+", "<SYNTHETIC_REDACTED>", message)
+        message=re.sub(r"(?i)offline-fixture-token", "<SYNTHETIC_REDACTED>", message)
+        message=re.sub(r"(?i)(?:token|authorization)\s*[:=]\s*[^\s]+", "<REDACTED>", message)
+        raise RuntimeError(f"test command {args[0]} {args[1] if len(args)>1 else ''} "
+                           f"failed with exit={result.returncode}: {message}")
+    return result.stdout.strip()
 def digest(path):return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 def write(path,obj):
     p=Path(path)

@@ -28,8 +28,34 @@ ALLOWED_POSTS = {"token_test", "accept", "decline", "move"}
 
 
 def _context():
-    if os.getenv("ONLINE4B_ISOLATED_CONTAINER") != "1":
-        raise RecoverySuspended("recovery adapter refuses non-isolated operation")
+    profile = os.getenv("ALLFATHER_TRANSPORT_PROFILE", "offline")
+    if profile == "offline":
+        if os.getenv("ONLINE4B_ISOLATED_CONTAINER") != "1":
+            raise RecoverySuspended("recovery adapter refuses non-isolated operation")
+    elif profile == "live-canary":
+        # No environment-only self-authorization: revalidate the signed
+        # runtime lease with the external operator public trust anchor.
+        if os.getenv("ONLINE4B_ISOLATED_CONTAINER") == "1":
+            raise RecoverySuspended("live profile cannot impersonate offline isolation")
+        if os.getenv("LICHESS_BOT_TOKEN") or os.getenv("ALLFATHER_LIVE_GATEWAY_URL") != "http://live-gateway:8765/":
+            raise RecoverySuspended("bridge real credential or gateway-origin mismatch")
+        import dataclasses
+        from deploy.live_canary.admission import SourceBinding, verify_admission, AdmissionDenied
+        try:
+            lease_path = Path(os.environ["ALLFATHER_LIVE_LEASE_FILE"])
+            binding_path = Path(os.environ["ALLFATHER_LIVE_BINDING_FILE"])
+            pub_path = Path(os.environ["ALLFATHER_LIVE_OPERATOR_KEY_FILE"])
+            if any(p.is_symlink() or not p.is_file() for p in (lease_path,binding_path,pub_path)):
+                raise AdmissionDenied("source/lease attestation absent or linked")
+            binding = json.loads(binding_path.read_text(encoding="utf-8"))
+            if set(binding) != {f.name for f in dataclasses.fields(SourceBinding)}:
+                raise AdmissionDenied("source binding incomplete")
+            verify_admission(json.loads(lease_path.read_text(encoding="utf-8")),
+                             SourceBinding(**binding), pub_path)
+        except (KeyError,OSError,ValueError,TypeError) as exc:
+            raise RecoverySuspended("unverified live-canary runtime lease") from exc
+    else:
+        raise RecoverySuspended("unknown API transport profile")
     db = os.getenv("ALLFATHER_RECOVERY_DB")
     epoch = os.getenv("ALLFATHER_RECOVERY_EPOCH")
     if not db or not epoch:
@@ -137,8 +163,16 @@ def guarded_post(session, endpoint_name: str, template_args: tuple[str, ...],
     if endpoint_name not in ALLOWED_POSTS:
         raise RecoverySuspended("upstream POST endpoint not authorized")
     parsed = urlparse(url)
-    if parsed.hostname != "127.0.0.1" or parsed.scheme != "http":
-        raise RecoverySuspended("recovery transport permits loopback HTTP only")
+    profile = os.getenv("ALLFATHER_TRANSPORT_PROFILE", "offline")
+    if profile == "offline":
+        if parsed.hostname != "127.0.0.1" or parsed.scheme != "http":
+            raise RecoverySuspended("recovery transport permits loopback HTTP only")
+    else:
+        from deploy.lichess.live_gateway_policy import GATEWAY_HOST
+        if (parsed.scheme != "http" or parsed.netloc != GATEWAY_HOST
+            or parsed.username is not None or parsed.password is not None
+            or parsed.query or parsed.fragment or not parsed.path.startswith("/api/")):
+            raise RecoverySuspended("live transport is restricted to the private gateway")
     move_context = None
     if endpoint_name == "move":
         if len(template_args) != 2:
@@ -155,6 +189,12 @@ def guarded_post(session, endpoint_name: str, template_args: tuple[str, ...],
             _audit("duplicate_submission_blocked", game_id=game_id, move=uci)
             raise RecoverySuspended(str(exc)) from exc
         move_context = (game_id, uci, before)
+        if profile == "live-canary":
+            if headers and any(k.lower().startswith("x-allfather-") for k in headers):
+                raise RecoverySuspended("caller cannot supply prepared-intent headers")
+            headers = dict(headers or {})
+            headers["X-Allfather-Ply"] = str(len(before))
+            headers["X-Allfather-Epoch"] = epoch
         _audit("http_move_submission_attempt", game_id=game_id,
                uci=uci, ply=len(before))
     try:

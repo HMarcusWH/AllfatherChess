@@ -334,8 +334,12 @@ class LiveSupervisor:
         self.phase="preflight"
         self.preflight()
         self.state.mkdir(parents=True,exist_ok=True)
-        completed_result=None
+        finished_result=None
         primary=None
+        cleanup_error=None
+        cleanup=None
+        drained=False
+        failed_phase=self.phase
         try:
             self.phase="workspace_stage"
             work=stage_live(release=self.release,bridge=self.bridge,
@@ -344,50 +348,70 @@ class LiveSupervisor:
                 raise SupervisorRefused("sealed release source drift")
             self.phase="journal_initialize"
             journal_file=self.state/"recovery/move-journal.sqlite3"
+            # CRITICAL: all children must be stopped while SessionOwner still
+            # holds its exclusive flock. No new epoch may start during cleanup.
             with SessionOwner(self.state/"recovery") as owner, closing(
                  sqlite3.connect(str(journal_file),timeout=5)) as journal_keeper:
-                journal_keeper.execute("PRAGMA journal_mode=WAL")
-                self.owner=owner
-                log_path=self.state/"bridge-private.log"
-                with log_path.open("ab") as log:
-                    self.phase="bridge_spawn"
-                    self.process=subprocess.Popen(bridge_command(work),cwd=work["bridge"],
-                       env=self._environment(owner,binding_file,lease_file),
-                       stdin=subprocess.DEVNULL,stdout=log,stderr=subprocess.STDOUT,
-                       start_new_session=True)
-                    until=time.monotonic()+timeout_s
-                    self.phase="await_terminal"
-                    while not self.stopping and time.monotonic()<until:
-                        if (Path("/run/canary-control/stop.flag").exists()
-                            or Path("/run/canary-control/stop.flag").is_symlink()):
-                            raise SupervisorRefused("operator kill switch requested shutdown")
-                        self.phase="durable_progress"
-                        finished,gid,ply=self._progress(owner)
-                        if not finished and self.process.poll() is not None:
-                            self.phase="bridge_early_exit"
-                            raise SupervisorRefused("bridge exited before durable terminal")
-                        if finished:
-                            self.phase="terminal_reconciled"
-                            completed_result=SupervisedResult(
-                                "TERMINAL_DURABLE",self.binding.source_commit,
-                                gid,ply,True,{},None)
-                            break
+                try:
+                    journal_keeper.execute("PRAGMA journal_mode=WAL")
+                    self.owner=owner
+                    log_path=self.state/"bridge-private.log"
+                    with log_path.open("ab") as log:
+                        self.phase="bridge_spawn"
+                        self.process=subprocess.Popen(
+                            bridge_command(work),cwd=work["bridge"],
+                            env=self._environment(owner,binding_file,lease_file),
+                            stdin=subprocess.DEVNULL,stdout=log,stderr=subprocess.STDOUT,
+                            start_new_session=True)
+                        until=time.monotonic()+timeout_s
                         self.phase="await_terminal"
-                        time.sleep(.25)
-                    if completed_result is None:
-                        self.phase="bounded_timeout"
-                        raise SupervisorRefused("operator stop or bounded game timeout")
+                        while not self.stopping and time.monotonic()<until:
+                            stop=Path("/run/canary-control/stop.flag")
+                            if stop.exists() or stop.is_symlink():
+                                raise SupervisorRefused("operator kill switch requested shutdown")
+                            self.phase="durable_progress"
+                            complete,gid,ply=self._progress(owner)
+                            if not complete and self.process.poll() is not None:
+                                self.phase="bridge_early_exit"
+                                raise SupervisorRefused("bridge exited before durable terminal")
+                            if complete:
+                                self.phase="terminal_reconciled"
+                                finished_result=SupervisedResult(
+                                    "TERMINAL_DURABLE",self.binding.source_commit,
+                                    gid,ply,True,{},None)
+                                break
+                            self.phase="await_terminal"
+                            time.sleep(.25)
+                        if finished_result is None:
+                            self.phase="bounded_timeout"
+                            raise SupervisorRefused("operator stop or bounded game timeout")
+                except BaseException as exc:
+                    primary=exc
+                    failed_phase=self.phase
+                finally:
+                    # This finally is INSIDE the exclusive SessionOwner scope.
+                    drained=True
+                    try:
+                        self.phase="drain"
+                        cleanup=self.stop_and_reap(
+                            "terminal" if finished_result else "fail_closed_shutdown")
+                    except BaseException as exc:
+                        cleanup_error=exc
+                        self.cleanup_error_type=type(exc).__name__
         except BaseException as exc:
-            primary=exc
-        failed_phase=self.phase
-        cleanup_error=None
-        cleanup=None
-        try:
-            self.phase="drain"
-            cleanup=self.stop_and_reap("terminal" if completed_result else "fail_closed_shutdown")
-        except BaseException as exc:
-            cleanup_error=exc
-            self.cleanup_error_type=type(exc).__name__
+            if primary is None:
+                primary=exc
+                failed_phase=self.phase
+        if not drained:
+            # If staging or owner acquisition fails before the guarded scope
+            # starts, no game may have been authorized; still activate the
+            # independent durable stop marker and reap any possible children.
+            try:
+                self.phase="drain"
+                cleanup=self.stop_and_reap("fail_closed_shutdown")
+            except BaseException as exc:
+                cleanup_error=exc
+                self.cleanup_error_type=type(exc).__name__
         self.phase=failed_phase if primary is not None else "drained"
         if primary is not None:
             if cleanup_error is not None:
@@ -395,7 +419,7 @@ class LiveSupervisor:
             raise primary
         if cleanup_error is not None:
             raise cleanup_error
-        if completed_result is None:
-            raise SupervisorRefused("missing terminal after bounded run")
-        completed_result.processes=cleanup
-        return completed_result
+        if finished_result is None:
+            raise SupervisorRefused("no durable terminal after bounded run")
+        finished_result.processes=cleanup
+        return finished_result

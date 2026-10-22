@@ -174,5 +174,35 @@ class CanaryProtocolFaults(unittest.TestCase):
                 state.require_active()
             self.assertEqual(state.snapshot()["suspended"],1)
 
+    def test_profile_drift_and_unbound_active_games_are_never_forwarded(self):
+        scenarios=[
+            (AdmittedRoute("GET","profile","/api/account"),
+             {"id":"otherbot","username":"otherbot","title":"BOT"}),
+            (AdmittedRoute("GET","playing","/api/account/playing"),
+             {"nowPlaying":[{"gameId":"other001"}]}),
+        ]
+        for route,body in scenarios:
+            with self.subTest(action=route.action), tempfile.TemporaryDirectory() as t:
+                state=GatewayState(Path(t)/"session.sqlite3","a"*48,
+                                   "allfatherfixture","approved_test_bot")
+                response=Response(200,body=json.dumps(body).encode())
+                remote=Remote(response)
+                gateway=LiveGateway.for_fake_test_only(state,FAKE_TOKEN,lambda:remote)
+                gateway.verified=VerifiedBot("allfatherfixture","allfatherfixture",("bot:play",))
+                gateway.session.token_verified=True
+                with self.assertRaises(GatewayFailure):
+                    gateway.nonstream_request(route,b"")
+                self.assertEqual(state.snapshot()["suspended"],1)
+                self.assertEqual(len(remote.calls),1)
+
+    def test_oversized_upstream_body_rejected_during_streaming(self):
+        body=b"x"*(1048576+1)
+        remote=Remote(Response(200,body=body))
+        gateway=self.gateway(remote)
+        with self.assertRaises(GatewayFailure):
+            gateway.nonstream_request(self.route,b"")
+        self.assertEqual(self.state.snapshot()["suspended"],1)
+        self.assertEqual(len(remote.calls),1)
+
 if __name__=="__main__":
     unittest.main()

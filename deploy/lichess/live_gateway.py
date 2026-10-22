@@ -423,9 +423,10 @@ class LiveGateway:
         lock=self.stream_locks[kind]
         if not lock.acquire(blocking=False):
             raise GatewaySuspended("duplicate stream refused; must fence previous owner")
-        up=self._session()
+        up=None
         response=None
         try:
+            up=self._session()
             if self.active_streams[kind]:
                 raise GatewaySuspended("duplicate account/game stream")
             self.active_streams[kind]=1
@@ -471,7 +472,7 @@ class LiveGateway:
             try:
                 if response is not None: response.close()
             finally:
-                up.close()
+                if up is not None: up.close()
                 self.active_streams[kind]=0
                 lock.release()
     def stop(self):

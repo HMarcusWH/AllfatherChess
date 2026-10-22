@@ -145,7 +145,7 @@ class CanaryProtocolFaults(unittest.TestCase):
                 self.entered.set()
                 if not self.release.wait(5):
                     raise RuntimeError("test stream was never stopped")
-                yield b"\\n"
+                yield b"\n"
             def close(self):
                 self.release.set()
                 super().close()
@@ -179,7 +179,7 @@ class CanaryProtocolFaults(unittest.TestCase):
         class SlowRemote(Remote):
             def __init__(self):
                 super().__init__(Response(200,ctype="application/x-ndjson",
-                                          body=b"\\n"))
+                                          body=b"\n"))
                 self.entered=threading.Event()
                 self.release=threading.Event()
             def request(self,method,url,**kwargs):
@@ -215,6 +215,19 @@ class CanaryProtocolFaults(unittest.TestCase):
         finally:
             remote.release.set()
             thread.join(1)
+
+    def test_session_factory_failure_releases_stream_lease(self):
+        gateway=self.gateway(Remote(Response(200,ctype="application/x-ndjson")))
+        def fail_factory():
+            raise ValueError("synthetic session factory refused")
+        gateway._fixture_factory=fail_factory
+        with self.assertRaises(ValueError):
+            gateway.stream_request(
+                AdmittedRoute("GET","events","/api/stream/event"),lambda _:None)
+        self.assertEqual(gateway.active_streams["events"],0)
+        self.assertFalse(gateway.stream_locks["events"].locked())
+        self.assertIsNone(gateway.streams["events"])
+        self.assertEqual(self.state.snapshot()["suspended"],1)
 
     def test_move_requires_journal_exact_epoch_legality_and_once(self):
         with tempfile.TemporaryDirectory() as root:

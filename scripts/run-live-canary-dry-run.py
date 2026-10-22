@@ -99,7 +99,9 @@ def fabricate_runtime_test_lease(fixture:Path,host:dict,image_id:str,source_sha:
         "not_before_utc":before,"expires_at_utc":after,
         "max_games":1,"operator_approval_id":"ci-fake-"+secrets.token_hex(10),
     }
-    key=fixture/"test-private-key.pem"
+    # The synthetic signer private key is never inside the mounted operator
+    # directory, even transiently. No container receives or reads it.
+    key=fixture.parent/"synthetic-private-key.unmounted.pem"
     pub=fixture/"operator-ed25519.pub.pem"
     cmd(["openssl","genpkey","-algorithm","Ed25519","-out",str(key)],timeout=10)
     os.chmod(key,0o600)
@@ -199,6 +201,7 @@ def run(color:str,image:str,source_sha:str,out:Path):
         try:compose("down","--remove-orphans","--volumes",timeout=50)
         except (OSError,subprocess.SubprocessError):pass
         token.unlink(missing_ok=True)
+        (out/"synthetic-private-key.unmounted.pem").unlink(missing_ok=True)
         shutil.rmtree(fixture,ignore_errors=True)
 
 def main():

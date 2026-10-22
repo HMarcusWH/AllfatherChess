@@ -8,6 +8,8 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import sqlite3
+from contextlib import closing
 import signal
 import subprocess
 import sys
@@ -241,7 +243,13 @@ class LiveSupervisor:
                             workspace=self.work,opponent=self.binding.opponent_bot)
             if work["release_source"]!=self.binding.source_commit:
                 raise SupervisorRefused("sealed release source drift")
-            with SessionOwner(self.state/"recovery") as owner:
+            # Keep the WAL/-shm identity available for the gateway's
+            # independent, read-only journal connection. No source changes
+            # to offline SessionOwner or MoveJournal are required.
+            journal_file=self.state/"recovery/move-journal.sqlite3"
+            with SessionOwner(self.state/"recovery") as owner, closing(
+                 sqlite3.connect(str(journal_file),timeout=5)) as journal_keeper:
+                journal_keeper.execute("PRAGMA journal_mode=WAL")
                 self.owner=owner
                 log_path=self.state/"bridge-private.log"
                 with log_path.open("ab") as log:

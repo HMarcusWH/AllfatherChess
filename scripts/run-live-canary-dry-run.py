@@ -136,9 +136,17 @@ def run(color:str,image:str,source_sha:str,out:Path):
     if out.exists() or out.is_symlink():
         raise RuntimeError("fresh test output directory required")
     out.mkdir(parents=True)
+    # Synthetic outputs only; test container UID 10001 writes its own files.
+    for name in ("gateway","bridge"):
+        target=out/name
+        target.mkdir()
+        target.chmod(0o777)
     fixture=out/"operator-fixture";fixture.mkdir()
     token=out/"synthetic-gateway-secret.private"
     token.write_text("synthetic-only-"+secrets.token_urlsafe(28)+"\n")
+    token.chmod(0o600)
+    subprocess.run(["sudo","chown","10001:10001",str(token)],
+                   check=True,capture_output=True,timeout=10)
     project="afc-canary-"+color+"-"+source_sha[:8].lower()
     env=os.environ.copy()
     env.update(CANARY_WORKTREE=str(ROOT),CANARY_OPERATOR_FIXTURE=str(fixture),

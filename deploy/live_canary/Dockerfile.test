@@ -2,7 +2,7 @@
 ARG BASE_IMAGE
 FROM ${BASE_IMAGE}
 RUN groupadd -g 10001 canary && useradd -u 10001 -g 10001 -m -d /home/canary -s /usr/sbin/nologin canary && \
-    mkdir -p /var/lib/allfather-canary && chown 10001:10001 /var/lib/allfather-canary
+    mkdir -p /var/lib/allfather-canary/gateway-evidence && chown -R 10001:10001 /var/lib/allfather-canary
 ENV PYTHONPATH=/work PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 WORKDIR /work
 USER 10001:10001

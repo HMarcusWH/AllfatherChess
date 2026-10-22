@@ -55,6 +55,8 @@ def verify_one(path:Path,expected_color:str,sha_source:str):
     gateway=read(path/"gateway/gateway-state.json")
     bridge=read(path/"bridge/report.json")
     require(result.get("mode")=="offline-fake-only" and
+            result.get("compose_cleanup_ok") is True and
+            not (path/"cleanup-incomplete.json").exists() and
             result.get("live_game_authorized") is False and
             result.get("public_bot_release") is False,
             "fake run acquired real/public authority")

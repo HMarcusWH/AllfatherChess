@@ -266,23 +266,36 @@ def run(color:str,image:str,source_sha:str,out:Path):
               "evidence":{f:digest(out/f) for f in needed},
               "mode":"offline-fake-only","live_game_authorized":False,
               "public_bot_release":False}
-        write(out/"integration.json",safe)
-        return safe
+        # This is only a candidate while Compose and secret cleanup remain.
+        candidate=safe
     finally:
+        cleanup_failed=False
         try:
             compose("down","--remove-orphans","--volumes",timeout=50)
         except (OSError,subprocess.SubprocessError,RuntimeError):
+            cleanup_failed=True
+        try:
+            token.unlink(missing_ok=True)
+            (out/"synthetic-private-key.unmounted.pem").unlink(missing_ok=True)
+            shutil.rmtree(fixture)
+        except OSError:
+            cleanup_failed=True
+        if cleanup_failed:
             try:
                 (out/"cleanup-incomplete.json").write_text(json.dumps({
-                    "status":"NOT_COMPLETED","phase":"compose_cleanup",
+                    "status":"NOT_COMPLETED","phase":"compose_or_secret_cleanup",
                     "scope":"synthetic-fake-only",
                     "public_bot_release":False,"live_game_authorized":False
                 },sort_keys=True)+"\n")
             except OSError:
                 pass
-        token.unlink(missing_ok=True)
-        (out/"synthetic-private-key.unmounted.pem").unlink(missing_ok=True)
-        shutil.rmtree(fixture,ignore_errors=True)
+            # Preserve the original operation failure during exception unwind;
+            # refuse SUCCESS if cleanup was the only failing step.
+            if sys.exc_info()[0] is None:
+                raise RuntimeError("synthetic cleanup incomplete")
+    candidate["compose_cleanup_ok"]=True
+    write(out/"integration.json",candidate)
+    return candidate
 
 def main():
     p=argparse.ArgumentParser()

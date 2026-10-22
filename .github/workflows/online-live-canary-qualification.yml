@@ -74,7 +74,7 @@ jobs:
           set -euo pipefail
           bash scripts/ci-install-apt-deps.sh python3-pip python3-venv
           python3 -m pip install --break-system-packages --require-hashes -r deploy/lichess/requirements.release.lock
-          python3 -m unittest tests.lichess.test_live_gateway tests.lichess.test_live_canary_http tests.lichess.test_live_canary_redaction -v
+          python3 -m unittest tests.lichess.test_live_gateway tests.lichess.test_live_canary_http tests.lichess.test_live_canary_protocol tests.lichess.test_live_canary_redaction -v
 
   bridge-supervisor-unit:
     needs: source-boundary
@@ -139,6 +139,11 @@ jobs:
         timeout-minutes: 17
         run: |
           python3 scripts/run-live-canary-dry-run.py --color black --image allfather-canary-test:private --source-sha "$HEAD_SHA" --output build/test-results/online-play-1/black
+      - name: Execute real two-color integration verifier contract
+        env:
+          ALLFATHER_PR_A_GAME_EVIDENCE: build/test-results/online-play-1
+          ALLFATHER_PR_A_EXACT_HEAD: ${{ env.HEAD_SHA }}
+        run: python3 -m unittest tests.lichess.test_live_canary_integration -v
       - name: Retain sanitized HTTP/journal/PGN only; NEVER image/secrets
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

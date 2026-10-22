@@ -454,6 +454,35 @@ class DeadlineTests(unittest.TestCase):
             release.set()
             wait_for(lambda:active.finished.is_set(),3)
 
+    def test_published_clock_work_fence_is_not_a_decision_cancellation(self):
+        from types import SimpleNamespace
+        from controller.shadow import ShadowRunCoordinator
+
+        def state(*, published, explicit_cancel=False, clock=True):
+            event=threading.Event()
+            if published:
+                event.set()
+            return SimpleNamespace(
+                context=SimpleNamespace(clock=object() if clock else None),
+                outward_publication_done=event,
+                _cancelled=explicit_cancel,
+            )
+        decision=ShadowRunCoordinator._published_clock_disposition
+        self.assertEqual(
+            decision(state(published=True),"cancelled","clock window closed"),
+            ("published_incomplete","optional_clock_work_closed_after_publication"),
+        )
+        for data,disposition,reason in [
+            (state(published=False),"cancelled","soft deadline"),
+            (state(published=True,explicit_cancel=True),"cancelled","user stop"),
+            (state(published=True,clock=False),"cancelled","legacy stop"),
+            (state(published=True),"error","resource verification failed"),
+            (state(published=True),"completed",None),
+        ]:
+            with self.subTest(disposition=disposition,reason=reason):
+                self.assertEqual(decision(data,disposition,reason),
+                                 (disposition,reason))
+
     def test_quiesce_after_published_move_does_not_mark_run_cancelled(self):
         with shell_fixture() as (shell,manager,shadow,out,tmp):
             entered=threading.Event();release=threading.Event()
@@ -496,10 +525,9 @@ class DeadlineTests(unittest.TestCase):
 
             wait_for(lambda:active.finished.is_set(),3)
             manifest=json.loads((active.run.run_dir/'manifest.json').read_text())
-            self.assertNotEqual(
-                (manifest.get('disposition') or {}).get('run'),
-                'cancelled',
-            )
+            disposition=(manifest.get('disposition') or {}).get('run')
+            self.assertIn(disposition,('completed','published_incomplete'))
+            self.assertNotEqual(disposition,'cancelled')
             self.assertNotEqual(
                 (manifest.get('disposition') or {}).get('stop_reason'),
                 'quiesce',

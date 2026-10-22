@@ -2517,6 +2517,30 @@ class ShadowRunCoordinator:
     # worker
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _published_clock_disposition(
+        active: _ActiveRun,
+        disposition: str,
+        stop_reason: str | None,
+    ) -> tuple[str, str | None]:
+        """Separate deadline work-fencing from already-published authority.
+
+        The clock can close its optional-work window after bestmove has crossed
+        stdout. A cancellation *caused only by that work fence* must never
+        retroactively cancel the published decision. The observation was not
+        necessarily complete: use a distinct, non-qualifying disposition rather
+        than promoting it to "completed". Explicit cancellation and failures
+        remain unchanged.
+        """
+        if (
+            disposition == "cancelled"
+            and active.context.clock is not None
+            and active.outward_publication_done.is_set()
+            and not active._cancelled
+        ):
+            return ("published_incomplete", "optional_clock_work_closed_after_publication")
+        return (disposition, stop_reason)
+
     def _run_worker(self, active: _ActiveRun) -> None:
         disposition = "completed"
         stop_reason: str | None = active.cancel_reason
@@ -2875,6 +2899,8 @@ class ShadowRunCoordinator:
                     stop_reason = active.cancel_reason
                 if active.context.clock is not None:
                     active.run.clock_outcome = active.context.clock.outcome()
+                disposition,stop_reason = self._published_clock_disposition(
+                    active,disposition,stop_reason)
                 active.run.finalize(disposition=disposition, stop_reason=stop_reason)
                 parent_manifest_sha = sha256_file(active.run.run_dir / "manifest.json")
                 if active.verification is not None:

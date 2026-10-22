@@ -66,6 +66,9 @@ source "{SCRIPT}"
 APT_KEYRING="$(mktemp)"
 printf 'offline-test-keyring' > "$APT_KEYRING"
 trap 'rm -f "$APT_KEYRING"' EXIT
+# Force a missing package so APT acquisition failure is reachable even when
+# the hosted image preinstalls the requested dependency.
+dpkg-query() {{ printf 'deinstall ok config-files'; }}
 timeout() {{
   if [[ "{label}" == "update" ]]; then
     return 124
@@ -91,6 +94,19 @@ fi
             self.assertIn(expected_error, result.stderr)
             self.assertNotIn("APT dependencies installed", result.stdout)
 
+    def test_apt_steps_fit_both_signed_acquisition_deadlines(self):
+        # The source helper bounds index refresh at 210s and install at 180s.
+        for name in EXPECTED_STEPS:
+            content=(WORKFLOWS/name).read_text(encoding="utf-8").splitlines()
+            for index,line in enumerate(content):
+                if "bash scripts/ci-install-apt-deps.sh " not in line:
+                    continue
+                start=next((j for j in range(index,-1,-1)
+                            if content[j].lstrip().startswith("- name:")),None)
+                self.assertIsNotNone(start,name)
+                self.assertIn("timeout-minutes: 9","\n".join(content[start:index+1]),
+                    f"{name}:{index+1} step cannot contain both signed APT phases")
+
     def test_workflows_have_no_direct_unbounded_apt_calls(self):
         observed = 0
         for name, expected in EXPECTED_STEPS.items():
@@ -109,7 +125,7 @@ fi
     def test_bootstrap_has_independent_limits_and_strict_indexes(self):
         doc = SCRIPT.read_text(encoding="utf-8")
         for literal in (
-            "APT_UPDATE_TIMEOUT_SEC=90",
+            "APT_UPDATE_TIMEOUT_SEC=210",
             "APT_INSTALL_TIMEOUT_SEC=180",
             "APT::Update::Error-Mode=any",
             "Dir::Etc::sourceparts=",

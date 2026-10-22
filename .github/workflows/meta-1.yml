@@ -146,7 +146,7 @@ jobs:
           name: meta1-fastchess-source-test
           path: build/fastchess-source-test
       - name: Install build and campaign dependencies
-        timeout-minutes: 5
+        timeout-minutes: 9
         run: |
           bash scripts/ci-install-apt-deps.sh build-essential git meson ninja-build pkg-config libprotobuf-dev protobuf-compiler zlib1g-dev libopenblas-dev python3-pip python3-setuptools python3-wheel
           python3 -m pip install --break-system-packages --no-build-isolation --no-deps             --require-hashes -r qualification/local-game-requirements.txt

@@ -121,7 +121,10 @@ install_packages noble amd64 'python3-pip;rm'
         self.assertIn("no stale-index fallback",txt)
         self.assertIn("sudo rm -rf --",txt)
         self.assertNotIn("Acquire::AllowInsecureRepositories=true",txt)
-        self.assertNotIn("trusted=yes",txt)
+        # Check executable APT options, not comments prohibiting unsafe overrides.
+        executable="\n".join(line for line in txt.splitlines()
+                            if not line.lstrip().startswith("#"))
+        self.assertNotIn("trusted=yes",executable)
 
 if __name__=="__main__":
     unittest.main()

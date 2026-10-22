@@ -72,7 +72,7 @@ jobs:
           test "$(git -C source-b rev-parse HEAD)" = "$SOURCE_B"
 
       - name: Install one shared build/runtime substrate
-        timeout-minutes: 5
+        timeout-minutes: 9
         run: |
           bash scripts/ci-install-apt-deps.sh build-essential meson ninja-build pkg-config libprotobuf-dev protobuf-compiler zlib1g-dev libopenblas-dev
           echo "ALLFATHER_RUNNER_ENVIRONMENT=${{ runner.environment }}" >> "$GITHUB_ENV"

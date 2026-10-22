@@ -62,7 +62,7 @@ class CanaryProtocolFaults(unittest.TestCase):
         self.assertEqual((method,url),("GET","https://lichess.org/api/account"))
         self.assertIs(kwargs["allow_redirects"],False)
         self.assertIs(kwargs["verify"],True)
-        self.assertFalse(remote.trust_env is False) # remote stub retains default
+        self.assertFalse(remote.trust_env) # the gateway explicitly disables proxy environment inheritance
         self.assertTrue(remote.result.closed)
     def test_gateway_401_403_503_suspends_and_cannot_retry_write(self):
         for status in (401,403,503):

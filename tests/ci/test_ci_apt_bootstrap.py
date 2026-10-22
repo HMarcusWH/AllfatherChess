@@ -29,7 +29,7 @@ class CiAptHostBootstrap(unittest.TestCase):
         command=f'''set -euo pipefail
 source "{SCRIPT}"
 dpkg-query() {{
-  if [[ "$1" == "-W" && "$2" == "-f=\\\${{Status}}" ]]; then
+  if [[ "$1" == "-W" && "$2" == -f=* ]]; then
     printf "install ok installed"
   else
     printf "python3-pip=verified-runner-version\\n"

@@ -91,7 +91,7 @@ install_packages() (
   # of an immutable build: downstream exact-source qualification still gates it.
   local all_installed=1 installed_state
   for package in "$@"; do
-    installed_state="$(dpkg-query -W -f='\${Status}' "$package" 2>/dev/null || true)"
+    installed_state="$(dpkg-query -W -f='${Status}' "$package" 2>/dev/null || true)"
     if [[ "$installed_state" != "install ok installed" ]]; then
       all_installed=0
       break
@@ -99,7 +99,7 @@ install_packages() (
   done
   if ((all_installed)); then
     echo "CI host prerequisites already installed; no APT index acquisition"
-    dpkg-query -W --showformat='\${Package}=\${Version}\\n' "$@"
+    dpkg-query -W --showformat='${Package}=${Version}\n' "$@"
     return 0
   fi
   local state_dir

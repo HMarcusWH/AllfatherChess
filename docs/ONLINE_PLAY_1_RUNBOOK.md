@@ -178,3 +178,19 @@ source-independent approval.
 The synthetic integration harness calls test-only fake gateway/bridge scripts
 under isolated Docker namespaces, not the production credential entrypoint;
 it does not require or create this PR-B trust registry.
+
+### Diagnostic failures and escalation
+
+A failed PR-A integration has a separate `online-play-1-incomplete-diagnostics`
+artifact retaining only synthetic `failure.json`, `incomplete.json` and
+`cleanup-incomplete.json` records. The `stage_code` distinguishes pinned
+upstream/engine source verification, effective bridge configuration validation,
+recovery patching and live guard sealing; the local exception's text remains
+unpublished. No failure artifact can satisfy `DRY_RUN_PASS`.
+
+Inspect the `network-integration` job first, then fix the specifically
+reproduced code path and repeat both real sealed UCI fake games. The independent
+verdict job deliberately yields `NOT_RUN` when the producer fails, instead
+of treating a missing artifact download as evidence. Retain full private
+runtime logs only in bounded offline debugging environments; do not upload
+unrestricted stdout, bearer, live config or key material.

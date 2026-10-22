@@ -106,3 +106,21 @@ GPL/AGPL obligations, gateway-only `bot:play` credential and one-use
 signed admission. BOT account upgrade is irreversible and must be performed
 by the human operator **only after separate approval**. A first real casual
 10+5 game is an additional one-time human decision, never a CI job.
+
+## PR-A repair implementation status — 22 October 2026
+
+The latest source repair branch is a **new candidate**, not a new release claim.
+The repair adds typed, redacted upstream staging failures; a single terminal
+shutdown with separately retained cleanup failure; recomputed host-observation
+SHA-256 over actual contents; one WAL snapshot for independent move-intent
+verification; independently observed running Docker image/source-mount identity;
+and separate `NOT_COMPLETED` diagnostic artifacts.
+
+The shared Ubuntu hosted CI prerequisite remediation is proposed independently
+in draft PR #77. Do not use its successful unit test as proof of native release
+dependency reproduction; RELEASE-2B-3 and RELEASE-2B-4 are still separate.
+
+**Claim firewall:** The original two-color exact-head integration was failing.
+Until the changed PR-A head obtains new successful games and independent
+`DRY_RUN_PASS`, it remains not verified. Do not merge, use actual tokens,
+publish, convert BOT accounts or authorize a live game.

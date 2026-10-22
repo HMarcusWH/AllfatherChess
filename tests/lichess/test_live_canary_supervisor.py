@@ -185,4 +185,65 @@ class RepairRegressions(unittest.TestCase):
                 cleanup.assert_called_once()
 
 
+    def test_plain_upstream_exception_is_classified_without_details(self):
+        from deploy.lichess.live_session import _stage
+        def failure():
+            raise Exception("Bearer secret-cannot-be-diagnostic")
+        with self.assertRaises(LiveStageError) as captured:
+            _stage("BRIDGE_CONFIG_VALIDATE",failure)
+        self.assertEqual(captured.exception.code,"BRIDGE_CONFIG_VALIDATE")
+        self.assertNotIn("Bearer",str(captured.exception))
+        self.assertEqual(type(captured.exception.__cause__).__name__,"Exception")
+
+    def test_successful_terminal_drains_once(self):
+        with tempfile.TemporaryDirectory() as d:
+            sup=object.__new__(LiveSupervisor)
+            sup.state=Path(d)/"state"
+            sup.work=Path(d)/"scratch"
+            sup.release=Path(d)/"release"
+            sup.bridge=Path(d)/"bridge"
+            sup.binding=BINDING
+            sup.phase="preflight"
+            sup.cleanup_error_type=None
+            sup.stopping=False
+            sup.process=None
+            work={"release_source":BINDING.source_commit,"bridge":str(sup.bridge)}
+            with mock.patch.object(sup,"preflight"), mock.patch(
+                "deploy.live_canary.supervisor.stage_live",return_value=work
+            ),mock.patch("deploy.live_canary.supervisor.SessionOwner"
+            ) as session_owner,mock.patch(
+                "deploy.live_canary.supervisor.sqlite3.connect"
+            ),mock.patch("deploy.live_canary.supervisor.bridge_command",
+                return_value=["bridge-test-command"]
+            ),mock.patch("deploy.live_canary.supervisor.subprocess.Popen"
+            ),mock.patch.object(sup,"_environment",return_value={}
+            ),mock.patch.object(sup,"_progress",
+                return_value=(True,"off3b001",1)
+            ),mock.patch.object(sup,"stop_and_reap",
+                return_value={"live_remaining":0,"kill_switch_activated":True}
+            ) as cleanup:
+                session_owner.return_value.__enter__.return_value=mock.Mock()
+                outcome=sup.run(lease_file=Path(d)/"lease",binding_file=Path(d)/"binding")
+                self.assertEqual(outcome.status,"TERMINAL_DURABLE")
+                self.assertTrue(outcome.terminal)
+                self.assertEqual(outcome.processes["live_remaining"],0)
+                cleanup.assert_called_once()
+
+    def test_no_forged_success_during_cross_namespace_terminal_race(self):
+        with tempfile.TemporaryDirectory() as d:
+            sup=object.__new__(LiveSupervisor)
+            sup.state=Path(d)
+            sup.binding=BINDING
+            sup.ledger=mock.Mock()
+            owner=mock.Mock()
+            owner.journal.snapshot.return_value={
+                "games":[{"game_id":"off3b001","terminal":True,
+                          "history_json":'["e2e4"]'}],
+                "intents":[{"game_id":"off3b001","status":"CONFIRMED"}]}
+            complete,gid,ply=sup._progress(owner)
+            self.assertFalse(complete)
+            self.assertEqual((gid,ply),("off3b001",1))
+            self.assertFalse((Path(d)/"game.pgn").exists())
+
+
 if __name__=="__main__":unittest.main()

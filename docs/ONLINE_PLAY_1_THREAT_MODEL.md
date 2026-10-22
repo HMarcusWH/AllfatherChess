@@ -76,3 +76,17 @@ in the temporary bridge. Its overlay manifest retains patched upstream OIDs,
 records the live module digests, and refuses mismatched prior guard bytes.
 This avoids accidentally executing the inherited offline-only transport
 adapter from an older packaged image during a later operator-approved canary.
+
+### Repair review checks
+
+- The gateway bridge journal check reads epoch, game and prepared intent in one
+  read-only WAL transaction, not across potentially different SQLite snapshots.
+- The source/host gate recomputes the canonical observation digest from the
+  entire host report and refuses modified nested resource or network facts.
+- CI test orchestration observes both actual Docker container image IDs and
+  their exact read-only source mounts before signing synthetic fixture input.
+- An authoritative terminal event can precede the other namespace's fsynced
+  final witness. The bridge may wait within its existing bounded deadline but
+  never emit a terminal SUCCESS without that witness.
+- The synthetic producer retains only fixed-stage negative receipts on failure;
+  neither producer success nor CI step success by itself grants live authority.

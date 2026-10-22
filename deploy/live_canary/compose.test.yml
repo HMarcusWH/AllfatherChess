@@ -11,7 +11,7 @@ services:
     init: false
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
-    tmpfs: [/tmp:rw,nosuid,nodev,size=64m]
+    tmpfs: ["/tmp:size=67108864,mode=1777"]
     pids_limit: 48
     cpus: 1
     mem_limit: 512m
@@ -38,7 +38,7 @@ services:
     init: false
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
-    tmpfs: [/tmp:rw,nosuid,nodev,size=1024m]
+    tmpfs: ["/tmp:size=1073741824,mode=1777"]
     pids_limit: 128
     cpus: 4
     mem_limit: 6144m

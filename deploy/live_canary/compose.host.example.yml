@@ -14,7 +14,7 @@ services:
     read_only: true
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
-    tmpfs: [/tmp:rw,noexec,nosuid,nodev,size=64m]
+    tmpfs: ["/tmp:size=67108864,mode=1777"]
     pids_limit: 32
     cpus: 1
     mem_limit: 512m
@@ -37,7 +37,7 @@ services:
     read_only: true
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
-    tmpfs: [/tmp:rw,noexec,nosuid,nodev,size=128m]
+    tmpfs: ["/tmp:size=1073741824,mode=1777"]
     pids_limit: 128
     cpus: 4
     mem_limit: 6144m

@@ -10,6 +10,7 @@ from pathlib import Path
 import requests
 from deploy.lichess.live_gateway import LiveGateway,BoundedServer
 from deploy.lichess.live_gateway_state import GatewayState
+from deploy.lichess.move_journal import MoveJournal
 from deploy.lichess.live_gateway_policy import SYNTHETIC_TOKEN
 
 TEST_REAL="THIS-IS-A-FAKE-ONLY-TOKEN-LOCAL-2026"
@@ -138,7 +139,14 @@ class RealLocalGatewayHTTP(unittest.TestCase):
     def test_same_move_cannot_be_reposted_even_after_success(self):
         state=self.gateway.state
         state.challenge(GAME);state.accept_once(GAME);state.game_start(GAME)
-        state.game_full(GAME,());state.game_state(GAME,(),False)
+        state.game_full(GAME,(),owner_color="white");state.game_state(GAME,(),False)
+        journal=MoveJournal(Path(self.tmp.name)/"bridge.sqlite3")
+        journal.initialize();journal.activate_owner("f"*32)
+        journal.observe("f"*32,GAME,{"moves":"","status":"started"})
+        journal.prepare("f"*32,GAME,(),"e2e4")
+        journal.change_status("f"*32,GAME,"e2e4",before=(),
+                              after="SUBMITTING",allowed=("PREPARED",))
+        state.bridge_journal=journal.path
         self.gateway.session.challenge_id=GAME
         self.gateway.session.game_id=GAME
         headers={"X-Allfather-Ply":"0","X-Allfather-Epoch":"f"*32}

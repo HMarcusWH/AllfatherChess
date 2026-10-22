@@ -24,6 +24,7 @@ services:
       - ./UNCONFIGURED_OPERATOR_INPUTS:/run/operator:ro
       - ./UNCONFIGURED_SECRET_FILE:/run/secrets/lichess-bot-token:ro
       - gateway_state:/var/lib/allfather-canary:rw
+      - bridge_state:/bridge-state:ro
       - gateway_evidence:/var/lib/allfather-canary/gateway-evidence:rw
   bridge:
     profiles: ["never-without-pr-b"]

@@ -40,7 +40,7 @@ def main():
             host_receipt=op/"host-report.json",
             release=ROOT/"dist/online3a-stage",
             bridge=ROOT/"build/vendor/lichess-bot",
-            work=Path("/var/lib/allfather-canary/session"),
+            work=Path("/tmp/allfather-live-bridge"),
             state=Path("/var/lib/allfather-canary"))
         result=supervisor.run(lease_file=op/"admission.json",
                               binding_file=op/"source-binding.json",timeout_s=780)

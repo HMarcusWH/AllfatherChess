@@ -54,7 +54,7 @@ def main(argv=None):
                 raise ValueError("real token forbidden in bridge")
             supervisor=LiveSupervisor(binding=source,lease=lease,key=a.public_key,
                policy=ROOT/"qualification/online-live-canary-v1.json",host_receipt=a.host_report,
-               release=a.release,bridge=a.bridge_source,work=a.state/"session",
+               release=a.release,bridge=a.bridge_source,work=Path("/tmp/allfather-live-bridge"),
                state=a.state)
             outcome=supervisor.run(lease_file=a.lease,binding_file=a.binding)
             print(json.dumps(dataclasses.asdict(outcome),sort_keys=True))

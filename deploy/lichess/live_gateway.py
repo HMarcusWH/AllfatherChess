@@ -317,7 +317,8 @@ class LiveGateway:
                 self.bound_players={
                     side:payload[side]["name"] for side in ("white","black")}
                 history=canonical_history(state["moves"])
-                self.state.game_full(self.session.game_id,history)
+                self.state.game_full(self.session.game_id,history,
+                                     owner_color=("white" if self.bound_players["white"].casefold()==self.session.owner_bot.casefold() else "black"))
                 self.state.game_state(self.session.game_id,history,state["status"] in TERMINAL)
                 if state["status"] in TERMINAL:
                     self._persist_terminal(state,history)

@@ -8,6 +8,7 @@ from unittest.mock import patch
 from deploy.lichess.live_gateway_policy import (
     CanarySession,admit_route,RouteDenied,validate_challenge,validate_game_full)
 from deploy.lichess.live_gateway_state import GatewayState,GatewaySuspended
+from deploy.lichess.move_journal import MoveJournal
 from deploy.lichess.live_gateway import LiveGateway,VerifiedBot,GatewayFailure,_cooldown_seconds
 
 GAME="off3b001"
@@ -114,9 +115,16 @@ class GatewayContractTests(unittest.TestCase):
     def test_persisted_once_only_moves_and_global_cooldown(self):
         with tempfile.TemporaryDirectory() as t:
             path=Path(t)/"gateway.sqlite3"
-            s=GatewayState(path,"a"*48,"allfatherfixture","approved_test_bot")
+            journal=MoveJournal(Path(t)/"bridge.sqlite3")
+            journal.initialize();journal.activate_owner("b"*32)
+            journal.observe("b"*32,GAME,{"moves":"","status":"started"})
+            journal.prepare("b"*32,GAME,(),"e2e4")
+            journal.change_status("b"*32,GAME,"e2e4",before=(),
+                                  after="SUBMITTING",allowed=("PREPARED",))
+            s=GatewayState(path,"a"*48,"allfatherfixture","approved_test_bot",
+                           bridge_journal=journal.path)
             s.challenge(GAME);s.accept_once(GAME);s.game_start(GAME)
-            s.game_full(GAME,())
+            s.game_full(GAME,(),owner_color="white")
             s.game_state(GAME,(),False)
             s.move_once(GAME,"e2e4",0,"b"*32)
             with self.assertRaises(GatewaySuspended):
@@ -131,11 +139,11 @@ class GatewayContractTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as t:
             s=GatewayState(Path(t)/"state.sqlite3","a"*48,"allfatherfixture","approved_test_bot")
             s.challenge(GAME);s.accept_once(GAME);s.game_start(GAME)
-            s.game_full(GAME,())
+            s.game_full(GAME,(),owner_color="white")
             s.game_state(GAME,("e2e4",),False)
-            s.game_full(GAME,("e2e4",))
+            s.game_full(GAME,("e2e4",),owner_color="white")
             with self.assertRaises(GatewaySuspended):
-                s.game_full(GAME,("d2d4",))
+                s.game_full(GAME,("d2d4",),owner_color="white")
             self.assertEqual(s.snapshot()["suspended"],1)
     def test_real_secret_never_in_synthetic_token_reply(self):
         with tempfile.TemporaryDirectory() as t:

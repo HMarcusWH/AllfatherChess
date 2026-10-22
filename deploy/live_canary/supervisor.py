@@ -127,6 +127,9 @@ class LiveSupervisor:
         self.binding,self.lease,self.key=binding,lease,Path(key)
         self.policy,self.host_receipt,self.release=Path(policy),Path(host_receipt),Path(release)
         self.bridge,self.work,self.state=Path(bridge),Path(work),Path(state)
+        if (self.work.is_symlink() or self.work.is_relative_to(self.state)
+            or not self.work.is_relative_to(Path("/tmp"))):
+            raise SupervisorRefused("staged bridge must be disposable tmpfs, never durable state")
         self.stopping=False
         self.process=None
         self.owner=None
@@ -190,6 +193,10 @@ class LiveSupervisor:
         import chess,chess.pgn
         board=chess.Board()
         for m in history: board.push_uci(m)
+        if sorted((str(record.get("white","")).casefold(),
+                   str(record.get("black","")).casefold())) != sorted((
+                   self.binding.owner_bot.casefold(),self.binding.opponent_bot.casefold())):
+            raise SupervisorRefused("terminal account identities mismatch")
         pgn=chess.pgn.Game.from_board(board)
         pgn.headers["Result"]=record["result"]
         pgn.headers["White"]=record["white"]
@@ -200,7 +207,7 @@ class LiveSupervisor:
         with dest.open("x",encoding="utf-8") as f:
             f.write(str(pgn)+"\n");f.flush();os.fsync(f.fileno())
         self.ledger.finish(self.lease["session_nonce"])
-        return True,gid,len(history)
+        return True,gid,len(intents)
     def stop_and_reap(self,reason="operator_stop"):
         self.stopping=True
         if self.process and self.process.poll() is None:
@@ -230,9 +237,9 @@ class LiveSupervisor:
                        start_new_session=True)
                     until=time.monotonic()+timeout_s
                     while not self.stopping and time.monotonic()<until:
-                        if self.process.poll() is not None:
-                            raise SupervisorRefused("bridge exited before durable terminal")
                         completed,gid,ply=self._progress(owner)
+                        if not completed and self.process.poll() is not None:
+                            raise SupervisorRefused("bridge exited before durable terminal")
                         if completed:
                             return SupervisedResult("TERMINAL_DURABLE",self.binding.source_commit,
                                                     gid,ply,True,self.stop_and_reap("terminal"),None)

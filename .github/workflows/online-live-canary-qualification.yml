@@ -151,6 +151,22 @@ jobs:
           test "$succeeded" -eq 1
           docker build -f deploy/live_canary/Dockerfile.test --build-arg BASE_IMAGE=allfather-online4b-offline:pr-a-test -t allfather-canary-test:private .
           docker image inspect allfather-canary-test:private --format '{{.Id}}'
+      - name: Verify exact pinned upstream, live configuration and sealed engine WITHOUT network
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          docker run --rm --network none --read-only --pids-limit 64 \
+            --cap-drop ALL --security-opt no-new-privileges \
+            --user 10001:10001 \
+            --tmpfs /tmp:size=1073741824,mode=1777 \
+            -e PYTHONPATH=/work -e PYTHONDONTWRITEBYTECODE=1 \
+            -e GIT_CONFIG_COUNT=2 \
+            -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0=/work \
+            -e GIT_CONFIG_KEY_1=safe.directory \
+            -e GIT_CONFIG_VALUE_1=/work/build/vendor/lichess-bot \
+            -v "$PWD:/work:ro" \
+            --entrypoint /opt/online3b/bin/python allfather-canary-test:private \
+            /work/scripts/preflight-live-canary-stage.py --source-sha "$HEAD_SHA"
       - name: Prove real PID1 child containment with a SIGTERM-resistant worker
         timeout-minutes: 3
         run: |

@@ -13,6 +13,20 @@ from pathlib import Path
 from deploy.lichess import offline_session, recovery_overlay
 from deploy.lichess import live_bridge_policy
 
+class LiveStageError(RuntimeError):
+    """A source-independent, non-secret diagnosis for a staged operation."""
+    def __init__(self, code: str):
+        self.code=code
+        super().__init__(code)
+
+
+def _stage(code, call):
+    try:
+        return call()
+    except Exception as exc:
+        raise LiveStageError(code) from exc
+
+
 # In a private OCI image these modules live under /opt/live-canary, while
 # the immutable, Git-verified source checkout is mounted at /work.
 # Only the source checkout may supply the signed challenge overlay.
@@ -64,9 +78,9 @@ def stage_live(*,release: Path,bridge: Path,workspace: Path,opponent: str) -> di
     if workspace.exists() or workspace.is_symlink():
         raise ValueError("live workspace must be an empty new directory")
     workspace.mkdir(parents=True)
-    result=offline_session.stage(
+    result=_stage("UPSTREAM_VERIFY_OR_ENGINE_SEAL",lambda: offline_session.stage(
         release=release,bridge=bridge,workspace=workspace,
-        server_url="http://127.0.0.1:17832/")
+        server_url="http://127.0.0.1:17832/"))
     extra=ROOT/"deploy/lichess/live_extra_game_handlers.py"
     rel="deploy/lichess/live_extra_game_handlers.py"
     if not extra.is_file() or extra.is_symlink() or extra.read_bytes()!=_committed_blob(rel):
@@ -77,10 +91,10 @@ def stage_live(*,release: Path,bridge: Path,workspace: Path,opponent: str) -> di
     shutil.copyfile(extra,copy)
     if hashlib.sha256(copy.read_bytes()).digest()!=hashlib.sha256(extra.read_bytes()).digest():
         raise ValueError("challenge overlay copy mismatch")
-    effective=live_bridge_policy.generate(result["bridge"],result["release"],
-                                            result["config"],opponent=opponent)
-    overlay=recovery_overlay.apply(result["bridge"])
-    _stage_live_guards(result["bridge"],overlay)
+    effective=_stage("BRIDGE_CONFIG_VALIDATE",lambda: live_bridge_policy.generate(
+        result["bridge"],result["release"],result["config"],opponent=opponent))
+    overlay=_stage("UPSTREAM_RECOVERY_PATCH",lambda: recovery_overlay.apply(result["bridge"]))
+    _stage("LIVE_GUARD_SEAL",lambda: _stage_live_guards(result["bridge"],overlay))
     result.update(overlay_manifest=overlay,live_config_sha256=hashlib.sha256(
         result["config"].read_bytes()).hexdigest(),
         live_handler_sha256=hashlib.sha256(extra.read_bytes()).hexdigest(),

@@ -29,6 +29,7 @@ def main():
     p.add_argument("--color",required=True,choices=("white","black"))
     args=p.parse_args()
     phase="operator_admission"
+    supervisor=None
     try:
         if os.getpid()!=1 or os.environ.get("ALLFATHER_BRIDGE_EGRESS_ISOLATED")!="1":
             raise RuntimeError("bridge must be a separate isolated container PID1")
@@ -111,16 +112,36 @@ def main():
             elif words and "allfather-online" in words[0]:
                 family="engine-seal"
             else:family="other-subprocess"
+        stage=getattr(supervisor,"phase",phase)
+        allowed={"operator_admission","preflight","workspace_stage",
+                 "journal_initialize","bridge_spawn","await_terminal",
+                 "durable_progress","bridge_early_exit","terminal_reconciled",
+                 "bounded_timeout","drain","drained","durable_terminal_evidence"}
+        if stage not in allowed: stage="unclassified"
+        cause=getattr(exc,"__cause__",None)
+        code=getattr(exc,"code","UNCLASSIFIED")
+        if code not in {"UPSTREAM_VERIFY_OR_ENGINE_SEAL","BRIDGE_CONFIG_VALIDATE",
+                        "UPSTREAM_RECOVERY_PATCH","LIVE_GUARD_SEAL"}:
+            code="UNCLASSIFIED"
+        child=getattr(supervisor,"process",None)
+        rc=child.poll() if child is not None else None
+        if type(rc) is not int or abs(rc)>255: rc=None
         try:
             out.mkdir(parents=True,exist_ok=True)
             (out/"failure.json").write_text(json.dumps({
-                "scope":"synthetic-fake-only","phase":phase,
-                "exception_type":type(exc).__name__,"command_family":family,
+                "scope":"synthetic-fake-only","phase":stage,
+                "exception_type":type(exc).__name__,
+                "cause_type":type(cause).__name__ if cause else None,
+                "stage_code":code,"command_family":family,
+                "child_exit_code":rc,
+                "cleanup_error_type":getattr(supervisor,"cleanup_error_type",None),
+                "source_sha":source.source_commit if 'source' in locals() else None,
+                "status":"NOT_COMPLETED",
                 "live_game_authorized":False,"public_bot_release":False
             },sort_keys=True)+"\n")
         except OSError:pass
-        print("synthetic bridge integration failed: "+phase+": "+
-              type(exc).__name__+":"+family,file=sys.stderr)
+        print("synthetic bridge integration failed: "+stage+": "+
+              code+":"+type(exc).__name__,file=sys.stderr)
         return 2
 
 if __name__=="__main__":raise SystemExit(main())

@@ -6,6 +6,7 @@ Existing MoveJournal remains the authority for prepared moves and unknown ACK.
 """
 from __future__ import annotations
 import hashlib
+import hmac
 import json
 import os
 import sqlite3
@@ -40,6 +41,64 @@ def _git(*args):
     return subprocess.check_output(["git","-C",str(ROOT),*args],
                                    text=True,stderr=subprocess.PIPE,timeout=12).strip()
 
+def verify_host_receipt(host: dict, binding: SourceBinding) -> None:
+    """Check exact source-bound host facts, not just the receipt's claimed hash."""
+    if not isinstance(host,dict) or host.get("scope") not in (
+            "synthetic-ci-fixture-only","host-observation-only"):
+        raise SupervisorRefused("host receipt format unrecognized")
+    required={"schema_version","scope","host_id","capacity",
+        "operator_envelope_met","durable_volume_separate",
+        "bridge_egress_test_pass","gateway_private_port_test_pass",
+        "destination_host_qualified","public_bot_release",
+        "live_game_authorized","observation_digest"}
+    if host["scope"]=="synthetic-ci-fixture-only":
+        required|={"network_tests","storage_tests"}
+    else:
+        required|={"platform","machine","filesystem_observations",
+            "bridge_only_internal","gateway_dual_homed",
+            "separate_network_namespaces","no_host_ports",
+            "gateway_only_secret_mount","bridge_external_tcp_denied"}
+    if set(host)!=required or type(host.get("schema_version")) is not int or host["schema_version"]!=1:
+        raise SupervisorRefused("host observation missing, extra or invalid fields")
+    claimed=host.get("observation_digest")
+    if not isinstance(claimed,str) or len(claimed)!=64:
+        raise SupervisorRefused("host observation digest missing")
+    raw=json.dumps({k:v for k,v in host.items() if k!="observation_digest"},
+                   sort_keys=True,separators=(",",":"),allow_nan=False).encode()
+    actual=hashlib.sha256(raw).hexdigest()
+    if (not hmac.compare_digest(actual,claimed)
+            or not hmac.compare_digest(actual,binding.host_digest)
+            or host["host_id"]!=binding.host_id):
+        raise SupervisorRefused("host observation content differs from signed identity")
+    capacity=host.get("capacity")
+    if (not isinstance(capacity,dict)
+        or capacity.get("operator_minimums_met") is not True
+        or capacity.get("capacity_complete") is not True
+        or host.get("operator_envelope_met") is not True
+        or host.get("durable_volume_separate") is not True
+        or any(host.get(k) is not True for k in (
+            "bridge_egress_test_pass","gateway_private_port_test_pass"))
+        or any(host.get(k) is not False for k in (
+            "destination_host_qualified","public_bot_release","live_game_authorized"))):
+        raise SupervisorRefused("effective host or network prerequisites not met")
+    if host["scope"]=="synthetic-ci-fixture-only":
+        net=host.get("network_tests")
+        storage=host.get("storage_tests")
+        if not isinstance(net,dict) or not isinstance(storage,dict) or any(
+            net.get(k) is not True for k in (
+                "bridge_egress_test_pass","gateway_private_port_test_pass",
+                "separate_network_namespaces","bridge_only_internal",
+                "gateway_dual_homed","no_host_ports","gateway_only_secret_mount",
+                "bridge_external_tcp_denied")) or any(
+            storage.get(k) is not True for k in (
+                "persistent_separate","scratch_separate")):
+            raise SupervisorRefused("synthetic host topology or storage not independently verified")
+    elif any(host.get(k) is not True for k in (
+            "bridge_only_internal","gateway_dual_homed","separate_network_namespaces",
+            "no_host_ports","gateway_only_secret_mount","bridge_external_tcp_denied")):
+        raise SupervisorRefused("live host topology not independently verified")
+
+
 def validate_runtime_source(binding: SourceBinding,*,policy: Path,
                             release: Path,host_receipt: Path):
     policy_digest=policy_is_denied(policy)
@@ -65,15 +124,7 @@ def validate_runtime_source(binding: SourceBinding,*,policy: Path,
         raise SupervisorRefused("sealed engine source is not exact canary HEAD")
     if host_receipt.is_symlink() or not host_receipt.is_file():
         raise SupervisorRefused("host receipt missing")
-    host=json.loads(host_receipt.read_text())
-    if (host.get("host_id")!=binding.host_id or
-        host.get("observation_digest")!=binding.host_digest or
-        host.get("operator_envelope_met") is not True or
-        host.get("bridge_egress_test_pass") is not True or
-        host.get("gateway_private_port_test_pass") is not True or
-        host.get("durable_volume_separate") is not True or
-        host.get("destination_host_qualified") is not False):
-        raise SupervisorRefused("named host and namespace observations not admitted")
+    verify_host_receipt(json.loads(host_receipt.read_text()),binding)
 
 def reap_namespace(*,except_pids: tuple[int,...]=(),deadline_s:float=8.0)->dict:
     """Reap all descendants in the dedicated PID namespace, not by shared PID name."""
@@ -171,6 +222,8 @@ class LiveSupervisor:
             or not self.work.is_relative_to(Path("/tmp"))):
             raise SupervisorRefused("staged bridge must be disposable tmpfs, never durable state")
         self.stopping=False
+        self.phase="preflight"
+        self.cleanup_error_type=None
         self.process=None
         self.owner=None
         self.ledger=LeaseLedger(self.state/"game-admission.sqlite3")
@@ -269,16 +322,18 @@ class LiveSupervisor:
             raise SupervisorRefused("gateway kill switch was not durably activated")
         return evidence
     def run(self,*,lease_file:Path,binding_file:Path,timeout_s=1800):
+        self.phase="preflight"
         self.preflight()
         self.state.mkdir(parents=True,exist_ok=True)
+        completed_result=None
+        primary=None
         try:
+            self.phase="workspace_stage"
             work=stage_live(release=self.release,bridge=self.bridge,
                             workspace=self.work,opponent=self.binding.opponent_bot)
             if work["release_source"]!=self.binding.source_commit:
                 raise SupervisorRefused("sealed release source drift")
-            # Keep the WAL/-shm identity available for the gateway's
-            # independent, read-only journal connection. No source changes
-            # to offline SessionOwner or MoveJournal are required.
+            self.phase="journal_initialize"
             journal_file=self.state/"recovery/move-journal.sqlite3"
             with SessionOwner(self.state/"recovery") as owner, closing(
                  sqlite3.connect(str(journal_file),timeout=5)) as journal_keeper:
@@ -286,22 +341,52 @@ class LiveSupervisor:
                 self.owner=owner
                 log_path=self.state/"bridge-private.log"
                 with log_path.open("ab") as log:
+                    self.phase="bridge_spawn"
                     self.process=subprocess.Popen(bridge_command(work),cwd=work["bridge"],
                        env=self._environment(owner,binding_file,lease_file),
                        stdin=subprocess.DEVNULL,stdout=log,stderr=subprocess.STDOUT,
                        start_new_session=True)
                     until=time.monotonic()+timeout_s
+                    self.phase="await_terminal"
                     while not self.stopping and time.monotonic()<until:
                         if (Path("/run/canary-control/stop.flag").exists()
                             or Path("/run/canary-control/stop.flag").is_symlink()):
                             raise SupervisorRefused("operator kill switch requested shutdown")
-                        completed,gid,ply=self._progress(owner)
-                        if not completed and self.process.poll() is not None:
+                        self.phase="durable_progress"
+                        finished,gid,ply=self._progress(owner)
+                        if not finished and self.process.poll() is not None:
+                            self.phase="bridge_early_exit"
                             raise SupervisorRefused("bridge exited before durable terminal")
-                        if completed:
-                            return SupervisedResult("TERMINAL_DURABLE",self.binding.source_commit,
-                                                    gid,ply,True,self.stop_and_reap("terminal"),None)
+                        if finished:
+                            self.phase="terminal_reconciled"
+                            completed_result=SupervisedResult(
+                                "TERMINAL_DURABLE",self.binding.source_commit,
+                                gid,ply,True,{},None)
+                            break
+                        self.phase="await_terminal"
                         time.sleep(.25)
-                    raise SupervisorRefused("operator stop or bounded game timeout")
-        finally:
-            self.stop_and_reap("fail_closed_shutdown")
+                    if completed_result is None:
+                        self.phase="bounded_timeout"
+                        raise SupervisorRefused("operator stop or bounded game timeout")
+        except BaseException as exc:
+            primary=exc
+        failed_phase=self.phase
+        cleanup_error=None
+        cleanup=None
+        try:
+            self.phase="drain"
+            cleanup=self.stop_and_reap("terminal" if completed_result else "fail_closed_shutdown")
+        except BaseException as exc:
+            cleanup_error=exc
+            self.cleanup_error_type=type(exc).__name__
+        self.phase=failed_phase if primary is not None else "drained"
+        if primary is not None:
+            if cleanup_error is not None:
+                raise primary from cleanup_error
+            raise primary
+        if cleanup_error is not None:
+            raise cleanup_error
+        if completed_result is None:
+            raise SupervisorRefused("missing terminal after bounded run")
+        completed_result.processes=cleanup
+        return completed_result

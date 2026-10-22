@@ -8,10 +8,12 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 from deploy.live_canary.supervisor import persist_stop_marker,SupervisorRefused
 from deploy.live_canary.admission import (
     SourceBinding,LeaseLedger,AdmissionDenied,verify_admission,policy_is_denied)
-from deploy.live_canary.supervisor import SupervisorRefused
+from deploy.live_canary.supervisor import SupervisorRefused,LiveSupervisor,verify_host_receipt
+from deploy.lichess.live_session import LiveStageError
 
 BINDING=SourceBinding(source_commit="a"*40,source_tree="b"*40,
     image_digest="sha256:"+"c"*64,policy_sha256="d"*64,
@@ -130,5 +132,56 @@ class SignedLeaseTests(unittest.TestCase):
         root=Path(__file__).resolve().parents[2]
         result=policy_is_denied(root/"qualification/online-live-canary-v1.json")
         self.assertEqual(len(result),64)
+
+class RepairRegressions(unittest.TestCase):
+    def test_host_report_tampering_preserving_digest_is_denied(self):
+        import hashlib
+        report={"schema_version":1,"scope":"synthetic-ci-fixture-only",
+            "host_id":"ci-test-host",
+            "capacity":{"operator_minimums_met":True,"capacity_complete":True},
+            "operator_envelope_met":True,"durable_volume_separate":True,
+            "bridge_egress_test_pass":True,"gateway_private_port_test_pass":True,
+            "destination_host_qualified":False,"live_game_authorized":False,
+            "public_bot_release":False,
+            "storage_tests":{"persistent_separate":True,"scratch_separate":True},
+            "network_tests":{k:True for k in (
+                "bridge_egress_test_pass","gateway_private_port_test_pass",
+                "separate_network_namespaces","bridge_only_internal",
+                "gateway_dual_homed","no_host_ports","gateway_only_secret_mount",
+                "bridge_external_tcp_denied")}}
+        digest=hashlib.sha256(json.dumps(report,sort_keys=True,
+                                        separators=(",",":")).encode()).hexdigest()
+        binding=dataclasses.replace(BINDING,host_digest=digest)
+        report["observation_digest"]=digest
+        verify_host_receipt(report,binding)
+        report["capacity"]["capacity_complete"]=False
+        with self.assertRaises(SupervisorRefused):
+            verify_host_receipt(report,binding)
+
+    def test_staging_failure_drains_once_preserves_primary_and_cleanup(self):
+        with tempfile.TemporaryDirectory() as d:
+            sup=object.__new__(LiveSupervisor)
+            sup.state=Path(d)/"state"
+            sup.work=Path(d)/"scratch"
+            sup.release=Path(d)/"release"
+            sup.bridge=Path(d)/"bridge"
+            sup.binding=BINDING
+            sup.phase="preflight"
+            sup.process=None
+            sup.cleanup_error_type=None
+            sup.stopping=False
+            err=LiveStageError("BRIDGE_CONFIG_VALIDATE")
+            with mock.patch.object(sup,"preflight"), mock.patch(
+                "deploy.live_canary.supervisor.stage_live",side_effect=err
+            ), mock.patch.object(sup,"stop_and_reap",
+                side_effect=SupervisorRefused("forced cleanup error")) as cleanup:
+                with self.assertRaises(LiveStageError) as got:
+                    sup.run(lease_file=Path(d)/"lease",
+                            binding_file=Path(d)/"binding")
+                self.assertIs(got.exception,err)
+                self.assertEqual(sup.phase,"workspace_stage")
+                self.assertEqual(sup.cleanup_error_type,"SupervisorRefused")
+                cleanup.assert_called_once()
+
 
 if __name__=="__main__":unittest.main()

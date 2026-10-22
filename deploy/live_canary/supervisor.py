@@ -44,6 +44,13 @@ def validate_runtime_source(binding: SourceBinding,*,policy: Path,
         raise SupervisorRefused("live canary source HEAD drift")
     if _git("rev-parse","HEAD^{tree}")!=binding.source_tree:
         raise SupervisorRefused("live canary source tree drift")
+    # HEAD identity alone is insufficient: a dirty checkout can execute
+    # altered Python while still reporting the signed commit and tree.
+    dirty=_git("status","--porcelain","--untracked-files=all")
+    if dirty:
+        raise SupervisorRefused("live canary source worktree differs from exact HEAD")
+    _git("diff","--exit-code")
+    _git("diff","--cached","--exit-code")
     from deploy.lichess import fetch_bridge
     lock=json.loads((ROOT/"deploy/lichess/bridge.lock.json").read_text())
     if lock.get("commit")!="df7e730de58cc3ef2f1415a0dc2eeda842d39167" or lock.get("live_api_permitted") is not False:

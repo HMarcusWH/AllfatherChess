@@ -343,13 +343,13 @@ class LiveGateway:
                 raise GatewayFailure("upstream stream returned non-byte content")
             pending.extend(chunk)
             while True:
-                newline=pending.find(b"\\n")
+                newline=pending.find(b"\n")
                 if newline<0: break
                 if newline>MAX_NDJSON_LINE:
                     raise GatewayFailure("NDJSON line exceeds safety bound")
                 raw=bytes(pending[:newline])
                 del pending[:newline+1]
-                if raw.endswith(b"\\r"): raw=raw[:-1]
+                if raw.endswith(b"\r"): raw=raw[:-1]
                 yield raw
             if len(pending)>MAX_NDJSON_LINE:
                 raise GatewayFailure("oversized unterminated NDJSON line")

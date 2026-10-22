@@ -204,5 +204,77 @@ class CanaryProtocolFaults(unittest.TestCase):
         self.assertEqual(self.state.snapshot()["suspended"],1)
         self.assertEqual(len(remote.calls),1)
 
+    def test_official_comma_separated_scope_and_identity_authentication(self):
+        class TokenRemote(Remote):
+            def __init__(self, *, scope="bot:play", uid="allfatherfixture",
+                         title="BOT", expired=False, revoked=False):
+                super().__init__(None)
+                self.scope,self.uid,self.title=scope,uid,title
+                self.expired,self.revoked=expired,revoked
+            def request(self,method,url,**kwargs):
+                self.calls.append((method,url,kwargs))
+                if url.endswith("/api/token/test"):
+                    info=(None if self.revoked else
+                          {"scopes":self.scope,"userId":self.uid,
+                           "expires":int(time.time()*1000)-1 if self.expired else None})
+                    payload={FAKE_TOKEN:info}
+                elif url.endswith("/api/account"):
+                    payload={"id":"allfatherfixture","username":"allfatherfixture",
+                             "title":self.title}
+                elif url.endswith("/api/account/playing"):
+                    payload={"nowPlaying":[]}
+                else:
+                    raise AssertionError("unexpected token-test remote path")
+                return Response(200,body=json.dumps(payload).encode())
+        for data,admit in [
+            ({"scope":"challenge:read,bot:play"},True),
+            ({"scope":"bot:play"},True),
+            ({"scope":"bot:player"},False),
+            ({"scope":""},False),
+            ({"uid":"differentaccount"},False),
+            ({"title":"HUMAN"},False),
+            ({"expired":True},False),
+            ({"revoked":True},False),
+        ]:
+            with self.subTest(data=data),tempfile.TemporaryDirectory() as tmp:
+                state=GatewayState(Path(tmp)/"db.sqlite3","a"*48,
+                                   "allfatherfixture","approved_test_bot")
+                remote=TokenRemote(**data)
+                gw=LiveGateway.for_fake_test_only(state,FAKE_TOKEN,lambda:remote)
+                if admit:
+                    self.assertEqual(gw.authenticate().username,"allfatherfixture")
+                    self.assertIn("bot:play",gw.verified.scopes)
+                    self.assertFalse(remote.trust_env)
+                    self.assertEqual(len(remote.calls),3)
+                    self.assertEqual(state.snapshot()["suspended"],0)
+                else:
+                    with self.assertRaises(GatewayFailure):
+                        gw.authenticate()
+                    self.assertTrue(state.snapshot()["suspended"])
+                    self.assertLessEqual(len(remote.calls),3)
+
+    def test_unknown_game_status_and_unsolicited_gamefinish_are_denied(self):
+        gateway=self.gateway(Remote(Response()))
+        self.assertFalse(gateway._game_terminal("started"))
+        self.assertTrue(gateway._game_terminal("mate"))
+        for status in ("futureStatus",None,"",42,True):
+            with self.subTest(status=status),self.assertRaises(GatewayFailure):
+                gateway._game_terminal(status)
+        gateway.session.game_id=GAME
+        with self.assertRaises(GatewayFailure):
+            gateway._on_ndjson("events",{"type":"gameFinish",
+                            "game":{"id":"other001"}},first=False)
+
+    def test_unapproved_incoming_challenge_filtered_before_bridge(self):
+        gateway=self.gateway(Remote(Response()))
+        event={"type":"challenge","challenge":{
+            "id":GAME,"rated":True,"speed":"rapid","initialFen":"startpos",
+            "variant":{"key":"standard"},
+            "challenger":{"name":"approved_test_bot","title":"BOT"},
+            "destUser":{"name":"allfatherfixture","title":"BOT"},
+            "timeControl":{"type":"clock","limit":600,"increment":5}}}
+        self.assertIs(gateway._on_ndjson("events",event,first=False),False)
+        self.assertIsNone(self.state.snapshot()["challenge"])
+
 if __name__=="__main__":
     unittest.main()

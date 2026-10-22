@@ -125,7 +125,7 @@ class LiveGateway:
         session=self._fixture_factory() if self._fixture_factory else requests.Session()
         session.trust_env=False
         return session
-    def _outbound(self,session,method: str,path: str,*,data=None,stream=False):
+    def _outbound(self,session,method: str,path: str,*,data=None,stream=False,form=False):
         if not path.startswith("/api/") or "?" in path or "#" in path:
             raise GatewayFailure("upstream target not canonical")
         if self._fixture_factory is None:
@@ -134,7 +134,7 @@ class LiveGateway:
         headers={"Authorization":"Bearer "+self.token,"Accept":"application/x-ndjson" if stream else "application/json",
                  "User-Agent":"AllfatherChess-ONLINE-PLAY-1/1"}
         if method=="POST" and data is not None:
-            headers["Content-Type"]="text/plain"
+            headers["Content-Type"]="application/x-www-form-urlencoded" if form else "text/plain"
         kwargs={"headers":headers,"allow_redirects":False,"verify":True,
                 "timeout":(4,STREAM_READ_TIMEOUT if stream else 5),"stream":stream}
         if data is not None: kwargs["data"]=data
@@ -230,7 +230,8 @@ class LiveGateway:
             up=self._session()
             try:
                 response=self._outbound(up,route.method,route.path,
-                                        data=(body if route.action=="decline" and body else None))
+                                        data=(body if route.action=="decline" and body else None),
+                                        form=route.action=="decline")
                 try:
                     response_body=response.content
                     if len(response_body)>MAX_JSON or self.token.encode() in response_body:

@@ -78,9 +78,13 @@ def admit_route(method: str, raw_target: bytes, headers: Mapping[str,str],
     if not isinstance(raw_target,bytes) or len(raw_target)>256:
         raise RouteDenied("target size")
     # No query is required by this controlled client; this also denies offeringDraw.
-    if not re.fullmatch(rb"/[A-Za-z0-9/_-]+",raw_target):
+    if not re.fullmatch(rb"/[A-Za-z0-9/_-]+(?:\?offeringDraw=false)?",raw_target):
         raise RouteDenied("noncanonical or ambiguous target")
-    path=raw_target.decode("ascii")
+    original_target=raw_target.decode("ascii")
+    path,separator,query=original_target.partition("?")
+    if separator and (query!="offeringDraw=false" or method!="POST"
+                      or re.fullmatch(r"/api/bot/game/[A-Za-z0-9]{8}/move/[a-h][1-8][a-h][1-8][qrbn]?",path) is None):
+        raise RouteDenied("unexpected query or draw offer")
     if "//" in path or "/../" in path or "/./" in path or path.endswith("/"):
         raise RouteDenied("normalized path ambiguity")
     h=_headers(headers)

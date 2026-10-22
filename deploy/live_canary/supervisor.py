@@ -52,7 +52,8 @@ def verify_host_receipt(host: dict, binding: SourceBinding) -> None:
         "destination_host_qualified","public_bot_release",
         "live_game_authorized","observation_digest"}
     if host["scope"]=="synthetic-ci-fixture-only":
-        required|={"network_tests","storage_tests"}
+        required|={"network_tests","storage_tests",
+                   "image_identity_verified","source_mounts_read_only"}
     else:
         required|={"platform","machine","filesystem_observations",
             "bridge_only_internal","gateway_dual_homed",
@@ -84,6 +85,9 @@ def verify_host_receipt(host: dict, binding: SourceBinding) -> None:
     if host["scope"]=="synthetic-ci-fixture-only":
         net=host.get("network_tests")
         storage=host.get("storage_tests")
+        if (host.get("image_identity_verified") is not True
+                or host.get("source_mounts_read_only") is not True):
+            raise SupervisorRefused("live test image or source mount identity unverified")
         if not isinstance(net,dict) or not isinstance(storage,dict) or any(
             net.get(k) is not True for k in (
                 "bridge_egress_test_pass","gateway_private_port_test_pass",
@@ -276,8 +280,13 @@ class LiveSupervisor:
         # Terminal is observed; final server-reconciled result/PGN requires the
         # independently written gateway-authoritative witness before SUCCESS.
         final=self.state/"gateway-evidence"/"authoritative-final.json"
-        if not final.is_file() or final.is_symlink():
-            raise SupervisorRefused("terminal lacks independently persisted final server state")
+        if final.is_symlink():
+            raise SupervisorRefused("terminal witness is a symlink")
+        if not final.is_file():
+            # The server terminal and bridge journal are independent writers.
+            # Give the bounded owner loop time to observe the other party's
+            # fsynced evidence; a missing witness can never yield SUCCESS.
+            return False,gid,len(history)
         record=json.loads(final.read_text())
         if (record.get("game_id")!=gid or record.get("terminal") is not True
             or record.get("moves")!=list(history)

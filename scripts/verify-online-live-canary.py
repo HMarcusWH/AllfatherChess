@@ -73,6 +73,8 @@ def verify_one(path:Path,expected_color:str,sha_source:str):
     host=result.get("host_observation",{})
     net=host.get("network_tests",{})
     require(host.get("scope")=="synthetic-ci-fixture-only" and
+            host.get("image_identity_verified") is True and
+            host.get("source_mounts_read_only") is True and
             host.get("operator_envelope_met") is True and
             host.get("durable_volume_separate") is True and
             host.get("destination_host_qualified") is False and

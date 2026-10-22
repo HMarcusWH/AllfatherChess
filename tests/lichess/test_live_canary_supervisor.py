@@ -144,6 +144,7 @@ class RepairRegressions(unittest.TestCase):
             "destination_host_qualified":False,"live_game_authorized":False,
             "public_bot_release":False,
             "storage_tests":{"persistent_separate":True,"scratch_separate":True},
+            "image_identity_verified":True,"source_mounts_read_only":True,
             "network_tests":{k:True for k in (
                 "bridge_egress_test_pass","gateway_private_port_test_pass",
                 "separate_network_namespaces","bridge_only_internal",

@@ -62,7 +62,7 @@ def imported(path):
 def within(path:Path,base:Path)->bool:
     return path.resolve().is_relative_to(base.resolve())
 
-def host_facts(bridge,gateway):
+def host_facts(bridge,gateway,image_id):
     inspector=imported(ROOT/"scripts/qualify-live-canary-host.py")
     net=inspector.inspect_namespaces(bridge,gateway)
     observation=json.loads(cmd([
@@ -80,10 +80,23 @@ def host_facts(bridge,gateway):
     if not (net["bridge_egress_test_pass"] and net["gateway_private_port_test_pass"]
             and storage["persistent_separate"] and storage["scratch_separate"]):
         raise RuntimeError("real Docker namespace or storage negative control failed")
+    # A configured image/tag is not proof of what Compose actually ran.
+    # Check both independent Docker runtime identities and read-only source mounts.
+    containers=json.loads(cmd(["docker","inspect",bridge,gateway],timeout=15))
+    if len(containers)!=2 or any(c.get("Image")!=image_id for c in containers):
+        raise RuntimeError("private test image changed between resolution and execution")
+    def exact_readonly_worktree(c):
+        mounts=[m for m in c.get("Mounts",[]) if m.get("Destination")=="/work"]
+        return (len(mounts)==1 and mounts[0].get("RW") is False
+                and Path(mounts[0].get("Source","")).resolve()==ROOT.resolve())
+    if not all(exact_readonly_worktree(c) for c in containers):
+        raise RuntimeError("actual canary process source mount is not exact and read-only")
     host={
         "schema_version":1,
         "scope":"synthetic-ci-fixture-only",
         "host_id":"ci-synthetic-dual-container",
+        "image_identity_verified":True,
+        "source_mounts_read_only":True,
         "capacity":observation,
         "operator_envelope_met":True,
         "durable_volume_separate":True,
@@ -195,7 +208,7 @@ def run(color:str,image:str,source_sha:str,out:Path):
         bridge=compose("ps","-q","live-engine-bridge")
         if not gateway or not bridge or gateway==bridge:
             raise RuntimeError("distinct test namespaces not running")
-        host=host_facts(bridge,gateway)
+        host=host_facts(bridge,gateway,image_id)
         fabricate_runtime_test_lease(fixture,host,image_id,source_sha,
                                      token,color=color)
         # Note: wait for BOTH jobs; failing to see a finished runner is not PASS.

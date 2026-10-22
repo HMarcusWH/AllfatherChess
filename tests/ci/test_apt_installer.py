@@ -116,7 +116,9 @@ fi
             self.assertNotIn("sudo apt-get install", doc, name)
             actual = doc.count("bash scripts/ci-install-apt-deps.sh ")
             self.assertEqual(actual, expected, name)
-            self.assertGreaterEqual(doc.count("timeout-minutes: 5"), 1, name)
+            # The new 210s+180s acquisition path has a 9-minute step budget.
+            # Unrelated quick source checks may still use five minutes.
+            self.assertIn("timeout-minutes: 9",doc,name)
             self.assertIn("scripts/ci-install-apt-deps.sh", doc, name)
             self.assertIn("tests/ci/test_apt_installer.py", doc, name)
             observed += actual

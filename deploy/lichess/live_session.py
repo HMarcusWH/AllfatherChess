@@ -22,6 +22,44 @@ def _committed_blob(path: str) -> bytes:
     return subprocess.check_output(["git","-C",str(ROOT),"show","HEAD:"+path],
                                    stderr=subprocess.PIPE,timeout=10)
 
+def _stage_live_guards(staged_bridge: Path, overlay: dict) -> None:
+    """Replace ONLY disposable recovery-guard bytes with exact current HEAD.
+
+    The immutable upstream Git checkout and offline release staging are never
+    modified. This is essential when a private live image inherits previously
+    packaged offline recovery tools rather than the PR-A source checkout.
+    """
+    module_dir=staged_bridge/"deploy"/"lichess"
+    if not module_dir.is_dir() or module_dir.is_symlink():
+        raise ValueError("verified temporary recovery overlay missing")
+    for name in ("guarded_transport.py","live_gateway_policy.py"):
+        rel="deploy/lichess/"+name
+        source=ROOT/rel
+        if source.is_symlink() or not source.is_file():
+            raise ValueError("live guard source missing: "+rel)
+        raw=source.read_bytes()
+        if raw!=_committed_blob(rel):
+            raise ValueError("live guard differs from exact source HEAD: "+rel)
+        compile(raw,str(source),"exec")
+        target=module_dir/name
+        if name=="guarded_transport.py":
+            if target.is_symlink() or not target.is_file() or hashlib.sha256(
+                    target.read_bytes()).hexdigest()!=overlay["guard_modules"]["guarded_transport.py"]:
+                raise ValueError("staged offline recovery module tampered")
+            target.write_bytes(raw)
+            overlay["guard_modules"]["guarded_transport.py"]=hashlib.sha256(raw).hexdigest()
+        else:
+            if target.exists() or target.is_symlink():
+                raise ValueError("live gateway policy would overwrite a staged module")
+            target.write_bytes(raw)
+            overlay["live_modules"]={name:hashlib.sha256(raw).hexdigest()}
+        if hashlib.sha256(target.read_bytes()).digest()!=hashlib.sha256(raw).digest():
+            raise ValueError("copied live guard byte identity drift: "+rel)
+    overlay["live_profile"]="source-locked-live-canary-v1"
+    (staged_bridge/"recovery-overlay-manifest.json").write_text(
+        json.dumps(overlay,sort_keys=True,indent=2)+"\n",encoding="utf-8")
+
+
 def stage_live(*,release: Path,bridge: Path,workspace: Path,opponent: str) -> dict:
     if workspace.exists() or workspace.is_symlink():
         raise ValueError("live workspace must be an empty new directory")
@@ -42,6 +80,7 @@ def stage_live(*,release: Path,bridge: Path,workspace: Path,opponent: str) -> di
     effective=live_bridge_policy.generate(result["bridge"],result["release"],
                                             result["config"],opponent=opponent)
     overlay=recovery_overlay.apply(result["bridge"])
+    _stage_live_guards(result["bridge"],overlay)
     result.update(overlay_manifest=overlay,live_config_sha256=hashlib.sha256(
         result["config"].read_bytes()).hexdigest(),
         live_handler_sha256=hashlib.sha256(extra.read_bytes()).hexdigest(),

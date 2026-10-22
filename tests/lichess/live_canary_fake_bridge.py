@@ -75,6 +75,8 @@ def main():
             "live_handler_sha256":digest(ROOT/"deploy/lichess/live_extra_game_handlers.py"),
             "patched_upstream":overlay["patched_upstream"],
             "guard_modules":overlay["guard_modules"],
+            "live_modules":overlay["live_modules"],
+            "live_profile":overlay["live_profile"],
             "live_policy_sha256":digest(ROOT/"qualification/online-live-canary-v1.json"),
         }
         payload={"schema_version":1,"status":result.status,

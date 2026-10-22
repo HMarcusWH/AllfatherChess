@@ -222,6 +222,12 @@ def verify_one(path:Path,expected_color:str,sha_source:str):
         require(isinstance(entry,dict) and entry.get("git_blob_sha1")==locked and
                 re.fullmatch(r"[0-9a-f]{64}",entry.get("patched_sha256","")) is not None,
                 "pinned upstream Git blob/overlay drift")
+    require(manifest.get("live_profile")=="source-locked-live-canary-v1",
+            "runtime did not stage approved live transport profile")
+    live_modules=manifest.get("live_modules",{})
+    require(live_modules=={
+        "live_gateway_policy.py":sha(ROOT/"deploy/lichess/live_gateway_policy.py")},
+        "executed live gateway policy not source-sealed")
     guard=manifest.get("guard_modules",{})
     expected_guard=("move_journal.py","reconcile.py","session_owner.py","guarded_transport.py")
     require(isinstance(guard,dict) and set(guard)==set(expected_guard),

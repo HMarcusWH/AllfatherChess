@@ -65,3 +65,14 @@ expiry timestamps. Unknown game status values suspend the game before chess
 work. An unapproved challenge is filtered rather than forwarded to the pinned
 bridge; PR-A deliberately disables even generic account-side challenge declines
 because there is no separately admitted decline-target allowlist.
+
+### Exact live profile bytes inside disposable bridge
+
+The pinned upstream Git tree and original OFFLINE-4B overlay remain unchanged.
+After verifying upstream and applying its source-locked patch, the separate
+live staging code checks `HEAD:deploy/lichess/guarded_transport.py` and
+`HEAD:deploy/lichess/live_gateway_policy.py` and places those exact bytes
+in the temporary bridge. Its overlay manifest retains patched upstream OIDs,
+records the live module digests, and refuses mismatched prior guard bytes.
+This avoids accidentally executing the inherited offline-only transport
+adapter from an older packaged image during a later operator-approved canary.

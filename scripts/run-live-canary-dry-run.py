@@ -25,6 +25,11 @@ import re
 from pathlib import Path
 
 ROOT=Path(__file__).resolve().parents[1]
+# Direct python3 scripts/xxx.py execution puts scripts/ (not repository root)
+# first on sys.path. The runtime admission modules are source-controlled at
+# deploy/, and must resolve from the exact checkout, never from site-packages.
+if str(ROOT) not in sys.path:
+    sys.path.insert(0,str(ROOT))
 COMPOSE=ROOT/"deploy/live_canary/compose.test.yml"
 
 def cmd(args,*,env=None,timeout=30):

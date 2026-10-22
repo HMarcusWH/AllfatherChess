@@ -50,6 +50,45 @@ class LiveBridgeContract(unittest.TestCase):
                 self.assertEqual(bridge["tmpfs"][0],
                                  "/tmp:size=1073741824,mode=1777")
 
+    def test_source_sealed_live_guards_are_staged_without_changing_upstream(self):
+        import hashlib,tempfile
+        from deploy.lichess.live_session import _stage_live_guards
+        with tempfile.TemporaryDirectory() as folder:
+            destination=Path(folder)/"bridge"
+            modules=destination/"deploy/lichess"
+            modules.mkdir(parents=True)
+            guard=(modules/"guarded_transport.py")
+            guard.write_bytes(b"old verified offline recovery adapter\n")
+            before=hashlib.sha256(guard.read_bytes()).hexdigest()
+            record={"guard_modules":{"guarded_transport.py":before},
+                    "patched_upstream":{}}
+            _stage_live_guards(destination,record)
+            for name in ("guarded_transport.py","live_gateway_policy.py"):
+                self.assertEqual(
+                    (modules/name).read_bytes(),
+                    (ROOT/"deploy/lichess"/name).read_bytes())
+            self.assertEqual(record["live_profile"],"source-locked-live-canary-v1")
+            self.assertEqual(record["guard_modules"]["guarded_transport.py"],
+                             hashlib.sha256(guard.read_bytes()).hexdigest())
+            self.assertEqual(
+                json.loads((destination/"recovery-overlay-manifest.json").read_text()),
+                record)
+
+    def test_direct_dry_run_script_imports_exact_repository(self):
+        # The GitHub Actions command runs the file directly, not "-m".
+        # Isolated Python proves the helper inserts its own checkout root.
+        import subprocess,sys
+        script=ROOT/"scripts/run-live-canary-dry-run.py"
+        payload=(
+            "import runpy; runpy.run_path("+repr(str(script))+
+            ",run_name='safe-import-probe'); "
+            "from deploy.live_canary.admission import SourceBinding; "
+            "assert SourceBinding.__module__=='deploy.live_canary.admission'"
+        )
+        proc=subprocess.run([sys.executable,"-I","-c",payload],
+                            cwd="/tmp",capture_output=True,text=True,timeout=15)
+        self.assertEqual(proc.returncode,0,proc.stderr[:500])
+
     def test_pinned_exact_source_not_mutated(self):
         lock=json.loads((ROOT/"deploy/lichess/bridge.lock.json").read_text())
         self.assertEqual(lock["commit"],"df7e730de58cc3ef2f1415a0dc2eeda842d39167")

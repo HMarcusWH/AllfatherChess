@@ -267,7 +267,7 @@ class LiveGateway:
             "moves":list(history),"result":result,"status":payload["status"],
             "initial":600000,"increment":5000,
             "white":self.bound_players["white"],"black":self.bound_players["black"]}
-        data=(json.dumps(witness,sort_keys=True,separators=(",",":"))+"\\n").encode()
+        data=(json.dumps(witness,sort_keys=True,separators=(",",":"))+"\n").encode()
         tmp=dest/("terminal-"+str(os.getpid())+".tmp")
         try:
             fd=os.open(tmp,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)

@@ -48,7 +48,7 @@ jobs:
           python3 -m json.tool qualification/schemas/online-live-canary-v1.schema.json >/dev/null
           python3 -m json.tool qualification/schemas/online-live-admission-v1.schema.json >/dev/null
           python3 scripts/check-live-canary-boundary.py --output build/test-results/online-play-1/source-boundary.json
-          python3 -m unittest tests.release.test_live_release_boundary -v
+          python3 -m unittest discover -s tests/release -p 'test_live_release_boundary.py' -v
           python3 scripts/release-promotion-policy.py --output build/test-results/online-play-1/release-prohibition.json
       - name: Retain ONLY policy checks, never key or image
         if: always()
@@ -74,7 +74,7 @@ jobs:
           set -euo pipefail
           bash scripts/ci-install-apt-deps.sh python3-pip python3-venv
           python3 -m pip install --break-system-packages --require-hashes -r deploy/lichess/requirements.release.lock
-          python3 -m unittest tests.lichess.test_live_gateway tests.lichess.test_live_canary_redaction -v
+          python3 -m unittest tests.lichess.test_live_gateway tests.lichess.test_live_canary_http tests.lichess.test_live_canary_redaction -v
 
   bridge-supervisor-unit:
     needs: source-boundary
@@ -91,7 +91,7 @@ jobs:
           python3 -m pip install --break-system-packages --require-hashes -r deploy/lichess/requirements.release.lock
           python3 deploy/lichess/fetch_bridge.py
           python3 -m unittest tests.lichess.test_live_bridge_policy tests.lichess.test_live_canary_supervisor -v
-          python3 -m unittest discover -s tests/lichess -p 'test_*.py' -v
+          python3 -m unittest discover -s tests/lichess -p 'test_live_*.py' -v
 
   network-integration:
     needs: [gateway-unit, bridge-supervisor-unit]

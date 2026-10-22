@@ -12,7 +12,7 @@ import os
 import sys
 from pathlib import Path
 
-ROOT=Path(__file__).resolve().parents[2]
+ROOT=Path("/work")  # immutable exact-source tree, mounted read-only and HEAD-attested
 sys.path.insert(0,str(ROOT))
 from deploy.live_canary.admission import SourceBinding,verify_admission
 from deploy.live_canary.supervisor import LiveSupervisor,validate_runtime_source

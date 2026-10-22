@@ -90,7 +90,7 @@ def main():
         output=Path("/results/gateway")
         output.mkdir(parents=True,exist_ok=True)
         safe={key:complete.get(key) for key in (
-            "game_id","color","challenge_accepted","complete","outcome","pgn",
+            "game_id","color","challenge_accepted","challenge","game_full","complete","outcome","pgn",
             "moves","accepted","requests","forbidden_attempts","clock",
             "transport_trace","stream_sessions")}
         with (output/"server.json").open("x",encoding="utf-8") as file:

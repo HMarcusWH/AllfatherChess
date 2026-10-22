@@ -92,6 +92,54 @@ def verify_one(path:Path,expected_color:str,sha_source:str):
     gid=server.get("game_id")
     require(isinstance(gid,str) and re.fullmatch(r"[A-Za-z0-9]{8}",gid) is not None,
             "fake game ID invalid")
+    # Source-independent inspection of actual fake API challenge + first
+    # gameFull. A PGN alone cannot prove the approved BOT/clock admission.
+    incoming=server.get("challenge")
+    full=server.get("game_full")
+    require(isinstance(incoming,dict) and incoming.get("type")=="challenge"
+            and isinstance(incoming.get("challenge"),dict),
+            "original challenge event not retained")
+    ch=incoming["challenge"]
+    require(ch.get("id")==gid and ch.get("rated") is False
+            and ch.get("speed")=="rapid" and ch.get("initialFen")=="startpos"
+            and isinstance(ch.get("variant"),dict)
+            and ch["variant"].get("key")=="standard",
+            "challenge rated/variant/startpos drift")
+    tc=ch.get("timeControl",{})
+    require(isinstance(tc,dict) and tc.get("type")=="clock"
+            and type(tc.get("limit")) is int and tc["limit"]==600
+            and type(tc.get("increment")) is int and tc["increment"]==5,
+            "challenge must be exactly casual rapid 600+5")
+    for field,expected in (("challenger","approved_test_bot"),("destUser","allfatherfixture")):
+        part=ch.get(field,{})
+        require(isinstance(part,dict) and
+                str(part.get("name","")).casefold()==expected and
+                str(part.get("title","")).upper()=="BOT",
+                "incoming challenge participant not approved BOT")
+    require(isinstance(full,dict) and full.get("type")=="gameFull"
+            and full.get("id")==gid and full.get("rated") is False
+            and full.get("speed")=="rapid" and full.get("initialFen")=="startpos"
+            and isinstance(full.get("variant"),dict)
+            and full["variant"].get("key")=="standard",
+            "first authoritative gameFull missing or altered")
+    start_clock=full.get("clock",{})
+    require(isinstance(start_clock,dict) and type(start_clock.get("initial")) is int
+            and start_clock["initial"]==600000
+            and type(start_clock.get("increment")) is int
+            and start_clock["increment"]==5000,
+            "initial gameFull clock mismatch")
+    expected_owner_color=expected_color
+    for side in ("white","black"):
+        expected_name="allfatherfixture" if side==expected_owner_color else "approved_test_bot"
+        player=full.get(side,{})
+        require(isinstance(player,dict) and
+                str(player.get("name","")).casefold()==expected_name and
+                str(player.get("title","")).upper()=="BOT",
+                "gameFull player BOT identity/color mismatch")
+    initial=full.get("state",{})
+    require(isinstance(initial,dict) and initial.get("type")=="gameState"
+            and initial.get("moves")=="",
+            "first gameFull was not bound to start position")
     board,moves=_history(server.get("moves"))
     require(board.is_game_over(claim_draw=False),"game did not terminate by rules")
     outcome=board.outcome(claim_draw=False)
@@ -145,6 +193,39 @@ def verify_one(path:Path,expected_color:str,sha_source:str):
     require(bridge.get("source_sha")==sha_source and bridge.get("game_id")==gid and
             bridge.get("status")=="TERMINAL_DURABLE" and bridge.get("terminal") is True,
             "real pinned bridge/supervisor not independently terminal")
+    manifest=bridge.get("executed_source",{})
+    upstream=json.loads((ROOT/"deploy/lichess/bridge.lock.json").read_text())
+    expected_upstream={
+        "lib/lichess.py":"891a7715271a1f86a6f032753ca9f6f6d76c421e",
+        "lib/engine_wrapper.py":"38c13f993bb4e4bf9d052f2f58e019f97030b2b0",
+        "lib/lichess_bot.py":"63ab211eb433db73d1fecc47074232699dba0e94",
+    }
+    require(manifest.get("sealed_release_source_commit")==sha_source
+            and manifest.get("upstream_commit")==upstream["commit"],
+            "executed UCI/lichess-bot source identity differs from exact HEAD")
+    for key in ("sealed_release_manifest_sha256","sealed_engine_launcher_sha256",
+                "live_effective_config_sha256","live_handler_sha256"):
+        require(isinstance(manifest.get(key),str) and re.fullmatch(
+            r"[0-9a-f]{64}",manifest[key]) is not None,
+            "executed file-byte identity missing: "+key)
+    require(manifest.get("live_handler_sha256")==sha(ROOT/"deploy/lichess/live_extra_game_handlers.py")
+            and manifest.get("live_policy_sha256")==sha(ROOT/"qualification/online-live-canary-v1.json"),
+            "effective live challenge/policy bytes drift")
+    patches=manifest.get("patched_upstream",{})
+    require(isinstance(patches,dict) and set(patches)==set(expected_upstream),
+            "pinned upstream patched-source map not closed")
+    for path,locked in expected_upstream.items():
+        entry=patches[path]
+        require(isinstance(entry,dict) and entry.get("git_blob_sha1")==locked and
+                re.fullmatch(r"[0-9a-f]{64}",entry.get("patched_sha256","")) is not None,
+                "pinned upstream Git blob/overlay drift")
+    guard=manifest.get("guard_modules",{})
+    expected_guard=("move_journal.py","reconcile.py","session_owner.py","guarded_transport.py")
+    require(isinstance(guard,dict) and set(guard)==set(expected_guard),
+            "guard overlay source closure incomplete")
+    for name in expected_guard:
+        require(guard[name]==sha(ROOT/"deploy/lichess"/name),
+                "executed guarded bridge source differs from exact HEAD: "+name)
     processes=bridge.get("processes",{})
     require(processes.get("pid_namespace_isolated") is True and
             processes.get("live_remaining")==0 and
@@ -192,7 +273,8 @@ def verify_one(path:Path,expected_color:str,sha_source:str):
             "terminal_result":expected_result,
             "http_requests":len(req),"move_posts":len(move_posts),
             "journal_intents":len(intents),"network_isolated":True,
-            "owner_epoch_verified":True}
+            "owner_epoch_verified":True,
+            "executed_source_identity":manifest["sealed_release_manifest_sha256"]}
 
 def verify(root:Path,source_sha:str):
     require(re.fullmatch(r"[0-9a-f]{40}",source_sha or "") is not None,
@@ -208,6 +290,8 @@ def verify(root:Path,source_sha:str):
     results=[]
     for color in ("white","black"):
         results.append(verify_one(root/color,color,source_sha))
+    require(results[0].get("executed_source_identity")==results[1].get("executed_source_identity"),
+            "real sealed engine source changed across color games")
     return {"schema_version":1,"verdict":"DRY_RUN_PASS",
             "scope":"fake-lichess-api-only","source_sha":source_sha,
             "games":results,"live_game_authorized":False,

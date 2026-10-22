@@ -49,6 +49,8 @@ class FakeLichess:
         self.accepted: list[dict] = []
         self.attempted_forbidden: list[str] = []
         self.challenge_accepted = False
+        self.challenge_payload = None
+        self.initial_full_state = None
         self.started = False
         self.start_time = time.monotonic()
         self.clock = {"white": 600000, "black": 600000}
@@ -260,6 +262,8 @@ class FakeLichess:
                 if path == "/api/bot/game/stream/" + GAME_ID:
                     with server.lock:
                         full = server.full_state()
+                        if server.initial_full_state is None:
+                            server.initial_full_state = copy.deepcopy(full)
                         sub = (server.sessions.subscribe("game", initial=full)
                                if server.sessions is not None else None)
                     self.record("GET", path, 200)
@@ -423,6 +427,7 @@ class FakeLichess:
             "color": "random", "finalColor": self.color,
             "timeControl": {"type": "clock", "limit": 600, "increment": 5}
         }}
+        self.challenge_payload = copy.deepcopy(challenge)
         self.events.put(challenge)
         if self.sessions is not None:
             self.sessions.publish("event", challenge)
@@ -515,6 +520,8 @@ class FakeLichess:
             return {
                 "schema_version": 1, "color": self.color,
                 "game_id": GAME_ID, "challenge_accepted": self.challenge_accepted,
+                "challenge": copy.deepcopy(self.challenge_payload),
+                "game_full": copy.deepcopy(self.initial_full_state),
                 "complete": self.finished.is_set(),
                 "outcome": self.outcome,
                 "pgn": str(chess.pgn.Game.from_board(self.board)),

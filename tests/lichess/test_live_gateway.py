@@ -29,9 +29,10 @@ class GatewayContractTests(unittest.TestCase):
                                **{"X-Allfather-Ply":"0","X-Allfather-Epoch":"f"*32}).uci,"e2e4")
         self.assertEqual(route("POST","/api/token/test",body=TOKEN.encode()).action,"token_test")
         pregame=CanarySession("allfatherfixture","approved_test_bot",GAME,None,False,True)
-        self.assertEqual(route("POST","/api/challenge/aabbccdd/decline",session=pregame,
-                               body=b"reason=generic",
-                               **{"Content-Type":"application/x-www-form-urlencoded"}).action,"decline")
+        with self.assertRaises(RouteDenied):
+            route("POST","/api/challenge/aabbccdd/decline",session=pregame,
+                  body=b"reason=generic",
+                  **{"Content-Type":"application/x-www-form-urlencoded"})
     def test_forbidden_methods_paths_queries_and_headers(self):
         bad=[
             ("POST","/api/bot/account/upgrade",{}),

@@ -112,9 +112,9 @@ def admit_route(method: str, raw_target: bytes, headers: Mapping[str,str],
         if h.get("content-type","").split(";")[0].strip() not in ("","text/plain"):
             raise RouteDenied("token test content type")
     elif action=="decline":
-        # This can only be a single, fixed refusal reason. No arbitrary form controls.
-        if body not in (b"",b"reason=generic"):
-            raise RouteDenied("decline body forbidden")
+        # No runtime allowlist for negative challenge IDs exists in PR-A.
+        # Local refusal is safer than allowing arbitrary account-side declines.
+        raise RouteDenied("outbound decline disabled until explicitly source-bound")
     elif body:
         raise RouteDenied("unexpected request body")
     if action in ("events","game_stream") and method!="GET":

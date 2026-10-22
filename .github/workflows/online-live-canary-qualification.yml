@@ -128,7 +128,18 @@ jobs:
         timeout-minutes: 20
         run: |
           set -euo pipefail
-          docker build -f deploy/lichess/Dockerfile.offline -t allfather-online4b-offline:pr-a-test .
+          # Ubuntu mirrors can be temporarily inconsistent during publication.
+          # Retry a fresh integrity-checked APT acquisition; never enable
+          # unauthenticated indexes, ignore size/hash failures, or reuse stale ones.
+          succeeded=0
+          for attempt in 1 2 3; do
+            if docker build -f deploy/lichess/Dockerfile.offline -t allfather-online4b-offline:pr-a-test .; then
+              succeeded=1
+              break
+            fi
+            if [ "$attempt" -lt 3 ]; then sleep 20; fi
+          done
+          test "$succeeded" -eq 1
           docker build -f deploy/live_canary/Dockerfile.test --build-arg BASE_IMAGE=allfather-online4b-offline:pr-a-test -t allfather-canary-test:private .
           docker image inspect allfather-canary-test:private --format '{{.Id}}'
       - name: Play a real sealed Allfather game against fake API as WHITE

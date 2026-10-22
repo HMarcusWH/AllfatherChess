@@ -57,3 +57,11 @@ journal row, wrong epoch or wrong player turn must produce **zero** external
 move requests. The cross-namespace stop-control volume contains a durable
 stop marker only; it contains no Lichess token. A stop during a game is a
 containment outcome, never proof of successful game completion.
+
+### API compatibility and minimal-side-effect refinement
+The official token-test schema encodes scopes as comma-separated text. The
+gateway checks the exact `bot:play` member and rejects elapsed or malformed
+expiry timestamps. Unknown game status values suspend the game before chess
+work. An unapproved challenge is filtered rather than forwarded to the pinned
+bridge; PR-A deliberately disables even generic account-side challenge declines
+because there is no separately admitted decline-target allowlist.

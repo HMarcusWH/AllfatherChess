@@ -190,13 +190,20 @@ class LiveGateway:
                     raise GatewayFailure("real token test response not keyed by tested token")
                 scopes=token.get("scopes")
                 if isinstance(scopes,str):
-                    scopes=set(scopes.split())
+                    # Lichess OpenAPI token/test scopes are comma-separated.
+                    # Also tolerate whitespace around entries, never infer
+                    # bot:play from a substring such as bot:play_extended.
+                    scopes={piece.strip() for piece in scopes.split(",") if piece.strip()}
                 elif isinstance(scopes,list) and all(isinstance(s,str) for s in scopes):
                     scopes=set(scopes)
                 else:
                     raise GatewayFailure("real token scopes invalid")
                 if "bot:play" not in scopes:
                     raise GatewayFailure("real token missing Bot API permission")
+                expires=token.get("expires")
+                if (expires is not None and
+                    (type(expires) is not int or expires <= int(time.time()*1000))):
+                    raise GatewayFailure("OAuth token expiry invalid or elapsed")
                 user_id=token.get("userId")
                 if not isinstance(user_id,str) or user_id.casefold()!=self.session.owner_bot.casefold():
                     raise GatewayFailure("real token owner mismatch")
@@ -315,7 +322,15 @@ class LiveGateway:
         finally:
             tmp.unlink(missing_ok=True)
 
-    def _on_ndjson(self,kind: str,payload: dict,*,first: bool) -> None:
+    @staticmethod
+    def _game_terminal(status):
+        if status == "started":
+            return False
+        if isinstance(status,str) and status in TERMINAL:
+            return True
+        raise GatewayFailure("unexpected or missing authoritative game status")
+
+    def _on_ndjson(self,kind: str,payload: dict,*,first: bool) -> bool | None:
         t=payload.get("type")
         if kind=="events":
             if t=="challenge":
@@ -323,7 +338,9 @@ class LiveGateway:
                     cid=validate_challenge(payload,owner=self.session.owner_bot,
                                            opponent=self.session.opponent_bot)
                 except RouteDenied:
-                    return # bridge may reject, gateway will never accept it
+                    # Do not deliver out-of-policy challenges to the upstream
+                    # bridge or let its own optional decline call touch Lichess.
+                    return False
                 self.state.challenge(cid)
                 self.session.challenge_id=cid
             elif t=="gameStart":
@@ -334,7 +351,12 @@ class LiveGateway:
                     raise GatewayFailure("unapproved gameStart opponent")
                 self.state.game_start(game["id"])
                 self.session.game_id=game["id"]
-            elif t in ("challengeCanceled","challengeDeclined","gameFinish"):
+            elif t=="gameFinish":
+                game=payload.get("game",{})
+                if not isinstance(game,dict) or game.get("id")!=self.session.game_id:
+                    raise GatewayFailure("unexpected gameFinish identity")
+            elif t in ("challengeCanceled","challengeDeclined"):
+                # Read-only unrelated challenge noise grants no move authority.
                 pass
             else:
                 raise GatewayFailure("unrecognized account stream event")
@@ -349,12 +371,12 @@ class LiveGateway:
                 history=canonical_history(state["moves"])
                 self.state.game_full(self.session.game_id,history,
                                      owner_color=("white" if self.bound_players["white"].casefold()==self.session.owner_bot.casefold() else "black"))
-                self.state.game_state(self.session.game_id,history,state["status"] in TERMINAL)
-                if state["status"] in TERMINAL:
+                self.state.game_state(self.session.game_id,history,self._game_terminal(state.get("status")))
+                if self._game_terminal(state.get("status")):
                     self._persist_terminal(state,history)
             elif t=="gameState":
                 history=canonical_history(payload["moves"])
-                terminal=payload.get("status") in TERMINAL
+                terminal=self._game_terminal(payload.get("status"))
                 if terminal: self._persist_terminal(payload,history)
                 self.state.game_state(self.session.game_id,history,terminal)
             elif t in ("chatLine","opponentGone"):
@@ -420,9 +442,10 @@ class LiveGateway:
                 except (ValueError,UnicodeError) as exc:
                     raise GatewayFailure("malformed NDJSON frame") from exc
                 if not isinstance(frame,dict): raise GatewayFailure("NDJSON object required")
-                self._on_ndjson(kind,frame,first=first)
+                accepted=self._on_ndjson(kind,frame,first=first)
                 first=False
-                writer(line+b"\n")
+                if accepted is not False:
+                    writer(line+b"\n")
         except (OSError,requests.RequestException,GatewayFailure,GatewaySuspended,RouteDenied,
                 ValueError,KeyError) as exc:
             # Suspend on ambiguous protocol, not on ordinary controlled disconnect.

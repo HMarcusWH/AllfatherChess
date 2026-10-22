@@ -23,6 +23,8 @@ jobs:
         run: python3 -m py_compile controller/shadow.py tests/controller/test_online_deadlines.py
       - name: Exercise actual fake-engine clock publication, quiescence and manifest
         run: python3 tests/controller/test_online_deadlines.py
+      - name: Verify incomplete publication never promotes VERIFY terminal evidence
+        run: python3 -m unittest tests.controller.test_publication_disposition_qualification -v
       - name: Ensure current offline release prohibitions remain
         run: |
           python3 - <<'PY'

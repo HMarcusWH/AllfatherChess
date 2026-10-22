@@ -4,10 +4,13 @@
 # namespace; runner-provided Azure mirror lists are not consulted.
 set -euo pipefail
 
-APT_UPDATE_TIMEOUT_SEC=90
+# CI prerequisite acquisition is not the signed immutable RELEASE-2B substrate.
+# Skip the mutable index entirely when the hosted image already satisfies the
+# explicit required-package set; otherwise keep a bounded signed acquisition.
+APT_UPDATE_TIMEOUT_SEC=210
 APT_INSTALL_TIMEOUT_SEC=180
-APT_NETWORK_TIMEOUT_SEC=15
-APT_MAX_RETRIES=1
+APT_NETWORK_TIMEOUT_SEC=25
+APT_MAX_RETRIES=2
 APT_KEYRING=/usr/share/keyrings/ubuntu-archive-keyring.gpg
 
 render_sources() {
@@ -57,6 +60,8 @@ apt_run() {
       -o "Dir::Etc::sourceparts=$state_dir/sources.list.d" \
       -o "Dir::State::lists=$state_dir/lists" \
       -o "APT::Update::Error-Mode=any" \
+      -o "Acquire::Languages=none" \
+      -o "Acquire::IndexTargets::deb::CNF::DefaultEnabled=false" \
       -o "Acquire::Retries=$APT_MAX_RETRIES" \
       -o "Acquire::http::Timeout=$APT_NETWORK_TIMEOUT_SEC" \
       -o "Acquire::https::Timeout=$APT_NETWORK_TIMEOUT_SEC" \
@@ -81,9 +86,27 @@ install_packages() (
     echo "Ubuntu archive signing keyring missing: $APT_KEYRING" >&2
     return 2
   fi
+  # Installed host tools remain an observed CI input, not a promotion of
+  # runtime OS/wheel release locks. Never use an unverified package as proof
+  # of an immutable build: downstream exact-source qualification still gates it.
+  local all_installed=1 installed_state
+  for package in "$@"; do
+    installed_state="$(dpkg-query -W -f='\${Status}' "$package" 2>/dev/null || true)"
+    if [[ "$installed_state" != "install ok installed" ]]; then
+      all_installed=0
+      break
+    fi
+  done
+  if ((all_installed)); then
+    echo "CI host prerequisites already installed; no APT index acquisition"
+    dpkg-query -W --showformat='\${Package}=\${Version}\\n' "$@"
+    return 0
+  fi
   local state_dir
   state_dir="$(mktemp -d)"
-  trap 'rm -rf "$state_dir"' EXIT
+  # root-owned APT lists/partial cannot be deleted by an unprivileged trap.
+  # Never let cleanup change the original acquisition/install exit code.
+  trap 'rc=$?; trap - EXIT; sudo rm -rf -- "$state_dir" || echo "APT temp cleanup failed" >&2; exit "$rc"' EXIT
   mkdir -p "$state_dir/sources.list.d" "$state_dir/lists/partial"
   render_sources "$codename" "$arch" > "$state_dir/sources.list.d/ubuntu.sources"
   echo "APT qualification bootstrap: Ubuntu=$codename arch=$arch"

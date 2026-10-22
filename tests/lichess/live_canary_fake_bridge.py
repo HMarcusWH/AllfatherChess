@@ -9,6 +9,7 @@ import dataclasses
 import hashlib
 import json
 import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -97,16 +98,29 @@ def main():
         # The retained failure record has only a fixed phase and exception
         # class. Never copy bridge stdout, tokens, config or raw HTTP bodies.
         out=Path("/results/bridge")
+        # A command family is not a raw stderr transcript. In particular,
+        # never persist subprocess argv values that could contain bearer data.
+        family="none"
+        if isinstance(exc,subprocess.CalledProcessError):
+            words=[str(v) for v in exc.cmd] if isinstance(exc.cmd,(tuple,list)) else []
+            if words and words[0] in ("git","/usr/bin/git"):
+                family=("git-remote" if "remote" in words else
+                        "git-cat-file" if "cat-file" in words else
+                        "git-show" if "show" in words else
+                        "git-source")
+            elif words and "allfather-online" in words[0]:
+                family="engine-seal"
+            else:family="other-subprocess"
         try:
             out.mkdir(parents=True,exist_ok=True)
             (out/"failure.json").write_text(json.dumps({
                 "scope":"synthetic-fake-only","phase":phase,
-                "exception_type":type(exc).__name__,
+                "exception_type":type(exc).__name__,"command_family":family,
                 "live_game_authorized":False,"public_bot_release":False
             },sort_keys=True)+"\n")
         except OSError:pass
         print("synthetic bridge integration failed: "+phase+": "+
-              type(exc).__name__,file=sys.stderr)
+              type(exc).__name__+":"+family,file=sys.stderr)
         return 2
 
 if __name__=="__main__":raise SystemExit(main())

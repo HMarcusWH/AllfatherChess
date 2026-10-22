@@ -41,6 +41,12 @@ services:
     pids_limit: 128
     cpus: 4
     mem_limit: 6g
+    environment:
+      GIT_CONFIG_COUNT: "2"
+      GIT_CONFIG_KEY_0: safe.directory
+      GIT_CONFIG_VALUE_0: /work
+      GIT_CONFIG_KEY_1: safe.directory
+      GIT_CONFIG_VALUE_1: /work/build/vendor/lichess-bot
     networks: [canary_private]
     ports: []
     volumes:

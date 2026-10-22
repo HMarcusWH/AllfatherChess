@@ -89,6 +89,18 @@ class LiveBridgeContract(unittest.TestCase):
                             cwd="/tmp",capture_output=True,text=True,timeout=15)
         self.assertEqual(proc.returncode,0,proc.stderr[:500])
 
+    def test_git_safe_directory_is_exact_and_not_global(self):
+        from pathlib import Path
+        root=Path(__file__).resolve().parents[2]
+        compose=(root/"deploy/live_canary/compose.test.yml").read_text()
+        host=(root/"deploy/live_canary/compose.host.example.yml").read_text()
+        for name,content in (("test",compose),("host",host)):
+            with self.subTest(mode=name):
+                self.assertIn("GIT_CONFIG_VALUE_0: /work",content)
+                self.assertIn("GIT_CONFIG_VALUE_1: /work/build/vendor/lichess-bot",content)
+                self.assertNotIn("GIT_CONFIG_VALUE_0: '*'",content)
+                self.assertNotIn("GIT_CONFIG_VALUE_1: '*'",content)
+
     def test_pinned_exact_source_not_mutated(self):
         lock=json.loads((ROOT/"deploy/lichess/bridge.lock.json").read_text())
         self.assertEqual(lock["commit"],"df7e730de58cc3ef2f1415a0dc2eeda842d39167")

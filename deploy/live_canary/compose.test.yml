@@ -44,6 +44,13 @@ services:
     mem_limit: 6g
     environment:
       ALLFATHER_BRIDGE_EGRESS_ISOLATED: "1"
+      # Exact read-only Git worktrees are owned by the CI checkout UID, while
+      # the sandboxed engine runs as 10001. Do NOT use safe.directory='*'.
+      GIT_CONFIG_COUNT: "2"
+      GIT_CONFIG_KEY_0: safe.directory
+      GIT_CONFIG_VALUE_0: /work
+      GIT_CONFIG_KEY_1: safe.directory
+      GIT_CONFIG_VALUE_1: /work/build/vendor/lichess-bot
     networks: [canary_private]
     ports: []
     volumes:

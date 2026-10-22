@@ -117,6 +117,8 @@ class LiveGateway:
         self.streams={"events":None,"game_stream":None}
         self.active_streams={"events":0,"game_stream":0}
         self.shutdown_event=threading.Event()
+        self.final_dir=state.path.parent/"gateway-evidence"
+        self.bound_players=None
     @classmethod
     def for_fake_test_only(cls,state: GatewayState,fake_token: str,session_factory: Callable):
         """Unit/integration dependency injection. Never called from host entrypoint."""
@@ -245,6 +247,44 @@ class LiveGateway:
                 self.state.suspend()
                 raise GatewayFailure("malformed upstream response")
             finally: up.close()
+
+    def _persist_terminal(self, payload: dict, history: tuple[str,...]) -> None:
+        """Durable observed terminal witness; engine journal verifies independently."""
+        if self.bound_players is None or payload.get("status") not in TERMINAL:
+            raise GatewayFailure("terminal game identity/status not independently bound")
+        winner=payload.get("winner")
+        if winner in ("white","black"):
+            result="1-0" if winner=="white" else "0-1"
+        elif payload.get("status") in ("draw","stalemate","variantEnd"):
+            result="1/2-1/2"
+        else:
+            raise GatewayFailure("terminal outcome lacks trusted winner")
+        dest=self.final_dir
+        if dest.is_symlink(): raise GatewayFailure("terminal evidence path linked")
+        dest.mkdir(parents=True,exist_ok=True)
+        witness={
+            "schema_version":1,"game_id":self.session.game_id,"terminal":True,
+            "moves":list(history),"result":result,"status":payload["status"],
+            "initial":600000,"increment":5000,
+            "white":self.bound_players["white"],"black":self.bound_players["black"]}
+        data=(json.dumps(witness,sort_keys=True,separators=(",",":"))+"\\n").encode()
+        tmp=dest/("terminal-"+str(os.getpid())+".tmp")
+        try:
+            fd=os.open(tmp,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
+            try:
+                if os.write(fd,data)!=len(data): raise GatewayFailure("short terminal evidence write")
+                os.fsync(fd)
+            finally: os.close(fd)
+            final=dest/"authoritative-final.json"
+            if final.exists() or final.is_symlink():
+                raise GatewayFailure("second terminal evidence publication")
+            os.replace(tmp,final)
+            dirfd=os.open(dest,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
+            try: os.fsync(dirfd)
+            finally: os.close(dirfd)
+        finally:
+            tmp.unlink(missing_ok=True)
+
     def _on_ndjson(self,kind: str,payload: dict,*,first: bool) -> None:
         t=payload.get("type")
         if kind=="events":
@@ -274,12 +314,18 @@ class LiveGateway:
                 state=validate_game_full(payload,owner=self.session.owner_bot,
                                          opponent=self.session.opponent_bot,
                                          game_id=self.session.game_id)
+                self.bound_players={
+                    side:payload[side]["name"] for side in ("white","black")}
                 history=canonical_history(state["moves"])
                 self.state.game_full(self.session.game_id,history)
                 self.state.game_state(self.session.game_id,history,state["status"] in TERMINAL)
+                if state["status"] in TERMINAL:
+                    self._persist_terminal(state,history)
             elif t=="gameState":
                 history=canonical_history(payload["moves"])
-                self.state.game_state(self.session.game_id,history,payload.get("status") in TERMINAL)
+                terminal=payload.get("status") in TERMINAL
+                if terminal: self._persist_terminal(payload,history)
+                self.state.game_state(self.session.game_id,history,terminal)
             elif t in ("chatLine","opponentGone"):
                 pass # read-only events; never send chat
             else:

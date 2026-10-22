@@ -1,0 +1,62 @@
+# Synthetic ONLINE-PLAY-1 PR-A only: two real Docker network namespaces,
+# only the gateway test entrypoint can use loopback fake API. No real bot creds.
+name: allfather-online-live-canary-test
+services:
+  live-gateway:
+    image: "${CANARY_TEST_IMAGE:?local-private-image}"
+    entrypoint: ["/opt/online3b/bin/python", "/work/tests/lichess/live_canary_test_wait.py"]
+    command: ["gateway", "${CANARY_COLOR:?white-or-black}"]
+    user: "10001:10001"
+    read_only: true
+    init: false
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs: [/tmp:rw,nosuid,nodev,size=64m]
+    pids_limit: 48
+    cpus: 1
+    mem_limit: 512m
+    networks:
+      canary_private:
+        aliases: [live-gateway]
+      canary_egress: {}
+    ports: []
+    volumes:
+      - "${CANARY_WORKTREE:?absolute-exact-head-source}:/work:ro"
+      - "${CANARY_OPERATOR_FIXTURE:?synthetic-test-only}:/run/operator:ro"
+      - "${CANARY_TEST_TOKEN_FILE:?not-real-token}:/run/secrets/test-only-fake-token:ro"
+      - "${CANARY_OUTPUT_DIR:?private-test-results}:/results:rw"
+      - gateway_state:/var/lib/allfather-canary:rw
+      - gateway_evidence:/var/lib/allfather-canary/gateway-evidence:rw
+  live-engine-bridge:
+    image: "${CANARY_TEST_IMAGE:?local-private-image}"
+    entrypoint: ["/opt/online3b/bin/python", "/work/tests/lichess/live_canary_test_wait.py"]
+    command: ["bridge", "${CANARY_COLOR:?white-or-black}"]
+    user: "10001:10001"
+    read_only: true
+    init: false
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs: [/tmp:rw,nosuid,nodev,size=128m]
+    pids_limit: 128
+    cpus: 4
+    mem_limit: 6144m
+    environment:
+      ALLFATHER_BRIDGE_EGRESS_ISOLATED: "1"
+    networks: [canary_private]
+    ports: []
+    volumes:
+      - "${CANARY_WORKTREE:?absolute-exact-head-source}:/work:ro"
+      - "${CANARY_OPERATOR_FIXTURE:?synthetic-test-only}:/run/operator:ro"
+      - "${CANARY_OUTPUT_DIR:?private-test-results}:/results:rw"
+      - bridge_state:/var/lib/allfather-canary:rw
+      - gateway_evidence:/var/lib/allfather-canary/gateway-evidence:ro
+networks:
+  canary_private:
+    internal: true
+    driver: bridge
+  canary_egress:
+    driver: bridge
+volumes:
+  gateway_state:
+  gateway_evidence:
+  bridge_state:

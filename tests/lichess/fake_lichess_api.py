@@ -318,7 +318,7 @@ class FakeLichess:
                     return self.respond(403, {"error": "offline request-target prohibited"})
                 if path == "/api/token/test":
                     self.record("POST", path, 200)
-                    return self.respond(200, {TOKEN: {"scopes": "bot:play"}})
+                    return self.respond(200, {TOKEN: {"scopes": "bot:play", "userId": "allfatherfixture"}})
                 if path == "/api/challenge/" + GAME_ID + "/accept":
                     with server.lock:
                         if server.challenge_accepted:

@@ -176,7 +176,7 @@ class LiveSupervisor:
             raise SupervisorRefused("terminal history has unresolved move-intent ACK")
         # Terminal is observed; final server-reconciled result/PGN requires the
         # independently written gateway-authoritative witness before SUCCESS.
-        final=self.state/"authoritative-final.json"
+        final=self.state/"gateway-evidence"/"authoritative-final.json"
         if not final.is_file() or final.is_symlink():
             raise SupervisorRefused("terminal lacks independently persisted final server state")
         record=json.loads(final.read_text())

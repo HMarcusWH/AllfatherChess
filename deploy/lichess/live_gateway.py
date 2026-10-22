@@ -406,7 +406,10 @@ class GatewayHandler(BaseHTTPRequestHandler):
                 OSError,requests.RequestException):
             # Generic error only: never send token-test real key, HTTP URL or body.
             if not self.wfile.closed and not self.headers_sent():
-                try: self._reply(403,b'{"error":"canary request denied"}')
+                try:
+                    cooldown=self.server.gateway.state.snapshot()["cooldown_until"]>time.time()
+                    self._reply(429 if cooldown else 403,
+                                b'{"error":"canary request denied"}')
                 except (OSError,BrokenPipeError): pass
             self.close_connection=True
     def headers_sent(self):

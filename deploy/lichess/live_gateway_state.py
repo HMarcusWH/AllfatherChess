@@ -84,10 +84,20 @@ class GatewayState:
                 raise GatewaySuspended("unexpected gameStart")
         self._mutate(check,"UPDATE binding SET game=? WHERE id=1",(gid,))
     def game_full(self,gid,history: tuple[str,...]):
-        def check(row,c):
-            if row[2]!=gid or row[3] or history:
-                raise GatewaySuspended("unexpected initial authoritative gameFull")
-        self._mutate(check,"UPDATE binding SET game_full=1,history=? WHERE id=1",(json.dumps([]),))
+        """Server sends gameFull on reconnect; never erase previous history."""
+        with self.lock,self._db() as c:
+            c.execute("BEGIN IMMEDIATE")
+            row=c.execute("SELECT game,game_full,terminal,suspended,history FROM binding WHERE id=1").fetchone()
+            if row[0]!=gid or row[2] or row[3]:
+                raise GatewaySuspended("unexpected initial gameFull")
+            old=tuple(json.loads(row[4]))
+            if len(history)<len(old) or history[:len(old)]!=old:
+                c.execute("UPDATE binding SET suspended=1 WHERE id=1")
+                c.commit()
+                raise GatewaySuspended("reconnected gameFull history conflict")
+            c.execute("UPDATE binding SET game_full=1,history=? WHERE id=1",
+                      (json.dumps(history,separators=(",",":")),))
+            c.commit()
     def game_state(self,gid,history: tuple[str,...],terminal: bool):
         import json
         with self.lock,self._db() as c:

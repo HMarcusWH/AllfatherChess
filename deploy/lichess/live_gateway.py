@@ -369,7 +369,9 @@ class LiveGateway:
         unterminated line. At most 4 KiB enter the buffer at a time.
         """
         pending=bytearray()
-        for chunk in response.iter_content(chunk_size=4096,decode_unicode=False):
+        # A one-byte pull keeps heartbeats and short NDJSON events prompt
+        # even if the remote HTTP transport does not use chunked encoding.
+        for chunk in response.iter_content(chunk_size=1,decode_unicode=False):
             if not isinstance(chunk,bytes):
                 raise GatewayFailure("upstream stream returned non-byte content")
             pending.extend(chunk)

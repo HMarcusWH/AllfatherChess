@@ -213,16 +213,45 @@ def run(color:str,image:str,source_sha:str,out:Path):
                            stderr=subprocess.PIPE,text=True)
         b=subprocess.Popen(["docker","wait",bridge],stdout=subprocess.PIPE,
                            stderr=subprocess.PIPE,text=True)
+        # Monitor BOTH Docker wait processes concurrently. Waiting first on
+        # gateway hides an early bridge failure for the full 840-second limit.
+        exits={}
+        started=time.monotonic()
         try:
-            go,ge=g.communicate(timeout=840)
-            bo,be=b.communicate(timeout=840)
-        except subprocess.TimeoutExpired:
+            while len(exits)<2 and time.monotonic()-started<840:
+                for role,proc in (("gateway",g),("bridge",b)):
+                    if role in exits or proc.poll() is None:
+                        continue
+                    output,error=proc.communicate(timeout=3)
+                    if proc.returncode!=0 or output.strip() not in ("0","1","2","3","124","137","143"):
+                        raise RuntimeError("Docker wait operation failed for "+role)
+                    exits[role]=output.strip()
+                    if exits[role]!="0":
+                        # Retain only allowlisted test failure stages/classes.
+                        # Never paste unrestricted docker logs or bearer material.
+                        diagnostic="unknown-typed-failure"
+                        target=gateway if role=="gateway" else bridge
+                        result=subprocess.run(["docker","logs","--tail","80",target],
+                                              capture_output=True,text=True,timeout=8)
+                        match=re.search(
+                            r"synthetic (?:gateway|bridge) integration failed: "
+                            r"([a-z_]{1,48}): ([A-Za-z]{1,48})",
+                            result.stderr+"\n"+result.stdout)
+                        if match:
+                            diagnostic=match.group(1)+":"+match.group(2)
+                        raise RuntimeError("synthetic "+role+" container returned "+
+                                           exits[role]+"; "+diagnostic)
+                if len(exits)<2:
+                    time.sleep(.2)
+        finally:
             for proc in (g,b):
-                proc.kill();proc.communicate()
+                if proc.poll() is None:
+                    proc.kill()
+                try: proc.communicate(timeout=3)
+                except subprocess.TimeoutExpired: pass
+        if len(exits)!=2:
             raise RuntimeError("bounded Docker full-game integration timed out")
-        if (g.returncode!=0 or b.returncode!=0
-            or go.strip()!="0" or bo.strip()!="0"):
-            raise RuntimeError("gateway or bridge exit was not zero")
+        go,bo=exits["gateway"],exits["bridge"]
         needed=("gateway/server.json","gateway/gateway-state.json","bridge/report.json")
         if any(not (out/f).is_file() for f in needed):
             raise RuntimeError("real API or UCI game output incomplete")

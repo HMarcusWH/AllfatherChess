@@ -276,12 +276,12 @@ def verify_one(path:Path,expected_color:str,sha_source:str):
         expected=f"replays/{rid}/manifest.json"
         require(row.get("manifest")==expected,
                 "replay evidence path not occurrence-scoped")
-        manifest=path/"bridge"/expected
-        require(manifest.is_file() and not manifest.is_symlink()
-                and manifest.stat().st_size<=2*1024*1024 and
-                sha(manifest)==row.get("sha256"),
+        replay_manifest=path/"bridge"/expected
+        require(replay_manifest.is_file() and not replay_manifest.is_symlink()
+                and replay_manifest.stat().st_size<=2*1024*1024 and
+                sha(replay_manifest)==row.get("sha256"),
                 "replay manifest byte identity not retained")
-        record=read(manifest)
+        record=read(replay_manifest)
         require(record.get("generation")==row.get("generation")
                 and (record.get("position") or {}).get("position_id")==row.get("position_id")
                 and record.get("outward_decision")==row.get("outward_decision"),

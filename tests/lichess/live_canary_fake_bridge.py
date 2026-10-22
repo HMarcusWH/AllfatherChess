@@ -27,6 +27,7 @@ def main():
     p=argparse.ArgumentParser()
     p.add_argument("--color",required=True,choices=("white","black"))
     args=p.parse_args()
+    phase="operator_admission"
     try:
         if os.getpid()!=1 or os.environ.get("ALLFATHER_BRIDGE_EGRESS_ISOLATED")!="1":
             raise RuntimeError("bridge must be a separate isolated container PID1")
@@ -44,10 +45,12 @@ def main():
             bridge=ROOT/"build/vendor/lichess-bot",
             work=Path("/tmp/allfather-live-bridge"),
             state=Path("/var/lib/allfather-canary"))
+        phase="supervised_pinned_game"
         result=supervisor.run(lease_file=op/"admission.json",
                               binding_file=op/"source-binding.json",timeout_s=780)
         if not result.terminal or result.status!="TERMINAL_DURABLE":
             raise RuntimeError("simulated lifecycle did not reach terminal")
+        phase="durable_terminal_evidence"
         state=Path("/var/lib/allfather-canary")
         out=Path("/results/bridge");out.mkdir(parents=True,exist_ok=True)
         journal=MoveJournal(state/"recovery/move-journal.sqlite3").snapshot()
@@ -91,7 +94,19 @@ def main():
             json.dump(payload,f,sort_keys=True,indent=2)
         return 0
     except Exception as exc:
-        print("synthetic bridge integration failed: "+type(exc).__name__,file=sys.stderr)
+        # The retained failure record has only a fixed phase and exception
+        # class. Never copy bridge stdout, tokens, config or raw HTTP bodies.
+        out=Path("/results/bridge")
+        try:
+            out.mkdir(parents=True,exist_ok=True)
+            (out/"failure.json").write_text(json.dumps({
+                "scope":"synthetic-fake-only","phase":phase,
+                "exception_type":type(exc).__name__,
+                "live_game_authorized":False,"public_bot_release":False
+            },sort_keys=True)+"\n")
+        except OSError:pass
+        print("synthetic bridge integration failed: "+phase+": "+
+              type(exc).__name__,file=sys.stderr)
         return 2
 
 if __name__=="__main__":raise SystemExit(main())

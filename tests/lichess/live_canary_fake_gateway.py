@@ -45,6 +45,12 @@ def main():
     p=argparse.ArgumentParser()
     p.add_argument("--color",required=True,choices=("white","black"))
     args=p.parse_args()
+    phase="operator_admission"
+    server=None
+    server_started=False
+    gateway=None
+    http=None
+    thread=None
     try:
         source=SourceBinding(**_read("source-binding.json"))
         lease=_read("admission.json")
@@ -58,6 +64,8 @@ def main():
         fixture.TOKEN=token
         server=fixture.FakeLichess(args.color)
         server.start()
+        server_started=True
+        phase="gateway_state_and_token"
         state=GatewayState(Path("/var/lib/allfather-canary/gateway.sqlite3"),
                            lease["session_nonce"],source.owner_bot,source.opponent_bot,
                            bridge_journal=Path("/bridge-state/recovery/move-journal.sqlite3"),
@@ -68,15 +76,19 @@ def main():
         thread=threading.Thread(target=http.serve_forever,
                                 kwargs={"poll_interval":.1},daemon=False)
         thread.start()
+        phase="waiting_for_pinned_bridge_account_stream"
         if not server.event_stream_open.wait(90):
             raise RuntimeError("real pinned bridge did not connect to gateway event stream")
         server.issue_challenge()
+        phase="waiting_for_approved_game_stream"
         if not server.game_stream_open.wait(90):
             raise RuntimeError("real pinned bridge did not accept fake challenge")
         if args.color=="black":
             server.opponent_move()
+        phase="waiting_for_natural_terminal"
         if not server.finished.wait(750):
             raise RuntimeError("fake game did not finish naturally")
+        phase="waiting_for_durable_server_terminal"
         # Let actual bridge observe terminal gameFull/gameState and commit PGN.
         deadline=time.monotonic()+30
         final=Path("/var/lib/allfather-canary/gateway-evidence/authoritative-final.json")
@@ -102,19 +114,47 @@ def main():
             json.dump(safe,file,sort_keys=True,indent=2)
         with (output/"gateway-state.json").open("x",encoding="utf-8") as file:
             json.dump(scrubbed,file,sort_keys=True,indent=2)
+        phase="waiting_for_bridge_durable_report"
         deadline=time.monotonic()+30
         while time.monotonic()<deadline and not Path("/results/bridge/report.json").is_file():
             time.sleep(.1)
         if not Path("/results/bridge/report.json").is_file():
             raise RuntimeError("bridge did not finish durable lifecycle")
-        gateway.stop()
-        http.shutdown();http.server_close();thread.join(timeout=10)
-        server.close()
         return 0
     except Exception as exc:
-        # no raw token or HTTP library diagnostics go into logs
-        print("synthetic gateway integration failed: "+type(exc).__name__,file=sys.stderr)
+        # The only error output is an allowlisted phase + exception class;
+        # neither arbitrary HTTP bodies nor a bearer value can enter logs.
+        output=Path("/results/gateway")
+        try:
+            output.mkdir(parents=True,exist_ok=True)
+            (output/"failure.json").write_text(json.dumps({
+                "scope":"synthetic-fake-only","phase":phase,
+                "exception_type":type(exc).__name__,
+                "live_game_authorized":False,"public_bot_release":False
+            },sort_keys=True)+"\n")
+        except OSError:
+            pass
+        print("synthetic gateway integration failed: "+phase+": "+
+              type(exc).__name__,file=sys.stderr)
         return 2
+    finally:
+        if gateway is not None:
+            try:gateway.stop()
+            except Exception:pass
+        if http is not None:
+            try:
+                if thread is not None and thread.is_alive():
+                    http.shutdown()
+            except Exception:pass
+            try:http.server_close()
+            except Exception:pass
+        if thread is not None:
+            thread.join(timeout=10) if thread.ident is not None else None
+        if server is not None:
+            try:
+                if server_started:server.close()
+                else:server.http.server_close()
+            except Exception:pass
 
 if __name__=="__main__":
     raise SystemExit(main())

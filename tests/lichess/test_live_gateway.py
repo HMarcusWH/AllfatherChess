@@ -135,6 +135,18 @@ class GatewayContractTests(unittest.TestCase):
                 again.require_active()
             with self.assertRaises(GatewaySuspended):
                 again.challenge("zzzz9999")
+    def test_wrong_game_start_does_not_bind_another_game(self):
+        with tempfile.TemporaryDirectory() as t:
+            session=GatewayState(Path(t)/"gateway.sqlite3","a"*48,
+                                 "allfatherfixture","approved_test_bot")
+            session.challenge(GAME)
+            session.accept_once(GAME)
+            with self.assertRaises(GatewaySuspended):
+                session.game_start("other001")
+            self.assertIsNone(session.snapshot()["game"])
+            session.game_start(GAME)
+            self.assertEqual(session.snapshot()["game"],GAME)
+
     def test_unknown_server_history_and_reconnect(self):
         with tempfile.TemporaryDirectory() as t:
             s=GatewayState(Path(t)/"state.sqlite3","a"*48,"allfatherfixture","approved_test_bot")

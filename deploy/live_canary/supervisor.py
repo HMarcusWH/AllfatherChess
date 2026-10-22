@@ -259,6 +259,9 @@ class LiveSupervisor:
                        start_new_session=True)
                     until=time.monotonic()+timeout_s
                     while not self.stopping and time.monotonic()<until:
+                        if (Path("/run/canary-control/stop.flag").exists()
+                            or Path("/run/canary-control/stop.flag").is_symlink()):
+                            raise SupervisorRefused("operator kill switch requested shutdown")
                         completed,gid,ply=self._progress(owner)
                         if not completed and self.process.poll() is not None:
                             raise SupervisorRefused("bridge exited before durable terminal")

@@ -13,7 +13,10 @@ from pathlib import Path
 from deploy.lichess import offline_session, recovery_overlay
 from deploy.lichess import live_bridge_policy
 
-ROOT=Path(__file__).resolve().parents[2]
+# In a private OCI image these modules live under /opt/live-canary, while
+# the immutable, Git-verified source checkout is mounted at /work.
+# Only the source checkout may supply the signed challenge overlay.
+ROOT = Path("/work") if (Path("/work/.git").is_dir()) else Path(__file__).resolve().parents[2]
 
 def _committed_blob(path: str) -> bytes:
     return subprocess.check_output(["git","-C",str(ROOT),"show","HEAD:"+path],

@@ -98,7 +98,7 @@ class GatewayState:
         self._mutate(check,"UPDATE binding SET accepted=1 WHERE id=1")
     def game_start(self,gid):
         def check(row,c):
-            if not row[1] or row[0] is None or (row[2] is not None and row[2]!=gid):
+            if not row[1] or row[0]!=gid or (row[2] is not None and row[2]!=gid):
                 raise GatewaySuspended("unexpected gameStart")
         self._mutate(check,"UPDATE binding SET game=? WHERE id=1",(gid,))
     def game_full(self,gid,history: tuple[str,...], *, owner_color:str):

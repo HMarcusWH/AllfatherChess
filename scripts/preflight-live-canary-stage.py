@@ -52,7 +52,7 @@ def check(source_sha: str) -> dict:
                 hashlib.sha256(file.read_bytes()).hexdigest()!=digest):
                 raise ValueError("source-bound guard overlay differs from staged bytes")
         engine=result["release"]/"deploy/bin/allfather-online"
-        verified=subprocess.run([str(engine),"--check"],cwd=result["release"],
+        verified=subprocess.run([sys.executable,str(engine),"--check"],cwd=result["release"],
                                 capture_output=True,timeout=45,check=False)
         if verified.returncode or b"offline seal verified" not in verified.stdout:
             raise ValueError("sealed Allfather UCI verification failed")

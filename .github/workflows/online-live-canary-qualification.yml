@@ -193,6 +193,22 @@ jobs:
             build/test-results/online-play-1/black/bridge/replays/**
           if-no-files-found: error
           retention-days: 14
+      - name: Retain ONLY bounded negative diagnostic receipts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: online-play-1-incomplete-diagnostics
+          path: |
+            build/test-results/online-play-1/white/incomplete.json
+            build/test-results/online-play-1/white/cleanup-incomplete.json
+            build/test-results/online-play-1/white/bridge/failure.json
+            build/test-results/online-play-1/white/gateway/failure.json
+            build/test-results/online-play-1/black/incomplete.json
+            build/test-results/online-play-1/black/cleanup-incomplete.json
+            build/test-results/online-play-1/black/bridge/failure.json
+            build/test-results/online-play-1/black/gateway/failure.json
+          if-no-files-found: warn
+          retention-days: 14
 
   independent-canary-verdict:
     needs: [source-boundary, gateway-unit, bridge-supervisor-unit, network-integration]
@@ -212,11 +228,27 @@ jobs:
           python3 -m pip --version
           python3 -m venv --help >/dev/null
           python3 -m pip install --break-system-packages --require-hashes -r deploy/lichess/requirements.release.lock
+      - name: Refuse an absent or unsuccessful two-color producer
+        if: ${{ needs.network-integration.result != 'success' }}
+        run: |
+          mkdir -p build/test-results/online-play-1
+          python3 - <<'PY'
+          import json,pathlib
+          output=pathlib.Path("build/test-results/online-play-1/independent-verdict.json")
+          output.write_text(json.dumps({"schema_version":1,"verdict":"NOT_RUN",
+              "scope":"fake-lichess-api-only",
+              "reason":"required producer not completed",
+              "live_game_authorized":False,"public_bot_release":False},
+              sort_keys=True)+"\n")
+          PY
+          exit 2
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        if: ${{ needs.network-integration.result == 'success' }}
         with:
           name: online-play-1-fake-games
           path: build/test-results/online-play-1
       - name: Source-independent read-only verifier, neither producer's PASS nor tests
+        if: ${{ needs.network-integration.result == 'success' }}
         run: |
           set -euo pipefail
           python3 scripts/check-live-canary-boundary.py

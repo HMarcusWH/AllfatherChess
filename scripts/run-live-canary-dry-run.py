@@ -187,20 +187,10 @@ def run(color:str,image:str,source_sha:str,out:Path):
         compose("config","--quiet")
         try:
             compose("up","-d",timeout=100)
-        except subprocess.CalledProcessError as exc:
-            # This is a synthetic-only Docker test. Keep useful rejection
-            # diagnostics while stripping the ephemeral fixture bearer and
-            # any "Authorization" style header line. Never print secrets.
-            lines=(exc.stderr or "").splitlines()
-            harmless=[]
-            fixture_token=token.read_text(encoding="utf-8").strip()
-            for line in lines[-15:]:
-                line=line.replace(fixture_token,"<synthetic-token-redacted>")
-                if "Authorization:" in line or "Bearer " in line:
-                    line="<authorization-line-redacted>"
-                harmless.append(line)
-            raise RuntimeError("synthetic Compose topology failed: "+
-                               "; ".join(harmless)[-2200:]) from None
+        except RuntimeError as exc:
+            # cmd() already redacts upstream diagnostic output. Preserve
+            # the private cause, not an unrestricted Docker stderr transcript.
+            raise RuntimeError("synthetic Compose topology failed") from exc
         gateway=compose("ps","-q","live-gateway")
         bridge=compose("ps","-q","live-engine-bridge")
         if not gateway or not bridge or gateway==bridge:
@@ -266,8 +256,17 @@ def run(color:str,image:str,source_sha:str,out:Path):
         write(out/"integration.json",safe)
         return safe
     finally:
-        try:compose("down","--remove-orphans","--volumes",timeout=50)
-        except (OSError,subprocess.SubprocessError):pass
+        try:
+            compose("down","--remove-orphans","--volumes",timeout=50)
+        except (OSError,subprocess.SubprocessError,RuntimeError):
+            try:
+                (out/"cleanup-incomplete.json").write_text(json.dumps({
+                    "status":"NOT_COMPLETED","phase":"compose_cleanup",
+                    "scope":"synthetic-fake-only",
+                    "public_bot_release":False,"live_game_authorized":False
+                },sort_keys=True)+"\n")
+            except OSError:
+                pass
         token.unlink(missing_ok=True)
         (out/"synthetic-private-key.unmounted.pem").unlink(missing_ok=True)
         shutil.rmtree(fixture,ignore_errors=True)
@@ -286,7 +285,22 @@ def main():
         return 0
     except (OSError,ValueError,RuntimeError,subprocess.SubprocessError,
             subprocess.TimeoutExpired,KeyError) as exc:
-        print("ONLINE-PLAY-1 fake integration failed: "+str(exc),file=sys.stderr)
+        # A negative producer artifact is useful but never a completed game.
+        # Store only allowlisted types, never arbitrary exception text.
+        try:
+            a.output.mkdir(parents=True,exist_ok=True)
+            (a.output/"incomplete.json").write_text(json.dumps({
+                "schema_version":1,"scope":"synthetic-fake-only",
+                "status":"NOT_COMPLETED","color":a.color,
+                "source_sha":a.source_sha,
+                "failure_type":type(exc).__name__,
+                "cause_type":type(exc.__cause__).__name__ if exc.__cause__ else None,
+                "live_game_authorized":False,"public_bot_release":False
+            },sort_keys=True)+"\n")
+        except OSError:
+            pass
+        print("ONLINE-PLAY-1 fake integration NOT_COMPLETED: "+type(exc).__name__,
+              file=sys.stderr)
         return 2
 
 if __name__=="__main__":

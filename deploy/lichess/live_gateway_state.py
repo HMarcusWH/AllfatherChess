@@ -144,12 +144,16 @@ class GatewayState:
             raise GatewaySuspended("read-only bridge move journal unavailable")
         try:
             with sqlite3.connect("file:"+str(path.resolve())+"?mode=ro",
-                                 uri=True,timeout=2) as c:
+                                 uri=True,timeout=2,isolation_level=None) as c:
                 c.execute("PRAGMA query_only=ON")
+                # Three reads must share a WAL snapshot: owner epoch and
+                # SUBMITTING intent cannot originate in different epochs.
+                c.execute("BEGIN")
                 owner=c.execute("SELECT epoch FROM owner WHERE singleton=1").fetchone()
                 state=c.execute("SELECT history_json,terminal FROM games WHERE game_id=?",(gid,)).fetchone()
                 intent=c.execute("""SELECT history_json,move,status,epoch FROM intents
                                     WHERE game_id=? AND ply_before=?""",(gid,ply)).fetchone()
+                c.execute("COMMIT")
         except (sqlite3.Error,OSError,ValueError) as exc:
             raise GatewaySuspended("read-only bridge journal verification failed") from exc
         if (owner!=(epoch,) or state is None or state[1]!=0 or

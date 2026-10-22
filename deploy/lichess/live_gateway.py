@@ -371,14 +371,15 @@ class LiveGateway:
                 history=canonical_history(state["moves"])
                 self.state.game_full(self.session.game_id,history,
                                      owner_color=("white" if self.bound_players["white"].casefold()==self.session.owner_bot.casefold() else "black"))
-                self.state.game_state(self.session.game_id,history,self._game_terminal(state.get("status")))
-                if self._game_terminal(state.get("status")):
+                terminal=self._game_terminal(state.get("status"))
+                self.state.game_state(self.session.game_id,history,terminal)
+                if terminal:
                     self._persist_terminal(state,history)
             elif t=="gameState":
                 history=canonical_history(payload["moves"])
                 terminal=self._game_terminal(payload.get("status"))
-                if terminal: self._persist_terminal(payload,history)
                 self.state.game_state(self.session.game_id,history,terminal)
+                if terminal: self._persist_terminal(payload,history)
             elif t in ("chatLine","opponentGone"):
                 pass # read-only events; never send chat
             else:

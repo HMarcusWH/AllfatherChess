@@ -41,7 +41,10 @@ jobs:
       - name: Fast source and offline prohibition checks
         run: |
           set -euo pipefail
-          bash scripts/ci-install-apt-deps.sh python3-pip python3-venv
+          # Hosted ubuntu-24.04 already includes Python/pip/venv. APT index
+          # refresh is not a unit-test prerequisite; keep the frozen hashes.
+          python3 -m pip --version
+          python3 -m venv --help >/dev/null
           python3 -m pip install --break-system-packages --require-hashes -r deploy/lichess/requirements.release.lock
           python3 -m compileall -q deploy/lichess deploy/live_canary tests/lichess scripts
           python3 -m json.tool qualification/online-live-canary-v1.json >/dev/null
@@ -72,7 +75,10 @@ jobs:
       - run: test "$(git rev-parse HEAD)" = "$HEAD_SHA"
       - run: |
           set -euo pipefail
-          bash scripts/ci-install-apt-deps.sh python3-pip python3-venv
+          # Hosted ubuntu-24.04 already includes Python/pip/venv. APT index
+          # refresh is not a unit-test prerequisite; keep the frozen hashes.
+          python3 -m pip --version
+          python3 -m venv --help >/dev/null
           python3 -m pip install --break-system-packages --require-hashes -r deploy/lichess/requirements.release.lock
           python3 -m unittest tests.lichess.test_live_gateway tests.lichess.test_live_canary_http tests.lichess.test_live_canary_protocol tests.lichess.test_live_canary_redaction -v
 
@@ -87,7 +93,10 @@ jobs:
       - run: test "$(git rev-parse HEAD)" = "$HEAD_SHA"
       - run: |
           set -euo pipefail
-          bash scripts/ci-install-apt-deps.sh python3-pip python3-venv
+          # Hosted ubuntu-24.04 already includes Python/pip/venv. APT index
+          # refresh is not a unit-test prerequisite; keep the frozen hashes.
+          python3 -m pip --version
+          python3 -m venv --help >/dev/null
           python3 -m pip install --break-system-packages --require-hashes -r deploy/lichess/requirements.release.lock
           python3 deploy/lichess/fetch_bridge.py
           python3 -m unittest tests.lichess.test_live_bridge_policy tests.lichess.test_live_canary_supervisor -v
@@ -198,8 +207,11 @@ jobs:
       - run: test "$(git rev-parse HEAD)" = "$HEAD_SHA"
       - name: Install independent PGN/legal replay oracle
         run: |
-          bash scripts/ci-install-apt-deps.sh python3-pip python3-venv
-          python3 -m pip install --break-system-packages 'chess==1.11.2'
+          # Hosted ubuntu-24.04 already includes Python/pip/venv. APT index
+          # refresh is not a unit-test prerequisite; keep the frozen hashes.
+          python3 -m pip --version
+          python3 -m venv --help >/dev/null
+          python3 -m pip install --break-system-packages --require-hashes -r deploy/lichess/requirements.release.lock
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: online-play-1-fake-games

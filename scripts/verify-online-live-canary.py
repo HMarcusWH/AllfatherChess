@@ -147,7 +147,8 @@ def verify_one(path:Path,expected_color:str,sha_source:str):
             "real pinned bridge/supervisor not independently terminal")
     processes=bridge.get("processes",{})
     require(processes.get("pid_namespace_isolated") is True and
-            processes.get("live_remaining")==0,
+            processes.get("live_remaining")==0 and
+            processes.get("kill_switch_activated") is True,
             "bridge process cleanup missing")
     game=_pgn(bridge.get("game_pgn"),moves)
     require(game.headers.get("Result")==expected_result,
@@ -180,7 +181,12 @@ def verify_one(path:Path,expected_color:str,sha_source:str):
             "durable gateway one-shot move record missing")
     require(len({(p["game"],p["ply"]) for p in posts})==len(posts),
             "gateway duplicate move POST attempt")
-    require(not gateway.get("suspended"),"gateway suspended before successful evidence")
+    # The gateway may be deliberately suspended AFTER a verified terminal
+    # by the supervisor kill switch. Terminal and move/journal evidence above
+    # must still match; an early suspended game never reaches these gates.
+    if gateway.get("suspended"):
+        require(gateway.get("terminal")==1,
+                "gateway suspended without authoritative terminal")
     return {"color":expected_color,"game_id":gid,"total_plies":len(moves),
             "sealed_engine_moves":len(accepted),
             "terminal_result":expected_result,

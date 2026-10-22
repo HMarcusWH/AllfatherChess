@@ -146,3 +146,20 @@ After PR-A's exact-head verified dry-run, separately:
 No public OCI publication or general release flag is permitted.
 
 **No action in this PR performs any of these PR-B operations.**
+
+### Completed PR-A boundary hardening
+A live move requires a read-only independent copy of the actual bridge SQLite
+journal at `/bridge-state/recovery/move-journal.sqlite3`. The gateway compares
+the owner epoch, `SUBMITTING` intent, canonical history, game ID, ply, legal
+UCI and approved side before spending a POST. Synthetic bearer headers alone
+never confer move permission.
+
+A dedicated shared stop-control volume (`/run/canary-control`) is not a
+secret store. The supervisor creates a durable `stop.flag` during terminal
+cleanup or emergency shutdown; the gateway denies new HTTP actions when it
+appears. Operator intervention can also shut down both containers directly.
+The flag must survive process restart and is not cleared automatically.
+
+The bridge's staged upstream source belongs on ephemeral `/tmp` storage.
+The owner epoch and full-move journal remain on a distinct persistent volume.
+Do not delete the durable journal to resolve an UNKNOWN_ACK.

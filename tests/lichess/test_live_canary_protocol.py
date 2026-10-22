@@ -160,5 +160,19 @@ class CanaryProtocolFaults(unittest.TestCase):
             self.state.move_once(GAME,"e2e4",0,EPOCH)
         self.assertEqual(self.state.snapshot()["posts"],[])
 
+    def test_operator_stop_switch_denies_new_api_or_move(self):
+        with tempfile.TemporaryDirectory() as root:
+            stop=Path(root)/"stop.flag"
+            state=GatewayState(Path(root)/"db.sqlite3","b"*48,
+                               "allfatherfixture","approved_test_bot",
+                               stop_flag=stop)
+            state.challenge(GAME)
+            stop.write_text("operator-requested-stop")
+            with self.assertRaises(GatewaySuspended):
+                state.accept_once(GAME)
+            with self.assertRaises(GatewaySuspended):
+                state.require_active()
+            self.assertEqual(state.snapshot()["suspended"],1)
+
 if __name__=="__main__":
     unittest.main()

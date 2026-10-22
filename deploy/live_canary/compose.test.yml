@@ -27,6 +27,7 @@ services:
       - "${CANARY_OUTPUT_DIR:?private-test-results}:/results:rw"
       - gateway_state:/var/lib/allfather-canary:rw
       - bridge_state:/bridge-state:ro
+      - canary_control:/run/canary-control:rw
       - gateway_evidence:/var/lib/allfather-canary/gateway-evidence:rw
   live-engine-bridge:
     image: "${CANARY_TEST_IMAGE:?local-private-image}"
@@ -51,6 +52,7 @@ services:
       - "${CANARY_OUTPUT_DIR:?private-test-results}:/results:rw"
       - bridge_state:/var/lib/allfather-canary:rw
       - gateway_evidence:/var/lib/allfather-canary/gateway-evidence:ro
+      - canary_control:/run/canary-control:rw
 networks:
   canary_private:
     internal: true
@@ -61,3 +63,4 @@ volumes:
   gateway_state:
   gateway_evidence:
   bridge_state:
+  canary_control:

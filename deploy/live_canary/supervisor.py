@@ -142,6 +142,9 @@ class LiveSupervisor:
         self.owner=None
         self.ledger=LeaseLedger(self.state/"game-admission.sqlite3")
     def preflight(self):
+        directory=Path("/run/canary-control")
+        if directory.is_symlink() or not directory.is_dir() or not os.access(directory,os.W_OK|os.X_OK):
+            raise SupervisorRefused("durable shared kill switch volume missing or unwritable")
         validate_runtime_source(self.binding,policy=self.policy,release=self.release,
                                 host_receipt=self.host_receipt)
         verify_admission(self.lease,self.binding,self.key)
@@ -225,7 +228,11 @@ class LiveSupervisor:
                 try: os.killpg(self.process.pid,signal.SIGKILL)
                 except ProcessLookupError:pass
                 self.process.wait(timeout=5)
-        return reap_namespace()
+        evidence=reap_namespace()
+        evidence["kill_switch_activated"]=flag.is_file() and not flag.is_symlink()
+        if not evidence["kill_switch_activated"]:
+            raise SupervisorRefused("gateway kill switch was not durably activated")
+        return evidence
     def run(self,*,lease_file:Path,binding_file:Path,timeout_s=1800):
         self.preflight()
         self.state.mkdir(parents=True,exist_ok=True)

@@ -61,7 +61,9 @@ def main(argv=None):
             return 0 if outcome.status=="TERMINAL_DURABLE" else 2
         token=read_gateway_token(a.secret)
         state=GatewayState(a.state/"gateway.sqlite3",lease["session_nonce"],
-                           source.owner_bot,source.opponent_bot)
+                           source.owner_bot,source.opponent_bot,
+                           bridge_journal=Path("/bridge-state/recovery/move-journal.sqlite3"),
+                           stop_flag=Path("/run/canary-control/stop.flag"))
         gateway=LiveGateway(state,token)
         gateway.authenticate()
         serve_gateway(gateway)

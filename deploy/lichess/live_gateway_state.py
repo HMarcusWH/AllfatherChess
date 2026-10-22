@@ -16,11 +16,13 @@ class GatewaySuspended(RuntimeError):
 
 class GatewayState:
     def __init__(self, path: Path, nonce: str, owner: str, opponent: str,
-                 *, bridge_journal: Path | None = None):
+                 *, bridge_journal: Path | None = None,
+                 stop_flag: Path | None = None):
         self.path=Path(path)
         # A configured read-only mount is required for *every* live move.
         # The synthetic bearer and caller-supplied epoch are not move authority.
         self.bridge_journal=Path(bridge_journal) if bridge_journal else None
+        self.stop_flag=Path(stop_flag) if stop_flag else None
         if self.path.is_symlink() or self.path.parent.is_symlink():
             raise GatewaySuspended("gateway persistence path linked")
         self.path.parent.mkdir(parents=True,exist_ok=True)
@@ -56,7 +58,14 @@ class GatewayState:
             r=c.execute("SELECT nonce,owner,opponent,challenge,accepted,game,game_full,terminal,suspended,cooldown_until,history,owner_color FROM binding WHERE id=1").fetchone()
             posts=c.execute("SELECT game,ply,epoch,move FROM posts ORDER BY ply").fetchall()
         return dict(zip(("nonce","owner","opponent","challenge","accepted","game","game_full","terminal","suspended","cooldown_until","history","owner_color"),r),posts=[dict(zip(("game","ply","epoch","move"),p)) for p in posts])
+    def _stop_requested(self):
+        flag=self.stop_flag
+        return flag is not None and (flag.exists() or flag.is_symlink())
+
     def _mutate(self,checker,statement,args=()):
+        if self._stop_requested():
+            self.suspend()
+            raise GatewaySuspended("operator stop switch active")
         with self.lock,self._db() as c:
             c.execute("BEGIN IMMEDIATE")
             row=c.execute("SELECT challenge,accepted,game,game_full,terminal,suspended,cooldown_until FROM binding WHERE id=1").fetchone()
@@ -68,6 +77,9 @@ class GatewayState:
             c.execute(statement,args)
             c.commit()
     def require_active(self):
+        if self._stop_requested():
+            self.suspend()
+            raise GatewaySuspended("operator stop switch active")
         data=self.snapshot()
         if data["suspended"] or data["terminal"]:
             raise GatewaySuspended("gateway is fenced")

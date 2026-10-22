@@ -48,3 +48,12 @@ permits precisely that value and rejects `true`.
 **Claim cap:** only an independently replayed fake-server game is eligible
 for `DRY_RUN_PASS`; successful PR code is not authorization, rating
 evidence, a live-host qualification or a legal conclusion.
+
+### Independent move authority and durable stop
+The gateway must inspect the bridge SQLite journal via a read-only mount;
+untrusted `X-Allfather-Ply` and `X-Allfather-Epoch` headers cannot substitute
+for a real `SUBMITTING` intent. An adverse move attempt with no matching
+journal row, wrong epoch or wrong player turn must produce **zero** external
+move requests. The cross-namespace stop-control volume contains a durable
+stop marker only; it contains no Lichess token. A stop during a game is a
+containment outcome, never proof of successful game completion.

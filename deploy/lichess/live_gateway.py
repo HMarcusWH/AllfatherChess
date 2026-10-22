@@ -128,6 +128,7 @@ class LiveGateway:
         session.trust_env=False
         return session
     def _outbound(self,session,method: str,path: str,*,data=None,stream=False,form=False):
+        self.state.require_active()
         if not path.startswith("/api/") or "?" in path or "#" in path:
             raise GatewayFailure("upstream target not canonical")
         if self._fixture_factory is None:

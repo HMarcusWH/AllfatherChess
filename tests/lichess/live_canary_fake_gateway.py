@@ -60,7 +60,8 @@ def main():
         server.start()
         state=GatewayState(Path("/var/lib/allfather-canary/gateway.sqlite3"),
                            lease["session_nonce"],source.owner_bot,source.opponent_bot,
-                           bridge_journal=Path("/bridge-state/recovery/move-journal.sqlite3"))
+                           bridge_journal=Path("/bridge-state/recovery/move-journal.sqlite3"),
+                           stop_flag=Path("/run/canary-control/stop.flag"))
         gateway=LiveGateway.for_fake_test_only(state,token,lambda: FixtureSession(server.url))
         gateway.authenticate()
         http=BoundedServer(("0.0.0.0",8765),gateway)

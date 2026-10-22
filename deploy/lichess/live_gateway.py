@@ -74,13 +74,26 @@ def _refuse_proxy_env() -> None:
         if os.environ.get(name):
             raise GatewayFailure("unexpected proxy/TLS environment")
 
+def _bounded_body(response, *, max_bytes=MAX_JSON) -> bytes:
+    """Never materialize an unbounded HTTP response before enforcing its cap."""
+    claimed=response.headers.get("Content-Length")
+    if claimed is not None:
+        if not claimed.isdigit() or int(claimed)>max_bytes:
+            raise GatewayFailure("invalid or oversized upstream body declaration")
+    data=bytearray()
+    for part in response.iter_content(chunk_size=4096,decode_unicode=False):
+        if not isinstance(part,bytes):
+            raise GatewayFailure("non-byte upstream body")
+        if len(data)+len(part)>max_bytes:
+            raise GatewayFailure("upstream HTTP body exceeds maximum")
+        data.extend(part)
+    return bytes(data)
+
 def _json_response(response, *, max_bytes=MAX_JSON) -> dict:
     if not 200<=response.status_code<300 or response.is_redirect or (
             not response.headers.get("Content-Type","").lower().startswith("application/json")):
         raise GatewayFailure("unexpected HTTPS response status/content type")
-    content=response.content
-    if len(content)>max_bytes:
-        raise GatewayFailure("oversized HTTPS JSON response")
+    content=_bounded_body(response,max_bytes=max_bytes)
     try:
         data=json.loads(content)
     except (ValueError,UnicodeError) as exc:
@@ -139,7 +152,7 @@ class LiveGateway:
         if method=="POST" and data is not None:
             headers["Content-Type"]="application/x-www-form-urlencoded" if form else "text/plain"
         kwargs={"headers":headers,"allow_redirects":False,"verify":True,
-                "timeout":(4,STREAM_READ_TIMEOUT if stream else 5),"stream":stream}
+                "timeout":(4,STREAM_READ_TIMEOUT if stream else 5),"stream":True}
         if data is not None: kwargs["data"]=data
         try:
             result=session.request(method,LICHESS_ORIGIN+path,**kwargs)
@@ -148,6 +161,7 @@ class LiveGateway:
         status=_status_code(result)
         if result.is_redirect or status in (301,302,303,307,308):
             result.close()
+            self.state.suspend()
             raise GatewayFailure("upstream redirect forbidden")
         if status==429:
             self.state.cooldown(_cooldown_seconds(result.headers.get("Retry-After")))
@@ -236,12 +250,27 @@ class LiveGateway:
                                         data=(body if route.action=="decline" and body else None),
                                         form=route.action=="decline")
                 try:
-                    response_body=response.content
+                    response_body=_bounded_body(response)
                     if len(response_body)>MAX_JSON or self.token.encode() in response_body:
                         raise GatewayFailure("upstream response unbounded or contains credential")
-                    if (not response.headers.get("Content-Type","").lower().startswith("application/json")
-                        or not isinstance(json.loads(response_body),dict)):
-                        raise GatewayFailure("unrecognized non-stream response")
+                    if not response.headers.get("Content-Type","").lower().startswith("application/json"):
+                        raise GatewayFailure("non-JSON API reply blocked")
+                    parsed=json.loads(response_body)
+                    if not isinstance(parsed,dict):
+                        raise GatewayFailure("upstream reply not an object")
+                    if route.action=="profile":
+                        if (str(parsed.get("id","")).casefold()!=self.session.owner_bot.casefold()
+                            or str(parsed.get("username","")).casefold()!=self.session.owner_bot.casefold()
+                            or str(parsed.get("title","")).upper()!="BOT"):
+                            raise GatewayFailure("BOT account identity changed")
+                    elif route.action=="playing":
+                        active=parsed.get("nowPlaying")
+                        admitted=self.state.snapshot()["game"]
+                        if (not isinstance(active,list) or len(active)>(1 if admitted else 0)
+                            or any(not isinstance(game,dict)
+                                   or game.get("gameId")!=admitted
+                                   for game in active)):
+                            raise GatewayFailure("unexpected simultaneous or unbound game")
                     return response.status_code,response_body,{}
                 finally: response.close()
             except (GatewayFailure,ValueError,UnicodeError) as exc:

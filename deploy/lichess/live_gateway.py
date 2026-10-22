@@ -483,11 +483,17 @@ class LiveGateway:
         # Closing the underlying requests.Response interrupts the blocked
         # iterator where supported; the container's bounded supervisor remains
         # the hard fallback if the network stack does not immediately return.
+        close_error=None
         for response in active:
             try: response.close()
-            except (OSError,requests.RequestException):
-                pass
+            except Exception as exc:
+                # Even unexpected transport cleanup failures cannot bypass
+                # persistent suspension or leave the owner with authority.
+                if close_error is None:
+                    close_error=exc
         self.state.suspend()
+        if close_error is not None:
+            raise GatewayFailure("stream closure failed after gateway suspension") from close_error
 
 class BoundedServer(ThreadingHTTPServer):
     daemon_threads=False

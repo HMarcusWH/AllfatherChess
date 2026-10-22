@@ -216,6 +216,22 @@ class CanaryProtocolFaults(unittest.TestCase):
             remote.release.set()
             thread.join(1)
 
+    def test_stream_close_error_still_persists_gateway_suspension(self):
+        class FaultyClose(Response):
+            def close(self):
+                self.closed=True
+                raise RuntimeError("private failure never exposed as credential")
+        gateway=self.gateway(Remote(Response()))
+        broken=FaultyClose(200,ctype="application/x-ndjson")
+        with gateway.stream_guard:
+            gateway.streams["events"]=broken
+        with self.assertRaises(GatewayFailure) as caught:
+            gateway.stop()
+        self.assertNotIn("private failure",str(caught.exception))
+        self.assertTrue(broken.closed)
+        self.assertEqual(self.state.snapshot()["suspended"],1)
+        self.assertTrue(gateway.shutdown_event.is_set())
+
     def test_session_factory_failure_releases_stream_lease(self):
         gateway=self.gateway(Remote(Response(200,ctype="application/x-ndjson")))
         def fail_factory():

@@ -17,6 +17,7 @@ sys.path.insert(0,str(ROOT))
 from deploy.live_canary.admission import SourceBinding,verify_admission
 from deploy.live_canary.supervisor import LiveSupervisor
 from deploy.lichess.move_journal import MoveJournal
+from deploy.lichess.run_recovery import preserve_replays
 
 def _read(path:Path):
     if path.is_symlink() or not path.is_file():raise RuntimeError("test input missing")
@@ -51,6 +52,14 @@ def main():
         out=Path("/results/bridge");out.mkdir(parents=True,exist_ok=True)
         journal=MoveJournal(state/"recovery/move-journal.sqlite3").snapshot()
         pgndata=(state/"game.pgn").read_text()
+        replay_root=Path("/tmp/allfather-live-bridge/release/build/replays-online-hybrid-v2")
+        replay_files=list(replay_root.glob("*/manifest.json"))
+        if not replay_files or len(replay_files)>128:
+            raise RuntimeError("sealed UCI replay count missing or beyond bounded retention")
+        replay_index=preserve_replays(
+            Path("/tmp/allfather-live-bridge/release"),out)
+        if len(replay_index)<result.accepted_moves:
+            raise RuntimeError("one or more accepted UCI decisions lacks a replay")
         def digest(path):
             return hashlib.sha256(Path(path).read_bytes()).hexdigest()
         executed=Path("/tmp/allfather-live-bridge")
@@ -74,7 +83,8 @@ def main():
                  "terminal":result.terminal,"processes":result.processes,
                  "journal":journal,"game_pgn":pgndata,
                  "one_game_lease":supervisor.ledger.snapshot(),
-                 "executed_source":source_record}
+                 "executed_source":source_record,
+                 "replay_index":replay_index}
         with (out/"report.json").open("x",encoding="utf-8") as f:
             json.dump(payload,f,sort_keys=True,indent=2)
         return 0

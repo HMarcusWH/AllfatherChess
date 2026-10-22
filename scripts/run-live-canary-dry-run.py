@@ -17,6 +17,7 @@ import os
 import secrets
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 from pathlib import Path
@@ -161,7 +162,22 @@ def run(color:str,image:str,source_sha:str,out:Path):
     gateway=bridge=None
     try:
         compose("config","--quiet")
-        compose("up","-d",timeout=100)
+        try:
+            compose("up","-d",timeout=100)
+        except subprocess.CalledProcessError as exc:
+            # This is a synthetic-only Docker test. Keep useful rejection
+            # diagnostics while stripping the ephemeral fixture bearer and
+            # any "Authorization" style header line. Never print secrets.
+            lines=(exc.stderr or "").splitlines()
+            harmless=[]
+            fixture_token=token.read_text(encoding="utf-8").strip()
+            for line in lines[-15:]:
+                line=line.replace(fixture_token,"<synthetic-token-redacted>")
+                if "Authorization:" in line or "Bearer " in line:
+                    line="<authorization-line-redacted>"
+                harmless.append(line)
+            raise RuntimeError("synthetic Compose topology failed: "+
+                               "; ".join(harmless)[-2200:]) from None
         gateway=compose("ps","-q","live-gateway")
         bridge=compose("ps","-q","live-engine-bridge")
         if not gateway or not bridge or gateway==bridge:

@@ -93,15 +93,15 @@ def main():
             "game_id","color","challenge_accepted","challenge","game_full","complete","outcome","pgn",
             "moves","accepted","requests","forbidden_attempts","clock",
             "transport_trace","stream_sessions")}
+        # No credential bytes are written to an artifact even temporarily.
+        scrubbed=state.snapshot()
+        scrubbed.pop("nonce",None) # no portable runtime admission
+        if token in json.dumps(safe) or token in json.dumps(scrubbed):
+            raise RuntimeError("synthetic token present in prospective evidence")
         with (output/"server.json").open("x",encoding="utf-8") as file:
             json.dump(safe,file,sort_keys=True,indent=2)
         with (output/"gateway-state.json").open("x",encoding="utf-8") as file:
-            data=state.snapshot()
-            data.pop("nonce",None) # no portable runtime admission
-            json.dump(data,file,sort_keys=True,indent=2)
-        # Never persist raw token, upstream authorization or token-test body.
-        if token in json.dumps(safe) or token in json.dumps(state.snapshot()):
-            raise RuntimeError("synthetic token in unredacted gateway evidence")
+            json.dump(scrubbed,file,sort_keys=True,indent=2)
         deadline=time.monotonic()+30
         while time.monotonic()<deadline and not Path("/results/bridge/report.json").is_file():
             time.sleep(.1)

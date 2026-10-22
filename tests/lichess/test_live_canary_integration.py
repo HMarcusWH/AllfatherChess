@@ -47,6 +47,7 @@ class CanaryFullGameIntegration(unittest.TestCase):
             self.assertEqual({g.get("color") for g in record.get("games",[])},
                              {"white","black"})
             self.assertTrue(all(g.get("sealed_engine_moves",0)>0
+                                and g.get("retained_engine_replays",0)>=g.get("sealed_engine_moves",1)
                                 and g.get("network_isolated") is True
                                 and g.get("owner_epoch_verified") is True
                                 for g in record["games"]))

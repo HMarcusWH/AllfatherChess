@@ -1,0 +1,155 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:allfather:online-play-1:canary-verdict-v1",
+  "title": "ONLINE-PLAY-1 independent offline fake API verdict (never live approval)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "verdict",
+    "scope",
+    "source_sha",
+    "live_game_authorized",
+    "public_bot_release"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "verdict": {
+      "enum": [
+        "DRY_RUN_PASS",
+        "SAFE_SUSPENSION",
+        "INCONCLUSIVE",
+        "UNSAFE",
+        "NOT_AUTHORIZED"
+      ]
+    },
+    "scope": {
+      "const": "fake-lichess-api-only"
+    },
+    "source_sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "live_game_authorized": {
+      "const": false
+    },
+    "public_bot_release": {
+      "const": false
+    },
+    "license_review_completed": {
+      "const": false
+    },
+    "failures": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "type": "string",
+        "maxLength": 160
+      }
+    },
+    "games": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "color",
+          "game_id",
+          "total_plies",
+          "sealed_engine_moves",
+          "terminal_result",
+          "http_requests",
+          "move_posts",
+          "journal_intents",
+          "network_isolated",
+          "owner_epoch_verified",
+          "retained_engine_replays",
+          "executed_source_identity"
+        ],
+        "properties": {
+          "color": {
+            "enum": [
+              "white",
+              "black"
+            ]
+          },
+          "game_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9]{8}$"
+          },
+          "total_plies": {
+            "type": "integer",
+            "minimum": 2
+          },
+          "sealed_engine_moves": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "retained_engine_replays": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "terminal_result": {
+            "enum": [
+              "1-0",
+              "0-1",
+              "1/2-1/2"
+            ]
+          },
+          "http_requests": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "move_posts": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "journal_intents": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "network_isolated": {
+            "const": true
+          },
+          "owner_epoch_verified": {
+            "const": true
+          },
+          "executed_source_identity": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "verdict": {
+            "const": "DRY_RUN_PASS"
+          }
+        },
+        "required": [
+          "verdict"
+        ]
+      },
+      "then": {
+        "required": [
+          "games",
+          "license_review_completed"
+        ],
+        "properties": {
+          "games": {
+            "minItems": 2,
+            "maxItems": 2
+          }
+        }
+      }
+    }
+  ]
+}

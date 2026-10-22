@@ -189,6 +189,9 @@ def verify_one(path:Path,expected_color:str,sha_source:str):
     move_posts=[r for r in req if r.get("method")=="POST" and
                 str(r.get("path","")).startswith(f"/api/bot/game/{gid}/move/")]
     require(len(move_posts)==len(accepted),"accepted move attempts not one-to-one")
+    for post,source_move in zip(move_posts,accepted):
+        require(post.get("path")==f'/api/bot/game/{gid}/move/{source_move["uci"]}',
+                "chronological HTTP move occurrence differs from accepted server move")
     require(not server.get("forbidden_attempts"),"actual forbidden requests reached server")
     require(bridge.get("source_sha")==sha_source and bridge.get("game_id")==gid and
             bridge.get("status")=="TERMINAL_DURABLE" and bridge.get("terminal") is True,
@@ -251,6 +254,38 @@ def verify_one(path:Path,expected_color:str,sha_source:str):
                  j.get("move")==item["uci"] and
                  j.get("status")=="CONFIRMED"]
         require(len(matches)==1,"server-accepted move not durably confirmed once")
+    # Recompute real per-move engine replay hashes from retained bounded
+    # manifests, rather than accepting a producer's claim that UCI work ran.
+    index=bridge.get("replay_index")
+    require(isinstance(index,list) and len(index)>=len(accepted) and len(index)<=128,
+            "one or more sealed UCI moves lacks a retained replay manifest")
+    seen=set()
+    for row in index:
+        require(isinstance(row,dict),"malformed replay evidence row")
+        rid=row.get("run_id")
+        require(isinstance(rid,str) and re.fullmatch(r"[A-Za-z0-9._-]{1,120}",rid)
+                and rid not in (".","..") and rid not in seen,
+                "duplicate or unsafe replay run identity")
+        seen.add(rid)
+        expected=f"replays/{rid}/manifest.json"
+        require(row.get("manifest")==expected,
+                "replay evidence path not occurrence-scoped")
+        manifest=path/"bridge"/expected
+        require(manifest.is_file() and not manifest.is_symlink()
+                and manifest.stat().st_size<=2*1024*1024 and
+                sha(manifest)==row.get("sha256"),
+                "replay manifest byte identity not retained")
+        record=read(manifest)
+        require(record.get("generation")==row.get("generation")
+                and (record.get("position") or {}).get("position_id")==row.get("position_id")
+                and record.get("outward_decision")==row.get("outward_decision"),
+                "replay projection does not match raw sealed engine manifest")
+        if "route_sha256" in row:
+            route=path/"bridge"/"replays"/rid/"route.json"
+            require(route.is_file() and not route.is_symlink() and
+                    route.stat().st_size<=2*1024*1024 and
+                    sha(route)==row["route_sha256"],
+                    "sealed engine routing evidence hash mismatch")
     lease=bridge.get("one_game_lease",{})
     require(lease.get("game")==gid and lease.get("terminal")==1,
             "second-game lockout not persisted")
@@ -274,6 +309,7 @@ def verify_one(path:Path,expected_color:str,sha_source:str):
             "http_requests":len(req),"move_posts":len(move_posts),
             "journal_intents":len(intents),"network_isolated":True,
             "owner_epoch_verified":True,
+            "retained_engine_replays":len(index),
             "executed_source_identity":manifest["sealed_release_manifest_sha256"]}
 
 def verify(root:Path,source_sha:str):

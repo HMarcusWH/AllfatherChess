@@ -8,6 +8,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from deploy.live_canary.supervisor import persist_stop_marker,SupervisorRefused
 from deploy.live_canary.admission import (
     SourceBinding,LeaseLedger,AdmissionDenied,verify_admission,policy_is_denied)
 from deploy.live_canary.supervisor import SupervisorRefused
@@ -16,6 +17,22 @@ BINDING=SourceBinding(source_commit="a"*40,source_tree="b"*40,
     image_digest="sha256:"+"c"*64,policy_sha256="d"*64,
     host_id="ci-test-host",host_digest="e"*64,legal_review_digest="f"*64,
     owner_bot="allfatherfixture",opponent_bot="approved_test_bot")
+
+class StopMarkerTests(unittest.TestCase):
+    def test_durable_stop_idempotent_and_link_refused(self):
+        import tempfile,stat
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder)
+            marker=root/"stop.flag"
+            persist_stop_marker(marker)
+            self.assertEqual(marker.read_bytes(),b"STOP\n")
+            self.assertEqual(stat.S_IMODE(marker.stat().st_mode),0o600)
+            persist_stop_marker(marker)
+            self.assertEqual(marker.read_bytes(),b"STOP\n")
+            link=root/"evil.flag"
+            link.symlink_to(marker)
+            with self.assertRaises(SupervisorRefused):
+                persist_stop_marker(link)
 
 class SignedLeaseTests(unittest.TestCase):
     def setUp(self):

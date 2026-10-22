@@ -11,6 +11,7 @@ import os
 import sqlite3
 from contextlib import closing
 import signal
+import stat
 import subprocess
 import sys
 import time
@@ -24,7 +25,9 @@ from deploy.lichess.session_owner import SessionOwner
 from deploy.lichess.live_session import stage_live,bridge_command
 from deploy.lichess.reconcile import canonical_history
 
-ROOT=Path(__file__).resolve().parents[2]
+# Runtime code is installed under /opt/live-canary; verified source lives at
+# /work in the dedicated read-only mount. Refuse unsourced execution later.
+ROOT=Path("/work") if (Path("/work/.git").is_dir()) else Path(__file__).resolve().parents[2]
 GATEWAY="http://live-gateway:8765/"
 
 class SupervisorRefused(RuntimeError):
@@ -116,6 +119,34 @@ def _reap_zombies():
             pid,_=os.waitpid(-1,os.WNOHANG)
             if not pid: return
         except ChildProcessError:return
+
+def persist_stop_marker(flag:Path)->None:
+    """Atomically stop all further gateway POSTs before killing the engine.
+
+    A second invocation is idempotent; linked paths and missing volumes fail
+    closed. Only the STOP marker is stored, never game IDs or token data.
+    """
+    flag=Path(flag)
+    parent=flag.parent
+    if parent.is_symlink() or not parent.is_dir() or not os.access(parent,os.W_OK|os.X_OK):
+        raise SupervisorRefused("shared durable stop-control volume unavailable")
+    try:
+        fd=os.open(flag,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
+    except FileExistsError:
+        st=os.lstat(flag)
+        if not stat.S_ISREG(st.st_mode) or st.st_nlink!=1:
+            raise SupervisorRefused("unsafe existing stop-control marker")
+    else:
+        try:
+            written=os.write(fd,b"STOP\n")
+            if written!=5:
+                raise SupervisorRefused("incomplete stop-control marker")
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+    directory_fd=os.open(parent,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
+    try: os.fsync(directory_fd)
+    finally:os.close(directory_fd)
 
 @dataclass
 class SupervisedResult:
@@ -222,6 +253,8 @@ class LiveSupervisor:
         return True,gid,len(intents)
     def stop_and_reap(self,reason="operator_stop"):
         self.stopping=True
+        flag=Path("/run/canary-control/stop.flag")
+        persist_stop_marker(flag)
         if self.process and self.process.poll() is None:
             try: os.killpg(self.process.pid,signal.SIGTERM)
             except ProcessLookupError:pass

@@ -1,6 +1,7 @@
 """Offline adversarial gateway protocol tests. No real token or Lichess traffic."""
 from __future__ import annotations
 import json
+import threading
 import tempfile
 import time
 import unittest
@@ -134,6 +135,87 @@ class CanaryProtocolFaults(unittest.TestCase):
                 gw.stream_request(AdmittedRoute("GET","events","/api/stream/event"),
                                   lambda data:None)
         finally:gw.stream_locks["events"].release()
+    def test_stop_closes_stream_and_releases_stream_ownership(self):
+        class WaitStream(Response):
+            def __init__(self):
+                super().__init__(200,ctype="application/x-ndjson")
+                self.entered=threading.Event()
+                self.release=threading.Event()
+            def iter_content(self,chunk_size,decode_unicode=False):
+                self.entered.set()
+                if not self.release.wait(5):
+                    raise RuntimeError("test stream was never stopped")
+                yield b"\\n"
+            def close(self):
+                self.release.set()
+                super().close()
+        response=WaitStream()
+        gateway=self.gateway(Remote(response))
+        results=[]
+        def pump():
+            try:
+                gateway.stream_request(
+                    AdmittedRoute("GET","events","/api/stream/event"),
+                    lambda data:results.append(data))
+            except Exception as exc:
+                results.append(type(exc).__name__)
+        thread=threading.Thread(target=pump,daemon=True)
+        thread.start()
+        try:
+            self.assertTrue(response.entered.wait(5),"stream did not open")
+            gateway.stop()
+            thread.join(5)
+            self.assertFalse(thread.is_alive(),"stop left an active response reader")
+            self.assertTrue(response.closed)
+            self.assertEqual(results,[])
+            self.assertEqual(gateway.active_streams["events"],0)
+            self.assertIsNone(gateway.streams["events"])
+            self.assertEqual(self.state.snapshot()["suspended"],1)
+        finally:
+            response.release.set()
+            thread.join(1)
+
+    def test_stop_racing_response_open_does_not_publish_stream(self):
+        class SlowRemote(Remote):
+            def __init__(self):
+                super().__init__(Response(200,ctype="application/x-ndjson",
+                                          body=b"\\n"))
+                self.entered=threading.Event()
+                self.release=threading.Event()
+            def request(self,method,url,**kwargs):
+                self.entered.set()
+                if not self.release.wait(5):
+                    raise RuntimeError("test upstream open hung")
+                return super().request(method,url,**kwargs)
+        remote=SlowRemote()
+        gateway=self.gateway(remote)
+        published=[]
+        failures=[]
+        def run_stream():
+            try:
+                gateway.stream_request(
+                    AdmittedRoute("GET","events","/api/stream/event"),
+                    lambda data:published.append(data),
+                    on_open=lambda:published.append(b"opened"))
+            except Exception as exc:
+                failures.append(type(exc).__name__)
+        thread=threading.Thread(target=run_stream,daemon=True)
+        thread.start()
+        try:
+            self.assertTrue(remote.entered.wait(5))
+            gateway.stop()
+            remote.release.set()
+            thread.join(5)
+            self.assertFalse(thread.is_alive())
+            self.assertEqual(published,[],"stopped stream reported HTTP 200")
+            self.assertEqual(failures,["GatewaySuspended"])
+            self.assertTrue(remote.result.closed)
+            self.assertEqual(gateway.active_streams["events"],0)
+            self.assertIsNone(gateway.streams["events"])
+        finally:
+            remote.release.set()
+            thread.join(1)
+
     def test_move_requires_journal_exact_epoch_legality_and_once(self):
         with tempfile.TemporaryDirectory() as root:
             db=Path(root)/"bridge.sqlite3"

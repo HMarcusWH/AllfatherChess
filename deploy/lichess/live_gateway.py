@@ -127,6 +127,9 @@ class LiveGateway:
         self.verified: VerifiedBot | None=None
         self.nonstream=threading.RLock()
         self.stream_locks={"events":threading.Lock(),"game_stream":threading.Lock()}
+        # Serialize assignment and cancellation of live streaming responses.
+        # A stop racing with HTTP setup must not leave an unowned long read.
+        self.stream_guard=threading.Lock()
         self.streams={"events":None,"game_stream":None}
         self.active_streams={"events":0,"game_stream":0}
         self.shutdown_event=threading.Event()
@@ -427,8 +430,14 @@ class LiveGateway:
                 raise GatewaySuspended("duplicate account/game stream")
             self.active_streams[kind]=1
             response=self._outbound(up,"GET",route.path,stream=True)
+            with self.stream_guard:
+                if self.shutdown_event.is_set():
+                    raise GatewaySuspended("gateway stopped before stream admission")
+                self.streams[kind]=response
             if not response.headers.get("Content-Type","").lower().startswith("application/x-ndjson"):
                 raise GatewayFailure("unexpected stream content type")
+            if self.shutdown_event.is_set():
+                raise GatewaySuspended("gateway stopped before stream publication")
             on_open()
             first=True
             for line in self.bounded_ndjson(response):
@@ -454,12 +463,29 @@ class LiveGateway:
                 self.state.suspend()
             raise
         finally:
-            if response is not None: response.close()
-            up.close()
-            self.active_streams[kind]=0
-            lock.release()
+            # Close under all exit paths, including malformed framing and a
+            # shutdown racing the upstream response. Never reuse this lease.
+            with self.stream_guard:
+                if self.streams[kind] is response:
+                    self.streams[kind]=None
+            try:
+                if response is not None: response.close()
+            finally:
+                up.close()
+                self.active_streams[kind]=0
+                lock.release()
     def stop(self):
-        self.shutdown_event.set()
+        with self.stream_guard:
+            self.shutdown_event.set()
+            active=tuple(response for response in self.streams.values()
+                         if response is not None)
+        # Closing the underlying requests.Response interrupts the blocked
+        # iterator where supported; the container's bounded supervisor remains
+        # the hard fallback if the network stack does not immediately return.
+        for response in active:
+            try: response.close()
+            except (OSError,requests.RequestException):
+                pass
         self.state.suspend()
 
 class BoundedServer(ThreadingHTTPServer):

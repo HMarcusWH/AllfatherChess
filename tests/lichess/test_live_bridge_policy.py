@@ -118,14 +118,31 @@ class LiveBridgeContract(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             file=Path(d)/"bridge-private.log"
             file.write_text(
-                'Traceback (most recent call last):\\n'
-                '  File "/tmp/allfather-live-bridge/bridge/lib/config.py", line 312, in validate_config\\n'
-                'Exception: Bearer secret-upstream-should-never-be-shared\\n')
+                'Traceback (most recent call last):\n'
+                '  File "/tmp/allfather-live-bridge/bridge/lib/config.py", line 312, in validate_config\n'
+                'Exception: Bearer secret-upstream-should-never-be-shared\n')
             hint=safe_child_trace_hint(file)
             self.assertEqual(hint["exception_module"],"config.py")
             self.assertEqual(hint["exception_line"],312)
             self.assertEqual(hint["exception_class"],"Exception")
             self.assertNotIn("secret",str(hint))
             self.assertNotIn("Bearer",str(hint))
+
+    def test_unapproved_traceback_module_is_not_released(self):
+        import tempfile
+        from tests.lichess.live_canary_fake_bridge import safe_child_trace_hint
+        with tempfile.TemporaryDirectory() as tmp:
+            private=Path(tmp)/"bridge-private.log"
+            private.write_text(
+                'Traceback (most recent call last):\n'
+                '  File "/tmp/unapproved/credential_reader.py", line 91, in steal\n'
+                'RuntimeError: Bearer synthetic-sensitive-value\n')
+            hint=safe_child_trace_hint(private)
+            self.assertIsNone(hint["exception_module"])
+            self.assertIsNone(hint["exception_line"])
+            self.assertEqual(hint["exception_class"],"RuntimeError")
+            self.assertNotIn("Bearer",str(hint))
+            self.assertNotIn("synthetic-sensitive-value",str(hint))
+
 
 if __name__=="__main__":unittest.main()

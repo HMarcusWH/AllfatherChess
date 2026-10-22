@@ -248,6 +248,7 @@ class RepairRegressions(unittest.TestCase):
             sup.state=Path(d)
             sup.binding=BINDING
             sup.ledger=mock.Mock()
+            sup.lease={"session_nonce":"f"*48}
             owner=mock.Mock()
             owner.journal.snapshot.return_value={
                 "games":[{"game_id":"off3b001","terminal":True,
@@ -256,7 +257,47 @@ class RepairRegressions(unittest.TestCase):
             complete,gid,ply=sup._progress(owner)
             self.assertFalse(complete)
             self.assertEqual((gid,ply),("off3b001",1))
+            sup.ledger.bind_game.assert_called_once_with("f"*48,"off3b001")
             self.assertFalse((Path(d)/"game.pgn").exists())
+
+
+    def test_delayed_terminal_witness_qualifies_only_matching_history(self):
+        with tempfile.TemporaryDirectory() as temp:
+            sup=object.__new__(LiveSupervisor)
+            sup.state=Path(temp)
+            sup.binding=BINDING
+            sup.ledger=mock.Mock()
+            sup.lease={"session_nonce":"a"*48}
+            moves=["f2f3","e7e5","g2g4","d8h4"]
+            owner=mock.Mock()
+            owner.journal.snapshot.return_value={
+                "games":[{"game_id":"off3b001","terminal":True,
+                          "history_json":json.dumps(moves)}],
+                "intents":[{"game_id":"off3b001","status":"CONFIRMED"}]}
+            # Bridge's terminal state may legitimately arrive first.
+            complete,gid,ply=sup._progress(owner)
+            self.assertFalse(complete)
+            self.assertEqual((gid,ply),("off3b001",4))
+            self.assertFalse((sup.state/"game.pgn").exists())
+            directory=sup.state/"gateway-evidence"
+            directory.mkdir()
+            final=directory/"authoritative-final.json"
+            witness={
+                "game_id":"off3b001","terminal":True,
+                "moves":list(moves),"result":"0-1","initial":600000,
+                "increment":5000,"white":"allfatherfixture",
+                "black":"approved_test_bot"}
+            final.write_text(json.dumps({**witness,"moves":moves[:-1]}))
+            with self.assertRaises(SupervisorRefused):
+                sup._progress(owner)
+            self.assertFalse((sup.state/"game.pgn").exists())
+            final.write_text(json.dumps(witness))
+            complete,gid,ply=sup._progress(owner)
+            self.assertTrue(complete)
+            self.assertEqual((gid,ply),("off3b001",1))
+            self.assertIn("0-1",(sup.state/"game.pgn").read_text())
+            sup.ledger.finish.assert_called_once_with("a"*48)
+
 
 
 if __name__=="__main__":unittest.main()

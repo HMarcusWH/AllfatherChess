@@ -243,9 +243,9 @@ class LiveGateway:
                         raise GatewayFailure("unrecognized non-stream response")
                     return response.status_code,response_body,{}
                 finally: response.close()
-            except (ValueError,UnicodeError):
+            except (GatewayFailure,ValueError,UnicodeError) as exc:
                 self.state.suspend()
-                raise GatewayFailure("malformed upstream response")
+                raise GatewayFailure("untrusted upstream response blocked") from exc
             finally: up.close()
 
     def _persist_terminal(self, payload: dict, history: tuple[str,...]) -> None:

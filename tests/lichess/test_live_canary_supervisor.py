@@ -222,8 +222,21 @@ class RepairRegressions(unittest.TestCase):
             ),mock.patch.object(sup,"stop_and_reap",
                 return_value={"live_remaining":0,"kill_switch_activated":True}
             ) as cleanup:
-                session_owner.return_value.__enter__.return_value=mock.Mock()
+                state={"lock_held":False}
+                def acquire():
+                    state["lock_held"]=True
+                    return mock.Mock()
+                def release(*_):
+                    state["lock_held"]=False
+                def drain(reason):
+                    self.assertTrue(state["lock_held"],
+                        "session epoch must remain locked during process cleanup")
+                    return {"live_remaining":0,"kill_switch_activated":True}
+                session_owner.return_value.__enter__.side_effect=acquire
+                session_owner.return_value.__exit__.side_effect=release
+                cleanup.side_effect=drain
                 outcome=sup.run(lease_file=Path(d)/"lease",binding_file=Path(d)/"binding")
+                self.assertFalse(state["lock_held"])
                 self.assertEqual(outcome.status,"TERMINAL_DURABLE")
                 self.assertTrue(outcome.terminal)
                 self.assertEqual(outcome.processes["live_remaining"],0)

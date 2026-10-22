@@ -330,7 +330,33 @@ class LiveGateway:
                 pass # read-only events; never send chat
             else:
                 raise GatewayFailure("unrecognized game stream event")
-    def stream_request(self,route: AdmittedRoute,writer) -> None:
+    @staticmethod
+    def bounded_ndjson(response):
+        """Incremental framing: bound memory BEFORE a newline arrives.
+
+        requests.iter_lines() alone can buffer an attacker-controlled unlimited
+        unterminated line. At most 4 KiB enter the buffer at a time.
+        """
+        pending=bytearray()
+        for chunk in response.iter_content(chunk_size=4096,decode_unicode=False):
+            if not isinstance(chunk,bytes):
+                raise GatewayFailure("upstream stream returned non-byte content")
+            pending.extend(chunk)
+            while True:
+                newline=pending.find(b"\\n")
+                if newline<0: break
+                if newline>MAX_NDJSON_LINE:
+                    raise GatewayFailure("NDJSON line exceeds safety bound")
+                raw=bytes(pending[:newline])
+                del pending[:newline+1]
+                if raw.endswith(b"\\r"): raw=raw[:-1]
+                yield raw
+            if len(pending)>MAX_NDJSON_LINE:
+                raise GatewayFailure("oversized unterminated NDJSON line")
+        if pending:
+            raise GatewayFailure("truncated NDJSON line at stream EOF")
+
+    def stream_request(self,route: AdmittedRoute,writer,*,on_open=lambda:None) -> None:
         kind=route.action
         if kind not in self.stream_locks:
             raise GatewayFailure("unknown NDJSON stream")
@@ -347,9 +373,9 @@ class LiveGateway:
             response=self._outbound(up,"GET",route.path,stream=True)
             if not response.headers.get("Content-Type","").lower().startswith("application/x-ndjson"):
                 raise GatewayFailure("unexpected stream content type")
+            on_open()
             first=True
-            # requests.iter_lines yields validated incremental lines, including b'' heartbeats.
-            for line in response.iter_lines(chunk_size=1,decode_unicode=False):
+            for line in self.bounded_ndjson(response):
                 if self.shutdown_event.is_set(): break
                 if not isinstance(line,bytes) or len(line)>MAX_NDJSON_LINE:
                     raise GatewayFailure("NDJSON frame exceeds bound")
@@ -436,15 +462,18 @@ class GatewayHandler(BaseHTTPRequestHandler):
             route=admit_route(self.command,self._raw_target,dict(self.headers.items()),
                              body,gw.session)
             if route.action in ("events","game_stream"):
-                self.send_response_only(200)
-                self.send_header("Content-Type","application/x-ndjson")
-                self.send_header("Cache-Control","no-store")
-                self.send_header("Connection","close")
-                self.end_headers()
-                self.wfile.flush()
+                def open_stream():
+                    # Never report HTTP 200 until the upstream stream has been
+                    # verified and the one-stream lease has been acquired.
+                    self.send_response_only(200)
+                    self.send_header("Content-Type","application/x-ndjson")
+                    self.send_header("Cache-Control","no-store")
+                    self.send_header("Connection","close")
+                    self.end_headers()
+                    self.wfile.flush()
                 def write(data):
                     self.wfile.write(data);self.wfile.flush()
-                gw.stream_request(route,write)
+                gw.stream_request(route,write,on_open=open_stream)
                 self.close_connection=True
             else:
                 code,data,_=gw.nonstream_request(route,body)

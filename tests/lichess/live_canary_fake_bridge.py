@@ -20,6 +20,34 @@ from deploy.live_canary.supervisor import LiveSupervisor
 from deploy.lichess.move_journal import MoveJournal
 from deploy.lichess.run_recovery import preserve_replays
 
+def safe_child_trace_hint(log_path: Path) -> dict:
+    """Report only traceback module/line/class, NEVER exception messages.
+
+    The actual upstream log can contain arbitrary configuration or transport
+    data and must remain in the private state volume.
+    """
+    import re
+    result={"exception_module":None,"exception_line":None,"exception_class":None}
+    if log_path.is_symlink() or not log_path.is_file(): return result
+    with log_path.open("rb") as stream:
+        size=log_path.stat().st_size
+        stream.seek(max(0,size-65536))
+        lines=stream.read(65536).decode("utf-8",errors="replace").splitlines()
+    allowed={"config.py","lichess_bot.py","lichess.py","engine_wrapper.py",
+             "guarded_transport.py","move_journal.py","session_owner.py",
+             "live_session.py","live_gateway.py","allfather-online",
+             "subprocess.py","threading.py","multiprocessing.py",
+             "requests.py","api.py","main.py","__main__.py"}
+    for line in lines:
+        frame=re.search(r'File "[^"]*/([^/"]+)", line ([0-9]{1,5}), in [A-Za-z_][A-Za-z_0-9]*',line)
+        if frame and frame.group(1) in allowed:
+            result["exception_module"]=frame.group(1)
+            result["exception_line"]=int(frame.group(2))
+        error=re.match(r"^(Exception|ValueError|RuntimeError|TypeError|KeyError|OSError|ImportError|ModuleNotFoundError|FileNotFoundError|HTTPError|ReadTimeout|ConnectionError|AssertionError):",line.strip())
+        if error: result["exception_class"]=error.group(1)
+    return result
+
+
 def _read(path:Path):
     if path.is_symlink() or not path.is_file():raise RuntimeError("test input missing")
     return json.loads(path.read_text())
@@ -123,6 +151,7 @@ def main():
         if code not in {"UPSTREAM_VERIFY_OR_ENGINE_SEAL","BRIDGE_CONFIG_VALIDATE",
                         "UPSTREAM_RECOVERY_PATCH","LIVE_GUARD_SEAL"}:
             code="UNCLASSIFIED"
+        child_trace=safe_child_trace_hint(Path("/var/lib/allfather-canary/bridge-private.log"))
         child=getattr(supervisor,"process",None)
         rc=child.poll() if child is not None else None
         if type(rc) is not int or abs(rc)>255: rc=None
@@ -134,6 +163,7 @@ def main():
                 "cause_type":type(cause).__name__ if cause else None,
                 "stage_code":code,"command_family":family,
                 "child_exit_code":rc,
+                "child_trace":child_trace,
                 "cleanup_error_type":getattr(supervisor,"cleanup_error_type",None),
                 "source_sha":source.source_commit if 'source' in locals() else None,
                 "status":"NOT_COMPLETED",

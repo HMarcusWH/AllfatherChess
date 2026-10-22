@@ -111,4 +111,21 @@ class LiveBridgeContract(unittest.TestCase):
         self.assertNotIn("fake_lichess_api",source)
         self.assertIn('choices=("verify-only","gateway","bridge")',source)
 
+
+    def test_synthetic_bridge_trace_hints_cannot_leak_exception_values(self):
+        import tempfile
+        from tests.lichess.live_canary_fake_bridge import safe_child_trace_hint
+        with tempfile.TemporaryDirectory() as d:
+            file=Path(d)/"bridge-private.log"
+            file.write_text(
+                'Traceback (most recent call last):\\n'
+                '  File "/tmp/allfather-live-bridge/bridge/lib/config.py", line 312, in validate_config\\n'
+                'Exception: Bearer secret-upstream-should-never-be-shared\\n')
+            hint=safe_child_trace_hint(file)
+            self.assertEqual(hint["exception_module"],"config.py")
+            self.assertEqual(hint["exception_line"],312)
+            self.assertEqual(hint["exception_class"],"Exception")
+            self.assertNotIn("secret",str(hint))
+            self.assertNotIn("Bearer",str(hint))
+
 if __name__=="__main__":unittest.main()

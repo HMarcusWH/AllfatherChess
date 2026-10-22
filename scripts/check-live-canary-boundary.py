@@ -66,6 +66,14 @@ def inspect()->dict:
         or 'parsed.hostname != "127.0.0.1"' not in live
         or 'ALLFATHER_LIVE_GATEWAY_URL' not in live):
         raise ValueError("explicit offline/live transport separation missing")
+    # A PR-A source cannot contain the later PR-B operator trust admission.
+    # The entire real live credential path remains locked until an independently
+    # reviewed commit pins the operator public key + host/legal/source identities.
+    if (ROOT/"qualification/online-canary-operator-trust-v1.json").exists():
+        raise ValueError("unexpected PR-B live operator approval inside PR-A")
+    live_entry=(ROOT/"deploy/live_canary/entrypoint.py").read_text()
+    if "require_separately_approved_operator_trust(ROOT,source,a.public_key)" not in live_entry:
+        raise ValueError("live entrypoint operator trust gate not wired")
     upstream=json.loads((ROOT/"deploy/lichess/bridge.lock.json").read_text())
     if upstream.get("commit")!="df7e730de58cc3ef2f1415a0dc2eeda842d39167" or upstream.get("live_api_permitted") is not False:
         raise ValueError("upstream pin or permission drift")

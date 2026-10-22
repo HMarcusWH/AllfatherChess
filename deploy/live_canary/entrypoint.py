@@ -7,6 +7,7 @@ This entrypoint is never the RELEASE-1 verify/offline-smoke executable.
 from __future__ import annotations
 import argparse
 import dataclasses
+import hashlib
 import json
 import os
 import sys
@@ -23,6 +24,37 @@ def _load(path:Path):
     if path.is_symlink() or not path.is_file() or path.stat().st_size>16384:
         raise ValueError("operator input missing, linked or oversized")
     return json.loads(path.read_text())
+
+def require_separately_approved_operator_trust(root: Path, binding: SourceBinding,
+                                               public_key: Path) -> None:
+    """PR-B admission guard; PR-A deliberately ships with NO authority file.
+
+    The operator signing key itself is supplied as a read-only file. Its byte
+    identity, host/license review, immutable image and source SHA must ALSO be
+    approved in a separately reviewed Git commit, not merely chosen by the
+    same party that produced a self-signed runtime lease.
+    """
+    gate=Path(root)/"qualification/online-canary-operator-trust-v1.json"
+    if gate.is_symlink() or not gate.is_file() or gate.stat().st_size>8192:
+        raise ValueError("separate PR-B operator trust admission absent")
+    if public_key.is_symlink() or not public_key.is_file() or public_key.stat().st_size>8192:
+        raise ValueError("operator trust key absent or linked")
+    record=json.loads(gate.read_text(encoding="utf-8"))
+    expected={
+        "schema_version":1,
+        "scope":"pr-b-one-game-operator-trust",
+        "approved":True,
+        "source_commit":binding.source_commit,
+        "source_tree":binding.source_tree,
+        "image_digest":binding.image_digest,
+        "host_id":binding.host_id,
+        "host_digest":binding.host_digest,
+        "legal_review_digest":binding.legal_review_digest,
+        "operator_public_key_sha256":hashlib.sha256(public_key.read_bytes()).hexdigest(),
+    }
+    if (set(record)!=set(expected) or record!=expected
+            or binding.legal_review_digest=="0"*64):
+        raise ValueError("separate host/legal/operator admission not approved")
 
 def main(argv=None):
     p=argparse.ArgumentParser()
@@ -48,6 +80,7 @@ def main(argv=None):
         lease=_load(a.lease)
         validate_runtime_source(source,policy=ROOT/"qualification/online-live-canary-v1.json",
                                 release=a.release,host_receipt=a.host_report)
+        require_separately_approved_operator_trust(ROOT,source,a.public_key)
         verify_admission(lease,source,a.public_key)
         if a.mode=="bridge":
             if os.getenv("LICHESS_BOT_TOKEN") or a.secret.exists():

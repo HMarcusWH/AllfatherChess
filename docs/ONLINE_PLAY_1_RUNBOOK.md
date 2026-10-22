@@ -163,3 +163,18 @@ The flag must survive process restart and is not cleared automatically.
 The bridge's staged upstream source belongs on ephemeral `/tmp` storage.
 The owner epoch and full-move journal remain on a distinct persistent volume.
 Do not delete the durable journal to resolve an UNKNOWN_ACK.
+
+### Source-bound production operator trust (PR-B only)
+
+The PR-A production `entrypoint.py` deliberately refuses both `gateway`
+and `bridge` modes even when a runtime-only lease is valid, unless a
+separately reviewed **PR-B** commit provides
+`qualification/online-canary-operator-trust-v1.json`. This future file
+will pin the approved operator **public key digest**, exact Git commit/tree,
+private image digest, named host and verified legal-review digest. It is
+absent in PR-A. A self-generated key plus self-signed lease is not a
+source-independent approval.
+
+The synthetic integration harness calls test-only fake gateway/bridge scripts
+under isolated Docker namespaces, not the production credential entrypoint;
+it does not require or create this PR-B trust registry.

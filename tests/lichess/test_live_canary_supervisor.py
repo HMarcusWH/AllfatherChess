@@ -34,6 +34,33 @@ class StopMarkerTests(unittest.TestCase):
             with self.assertRaises(SupervisorRefused):
                 persist_stop_marker(link)
 
+class PrBTrustBoundaryTests(unittest.TestCase):
+    def test_pr_a_has_no_source_operator_trust_or_live_authority(self):
+        from deploy.live_canary.entrypoint import require_separately_approved_operator_trust
+        root=Path(__file__).resolve().parents[2]
+        self.assertFalse((root/"qualification/online-canary-operator-trust-v1.json").exists())
+        with tempfile.TemporaryDirectory() as folder:
+            key=Path(folder)/"operator.pub.pem";key.write_bytes(b"test-key-not-authority")
+            with self.assertRaises(ValueError):
+                require_separately_approved_operator_trust(root,BINDING,key)
+
+    def test_wrong_key_or_legal_review_cannot_be_approved_by_runtime_lease(self):
+        from deploy.live_canary.entrypoint import require_separately_approved_operator_trust
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);p=root/"qualification";p.mkdir()
+            key=root/"operator.pub.pem";key.write_bytes(b"untrusted-test-key")
+            values={
+                "schema_version":1,"scope":"pr-b-one-game-operator-trust",
+                "approved":True,"source_commit":BINDING.source_commit,
+                "source_tree":BINDING.source_tree,"image_digest":BINDING.image_digest,
+                "host_id":BINDING.host_id,"host_digest":BINDING.host_digest,
+                "legal_review_digest":"0"*64,
+                "operator_public_key_sha256":"f"*64,
+            }
+            (p/"online-canary-operator-trust-v1.json").write_text(json.dumps(values))
+            with self.assertRaises(ValueError):
+                require_separately_approved_operator_trust(root,BINDING,key)
+
 class SignedLeaseTests(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory()

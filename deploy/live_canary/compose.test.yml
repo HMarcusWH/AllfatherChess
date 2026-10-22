@@ -41,7 +41,7 @@ services:
     tmpfs: ["/tmp:size=1073741824,mode=1777"]
     pids_limit: 128
     cpus: 4
-    mem_limit: 6144m
+    mem_limit: 6g
     environment:
       ALLFATHER_BRIDGE_EGRESS_ISOLATED: "1"
     networks: [canary_private]

@@ -60,7 +60,7 @@ class StageBoundaryTests(unittest.TestCase):
                 self.assertNotIn("upstream detail",str(caught.exception))
 
     def test_allowlisted_negative_receipt_cannot_persist_tokens(self):
-        raw='Bearer secret=abc\\n'+json.dumps({
+        raw='Bearer secret=abc\n'+json.dumps({
             "scope":"synthetic-stage-preflight-only","status":"FAIL",
             "stage_code":"ENGINE_SEAL_CHECK",
             "exception_type":"CalledProcessError",

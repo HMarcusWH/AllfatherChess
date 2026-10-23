@@ -243,6 +243,10 @@ class ResourceMeasurementRunTests(unittest.TestCase):
         run=ResourceMeasurementRun(run_id="stale-terminal",settings=self.settings(),
                                    provider=provider)
         run.register_process(instance="lc0-shadow",pid=55)
+        # Resource qualification also requires one genuine completed stage.
+        # Test only that a *different PID's* callback cannot corrupt it.
+        run.begin_stage(key="normal",instance="lc0-shadow",phase="EXPLORE",pid=55)
+        run.finish_stage("normal")
         self.assertFalse(run.record_unexpected_process_exit(
             instance="lc0-shadow",pid=56))
         with tempfile.TemporaryDirectory() as directory:

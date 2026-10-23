@@ -36,5 +36,6 @@ jobs:
           python3 tests/adapters/test_linux_proc_resource.py
           python3 tests/adapters/test_uci_process.py
           python3 tests/controller/test_online_deadlines.py
+          python3 -m unittest tests.controller.test_durable_wall_denial -v
       - name: No release policy promotion
         run: python3 scripts/release-promotion-policy.py --output /tmp/allfather-resource-release-prohibition.json

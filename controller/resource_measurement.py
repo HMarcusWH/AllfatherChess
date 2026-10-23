@@ -273,7 +273,11 @@ class ResourceMeasurementRun:
         """
         if not self.settings.enabled:
             return False
-        with self._lock:
+        # Do not hold the process reader at EOF behind an unbounded resource
+        # writer/fsync. A lost pre-reap observation is negative evidence.
+        if not self._lock.acquire(timeout=0.05):
+            return False
+        try:
             if self._sealed is not None or self._process_endpoints_frozen:
                 return False
             start=self._process_starts.get(instance)
@@ -307,6 +311,8 @@ class ResourceMeasurementRun:
             self._process_totals[instance]=evidence
             self._process_starts.pop(instance,None)
             return True
+        finally:
+            self._lock.release()
 
     def _finalize_process_totals(self) -> None:
         if not self.settings.enabled or self._provider is None:

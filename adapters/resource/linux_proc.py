@@ -161,6 +161,34 @@ class LinuxProcProvider:
             vm_hwm_bytes=hwm,
         )
 
+    def terminal_snapshot(self, pid: int) -> ProcessSnapshot:
+        """Read a waitable zombie before a child-owning process calls wait/poll.
+
+        Only a Linux Z process may furnish an observed terminal counter. A live
+        process that merely closes stdout is not at its CPU endpoint. Re-read
+        the same PID's identity during snapshot() and reject PID reuse; this
+        observation never claims that an unexpectedly exited engine is healthy.
+        """
+        if isinstance(pid,bool) or not isinstance(pid,int) or pid <= 0:
+            raise ResourceProviderError("invalid terminal pid")
+        try:
+            raw=(self.proc_root/str(pid)/"stat").read_text(encoding="utf-8")
+        except OSError as exc:
+            raise ResourceProviderError("terminal stat unavailable before reap") from exc
+        close=raw.rfind(")")
+        if close<0:
+            raise ResourceProviderError("malformed terminal stat")
+        fields=raw[close+1:].strip().split()
+        if not fields or fields[0]!="Z":
+            raise ResourceProviderError("terminal process is not a waitable zombie")
+        parsed_pid,_,_,start_ticks,_=self._parse_stat(raw)
+        if parsed_pid!=pid:
+            raise ResourceProviderError("terminal PID identity mismatch")
+        observed=self.snapshot(pid)
+        if observed.start_time_ticks!=start_ticks:
+            raise ResourceProviderError("terminal process identity changed during sample")
+        return observed
+
     def delta(self, start: ProcessSnapshot, end: ProcessSnapshot) -> ProcessDelta:
         if start.pid != end.pid:
             raise ResourceProviderError(

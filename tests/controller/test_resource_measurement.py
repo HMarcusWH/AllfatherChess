@@ -218,6 +218,60 @@ class ResourceMeasurementRunTests(unittest.TestCase):
         self.assertTrue(doc["coverage"]["cpu"]["complete"])
         self.assertEqual([row["key"] for row in doc["stages"]], ["actual"])
 
+    def test_observed_pre_reap_cpu_remains_unqualified_after_unexpected_exit(self):
+        class TerminalProvider(_Provider):
+            def terminal_snapshot(self,pid):
+                return self.snapshot(pid)
+        provider=TerminalProvider()
+        run=ResourceMeasurementRun(run_id="unplanned-exit",settings=self.settings(),
+                                   provider=provider)
+        run.register_process(instance="lc0-shadow",pid=55)
+        self.assertTrue(run.record_unexpected_process_exit(instance="lc0-shadow",pid=55))
+        self.assertFalse(run.record_unexpected_process_exit(instance="lc0-shadow",pid=55))
+        with tempfile.TemporaryDirectory() as d:
+            result=run.seal(Path(d)/"resource.json")
+            saved=json.loads((Path(d)/"resource.json").read_text())
+        record=saved["processes"]["lc0-shadow"]
+        self.assertFalse(result["qualified"])
+        self.assertFalse(record["complete"])
+        self.assertIsNone(record["cpu_ms"])
+        self.assertGreater(record["observed_terminal_cpu_ms"],0)
+        self.assertEqual(record["observed_terminal_start_ticks"],1055)
+
+    def test_pid_reuse_and_missing_terminal_facts_never_qualify(self):
+        class WrongIdentity(_Provider):
+            def terminal_snapshot(self,pid):
+                from dataclasses import replace
+                return replace(self.snapshot(pid),start_time_ticks=9999)
+        for provider in (WrongIdentity(),_Provider()):
+            run=ResourceMeasurementRun(run_id="refused-terminal",settings=self.settings(),
+                                       provider=provider)
+            run.register_process(instance="lc0-shadow",pid=55)
+            self.assertTrue(run.record_unexpected_process_exit(
+                instance="lc0-shadow",pid=55))
+            with tempfile.TemporaryDirectory() as d:
+                result=run.seal(Path(d)/"resource.json")
+                saved=json.loads((Path(d)/"resource.json").read_text())
+            self.assertFalse(result["qualified"])
+            self.assertFalse(saved["processes"]["lc0-shadow"]["complete"])
+            self.assertNotIn("observed_terminal_cpu_ms",
+                             saved["processes"]["lc0-shadow"])
+
+    def test_exit_during_active_stage_cannot_close_that_stage(self):
+        class TerminalProvider(_Provider):
+            def terminal_snapshot(self,pid):
+                return self.snapshot(pid)
+        run=ResourceMeasurementRun(run_id="active-exit",settings=self.settings(),
+                                   provider=TerminalProvider())
+        run.begin_stage(key="exp",instance="lc0-shadow",phase="EXPLORE",pid=55)
+        self.assertTrue(run.record_unexpected_process_exit(instance="lc0-shadow",pid=55))
+        with tempfile.TemporaryDirectory() as d:
+            summary=run.seal(Path(d)/"resource.json")
+            doc=json.loads((Path(d)/"resource.json").read_text())
+        self.assertFalse(summary["qualified"])
+        self.assertFalse(doc["stages"][0]["complete"])
+        self.assertFalse(doc["processes"]["lc0-shadow"]["complete"])
+
     def test_unfinished_stage_fails_cpu_coverage(self):
         run = ResourceMeasurementRun(
             run_id="r3",

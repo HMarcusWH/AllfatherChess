@@ -263,6 +263,51 @@ class ResourceMeasurementRun:
                     "reason": f"run baseline sample failed: {type(exc).__name__}: {exc}",
                 }
 
+    def record_unexpected_process_exit(self, *, instance: str, pid: int) -> bool:
+        """Preserve pre-reap CPU facts as NEGATIVE evidence, never qualified CPU.
+
+        Unexpected engine exit invalidates health even when an OS-observed
+        terminal counter exists. It must not convert a killed/failed shadow into
+        complete resource coverage, and cannot manufacture stage completion.
+        The start PID and its Linux start ticks are checked by provider.delta().
+        """
+        if not self.settings.enabled:
+            return False
+        with self._lock:
+            if self._sealed is not None or self._process_endpoints_frozen:
+                return False
+            start=self._process_starts.get(instance)
+            if start is None:
+                return False
+            if instance in self._process_totals:
+                return False
+            evidence={
+                "instance":instance,"pid":start.pid,"complete":False,
+                "cpu_ms":None,"wall_ms":None,
+                "reason":"unexpected engine exit; terminal measurement not qualified",
+            }
+            if pid!=start.pid:
+                evidence["reason"]="unexpected process PID identity mismatch"
+            elif self._provider is None:
+                evidence["reason"]="terminal provider unavailable"
+            else:
+                try:
+                    end=self._provider.terminal_snapshot(pid)
+                    measured=self._provider.delta(start,end)
+                    # Diagnostic only; the official cpu_ms stays NULL so no
+                    # independent verifier can treat this as a positive claim.
+                    evidence["observed_terminal_cpu_ms"]=round(measured.cpu_ms,3)
+                    evidence["observed_terminal_start_ticks"]=end.start_time_ticks
+                    evidence["reason"]="unexpected engine exit; observed zombie CPU is diagnostic only"
+                except Exception as exc:
+                    evidence["reason"]=(
+                        "unexpected engine exit; terminal sample refused: "
+                        +type(exc).__name__
+                    )
+            self._process_totals[instance]=evidence
+            self._process_starts.pop(instance,None)
+            return True
+
     def _finalize_process_totals(self) -> None:
         if not self.settings.enabled or self._provider is None:
             return

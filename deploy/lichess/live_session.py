@@ -8,9 +8,10 @@ import hashlib
 import json
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
-from deploy.lichess import offline_session, recovery_overlay
+from deploy.lichess import offline_session, recovery_overlay, fetch_bridge
 from deploy.lichess import live_bridge_policy
 
 class LiveStageError(RuntimeError):
@@ -35,6 +36,21 @@ ROOT = Path("/work") if (Path("/work/.git").is_dir()) else Path(__file__).resolv
 def _committed_blob(path: str) -> bytes:
     return subprocess.check_output(["git","-C",str(ROOT),"show","HEAD:"+path],
                                    stderr=subprocess.PIPE,timeout=10)
+
+def _pinned_upstream_precheck(bridge: Path) -> None:
+    """Independent diagnostic check; frozen offline_session.stage re-verifies."""
+    lock=json.loads((ROOT/"deploy/lichess/bridge.lock.json").read_text())
+    fetch_bridge.verify(bridge,lock)
+
+
+def _sealed_engine_precheck(release: Path) -> None:
+    """No stdout/stderr is released; frozen offline_session.stage re-verifies."""
+    result=subprocess.run(
+        [sys.executable,str(release/"deploy/bin/allfather-online"),"--check"],
+        cwd=release,capture_output=True,text=True,timeout=40)
+    if result.returncode or "offline seal verified" not in result.stdout:
+        raise ValueError("sealed engine identity or verification refused")
+
 
 def _stage_live_guards(staged_bridge: Path, overlay: dict) -> None:
     """Replace ONLY disposable recovery-guard bytes with exact current HEAD.
@@ -78,7 +94,11 @@ def stage_live(*,release: Path,bridge: Path,workspace: Path,opponent: str) -> di
     if workspace.exists() or workspace.is_symlink():
         raise ValueError("live workspace must be an empty new directory")
     workspace.mkdir(parents=True)
-    result=_stage("UPSTREAM_VERIFY_OR_ENGINE_SEAL",lambda: offline_session.stage(
+    # Source-locked diagnostics are intentionally redundant, not authorization
+    # substitutes. The original frozen offline stage must still pass again.
+    _stage("UPSTREAM_LOCK_CHECK",lambda: _pinned_upstream_precheck(bridge))
+    _stage("ENGINE_SEAL_CHECK",lambda: _sealed_engine_precheck(release))
+    result=_stage("OFFLINE_STAGE_COPY_OR_CONFIG",lambda: offline_session.stage(
         release=release,bridge=bridge,workspace=workspace,
         server_url="http://127.0.0.1:17832/"))
     extra=ROOT/"deploy/lichess/live_extra_game_handlers.py"

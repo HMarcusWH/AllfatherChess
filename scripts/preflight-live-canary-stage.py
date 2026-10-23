@@ -72,10 +72,20 @@ def main():
     try:
         verdict=check(options.source_sha)
     except (OSError,ValueError,RuntimeError,KeyError,subprocess.SubprocessError) as exc:
-        code=exc.code if isinstance(exc,LiveStageError) else "SOURCE_OR_PACKAGE_PREFLIGHT"
+        allowed={"UPSTREAM_LOCK_CHECK","ENGINE_SEAL_CHECK",
+                 "OFFLINE_STAGE_COPY_OR_CONFIG","BRIDGE_CONFIG_VALIDATE",
+                 "UPSTREAM_RECOVERY_PATCH","LIVE_GUARD_SEAL"}
+        code=exc.code if isinstance(exc,LiveStageError) and exc.code in allowed else "SOURCE_OR_PACKAGE_PREFLIGHT"
+        failure=exc.__cause__ if isinstance(exc,LiveStageError) else exc
+        approved_classes={"ValueError","RuntimeError","OSError","PermissionError",
+                          "FileNotFoundError","CalledProcessError","TimeoutExpired",
+                          "KeyError","TypeError"}
+        failure_class=type(failure).__name__
+        if failure_class not in approved_classes:
+            failure_class="OtherError"
         print(json.dumps({"scope":"synthetic-stage-preflight-only",
             "status":"FAIL","stage_code":code,
-            "exception_type":type(exc).__name__,
+            "exception_type":failure_class,
             "live_game_authorized":False,"public_bot_release":False},
             sort_keys=True),file=sys.stderr)
         return 2

@@ -155,6 +155,11 @@ jobs:
         timeout-minutes: 5
         run: |
           set -euo pipefail
+          # Keep raw Docker stderr only in ephemeral runner temp storage. Never
+          # publish it: even unexpected transport errors can contain host data.
+          raw_stderr="$(mktemp)"
+          trap 'rm -f "$raw_stderr"' EXIT
+          set +e
           docker run --rm --network none --read-only --pids-limit 64 \
             --cap-drop ALL --security-opt no-new-privileges \
             --user 10001:10001 \
@@ -166,7 +171,22 @@ jobs:
             -e GIT_CONFIG_VALUE_1=/work/build/vendor/lichess-bot \
             -v "$PWD:/work:ro" \
             --entrypoint /opt/online3b/bin/python allfather-canary-test:private \
-            /work/scripts/preflight-live-canary-stage.py --source-sha "$HEAD_SHA"
+            /work/scripts/preflight-live-canary-stage.py --source-sha "$HEAD_SHA" 2>"$raw_stderr"
+          status=$?
+          set -e
+          python3 scripts/sanitize_live_canary_preflight.py \
+            --raw-stderr "$raw_stderr" --exit-code "$status" \
+            --output build/test-results/online-play-1/preflight-incomplete.json
+          rm -f "$raw_stderr"
+          test "$status" -eq 0
+      - name: Retain only allowlisted preflight failure evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: online-play-1-stage-diagnostics
+          path: build/test-results/online-play-1/preflight-incomplete.json
+          if-no-files-found: ignore
+          retention-days: 14
       - name: Prove real PID1 child containment with a SIGTERM-resistant worker
         timeout-minutes: 3
         run: |

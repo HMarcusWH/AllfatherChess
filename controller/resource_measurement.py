@@ -285,14 +285,17 @@ class ResourceMeasurementRun:
                 return False
             if instance in self._process_totals:
                 return False
+            # A callback for another generation's PID cannot bind this
+            # instance's run-level baseline. Leave the earlier run intact and
+            # allow its own independently observed endpoint to decide.
+            if pid!=start.pid:
+                return False
             evidence={
                 "instance":instance,"pid":start.pid,"complete":False,
                 "cpu_ms":None,"wall_ms":None,
                 "reason":"unexpected engine exit; terminal measurement not qualified",
             }
-            if pid!=start.pid:
-                evidence["reason"]="unexpected process PID identity mismatch"
-            elif self._provider is None:
+            if self._provider is None:
                 evidence["reason"]="terminal provider unavailable"
             else:
                 try:

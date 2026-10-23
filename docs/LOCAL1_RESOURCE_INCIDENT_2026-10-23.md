@@ -26,3 +26,20 @@ Any future execution-only wall-clock semantics require a separate versioned,
 reviewed policy and independent verifier, not a silent threshold change.
 
 No merge/release or Lichess external authority is inferred from these changes.
+
+## Implemented pre-reap observation boundary (candidate)
+
+The runtime installs a pre-reap callback on unexpected UCI stdout EOF, ahead
+of its own Popen.poll()/wait(). The Linux provider accepts only a waitable
+zombie's PID/start-time-checked terminal snapshot. This may retain CPU usage as
+`observed_terminal_cpu_ms` **diagnostic only**. Such an unexpected process
+exit still leaves `complete=false` and `cpu_ms=null` so independently
+replayed physical resource claims remain denied. Missing or already-reaped
+terminal state, PID reuse and reentrant callbacks never manufacture success.
+The observer has bounded access to the coordinator and resource locks; failure
+to capture is negative evidence, not permission to reuse a dead process.
+
+The test suite also injects a 700 ms real resource-file persistence delay and
+asserts that the original schema-1 full-run wall envelope rejects the run.
+No fsync is disabled, no wall threshold is widened, and this does not solve
+arbitrary hosted-runner storage latency.

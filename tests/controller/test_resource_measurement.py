@@ -238,6 +238,20 @@ class ResourceMeasurementRunTests(unittest.TestCase):
         self.assertGreater(record["observed_terminal_cpu_ms"],0)
         self.assertEqual(record["observed_terminal_start_ticks"],1055)
 
+    def test_other_generation_pid_cannot_poison_current_resource_run(self):
+        provider=_Provider()
+        run=ResourceMeasurementRun(run_id="stale-terminal",settings=self.settings(),
+                                   provider=provider)
+        run.register_process(instance="lc0-shadow",pid=55)
+        self.assertFalse(run.record_unexpected_process_exit(
+            instance="lc0-shadow",pid=56))
+        with tempfile.TemporaryDirectory() as directory:
+            result=run.seal(Path(directory)/"resource.json")
+            saved=json.loads((Path(directory)/"resource.json").read_text())
+        self.assertTrue(result["qualified"])
+        self.assertTrue(saved["processes"]["lc0-shadow"]["complete"])
+        self.assertNotIn("observed_terminal_cpu_ms",saved["processes"]["lc0-shadow"])
+
     def test_pid_reuse_and_missing_terminal_facts_never_qualify(self):
         class WrongIdentity(_Provider):
             def terminal_snapshot(self,pid):

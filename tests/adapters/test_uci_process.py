@@ -255,7 +255,8 @@ class UciProcessTests(unittest.TestCase):
             )
             self.assertTrue(done.wait(2))
             self.assertEqual([x[0] for x in order],["terminal","exit"])
-            self.assertEqual(order[0][2],order[1][2] if False else process.proc.pid)
+            self.assertEqual(order[0][1],"fake")
+            self.assertEqual(order[0][2],process.proc.pid)
         finally:
             process.close()
 

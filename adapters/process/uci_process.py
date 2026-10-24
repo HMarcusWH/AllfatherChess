@@ -65,6 +65,7 @@ class UciProcess:
         environment: dict[str, str] | None = None,
         timeout: float = 10.0,
         on_exit: Callable[[str, int | None, int | None], None] | None = None,
+        on_pre_reap: Callable[[str, int], None] | None = None,
     ) -> None:
         self.name = name
         self.binary = binary
@@ -76,6 +77,7 @@ class UciProcess:
             raise UciProcessError(f"{self.name}: process environment must be string-to-string")
         self.timeout = timeout
         self._on_exit = on_exit
+        self._on_pre_reap = on_pre_reap
 
         self.proc: subprocess.Popen[str] | None = None
         self.options: set[str] = set()
@@ -242,6 +244,19 @@ class UciProcess:
 
     def _handle_eof(self) -> None:
         proc = self.proc
+        with self._state_lock:
+            closing=self._closing
+        # On Linux a child that has exited but has not been reaped still has
+        # verifiable /proc counters. Allow a bounded observer to capture them
+        # BEFORE our own poll()/wait() can reap the zombie. If another thread
+        # has already reaped the PID, the observer must fail closed.
+        if proc is not None and not closing and self._on_pre_reap is not None:
+            try:
+                self._on_pre_reap(self.name,proc.pid)
+            except Exception as exc:  # pragma: no cover - diagnostic isolation
+                self._callback_errors.append(
+                    f"pre-reap observer {type(exc).__name__}: {exc}"
+                )
         rc = None if proc is None else proc.poll()
         if proc is not None and rc is None:
             try:

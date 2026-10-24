@@ -555,6 +555,7 @@ class ShadowRunCoordinator:
         self._prepare_threads: dict[int, threading.Thread] = {}
         runtime.set_instance_observer(self._observe_line)
         runtime.set_shadow_exit_handler(self._on_shadow_exit)
+        runtime.set_process_pre_reap_handler(self._on_process_pre_reap)
         self.prime_run_directory(1)
 
     # ------------------------------------------------------------------
@@ -1669,6 +1670,28 @@ class ShadowRunCoordinator:
         finally:
             active.anchor_resource_done.set()
         return True
+    def _on_process_pre_reap(self, instance: str, pid: int) -> None:
+        """Retain a verified terminal fact without qualifying an engine exit.
+
+        This hook is called by the process stdout reader BEFORE poll() can reap
+        the child. Do not wait indefinitely for a coordinator lock. If the
+        observation cannot be taken in time, resource coverage fails closed.
+        """
+        if not self._lock.acquire(timeout=0.05):
+            return
+        try:
+            candidates=tuple(
+                candidate for candidate in
+                (self._run,*self._finalizing.values())
+                if candidate is not None and candidate.resources is not None
+            )
+        finally:
+            self._lock.release()
+        for candidate in candidates:
+            if candidate.resources.record_unexpected_process_exit(
+                instance=instance,pid=pid):
+                break
+
     def _on_shadow_exit(self, instance: str, rc: int | None, token: int | None) -> None:
         with self._lock:
             active = self._run

@@ -20,7 +20,7 @@ FAKE = ROOT / "tests" / "fixtures" / "fake_uci_engine.py"
 
 class UciProcessTests(unittest.TestCase):
     def make_process(
-        self, *, exit_on: str | None = None, on_exit=None,
+        self, *, exit_on: str | None = None, on_exit=None, on_pre_reap=None,
         extra_args: list[str] | None = None,
     ) -> UciProcess:
         args = [str(FAKE), "--name", "FakeStockfish", *(extra_args or [])]
@@ -33,6 +33,7 @@ class UciProcessTests(unittest.TestCase):
             args=args,
             timeout=3.0,
             on_exit=on_exit,
+            on_pre_reap=on_pre_reap,
         )
 
     def test_ready_waiter_and_search_share_one_reader(self):
@@ -235,6 +236,28 @@ class UciProcessTests(unittest.TestCase):
         finally:
             if gate.locked():
                 gate.release()
+            process.close()
+
+    def test_pre_reap_observer_runs_before_exit_notification(self):
+        done=threading.Event()
+        order=[]
+        process=self.make_process(
+            exit_on="go",
+            on_pre_reap=lambda name,pid: order.append(("terminal",name,pid)),
+            on_exit=lambda name,rc,token: (order.append(("exit",name,rc)),done.set()),
+        )
+        try:
+            process.start()
+            process.start_search(
+                "go nodes 1",token=42,
+                on_info=lambda token,line: None,
+                on_complete=lambda token,line: None,
+            )
+            self.assertTrue(done.wait(2))
+            self.assertEqual([x[0] for x in order],["terminal","exit"])
+            self.assertEqual(order[0][1],"fake")
+            self.assertEqual(order[0][2],process.proc.pid)
+        finally:
             process.close()
 
     def test_unexpected_exit_reports_active_token(self):

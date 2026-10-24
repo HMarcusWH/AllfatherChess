@@ -25,6 +25,43 @@ class LinuxProcParserTests(unittest.TestCase):
             (123, 12, 7, 991, 44),
         )
 
+    @unittest.skipUnless(sys.platform.startswith("linux"), "Linux procfs only")
+    def test_zombie_terminal_snapshot_rejects_live_or_reaped_process(self):
+        import time
+        process=subprocess.Popen([sys.executable,"-c","pass"],
+                                 stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+        provider=LinuxProcProvider()
+        try:
+            deadline=time.monotonic()+2
+            terminal=None
+            while time.monotonic()<deadline:
+                try:
+                    terminal=provider.terminal_snapshot(process.pid)
+                    break
+                except ResourceProviderError:
+                    time.sleep(0.005)
+            self.assertIsNotNone(terminal,"child did not reach waitable zombie")
+            self.assertEqual(terminal.pid,process.pid)
+            self.assertGreaterEqual(terminal.start_time_ticks,0)
+        finally:
+            process.wait(timeout=2)
+            process.stdout.close()
+            process.stderr.close()
+        with self.assertRaises(ResourceProviderError):
+            provider.terminal_snapshot(process.pid)
+
+    def test_terminal_snapshot_refuses_non_zombie_fixture(self):
+        with tempfile.TemporaryDirectory() as directory:
+            directory=Path(directory)
+            pid_dir=directory/"99"
+            pid_dir.mkdir()
+            fields=["S"]+["0"]*21
+            fields[11]="12";fields[12]="3";fields[19]="123";fields[21]="1"
+            (pid_dir/"stat").write_text("99 (engine) "+" ".join(fields))
+            (pid_dir/"status").write_text("VmRSS:\\t1 kB\\n")
+            with self.assertRaisesRegex(ResourceProviderError,"not a waitable zombie"):
+                LinuxProcProvider(proc_root=directory,clock_ticks=100).terminal_snapshot(99)
+
     def test_pid_reuse_is_rejected(self):
         provider = LinuxProcProvider(clock_ticks=100)
         a = ProcessSnapshot(12, 100, 1_000_000, 1, 1, 1, 1)

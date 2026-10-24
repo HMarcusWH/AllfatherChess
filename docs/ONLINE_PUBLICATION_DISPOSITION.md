@@ -24,3 +24,33 @@ worker-quiescence failures remain independently visible and fail closed.
 The executable tests cover these distinct states and repeat the real
 fake-subprocess post-bestmove/quiesce barrier. No claim is made until the
 exact-head controller, G3 and LOCAL-1 suites independently qualify.
+
+## Late optional VERIFY admission and immutable resource evidence (24 October 2026)
+
+The exact-head LOCAL-1 failure on `e45ed7a6d8d1ad5c8e86f89c8fdbf99684974874`
+retained two late LC0 VERIFY observations: `life-history-reuse`
+started VERIFY with 3.923ms remaining before the soft cutoff, and
+`base-00-06` with 5.243ms. Both later exited with rc=-9 and
+retained incomplete physical CPU coverage, while their outward moves
+were published before the hard deadline. The original failure remains
+**negative evidence**, not a completed VERIFY or valid resource report.
+
+The remediation gates a new *optional* VERIFY phase on the existing
+`online_time.quiesce_budget_ms` before the immutable soft deadline.
+It does not add a new clock policy field, extend a deadline, or change
+the 16-node VERIFY dispatch limit. The guard is repeated before opening
+streams, before specialist/WorkGrant reservation, after phase setup
+and at the final generation-scoped backend stdin permit.
+Undispatched provisional resource stages must be discarded, and
+reservations released; partially dispatched three-way VERIFY is
+`incomplete`, never `completed`. A fully withheld optional VERIFY
+does not independently authorize G3 hybrid selection.
+
+The frozen TimePlan stop/output margins remain reserved. A still-running
+or SIGKILL-terminated LC0 stage must never be promoted using terminal
+zombie CPU or unrelated process totals. `published_incomplete` remains
+a non-cancelling record of timely outward publication and **nonqualifying**
+full resource evidence.
+
+This is a source candidate until deterministic regressions and a fresh
+physical same-clock LOCAL-1 campaign pass at the new exact head.

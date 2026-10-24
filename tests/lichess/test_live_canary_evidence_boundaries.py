@@ -83,6 +83,18 @@ class IndependentNegativeEvidence(unittest.TestCase):
                                             "host test result improperly promoted"):
                     VERIFIER.verify_one(folder,"white","a"*40)
 
+    def test_diagnostic_schema_is_closed_and_source_bound(self):
+        spec=json.loads((ROOT/"qualification/schemas/canary-verdict-v1.schema.json").read_text())
+        self.assertIs(spec["additionalProperties"],False)
+        gate=spec["properties"]["failure_gate"]
+        self.assertIs(gate["additionalProperties"],False)
+        self.assertEqual(set(gate["required"]),{"function","line"})
+        self.assertEqual(set(gate["properties"]),{"function","line"})
+        self.assertEqual(set(gate["properties"]["function"]["enum"]),{
+            "verify_one","verify","_history","_pgn","read","UNCLASSIFIED"})
+        self.assertEqual((gate["properties"]["line"]["minimum"],
+                          gate["properties"]["line"]["maximum"]),(0,1000))
+
     def test_source_gate_receipt_never_copies_exception_messages(self):
         secret="Bearer private-synthetic-test-token"
         def inject():

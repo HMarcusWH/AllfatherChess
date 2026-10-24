@@ -41,6 +41,21 @@
     "license_review_completed": {
       "const": false
     },
+    "failure_gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["function", "line"],
+      "properties": {
+        "function": {
+          "enum": ["verify_one", "verify", "_history", "_pgn", "read", "UNCLASSIFIED"]
+        },
+        "line": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000
+        }
+      }
+    },
     "failures": {
       "type": "array",
       "maxItems": 100,

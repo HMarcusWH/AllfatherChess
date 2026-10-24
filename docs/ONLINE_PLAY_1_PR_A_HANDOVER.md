@@ -171,3 +171,13 @@ the existing source-verified offline wheelhouse and its generated runtime
 wheel hash lock to supply the host verifier interpreter. Neither missing
 verifier dependencies nor producer game completion alone can be reinterpreted
 as an independent DRY_RUN_PASS. Review exact new-head evidence before merge.
+
+## Persistent independent verifier rejection identity
+
+A failed two-color producer run may contain two complete synthetic games while
+the source-independent verifier rejects their evidence. The CI integration
+contract now retains a fixed `integration-verifier.json` receipt with only a
+source-controlled failing function/line and exception type, instead of using
+a temporary directory that discards the only refusal reason. This does not
+modify the independent verifier's acceptance rules and cannot substitute a
+historical producer artifact for a current exact-head `DRY_RUN_PASS`.

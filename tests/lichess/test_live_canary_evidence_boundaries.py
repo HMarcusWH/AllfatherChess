@@ -83,5 +83,41 @@ class IndependentNegativeEvidence(unittest.TestCase):
                                             "host test result improperly promoted"):
                     VERIFIER.verify_one(folder,"white","a"*40)
 
+    def test_source_gate_receipt_never_copies_exception_messages(self):
+        secret="Bearer private-synthetic-test-token"
+        def inject():
+            # A malicious claim may include arbitrary path/token text.
+            VERIFIER.require(False, secret)
+        try:
+            inject()
+        except VERIFIER.EvidenceFailure as exc:
+            diagnostic=VERIFIER._failure_diagnostic(exc)
+        else:
+            self.fail("fixture must be rejected")
+        self.assertNotIn(secret,json.dumps(diagnostic))
+        self.assertEqual(diagnostic["error_type"],"EvidenceFailure")
+        self.assertEqual(diagnostic["source_gate"],
+                         {"function":"UNCLASSIFIED","line":0})
+
+    def test_verifier_source_line_is_bound_to_known_function(self):
+        with tempfile.TemporaryDirectory() as d:
+            target=Path(d)
+            self.fixture(target)
+            record=json.loads((target/"integration.json").read_text())
+            record.pop("compose_cleanup_ok")
+            (target/"integration.json").write_text(json.dumps(record))
+            try:
+                VERIFIER.verify_one(target,"white","a"*40)
+            except VERIFIER.EvidenceFailure as exc:
+                diagnostic=VERIFIER._failure_diagnostic(exc)
+            else:
+                self.fail("fixture must be rejected")
+            self.assertEqual(diagnostic["error_type"],"EvidenceFailure")
+            self.assertEqual(diagnostic["source_gate"]["function"],"verify_one")
+            self.assertGreater(diagnostic["source_gate"]["line"],0)
+            self.assertLessEqual(diagnostic["source_gate"]["line"],1000)
+            self.assertNotIn(str(target),json.dumps(diagnostic))
+
+
 if __name__=="__main__":
     unittest.main()

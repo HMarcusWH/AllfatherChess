@@ -251,6 +251,7 @@ jobs:
         with:
           name: online-play-1-incomplete-diagnostics
           path: |
+            build/test-results/online-play-1/integration-verifier.json
             build/test-results/online-play-1/white/incomplete.json
             build/test-results/online-play-1/white/cleanup-incomplete.json
             build/test-results/online-play-1/white/bridge/failure.json

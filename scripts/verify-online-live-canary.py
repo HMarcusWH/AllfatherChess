@@ -349,6 +349,35 @@ def verify(root:Path,source_sha:str):
             "public_bot_release":False,
             "license_review_completed":False}
 
+def _failure_diagnostic(exc: BaseException) -> dict[str, object]:
+    """Return ONLY source-controlled code identity/line, never exception text.
+
+    The independent verifier may read hostile evidence paths, payloads and
+    JSON. Formatting arbitrary exception strings into uploaded artifacts is
+    prohibited. Traceback frame identity is matched to the exact functions
+    in this source file, so the bounded gate is independently inspectable.
+    """
+    trusted={
+        fn.__code__:name for name,fn in (
+            ("verify_one",verify_one),("verify",verify),
+            ("_history",_history),("_pgn",_pgn),("read",read),
+        )
+    }
+    selected={"function":"UNCLASSIFIED","line":0}
+    tb=exc.__traceback__
+    while tb is not None:
+        name=trusted.get(tb.tb_frame.f_code)
+        if name is not None and type(tb.tb_lineno) is int and 1<=tb.tb_lineno<=1000:
+            selected={"function":name,"line":tb.tb_lineno}
+        tb=tb.tb_next
+    allowed={"EvidenceFailure","OSError","ValueError","KeyError","TypeError",
+             "JSONDecodeError","CalledProcessError","TimeoutExpired",
+             "FileNotFoundError","PermissionError"}
+    label=type(exc).__name__
+    return {"error_type":label if label in allowed else "UNCLASSIFIED",
+            "source_gate":selected}
+
+
 def main():
     p=argparse.ArgumentParser()
     p.add_argument("--policy",type=Path,default=ROOT/"qualification/online-live-canary-v1.json")
@@ -366,7 +395,9 @@ def main():
         outcome=verify(a.evidence,a.source_sha)
         status=0
     except (OSError,ValueError,KeyError,TypeError,subprocess.SubprocessError) as exc:
-        outcome["failures"]=[type(exc).__name__+": "+str(exc)[:150]]
+        diagnostic=_failure_diagnostic(exc)
+        outcome["failures"]=[diagnostic["error_type"]]
+        outcome["failure_gate"]=diagnostic["source_gate"]
         status=2
     a.output.parent.mkdir(parents=True,exist_ok=True)
     a.output.write_text(json.dumps(outcome,sort_keys=True,indent=2)+"\n")

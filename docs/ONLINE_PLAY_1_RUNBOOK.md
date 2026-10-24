@@ -272,3 +272,25 @@ must **not** be used to install its differently-hashed wheel.
 The intermediate two-game producer evidence does not authorize a PASS for a
 new SHA, public release, live Bot API or deployment. Exact-head full
 integration, independent `DRY_RUN_PASS` and summary are still mandatory.
+
+### Independent verifier rejection: durable source-bound diagnostics
+
+An earlier exact-head CI run completed both synthetic games and installed the
+hash-pinned host-side verifier requirements, but the independent verifier
+returned `INCONCLUSIVE` and exit 2. Its diagnostic report was written under
+a temporary directory and was deleted before CI could retain the rejected
+assertion; this is a *diagnostic-evidence* defect, not permission to treat
+producer success as independent qualification.
+
+The integration test now writes its independent verifier receipt at
+`build/test-results/online-play-1/integration-verifier.json`, retained in the
+restricted `online-play-1-incomplete-diagnostics` artifact. On a refusal,
+the verifier publishes only an allowlisted exception class and the static
+function/line identity of the rejected source-controlled verification gate.
+It never persists exception messages, arbitrary filesystem paths, raw HTTP
+responses, the synthetic signing private key, or real credentials. Independent
+source checks and every original game/journal/replay contract remain intact.
+
+A source-gate diagnosis is not `DRY_RUN_PASS`. A narrow correction to the
+actual failing assertion or source evidence is still required, followed by
+fresh White/Black sealed-engine games and independent exact-head verification.

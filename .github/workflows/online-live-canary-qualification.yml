@@ -163,7 +163,8 @@ jobs:
           docker run --rm --network none --read-only --pids-limit 64 \
             --cap-drop ALL --security-opt no-new-privileges \
             --user 10001:10001 \
-            --tmpfs /tmp:size=1073741824,mode=1777 \
+            --tmpfs /tmp:rw,noexec,nosuid,nodev,size=1073741824,mode=1777 \
+            --tmpfs /run/allfather-canary-stage:rw,exec,nosuid,nodev,size=1073741824,mode=0700,uid=10001,gid=10001 \
             -e PYTHONPATH=/work -e PYTHONDONTWRITEBYTECODE=1 \
             -e GIT_CONFIG_COUNT=2 \
             -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0=/work \

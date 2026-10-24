@@ -8,12 +8,13 @@ from pathlib import Path
 STAGES=frozenset({
     "UPSTREAM_LOCK_CHECK","ENGINE_SEAL_CHECK","OFFLINE_STAGE_COPY_OR_CONFIG",
     "BRIDGE_CONFIG_VALIDATE","UPSTREAM_RECOVERY_PATCH","LIVE_GUARD_SEAL",
-    "SOURCE_OR_PACKAGE_PREFLIGHT",
+    "SOURCE_OR_PACKAGE_PREFLIGHT","EXEC_STAGE_MOUNT_CHECK",
 })
 CLASSES=frozenset({
     "ValueError","RuntimeError","OSError","PermissionError","FileNotFoundError",
     "CalledProcessError","TimeoutExpired","KeyError","TypeError","OtherError",
     "ShutilError","ModuleNotFoundError","ImportError","AttributeError",
+    "Exception",
 })
 OFFLINE_OPERATIONS=frozenset({
     "NOT_APPLICABLE","OFFLINE_STAGE_UNKNOWN","OFFLINE_STAGE_INITIALIZATION",
@@ -22,6 +23,14 @@ OFFLINE_OPERATIONS=frozenset({
     "OFFLINE_STAGE_BRIDGE_EXPORT","OFFLINE_STAGE_OVERLAY_VERIFY",
     "OFFLINE_STAGE_OVERLAY_COPY","OFFLINE_STAGE_CONFIG_GENERATE",
     "OFFLINE_STAGE_RELEASE_IDENTITY",
+})
+
+CONFIG_SUBSTAGES=frozenset({
+    "NOT_APPLICABLE","CONFIG_UNKNOWN","CONFIG_INITIALIZATION",
+    "READ_UPSTREAM_DEFAULTS","BUILD_RESTRICTED_OPTIONS",
+    "IMPORT_UPSTREAM_VALIDATOR","APPLY_UPSTREAM_DEFAULTS",
+    "CHECK_ALLFATHER_SAFETY","UPSTREAM_VALIDATE",
+    "WRITE_EFFECTIVE_CONFIG",
 })
 
 
@@ -33,6 +42,7 @@ def sanitize(raw: str, exit_code: int) -> dict[str, object] | None:
     phase="STAGE_FAILURE_UNCLASSIFIED"
     failure_class="OtherError"
     offline_operation="NOT_APPLICABLE"
+    config_substage="NOT_APPLICABLE"
     for line in reversed(raw.splitlines()):
         try:
             value=json.loads(line)
@@ -52,6 +62,11 @@ def sanitize(raw: str, exit_code: int) -> dict[str, object] | None:
             if (phase=="OFFLINE_STAGE_COPY_OR_CONFIG"
                 and isinstance(detail,str) and detail in OFFLINE_OPERATIONS):
                 offline_operation=detail
+            candidate=value.get("config_substage")
+            if (phase=="OFFLINE_STAGE_COPY_OR_CONFIG"
+                and offline_operation=="OFFLINE_STAGE_CONFIG_GENERATE"
+                and isinstance(candidate,str) and candidate in CONFIG_SUBSTAGES):
+                config_substage=candidate
             break
     return {
         "schema_version":1,
@@ -60,6 +75,7 @@ def sanitize(raw: str, exit_code: int) -> dict[str, object] | None:
         "stage_code":phase,
         "exception_type":failure_class,
         "offline_operation":offline_operation,
+        "config_substage":config_substage,
         "process_exit_code":exit_code,
         "live_game_authorized":False,
         "public_bot_release":False,

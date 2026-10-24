@@ -124,3 +124,24 @@ dependency reproduction; RELEASE-2B-3 and RELEASE-2B-4 are still separate.
 Until the changed PR-A head obtains new successful games and independent
 `DRY_RUN_PASS`, it remains not verified. Do not merge, use actual tokens,
 publish, convert BOT accounts or authorize a live game.
+
+---
+
+## PR-A executable staging diagnostic repair (24 October 2026)
+
+The exact-head preflight on `54340f04777c15ac747d161b138df4829911ef28`
+failed before complete games with
+`OFFLINE_STAGE_COPY_OR_CONFIG / OFFLINE_STAGE_CONFIG_GENERATE` and
+`OtherError`. The pinned upstream validator uses generic `Exception`
+for config assertions and checks launcher execution permission. The
+new candidate keeps the original frozen offline staging and safety checks,
+uses a separate private executable staging mount instead of widening
+general `/tmp`, and adds allowlisted configuration substage diagnostics
+and mount/evidence negatives.
+
+The prior three failed CI checks represent an original failing integration
+and deliberate dependent `NOT_RUN` refusals. Neither an executable mount
+nor a preflight positive verdict alone authorizes a merge. White/Black
+synthetic complete games and a source-independent `DRY_RUN_PASS` remain
+mandatory on the **new exact source head**; review the actual artifacts
+before attributing the cause or promoting any qualification.

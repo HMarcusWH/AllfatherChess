@@ -17,9 +17,11 @@ from deploy.lichess import live_bridge_policy
 
 class LiveStageError(RuntimeError):
     """A source-independent, non-secret diagnosis for a staged operation."""
-    def __init__(self, code: str, *, operation_code: str = "NOT_APPLICABLE"):
+    def __init__(self, code: str, *, operation_code: str = "NOT_APPLICABLE",
+                 config_substage: str = "NOT_APPLICABLE"):
         self.code = code
         self.operation_code = operation_code
+        self.config_substage = config_substage
         super().__init__(code)
 
 
@@ -31,7 +33,15 @@ def _stage(code, call):
             _frozen_offline_operation(exc)
             if code == "OFFLINE_STAGE_COPY_OR_CONFIG" else "NOT_APPLICABLE"
         )
-        raise LiveStageError(code, operation_code=operation) from exc
+        detail = (
+            _frozen_config_substage(exc)
+            if code == "OFFLINE_STAGE_COPY_OR_CONFIG"
+            and operation == "OFFLINE_STAGE_CONFIG_GENERATE"
+            else "NOT_APPLICABLE"
+        )
+        raise LiveStageError(
+            code, operation_code=operation, config_substage=detail
+        ) from exc
 
 
 def _frozen_offline_operation(exc: BaseException) -> str:
@@ -81,6 +91,53 @@ def _frozen_offline_operation(exc: BaseException) -> str:
             break
         operation = code
     return operation
+
+
+
+def _frozen_config_substage(exc: BaseException) -> str:
+    """Resolve only pinned bridge_policy.generate source locations.
+
+    Never persist exception values, arbitrary traceback module names, line
+    numbers, config fields, environment or local paths.
+    """
+    target = getattr(offline_session.bridge_policy.generate, "__code__", None)
+    if target is None:
+        return "CONFIG_UNKNOWN"
+    line_number = None
+    tb = exc.__traceback__
+    while tb is not None:
+        if tb.tb_frame.f_code is target:
+            line_number = tb.tb_lineno
+        tb = tb.tb_next
+    if line_number is None:
+        return "CONFIG_UNKNOWN"
+    try:
+        lines, offset = inspect.getsourcelines(offline_session.bridge_policy.generate)
+    except (OSError, TypeError):
+        return "CONFIG_UNKNOWN"
+    anchors = (
+        ("READ_UPSTREAM_DEFAULTS", 'base = yaml.safe_load('),
+        ("BUILD_RESTRICTED_OPTIONS", 'cfg.update(token=TOKEN'),
+        ("IMPORT_UPSTREAM_VALIDATOR", 'from lib.config import insert_default_values, validate_config'),
+        ("APPLY_UPSTREAM_DEFAULTS", 'insert_default_values(cfg)'),
+        ("CHECK_ALLFATHER_SAFETY", 'assert_safety(cfg, release=release, url=url)'),
+        ("UPSTREAM_VALIDATE", 'validate_config(cfg)'),
+        ("WRITE_EFFECTIVE_CONFIG", 'output.write_text('),
+    )
+    positions = []
+    for name, marker in anchors:
+        matches = [offset + i for i, line in enumerate(lines) if marker in line]
+        if len(matches) != 1:
+            return "CONFIG_UNKNOWN"
+        positions.append((name, matches[0]))
+    if any(a[1] >= b[1] for a, b in zip(positions, positions[1:])):
+        return "CONFIG_UNKNOWN"
+    name = "CONFIG_INITIALIZATION"
+    for candidate, line in positions:
+        if line_number < line:
+            break
+        name = candidate
+    return name
 
 
 # In a private OCI image these modules live under /opt/live-canary, while

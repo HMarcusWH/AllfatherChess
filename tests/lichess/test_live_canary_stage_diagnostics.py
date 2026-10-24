@@ -125,6 +125,79 @@ class StageBoundaryTests(unittest.TestCase):
         })
         self.assertEqual(sanitize(payload, 2)["offline_operation"], "NOT_APPLICABLE")
 
+
+    def test_actual_config_source_classifies_generic_upstream_exception(self):
+        import sys
+        import types
+        import yaml
+        from deploy.lichess import bridge_policy
+        # This is a synthetic validator stub. The original pinned upstream
+        # module is not replaced or modified in production.
+        config_module=types.ModuleType("lib.config")
+        config_module.insert_default_values=lambda cfg: None
+        def generic_failure(_cfg):
+            raise Exception("Bearer fixture token must never be serialized")
+        config_module.validate_config=generic_failure
+        upstream=types.ModuleType("lib")
+        upstream.__path__=[]
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory)
+            bridge=root/"pinned-bridge"
+            bridge.mkdir()
+            release=root/"release"
+            launcher=release/"deploy/bin/allfather-online"
+            launcher.parent.mkdir(parents=True)
+            launcher.write_text("fixture")
+            data={
+                "engine":{
+                    "polyglot":{"enabled":False},
+                    "online_moves":{name:{"enabled":False} for name in
+                        ("chessdb_book","lichess_cloud_analysis",
+                         "lichess_opening_explorer","online_egtb")},
+                    "lichess_bot_tbs":{
+                        "syzygy":{"enabled":False},"gaviota":{"enabled":False}},
+                    "draw_or_resign":{
+                        "resign_enabled":False,"offer_draw_enabled":False}},
+                "challenge":{},"greeting":{},"matchmaking":{},
+            }
+            (bridge/"config.yml.default").write_text(yaml.safe_dump(data))
+            with mock.patch.dict(sys.modules,{"lib":upstream,"lib.config":config_module}):
+                try:
+                    bridge_policy.generate(
+                        bridge,release,"http://127.0.0.1:17832/",root/"effective.yml")
+                except Exception as exc:
+                    self.assertEqual(type(exc).__name__,"Exception")
+                    self.assertEqual(
+                        live_session._frozen_config_substage(exc),
+                        "UPSTREAM_VALIDATE")
+                    self.assertNotIn("Bearer",str(live_session.LiveStageError(
+                        "OFFLINE_STAGE_COPY_OR_CONFIG",
+                        operation_code="OFFLINE_STAGE_CONFIG_GENERATE",
+                        config_substage="UPSTREAM_VALIDATE")))
+                else:
+                    self.fail("synthetic upstream generic Exception did not fire")
+
+    def test_config_substage_evidence_is_allowlisted_and_scope_bound(self):
+        record={
+            "scope":"synthetic-stage-preflight-only","status":"FAIL",
+            "stage_code":"OFFLINE_STAGE_COPY_OR_CONFIG",
+            "offline_operation":"OFFLINE_STAGE_CONFIG_GENERATE",
+            "exception_type":"Exception",
+            "config_substage":"UPSTREAM_VALIDATE",
+            "untrusted_message":"Bearer synthetic-sensitive-value"
+        }
+        result=sanitize(json.dumps(record),2)
+        self.assertEqual(result["config_substage"],"UPSTREAM_VALIDATE")
+        self.assertEqual(result["exception_type"],"Exception")
+        self.assertNotIn("Bearer",str(result))
+        for key,value in (
+            ("config_substage","PRIVATE_PATH_OR_BEARER"),
+            ("offline_operation","OFFLINE_STAGE_BRIDGE_EXPORT"),
+            ("stage_code","EXEC_STAGE_MOUNT_CHECK")):
+            modified={**record,key:value}
+            self.assertEqual(sanitize(json.dumps(modified),2)["config_substage"],
+                             "NOT_APPLICABLE")
+
     def test_unknown_stage_cannot_be_injected(self):
         raw=json.dumps({"scope":"synthetic-stage-preflight-only","status":"FAIL",
                         "stage_code":"TOKEN_PRIVATE_VALUE","exception_type":"SecretClass"})

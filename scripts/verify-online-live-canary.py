@@ -87,6 +87,11 @@ def verify_one(path:Path,expected_color:str,sha_source:str):
                 "gateway_dual_homed","no_host_ports","gateway_only_secret_mount",
                 "bridge_external_tcp_denied"):
         require(net.get(key) is True,"missing independent network negative: "+key)
+    storage=host.get("storage_tests",{})
+    require(isinstance(storage,dict) and
+            all(storage.get(k) is True for k in (
+                "persistent_separate","scratch_separate","exec_stage_mount_verified")),
+            "separately mounted executable staging was not verified")
     cp=host.get("capacity",{})
     require(cp.get("operator_minimums_met") is True and cp.get("capacity_complete") is True,
             "measured cgroups/CPU/memory not sufficient for simulator")

@@ -46,9 +46,11 @@ class LiveBridgeContract(unittest.TestCase):
                 self.assertTrue(config["networks"]["canary_private"]["internal"])
                 # A YAML flow list with unquoted commas erroneously treats
                 # "nodev" and "nosuid" as separate mount paths in Docker.
-                self.assertEqual(len(bridge["tmpfs"]),1)
+                self.assertEqual(len(bridge["tmpfs"]),2)
                 self.assertEqual(bridge["tmpfs"][0],
-                                 "/tmp:size=1073741824,mode=1777")
+                                 "/tmp:rw,noexec,nosuid,nodev,size=1073741824,mode=1777")
+                self.assertEqual(bridge["tmpfs"][1],
+                                 "/run/allfather-canary-stage:rw,exec,nosuid,nodev,size=1073741824,mode=0700,uid=10001,gid=10001")
 
     def test_source_sealed_live_guards_are_staged_without_changing_upstream(self):
         import hashlib,tempfile

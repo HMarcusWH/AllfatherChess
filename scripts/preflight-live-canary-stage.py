@@ -19,6 +19,9 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0,str(ROOT))
 
 from deploy.lichess.live_session import LiveStageError,stage_live
+from deploy.lichess.canary_staging import (
+    STAGE_ROOT, StageMountDenied, require_private_stage_mount,
+)
 from deploy.lichess.live_bridge_policy import assert_safety
 
 def check(source_sha: str) -> dict:
@@ -31,7 +34,11 @@ def check(source_sha: str) -> dict:
     if (lock["commit"]!="df7e730de58cc3ef2f1415a0dc2eeda842d39167"
         or lock["live_api_permitted"] is not False):
         raise ValueError("unapproved pinned upstream")
-    with tempfile.TemporaryDirectory(prefix="allfather-stage-",dir="/tmp") as directory:
+    try:
+        stage_mount = require_private_stage_mount()
+    except StageMountDenied as exc:
+        raise LiveStageError("EXEC_STAGE_MOUNT_CHECK") from exc
+    with tempfile.TemporaryDirectory(prefix="allfather-stage-",dir=STAGE_ROOT) as directory:
         stage=Path(directory)/"session"
         result=stage_live(
             release=ROOT/"dist/online3a-stage",
@@ -63,6 +70,7 @@ def check(source_sha: str) -> dict:
             "upstream_commit":lock["commit"],
             "live_config_sha256":result["live_config_sha256"],
             "overlay_guard_count":len(paths),
+            **stage_mount,
             "live_game_authorized":False,"public_bot_release":False,
         }
 
@@ -73,7 +81,7 @@ def main():
     try:
         verdict=check(options.source_sha)
     except (OSError,ValueError,RuntimeError,KeyError,subprocess.SubprocessError) as exc:
-        allowed={"UPSTREAM_LOCK_CHECK","ENGINE_SEAL_CHECK",
+        allowed={"EXEC_STAGE_MOUNT_CHECK","UPSTREAM_LOCK_CHECK","ENGINE_SEAL_CHECK",
                  "OFFLINE_STAGE_COPY_OR_CONFIG","BRIDGE_CONFIG_VALIDATE",
                  "UPSTREAM_RECOVERY_PATCH","LIVE_GUARD_SEAL"}
         code=exc.code if isinstance(exc,LiveStageError) and exc.code in allowed else "SOURCE_OR_PACKAGE_PREFLIGHT"
@@ -82,7 +90,7 @@ def main():
                           "FileNotFoundError","CalledProcessError","TimeoutExpired",
                           "KeyError","TypeError"}
         failure_class = "ShutilError" if isinstance(failure, shutil.Error) else type(failure).__name__
-        approved_classes.update({"ShutilError","ModuleNotFoundError","ImportError","AttributeError"})
+        approved_classes.update({"ShutilError","ModuleNotFoundError","ImportError","AttributeError","Exception"})
         if failure_class not in approved_classes:
             failure_class="OtherError"
         offline_operation = (
@@ -90,10 +98,17 @@ def main():
             if isinstance(exc, LiveStageError) and code == "OFFLINE_STAGE_COPY_OR_CONFIG"
             else "NOT_APPLICABLE"
         )
+        config_substage = (
+            exc.config_substage
+            if isinstance(exc, LiveStageError)
+            and offline_operation == "OFFLINE_STAGE_CONFIG_GENERATE"
+            else "NOT_APPLICABLE"
+        )
         print(json.dumps({"scope":"synthetic-stage-preflight-only",
             "status":"FAIL","stage_code":code,
             "exception_type":failure_class,
             "offline_operation":offline_operation,
+            "config_substage":config_substage,
             "live_game_authorized":False,"public_bot_release":False},
             sort_keys=True),file=sys.stderr)
         return 2

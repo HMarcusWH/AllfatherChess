@@ -24,6 +24,9 @@ from deploy.live_canary.admission import (
     SourceBinding,LeaseLedger,AdmissionDenied,verify_admission,policy_is_denied)
 from deploy.lichess.session_owner import SessionOwner
 from deploy.lichess.live_session import stage_live,bridge_command
+from deploy.lichess.canary_staging import (
+    STAGE_SESSION, require_private_stage_mount,
+)
 from deploy.lichess.reconcile import canonical_history
 
 # Runtime code is installed under /opt/live-canary; verified source lives at
@@ -95,7 +98,8 @@ def verify_host_receipt(host: dict, binding: SourceBinding) -> None:
                 "gateway_dual_homed","no_host_ports","gateway_only_secret_mount",
                 "bridge_external_tcp_denied")) or any(
             storage.get(k) is not True for k in (
-                "persistent_separate","scratch_separate")):
+                "persistent_separate","scratch_separate",
+                "exec_stage_mount_verified")):
             raise SupervisorRefused("synthetic host topology or storage not independently verified")
     elif any(host.get(k) is not True for k in (
             "bridge_only_internal","gateway_dual_homed","separate_network_namespaces",
@@ -222,9 +226,9 @@ class LiveSupervisor:
         self.binding,self.lease,self.key=binding,lease,Path(key)
         self.policy,self.host_receipt,self.release=Path(policy),Path(host_receipt),Path(release)
         self.bridge,self.work,self.state=Path(bridge),Path(work),Path(state)
-        if (self.work.is_symlink() or self.work.is_relative_to(self.state)
-            or not self.work.is_relative_to(Path("/tmp"))):
-            raise SupervisorRefused("staged bridge must be disposable tmpfs, never durable state")
+        if (self.work != STAGE_SESSION or self.work.is_symlink()
+            or self.work.is_relative_to(self.state)):
+            raise SupervisorRefused("staged bridge must occupy exact private disposable mount")
         self.stopping=False
         self.phase="preflight"
         self.cleanup_error_type=None
@@ -232,6 +236,9 @@ class LiveSupervisor:
         self.owner=None
         self.ledger=LeaseLedger(self.state/"game-admission.sqlite3")
     def preflight(self):
+        # Confirm a distinct executable tmpfs before the lease is claimed.
+        # General /tmp remains noexec and must never hold a copied engine.
+        require_private_stage_mount()
         directory=Path("/run/canary-control")
         if directory.is_symlink() or not directory.is_dir() or not os.access(directory,os.W_OK|os.X_OK):
             raise SupervisorRefused("durable shared kill switch volume missing or unwritable")

@@ -194,3 +194,36 @@ verdict job deliberately yields `NOT_RUN` when the producer fails, instead
 of treating a missing artifact download as evidence. Retain full private
 runtime logs only in bounded offline debugging environments; do not upload
 unrestricted stdout, bearer, live config or key material.
+
+---
+
+### Private executable staging repair (24 October 2026 candidate)
+
+A previous exact-head synthetic Docker preflight returned
+`OFFLINE_STAGE_COPY_OR_CONFIG / OFFLINE_STAGE_CONFIG_GENERATE`, with
+`OtherError`. This is **negative evidence**, not proof of the cause.
+The pinned upstream `lib.config.validate_config()` checks that its configured
+engine launcher is executable. Docker tmpfs supports a `noexec` mount flag;
+the original general `/tmp` staging location was not explicitly executable.
+
+PR-A now keeps general `/tmp` explicitly `noexec,nosuid,nodev`, and
+declares one separately mounted, non-shared executable tmpfs:
+`/run/allfather-canary-stage`. It is bounded to 1 GiB, owned by the
+unprivileged UID/GID 10001, mode 0700, `exec,nosuid,nodev`.
+The offline staging function and pinned upstream validator are unchanged.
+The private bridge process and source-independent host probe must verify
+the *actual mountinfo, uid/gid, execution flags and device separation*
+before claiming any positive evidence. Missing/wrong/multiple mounts deny
+the stage; a release copied into ordinary `/tmp` is never accepted.
+
+The preflight also reports `config_substage` as a fixed enum derived
+from the original `bridge_policy.generate` traceback frame. It never
+serializes raw exception messages, paths, YAML, engine output or tokens.
+`EXEC_STAGE_MOUNT_CHECK` and failed configuration assertions remain
+`NOT_COMPLETED`. The historical failing run is not retroactively qualified.
+
+Required evidence: exact-head source/units, real Docker private mount
+preflight, original `offline_session.stage()` and pinned validator passing,
+then both synthetic complete games and the independent `DRY_RUN_PASS`.
+An ordinary CI check or synthetic success never authorizes live play,
+production credentials, host admission or distribution.

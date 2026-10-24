@@ -143,7 +143,8 @@ class RepairRegressions(unittest.TestCase):
             "bridge_egress_test_pass":True,"gateway_private_port_test_pass":True,
             "destination_host_qualified":False,"live_game_authorized":False,
             "public_bot_release":False,
-            "storage_tests":{"persistent_separate":True,"scratch_separate":True},
+            "storage_tests":{"persistent_separate":True,"scratch_separate":True,
+                             "exec_stage_mount_verified":True},
             "image_identity_verified":True,"source_mounts_read_only":True,
             "network_tests":{k:True for k in (
                 "bridge_egress_test_pass","gateway_private_port_test_pass",
@@ -155,6 +156,10 @@ class RepairRegressions(unittest.TestCase):
         binding=dataclasses.replace(BINDING,host_digest=digest)
         report["observation_digest"]=digest
         verify_host_receipt(report,binding)
+        report["storage_tests"]["exec_stage_mount_verified"]=False
+        with self.assertRaises(SupervisorRefused):
+            verify_host_receipt(report,binding)
+        report["storage_tests"]["exec_stage_mount_verified"]=True
         report["capacity"]["capacity_complete"]=False
         with self.assertRaises(SupervisorRefused):
             verify_host_receipt(report,binding)

@@ -19,6 +19,7 @@ from deploy.live_canary.admission import SourceBinding,verify_admission
 from deploy.live_canary.supervisor import LiveSupervisor,validate_runtime_source
 from deploy.lichess.live_gateway import LiveGateway,read_gateway_token,serve_gateway
 from deploy.lichess.live_gateway_state import GatewayState
+from deploy.lichess.canary_staging import STAGE_SESSION
 
 def _load(path:Path):
     if path.is_symlink() or not path.is_file() or path.stat().st_size>16384:
@@ -87,7 +88,7 @@ def main(argv=None):
                 raise ValueError("real token forbidden in bridge")
             supervisor=LiveSupervisor(binding=source,lease=lease,key=a.public_key,
                policy=ROOT/"qualification/online-live-canary-v1.json",host_receipt=a.host_report,
-               release=a.release,bridge=a.bridge_source,work=Path("/tmp/allfather-live-bridge"),
+               release=a.release,bridge=a.bridge_source,work=STAGE_SESSION,
                state=a.state)
             outcome=supervisor.run(lease_file=a.lease,binding_file=a.binding)
             print(json.dumps(dataclasses.asdict(outcome),sort_keys=True))

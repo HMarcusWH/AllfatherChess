@@ -90,3 +90,27 @@ adapter from an older packaged image during a later operator-approved canary.
   never emit a terminal SUCCESS without that witness.
 - The synthetic producer retains only fixed-stage negative receipts on failure;
   neither producer success nor CI step success by itself grants live authority.
+
+---
+
+### Dedicated executable staging surface (PR-A repair, synthetic only)
+
+The copied UCI launcher must remain executable for the pinned upstream
+configuration validator and actual engine process. Granting `exec` to
+general `/tmp` would broaden an unrelated scratch surface. Instead,
+the canary bridge admits only an exact separate 1-GiB `tmpfs` mount at
+`/run/allfather-canary-stage`, with UID/GID 10001, mode 0700,
+`exec,nosuid,nodev`. The general `/tmp` mount remains `noexec`.
+There are no secrets or durable state under the executable mount.
+
+Risk introduced: temporary writable-and-executable memory-backed storage.
+Mitigations: an exact allowlisted mountpoint, private unprivileged ownership,
+no host bind, no device access, no SUID, bounded size, source-sealed copied
+upstream and engine bytes, fixed disposable workspace, and normal child
+process controls. The runtime reads actual `/proc/self/mountinfo` and
+refuses missing/ambiguous, `noexec`, incorrect owner/mode or non-tmpfs
+mounts before lease claim. The source-independent synthetic host reporter
+and final verifier require matching positive mount evidence.
+
+This repairs a staging capability boundary, **not** a new move, transport,
+account, network, release or publisher authority.

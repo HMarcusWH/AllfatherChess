@@ -17,6 +17,7 @@ ROOT=Path("/work")
 sys.path.insert(0,str(ROOT))
 from deploy.live_canary.admission import SourceBinding,verify_admission
 from deploy.live_canary.supervisor import LiveSupervisor
+from deploy.lichess.canary_staging import STAGE_SESSION
 from deploy.lichess.move_journal import MoveJournal
 from deploy.lichess.run_recovery import preserve_replays
 
@@ -73,7 +74,7 @@ def main():
             host_receipt=op/"host-report.json",
             release=ROOT/"dist/online3a-stage",
             bridge=ROOT/"build/vendor/lichess-bot",
-            work=Path("/tmp/allfather-live-bridge"),
+            work=STAGE_SESSION,
             state=Path("/var/lib/allfather-canary"))
         phase="supervised_pinned_game"
         result=supervisor.run(lease_file=op/"admission.json",
@@ -85,17 +86,17 @@ def main():
         out=Path("/results/bridge");out.mkdir(parents=True,exist_ok=True)
         journal=MoveJournal(state/"recovery/move-journal.sqlite3").snapshot()
         pgndata=(state/"game.pgn").read_text()
-        replay_root=Path("/tmp/allfather-live-bridge/release/build/replays-online-hybrid-v2")
+        replay_root=STAGE_SESSION/"release/build/replays-online-hybrid-v2"
         replay_files=list(replay_root.glob("*/manifest.json"))
         if not replay_files or len(replay_files)>128:
             raise RuntimeError("sealed UCI replay count missing or beyond bounded retention")
         replay_index=preserve_replays(
-            Path("/tmp/allfather-live-bridge/release"),out)
+            STAGE_SESSION/"release",out)
         if len(replay_index)<result.accepted_moves:
             raise RuntimeError("one or more accepted UCI decisions lacks a replay")
         def digest(path):
             return hashlib.sha256(Path(path).read_bytes()).hexdigest()
-        executed=Path("/tmp/allfather-live-bridge")
+        executed=STAGE_SESSION
         source_manifest=json.loads((ROOT/"dist/online3a-stage/build/online-release/release-manifest.json").read_text())
         overlay=json.loads((executed/"bridge/recovery-overlay-manifest.json").read_text())
         lock=json.loads((ROOT/"deploy/lichess/bridge.lock.json").read_text())
@@ -148,7 +149,9 @@ def main():
         if stage not in allowed: stage="unclassified"
         cause=getattr(exc,"__cause__",None)
         code=getattr(exc,"code","UNCLASSIFIED")
-        if code not in {"UPSTREAM_VERIFY_OR_ENGINE_SEAL","BRIDGE_CONFIG_VALIDATE",
+        if code not in {"UPSTREAM_VERIFY_OR_ENGINE_SEAL","UPSTREAM_LOCK_CHECK",
+                        "ENGINE_SEAL_CHECK","EXEC_STAGE_MOUNT_CHECK",
+                        "OFFLINE_STAGE_COPY_OR_CONFIG","BRIDGE_CONFIG_VALIDATE",
                         "UPSTREAM_RECOVERY_PATCH","LIVE_GUARD_SEAL"}:
             code="UNCLASSIFIED"
         child_trace=safe_child_trace_hint(Path("/var/lib/allfather-canary/bridge-private.log"))

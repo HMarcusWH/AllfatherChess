@@ -37,7 +37,9 @@ services:
     read_only: true
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
-    tmpfs: ["/tmp:size=1073741824,mode=1777"]
+    tmpfs:
+      - "/tmp:rw,noexec,nosuid,nodev,size=1073741824,mode=1777"
+      - "/run/allfather-canary-stage:rw,exec,nosuid,nodev,size=1073741824,mode=0700,uid=10001,gid=10001"
     pids_limit: 128
     cpus: 4
     mem_limit: 6g

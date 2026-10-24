@@ -74,9 +74,18 @@ def host_facts(bridge,gateway,image_id):
         raise RuntimeError("synthetic test-container CPU/memory capacity not met")
     storage=json.loads(cmd(["docker","exec",bridge,"/opt/online3b/bin/python",
         "-c","import os,json; a=os.stat('/var/lib/allfather-canary');"
-             "b=os.stat('/'); c=os.stat('/tmp');"
+             "b=os.stat('/'); c=os.stat('/run/allfather-canary-stage');"
              "print(json.dumps({'persistent_separate':a.st_dev!=b.st_dev,"
-             "'scratch_separate':a.st_dev!=c.st_dev}))"],timeout=15))
+             "'scratch_separate':a.st_dev!=c.st_dev and b.st_dev!=c.st_dev}))"],timeout=15))
+    mount=json.loads(cmd(["docker","exec",bridge,"/opt/online3b/bin/python",
+        "-c","import json; from deploy.lichess.canary_staging import "
+             "require_private_stage_mount; "
+             "print(json.dumps(require_private_stage_mount(),sort_keys=True))"],timeout=15))
+    if (set(mount)!={"stage_private_exec_mount","stage_owner_verified",
+                    "stage_disposable"}
+        or any(value is not True for value in mount.values())):
+        raise RuntimeError("private executable staging mount not independently verified")
+    storage["exec_stage_mount_verified"]=True
     if not (net["bridge_egress_test_pass"] and net["gateway_private_port_test_pass"]
             and storage["persistent_separate"] and storage["scratch_separate"]):
         raise RuntimeError("real Docker namespace or storage negative control failed")

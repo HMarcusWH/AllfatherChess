@@ -38,7 +38,16 @@ class CanaryFullGameIntegration(unittest.TestCase):
                 "--mode","offline-dry-run","--evidence",str(base),
                 "--source-sha",HEAD,"--output",str(report)]
             run=subprocess.run(command,cwd=ROOT,capture_output=True,text=True,timeout=45)
-            self.assertEqual(run.returncode,0,"independent verifier did not accept real games")
+            # Exit 1 normally indicates the verifier could not even start
+            # (for example host Python missing its locked chess package).
+            # Exit 2 is a source-independent negative evidence verdict.
+            # Never disclose raw verifier stderr, which is not an allowlisted
+            # retained diagnostic in the fake-game artifact contract.
+            self.assertEqual(
+                run.returncode,0,
+                "independent verifier not qualified; exit="
+                +str(run.returncode)+", receipt_written="+str(report.is_file()),
+            )
             record=json.loads(report.read_text())
             self.assertEqual(record.get("verdict"),"DRY_RUN_PASS")
             self.assertEqual(record.get("scope"),"fake-lichess-api-only")

@@ -207,6 +207,21 @@ jobs:
         timeout-minutes: 17
         run: |
           python3 scripts/run-live-canary-dry-run.py --color black --image allfather-canary-test:private --source-sha "$HEAD_SHA" --output build/test-results/online-play-1/black
+      - name: Install independently verified offline verifier wheelhouse on CI host
+        timeout-minutes: 6
+        run: |
+          set -euo pipefail
+          # The source lock hashes the chess *sdist*. The reproducibly built
+          # chess wheel has a different reviewed hash, pinned only in the
+          # generated and independently checked runtime-wheels.lock.
+          # Never use --require-hashes with the sdist lock against a wheel.
+          python3 scripts/verify-release-python-lock.py --wheelhouse build/online3b-wheels
+          python3 -m pip install --break-system-packages --no-index \
+            --find-links build/online3b-wheels --require-hashes \
+            -r build/online3b-wheels/runtime-wheels.lock
+          python3 - <<'PY'
+          import chess, chess.pgn
+          PY
       - name: Execute real two-color integration verifier contract
         env:
           ALLFATHER_PR_A_GAME_EVIDENCE: build/test-results/online-play-1

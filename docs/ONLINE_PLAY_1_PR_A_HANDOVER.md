@@ -160,3 +160,14 @@ No claim of completed White/Black synthetic games or independent
 `DRY_RUN_PASS` transfers from earlier heads. Original offline stage, Lichess
 origin, durable journal, gateway authority, and PR-B admission prohibitions
 remain unchanged.
+
+## Intermediate two-color completion, verifier still unqualified
+
+The exact-head `f20b95c17d7612007cff97e28091f77606890994` synthetic
+integration completed White and Black with exit 0 after the chunked
+transport fix. The subsequent host-side Python verifier subprocess exited
+1 without producing a qualification verdict. A new candidate uses only
+the existing source-verified offline wheelhouse and its generated runtime
+wheel hash lock to supply the host verifier interpreter. Neither missing
+verifier dependencies nor producer game completion alone can be reinterpreted
+as an independent DRY_RUN_PASS. Review exact new-head evidence before merge.

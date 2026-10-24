@@ -250,3 +250,25 @@ This is a new source candidate. The prior `NOT_RUN` verdict remains negative.
 Neither transport unit tests nor a passing stage preflight authorize live play,
 operator credentials, public release, or a merge. Both independently completed
 fake API games and a fresh source-independent `DRY_RUN_PASS` remain mandatory.
+
+### Two complete fake games; verifier host dependency repair (24 October 2026)
+
+An intermediate exact-head run `f20b95c17d7612007cff97e28091f77606890994`
+successfully finished genuine sealed-UCI fake API games as both White and
+Black, with source-bound gateway, durable journal, signed synthetic admission,
+separate Docker namespaces, complete PGN and zero real credentials. It did
+**not** pass the job's independent integration verifier: that subprocess
+returned exit 1 before a verdict receipt was observed.
+
+The hosted `network-integration` job had prepared a verified local wheelhouse
+but had not installed the pinned `chess` dependency in the host interpreter
+that executes the independent verifier. The candidate now independently
+validates `build/online3b-wheels`, installs it with `--no-index`,
+`--require-hashes` and the generated `runtime-wheels.lock` (which pins the
+reproducibly built chess *wheel* hash), and checks imports before running the
+verifier. The source `requirements.release.lock` hashes the chess sdist and
+must **not** be used to install its differently-hashed wheel.
+
+The intermediate two-game producer evidence does not authorize a PASS for a
+new SHA, public release, live Bot API or deployment. Exact-head full
+integration, independent `DRY_RUN_PASS` and summary are still mandatory.

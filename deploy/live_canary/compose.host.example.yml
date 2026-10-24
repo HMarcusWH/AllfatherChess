@@ -1,0 +1,70 @@
+# OPERATOR TEMPLATE — INERT by default, not an executable approval.
+# PR-B must review GPL/AGPL, bind exact signed lease/host/source/image & BOT account,
+# verify 4 effective CPUs + 6144MiB and external firewall, then approve manually.
+# No network creation or service is enabled from PR-A's default command.
+name: allfather-online-canary-host-example
+services:
+  gateway:
+    profiles: ["never-without-pr-b"]
+    image: "${CANARY_PRIVATE_IMAGE_DIGEST:?provide-separately-reviewed-digest}"
+    entrypoint: ["/opt/online3b/bin/python", "/opt/live-canary/deploy/live_canary/entrypoint.py"]
+    command: ["verify-only"]
+    init: false
+    user: "10001:10001"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs: ["/tmp:size=67108864,mode=1777"]
+    pids_limit: 32
+    cpus: 1
+    mem_limit: 512m
+    networks: [canary_private, canary_egress]
+    ports: []
+    volumes:
+      - ./UNCONFIGURED_OPERATOR_INPUTS:/run/operator:ro
+      - ./UNCONFIGURED_SECRET_FILE:/run/secrets/lichess-bot-token:ro
+      - gateway_state:/var/lib/allfather-canary:rw
+      - bridge_state:/bridge-state:ro
+      - canary_control:/run/canary-control:rw
+      - gateway_evidence:/var/lib/allfather-canary/gateway-evidence:rw
+  bridge:
+    profiles: ["never-without-pr-b"]
+    image: "${CANARY_PRIVATE_IMAGE_DIGEST:?provide-separately-reviewed-digest}"
+    entrypoint: ["/opt/online3b/bin/python", "/opt/live-canary/deploy/live_canary/entrypoint.py"]
+    command: ["verify-only"]
+    init: false
+    user: "10001:10001"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs:
+      - "/tmp:rw,noexec,nosuid,nodev,size=1073741824,mode=1777"
+      - "/run/allfather-canary-stage:rw,exec,nosuid,nodev,size=1073741824,mode=0700,uid=10001,gid=10001"
+    pids_limit: 128
+    cpus: 4
+    mem_limit: 6g
+    environment:
+      GIT_CONFIG_COUNT: "2"
+      GIT_CONFIG_KEY_0: safe.directory
+      GIT_CONFIG_VALUE_0: /work
+      GIT_CONFIG_KEY_1: safe.directory
+      GIT_CONFIG_VALUE_1: /work/build/vendor/lichess-bot
+    networks: [canary_private]
+    ports: []
+    volumes:
+      - ./UNCONFIGURED_OPERATOR_INPUTS:/run/operator:ro
+      - ./UNCONFIGURED_VERIFIED_ENGINE:/work:ro
+      - bridge_state:/var/lib/allfather-canary:rw
+      - gateway_evidence:/var/lib/allfather-canary/gateway-evidence:ro
+      - canary_control:/run/canary-control:rw
+networks:
+  canary_private:
+    internal: true
+    driver: bridge
+  canary_egress:
+    driver: bridge
+volumes:
+  gateway_state:
+  gateway_evidence:
+  bridge_state:
+  canary_control:

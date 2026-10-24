@@ -150,7 +150,7 @@ jobs:
           python3 -m json.tool qualification/replay-history-sources.json >/dev/null
           python3 scripts/validate-online-hybrid-resource-calibration.py
       - name: Install real-inference dependencies
-        timeout-minutes: 5
+        timeout-minutes: 9
         run: |
           bash scripts/ci-install-apt-deps.sh meson ninja-build pkg-config libprotobuf-dev protobuf-compiler zlib1g-dev libopenblas-dev
       - name: Build frozen ONLINE-2 portable bundle

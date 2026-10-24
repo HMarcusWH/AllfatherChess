@@ -135,7 +135,7 @@ jobs:
           python3 -m json.tool config/allfather.strength.validation.json >/dev/null
 
       - name: Install LC0 real-inference dependencies
-        timeout-minutes: 5
+        timeout-minutes: 9
         run: |
           bash scripts/ci-install-apt-deps.sh meson ninja-build pkg-config libprotobuf-dev protobuf-compiler zlib1g-dev libopenblas-dev
 

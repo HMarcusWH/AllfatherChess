@@ -212,7 +212,7 @@ jobs:
         timeout-minutes: 5
         run: test "$(git rev-parse HEAD)" = "$ALLFATHER_SOURCE_SHA"
       - name: Install build dependencies
-        timeout-minutes: 5
+        timeout-minutes: 9
         run: |
           bash scripts/ci-install-apt-deps.sh build-essential meson ninja-build pkg-config libprotobuf-dev protobuf-compiler zlib1g-dev libopenblas-dev
       - name: Cache networks
@@ -255,7 +255,7 @@ jobs:
         timeout-minutes: 5
         run: chmod +x build/candidate-download/online-engine-opt-v2/bin/*
       - name: Install constituent build dependencies
-        timeout-minutes: 5
+        timeout-minutes: 9
         run: |
           bash scripts/ci-install-apt-deps.sh build-essential meson ninja-build pkg-config libprotobuf-dev protobuf-compiler zlib1g-dev libopenblas-dev
       - name: Checkout pristine LC0 control
@@ -392,7 +392,7 @@ jobs:
           mv build/candidate-download/online-engine-opt-v2 build/online-engine-opt-v2
           chmod +x build/online-engine-opt-v2/bin/*
       - name: Install one shared qualification substrate
-        timeout-minutes: 5
+        timeout-minutes: 9
         run: |
           bash scripts/ci-install-apt-deps.sh build-essential git meson ninja-build pkg-config libprotobuf-dev protobuf-compiler zlib1g-dev libopenblas-dev python3-pip python3-setuptools python3-wheel
           python3 -m pip install --break-system-packages --no-build-isolation --no-deps \

@@ -159,7 +159,7 @@ jobs:
           name: local1-fastchess-source-test
           path: build/fastchess-source-test
       - name: Install build dependencies
-        timeout-minutes: 5
+        timeout-minutes: 9
         run: |
           bash scripts/ci-install-apt-deps.sh build-essential git meson ninja-build pkg-config libprotobuf-dev protobuf-compiler zlib1g-dev libopenblas-dev
       - name: Build exact qualification binaries
@@ -205,7 +205,7 @@ jobs:
           name: local1-qualification-build
           path: .
       - name: Restore executable bits and install runtime/test dependencies
-        timeout-minutes: 5
+        timeout-minutes: 9
         run: |
           chmod +x build/tools/fastchess/bin/fastchess engines/lc0/build/release/lc0
           find build -path '*/bin/*' -type f -exec chmod +x {} +
@@ -263,7 +263,7 @@ jobs:
           name: local1-qualification-build
           path: build
       - name: Restore executable bits and install dependencies
-        timeout-minutes: 5
+        timeout-minutes: 9
         run: |
           chmod +x build/tools/fastchess/bin/fastchess engines/lc0/build/release/lc0
           find build -path '*/bin/*' -type f -exec chmod +x {} +
@@ -311,7 +311,7 @@ jobs:
           name: local1-qualification-build
           path: build
       - name: Install independent validator dependency
-        timeout-minutes: 5
+        timeout-minutes: 9
         run: |
           bash scripts/ci-install-apt-deps.sh python3-pip python3-setuptools python3-wheel
           python3 -m pip install --break-system-packages --no-build-isolation --no-deps             --require-hashes -r qualification/local-game-requirements.txt

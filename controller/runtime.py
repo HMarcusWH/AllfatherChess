@@ -1582,6 +1582,7 @@ class BackendManager:
             for spec in config.instances_with_role("shadow")
         }
         self._shadow_exit_handler: Callable[[str, int | None, int | None], None] | None = None
+        self._process_pre_reap_handler: Callable[[str, int], None] | None = None
         self._observer: Callable[[str, int, str, float], None] | None = None
         #: Observer exceptions, kept as evidence. An observer failure costs
         #: replay evidence, never the outward search, so it is recorded here
@@ -2388,6 +2389,19 @@ class BackendManager:
         with self._lock:
             self._shadow_exit_handler = handler
 
+    def set_process_pre_reap_handler(
+        self, handler: Callable[[str, int], None] | None
+    ) -> None:
+        """Register an unexpected-exit pre-reap OBSERVER, never move authority."""
+        with self._lock:
+            self._process_pre_reap_handler=handler
+
+    def _handle_pre_reap(self, name: str, pid: int) -> None:
+        with self._lock:
+            callback=self._process_pre_reap_handler
+        if callback is not None:
+            callback(name,pid)
+
     def set_instance_observer(
         self, observer: Callable[[str, int, str, float], None] | None
     ) -> None:
@@ -2511,6 +2525,7 @@ class BackendManager:
                         args=list(spec.args),
                         environment=dict(spec.environment),
                         on_exit=self._handle_exit,
+                        on_pre_reap=self._handle_pre_reap,
                     )
                     self.backends[name] = process
                     process.start()

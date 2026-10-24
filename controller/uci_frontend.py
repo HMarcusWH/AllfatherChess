@@ -744,14 +744,23 @@ class UciFrontend:
             if authority_invalidating and not clock.block_authority():
                 # Publication already won the terminal race.
                 return
+        # The soft cutoff reserves time for BOTH anchor and observational
+        # engines to quiesce before the immutable hard deadline. An anchor
+        # stop may legitimately block for its bounded grace. Start shadow
+        # teardown first only for non-invalidating soft expiry; this call
+        # merely schedules generation-scoped STOP writers and never waits for
+        # a shadow pipe. Explicit user STOP still prioritizes anchor authority.
+        if not authority_invalidating:
+            self._shadow_cancel(
+                "clock_soft_stop",token,authority_invalidating=False,
+            )
         remaining = max(0, clock.plan.hard_deadline - time.monotonic())
         if remaining > 0 and clock.dispatched.is_set():
             self.runtime.stop_anchor_for(token, timeout=remaining)
-        self._shadow_cancel(
-            "clock_user_stop" if authority_invalidating else "clock_soft_stop",
-            token,
-            authority_invalidating=authority_invalidating,
-        )
+        if authority_invalidating:
+            self._shadow_cancel(
+                "clock_user_stop",token,authority_invalidating=True,
+            )
 
     def _clock_fail(self, token: int, reason: str) -> None:
         with self._state_lock:

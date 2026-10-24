@@ -1,0 +1,41 @@
+name: Resource lifecycle hardening (candidate)
+on:
+  pull_request:
+    paths:
+      - 'controller/uci_frontend.py'
+      - 'controller/runtime.py'
+      - 'controller/shadow.py'
+      - 'controller/resource_measurement.py'
+      - 'adapters/process/uci_process.py'
+      - 'adapters/resource/linux_proc.py'
+      - 'tests/controller/test_clock_soft_stop_priority.py'
+      - 'tests/controller/test_local1_resource_diagnostic.py'
+      - 'tests/controller/test_resource_measurement.py'
+      - 'tests/adapters/test_uci_process.py'
+      - 'scripts/diagnose-local1-resource-failures.py'
+      - '.github/workflows/resource-lifecycle-hardening.yml'
+permissions:
+  contents: read
+jobs:
+  bounded-lifecycle:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - run: test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+      - name: Compile modified controller and diagnostic
+        run: |
+          python3 -m compileall -q controller adapters scripts tests
+      - name: Exercise clock ordering, original resource and original process contracts
+        run: |
+          python3 -m unittest tests.controller.test_clock_soft_stop_priority -v
+          python3 -m unittest tests.controller.test_local1_resource_diagnostic -v
+          python3 tests/controller/test_resource_measurement.py
+          python3 tests/adapters/test_linux_proc_resource.py
+          python3 tests/adapters/test_uci_process.py
+          python3 tests/controller/test_online_deadlines.py
+          python3 -m unittest tests.controller.test_durable_wall_denial -v
+      - name: No release policy promotion
+        run: python3 scripts/release-promotion-policy.py --output /tmp/allfather-resource-release-prohibition.json

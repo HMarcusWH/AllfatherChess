@@ -181,11 +181,11 @@ def verify_one(path:Path,expected_color:str,sha_source:str):
     allowed_post={"/api/token/test",f"/api/challenge/{gid}/accept"}
     for row in req:
         require(isinstance(row,dict),"malformed HTTP request evidence")
-        method,path=row.get("method"),row.get("path")
-        if method=="GET":require(path in allowed_get,"unauthorized GET reached fake API")
+        method,request_path=row.get("method"),row.get("path")
+        if method=="GET":require(request_path in allowed_get,"unauthorized GET reached fake API")
         elif method=="POST":
-            if path not in allowed_post:
-                require(re.fullmatch(r"/api/bot/game/"+gid+r"/move/[a-h][1-8][a-h][1-8][qrbn]?",str(path)) is not None,
+            if request_path not in allowed_post:
+                require(re.fullmatch(r"/api/bot/game/"+gid+r"/move/[a-h][1-8][a-h][1-8][qrbn]?",str(request_path)) is not None,
                         "unexpected POST reached fake API")
         else:raise EvidenceFailure("unsupported HTTP method reached fake API")
         require(row.get("status")==200,"unexpected HTTP response in successful game")

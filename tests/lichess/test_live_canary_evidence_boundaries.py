@@ -5,6 +5,7 @@ They verify that cleanup/image/readonly-source identity defects are rejected
 at the specific source-independent gate BEFORE game data can be consulted.
 """
 from __future__ import annotations
+import ast
 import hashlib
 import importlib.util
 import json
@@ -110,6 +111,22 @@ class IndependentNegativeEvidence(unittest.TestCase):
         self.assertEqual(diagnostic["error_type"],"EvidenceFailure")
         self.assertEqual(diagnostic["source_gate"],
                          {"function":"UNCLASSIFIED","line":0})
+
+    def test_verifier_evidence_root_path_is_never_rebound(self):
+        # The replay validator must always join against the original evidence
+        # directory, not a loop-local string such as lib/lichess_bot.py.
+        source=(ROOT/"scripts/verify-online-live-canary.py").read_text(encoding="utf-8")
+        parsed=ast.parse(source)
+        functions=[node for node in parsed.body
+                   if isinstance(node,ast.FunctionDef) and node.name=="verify_one"]
+        self.assertEqual(len(functions),1)
+        fn=functions[0]
+        self.assertEqual(fn.args.args[0].arg,"path")
+        rebindings=[node.lineno for node in ast.walk(fn)
+                    if isinstance(node,ast.Name) and node.id=="path"
+                    and isinstance(node.ctx,(ast.Store,ast.Del))]
+        self.assertEqual(rebindings,[],
+                         "independent verifier evidence-root path was overwritten")
 
     def test_verifier_source_line_is_bound_to_known_function(self):
         with tempfile.TemporaryDirectory() as d:

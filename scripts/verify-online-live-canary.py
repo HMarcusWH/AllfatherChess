@@ -226,8 +226,8 @@ def verify_one(path:Path,expected_color:str,sha_source:str):
     patches=manifest.get("patched_upstream",{})
     require(isinstance(patches,dict) and set(patches)==set(expected_upstream),
             "pinned upstream patched-source map not closed")
-    for path,locked in expected_upstream.items():
-        entry=patches[path]
+    for upstream_path,locked in expected_upstream.items():
+        entry=patches[upstream_path]
         require(isinstance(entry,dict) and entry.get("git_blob_sha1")==locked and
                 re.fullmatch(r"[0-9a-f]{64}",entry.get("patched_sha256","")) is not None,
                 "pinned upstream Git blob/overlay drift")

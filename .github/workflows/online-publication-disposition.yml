@@ -1,0 +1,39 @@
+name: ONLINE clock post-publication replay regression
+on:
+  pull_request:
+    paths:
+      - 'controller/shadow.py'
+      - 'controller/uci_frontend.py'
+      - 'controller/replay.py'
+      - 'tests/controller/test_online_deadlines.py'
+      - 'tests/controller/test_clock_verify_headroom.py'
+      - 'docs/ONLINE_PUBLICATION_DISPOSITION.md'
+      - '.github/workflows/online-publication-disposition.yml'
+permissions:
+  contents: read
+jobs:
+  real-subprocess-deadline:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - run: test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+      - name: Ensure controller module and tests compile
+        run: python3 -m py_compile controller/shadow.py tests/controller/test_online_deadlines.py tests/controller/test_clock_verify_headroom.py
+      - name: Exercise actual fake-engine clock publication, quiescence and manifest
+        run: python3 tests/controller/test_online_deadlines.py
+      - name: Check deterministic late-VERIFY headroom and zero dispatch
+        run: python3 -m unittest tests.controller.test_clock_verify_headroom -v
+      - name: Verify incomplete publication never promotes VERIFY terminal evidence
+        run: python3 -m unittest tests.controller.test_publication_disposition_qualification -v
+      - name: Ensure current offline release prohibitions remain
+        run: |
+          python3 - <<'PY'
+          import json
+          for path in ("qualification/release-image-v1.json",
+                       "qualification/release-qualification-v1.json"):
+              value=json.load(open(path))
+              assert value["public_bot_release"] is False
+          PY

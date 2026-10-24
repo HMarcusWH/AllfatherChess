@@ -188,7 +188,7 @@ jobs:
           ./scripts/fetch-reckless-network.sh >/dev/null
 
       - name: Install LC0 validation dependencies
-        timeout-minutes: 5
+        timeout-minutes: 9
         run: |
           bash scripts/ci-install-apt-deps.sh meson ninja-build pkg-config libprotobuf-dev protobuf-compiler zlib1g-dev
 

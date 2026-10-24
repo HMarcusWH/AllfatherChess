@@ -1,0 +1,29 @@
+name: CI signed host prerequisite bootstrap (not a release lock)
+on:
+  pull_request:
+    paths:
+      - 'scripts/ci-install-apt-deps.sh'
+      - 'tests/ci/test_ci_apt_bootstrap.py'
+      - '.github/workflows/ci-apt-bootstrap.yml'
+permissions:
+  contents: read
+jobs:
+  bootstrap-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - run: test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+      - run: python3 -m unittest discover -s tests/ci -p test_ci_apt_bootstrap.py -v
+      - run: bash scripts/ci-install-apt-deps.sh --render-sources noble amd64 >/dev/null
+      - name: Release policy stays explicitly blocked
+        run: |
+          python3 - <<'PY'
+          import json
+          for name in ('qualification/release-image-v1.json',
+                       'qualification/release-qualification-v1.json'):
+              value=json.load(open(name))
+              assert value['public_bot_release'] is False
+          PY

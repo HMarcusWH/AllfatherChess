@@ -5,6 +5,7 @@ sealed 4-process UCI selection. Only the copied upstream is patched.
 """
 from __future__ import annotations
 import hashlib
+import inspect
 import json
 import shutil
 import subprocess
@@ -16,8 +17,9 @@ from deploy.lichess import live_bridge_policy
 
 class LiveStageError(RuntimeError):
     """A source-independent, non-secret diagnosis for a staged operation."""
-    def __init__(self, code: str):
-        self.code=code
+    def __init__(self, code: str, *, operation_code: str = "NOT_APPLICABLE"):
+        self.code = code
+        self.operation_code = operation_code
         super().__init__(code)
 
 
@@ -25,7 +27,60 @@ def _stage(code, call):
     try:
         return call()
     except Exception as exc:
-        raise LiveStageError(code) from exc
+        operation = (
+            _frozen_offline_operation(exc)
+            if code == "OFFLINE_STAGE_COPY_OR_CONFIG" else "NOT_APPLICABLE"
+        )
+        raise LiveStageError(code, operation_code=operation) from exc
+
+
+def _frozen_offline_operation(exc: BaseException) -> str:
+    """Classify the executed frozen stage frame; never serialize exception data.
+
+    The offline stage function is never altered or skipped. Its bytecode frame
+    and uniquely located source call sites are used only to identify which
+    immutable operation threw. A missing/altered mapping returns UNKNOWN.
+    """
+    stage_code = getattr(offline_session.stage, "__code__", None)
+    if stage_code is None:
+        return "OFFLINE_STAGE_UNKNOWN"
+    failed_line = None
+    tb = exc.__traceback__
+    while tb is not None:
+        if tb.tb_frame.f_code is stage_code:
+            failed_line = tb.tb_lineno
+        tb = tb.tb_next
+    if failed_line is None:
+        return "OFFLINE_STAGE_UNKNOWN"
+    try:
+        source, first_line = inspect.getsourcelines(offline_session.stage)
+    except (OSError, TypeError):
+        return "OFFLINE_STAGE_UNKNOWN"
+    anchors = (
+        ("OFFLINE_STAGE_SOURCE_READ", "lock = json.loads("),
+        ("OFFLINE_STAGE_UPSTREAM_RECHECK", "fetch_bridge.verify(bridge, lock)"),
+        ("OFFLINE_STAGE_ENGINE_RECHECK", "seal = subprocess.run("),
+        ("OFFLINE_STAGE_RELEASE_COPY", "shutil.copytree(release, runtime)"),
+        ("OFFLINE_STAGE_BRIDGE_EXPORT", "fetch_bridge.copy_tracked(bridge, upstream)"),
+        ("OFFLINE_STAGE_OVERLAY_VERIFY", "frozen = subprocess.check_output(["),
+        ("OFFLINE_STAGE_OVERLAY_COPY", 'shutil.copyfile(extra, upstream / "extra_game_handlers.py")'),
+        ("OFFLINE_STAGE_CONFIG_GENERATE", "effective = bridge_policy.generate("),
+        ("OFFLINE_STAGE_RELEASE_IDENTITY", 'return {"release": runtime, "bridge": upstream, "config": config_path,'),
+    )
+    positions = []
+    for code, marker in anchors:
+        matches = [first_line + i for i, line in enumerate(source) if marker in line]
+        if len(matches) != 1:
+            return "OFFLINE_STAGE_UNKNOWN"
+        positions.append((code, matches[0]))
+    if any(a[1] >= b[1] for a, b in zip(positions, positions[1:])):
+        return "OFFLINE_STAGE_UNKNOWN"
+    operation = "OFFLINE_STAGE_INITIALIZATION"
+    for code, lineno in positions:
+        if failed_line < lineno:
+            break
+        operation = code
+    return operation
 
 
 # In a private OCI image these modules live under /opt/live-canary, while

@@ -13,6 +13,15 @@ STAGES=frozenset({
 CLASSES=frozenset({
     "ValueError","RuntimeError","OSError","PermissionError","FileNotFoundError",
     "CalledProcessError","TimeoutExpired","KeyError","TypeError","OtherError",
+    "ShutilError","ModuleNotFoundError","ImportError","AttributeError",
+})
+OFFLINE_OPERATIONS=frozenset({
+    "NOT_APPLICABLE","OFFLINE_STAGE_UNKNOWN","OFFLINE_STAGE_INITIALIZATION",
+    "OFFLINE_STAGE_SOURCE_READ","OFFLINE_STAGE_UPSTREAM_RECHECK",
+    "OFFLINE_STAGE_ENGINE_RECHECK","OFFLINE_STAGE_RELEASE_COPY",
+    "OFFLINE_STAGE_BRIDGE_EXPORT","OFFLINE_STAGE_OVERLAY_VERIFY",
+    "OFFLINE_STAGE_OVERLAY_COPY","OFFLINE_STAGE_CONFIG_GENERATE",
+    "OFFLINE_STAGE_RELEASE_IDENTITY",
 })
 
 
@@ -23,6 +32,7 @@ def sanitize(raw: str, exit_code: int) -> dict[str, object] | None:
         raise ValueError("invalid process exit status")
     phase="STAGE_FAILURE_UNCLASSIFIED"
     failure_class="OtherError"
+    offline_operation="NOT_APPLICABLE"
     for line in reversed(raw.splitlines()):
         try:
             value=json.loads(line)
@@ -38,6 +48,10 @@ def sanitize(raw: str, exit_code: int) -> dict[str, object] | None:
             kind=value.get("exception_type")
             if isinstance(kind,str) and kind in CLASSES:
                 failure_class=kind
+            detail=value.get("offline_operation")
+            if (phase=="OFFLINE_STAGE_COPY_OR_CONFIG"
+                and isinstance(detail,str) and detail in OFFLINE_OPERATIONS):
+                offline_operation=detail
             break
     return {
         "schema_version":1,
@@ -45,6 +59,7 @@ def sanitize(raw: str, exit_code: int) -> dict[str, object] | None:
         "status":"NOT_COMPLETED",
         "stage_code":phase,
         "exception_type":failure_class,
+        "offline_operation":offline_operation,
         "process_exit_code":exit_code,
         "live_game_authorized":False,
         "public_bot_release":False,

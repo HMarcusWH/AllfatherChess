@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -80,12 +81,19 @@ def main():
         approved_classes={"ValueError","RuntimeError","OSError","PermissionError",
                           "FileNotFoundError","CalledProcessError","TimeoutExpired",
                           "KeyError","TypeError"}
-        failure_class=type(failure).__name__
+        failure_class = "ShutilError" if isinstance(failure, shutil.Error) else type(failure).__name__
+        approved_classes.update({"ShutilError","ModuleNotFoundError","ImportError","AttributeError"})
         if failure_class not in approved_classes:
             failure_class="OtherError"
+        offline_operation = (
+            exc.operation_code
+            if isinstance(exc, LiveStageError) and code == "OFFLINE_STAGE_COPY_OR_CONFIG"
+            else "NOT_APPLICABLE"
+        )
         print(json.dumps({"scope":"synthetic-stage-preflight-only",
             "status":"FAIL","stage_code":code,
             "exception_type":failure_class,
+            "offline_operation":offline_operation,
             "live_game_authorized":False,"public_bot_release":False},
             sort_keys=True),file=sys.stderr)
         return 2

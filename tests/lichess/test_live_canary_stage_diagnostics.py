@@ -73,6 +73,58 @@ class StageBoundaryTests(unittest.TestCase):
         self.assertNotIn("private",str(verdict))
         self.assertIsNone(sanitize(raw,0))
 
+
+    def test_frozen_offline_operation_isolated_without_exposing_exception(self):
+        from types import SimpleNamespace
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            with mock.patch.object(live_session, "_pinned_upstream_precheck"), \
+                 mock.patch.object(live_session, "_sealed_engine_precheck"), \
+                 mock.patch.object(live_session.offline_session.fetch_bridge, "verify"), \
+                 mock.patch.object(live_session.offline_session.subprocess, "run",
+                     return_value=SimpleNamespace(returncode=0,
+                         stdout="offline seal verified", stderr="")), \
+                 mock.patch.object(live_session.offline_session.shutil, "copytree",
+                     side_effect=live_session.shutil.Error("Bearer private-token")):
+                with self.assertRaises(live_session.LiveStageError) as caught:
+                    live_session.stage_live(
+                        release=root/"release", bridge=root/"bridge",
+                        workspace=root/"session", opponent="approved_test_bot")
+                self.assertEqual(caught.exception.code, "OFFLINE_STAGE_COPY_OR_CONFIG")
+                self.assertEqual(caught.exception.operation_code, "OFFLINE_STAGE_RELEASE_COPY")
+                self.assertNotIn("Bearer", str(caught.exception))
+                receipt=sanitize(json.dumps({
+                    "scope":"synthetic-stage-preflight-only",
+                    "status":"FAIL",
+                    "stage_code":caught.exception.code,
+                    "exception_type":"ShutilError",
+                    "offline_operation":caught.exception.operation_code,
+                    "secret":"Bearer private-token",
+                }), 2)
+                self.assertEqual(receipt["offline_operation"], "OFFLINE_STAGE_RELEASE_COPY")
+                self.assertEqual(receipt["exception_type"], "ShutilError")
+                self.assertNotIn("Bearer", str(receipt))
+
+    def test_unknown_operation_detail_cannot_be_injected(self):
+        payload=json.dumps({
+            "scope":"synthetic-stage-preflight-only","status":"FAIL",
+            "stage_code":"OFFLINE_STAGE_COPY_OR_CONFIG",
+            "exception_type":"AttributeError",
+            "offline_operation":"Bearer stolen-secret",
+        })
+        verdict=sanitize(payload, 2)
+        self.assertEqual(verdict["offline_operation"], "NOT_APPLICABLE")
+        self.assertNotIn("stolen-secret", str(verdict))
+
+    def test_non_offline_stage_must_not_accept_offline_operation(self):
+        payload=json.dumps({
+            "scope":"synthetic-stage-preflight-only","status":"FAIL",
+            "stage_code":"UPSTREAM_LOCK_CHECK",
+            "exception_type":"ShutilError",
+            "offline_operation":"OFFLINE_STAGE_RELEASE_COPY",
+        })
+        self.assertEqual(sanitize(payload, 2)["offline_operation"], "NOT_APPLICABLE")
+
     def test_unknown_stage_cannot_be_injected(self):
         raw=json.dumps({"scope":"synthetic-stage-preflight-only","status":"FAIL",
                         "stage_code":"TOKEN_PRIVATE_VALUE","exception_type":"SecretClass"})

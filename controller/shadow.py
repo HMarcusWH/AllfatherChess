@@ -2540,6 +2540,30 @@ class ShadowRunCoordinator:
     # worker
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _published_clock_disposition(
+        active: _ActiveRun,
+        disposition: str,
+        stop_reason: str | None,
+    ) -> tuple[str, str | None]:
+        """Separate deadline work-fencing from already-published authority.
+
+        The clock can close its optional-work window after bestmove has crossed
+        stdout. A cancellation *caused only by that work fence* must never
+        retroactively cancel the published decision. The observation was not
+        necessarily complete: use a distinct, non-qualifying disposition rather
+        than promoting it to "completed". Explicit cancellation and failures
+        remain unchanged.
+        """
+        if (
+            disposition == "cancelled"
+            and active.context.clock is not None
+            and active.outward_publication_done.is_set()
+            and not active._cancelled
+        ):
+            return ("published_incomplete", "optional_clock_work_closed_after_publication")
+        return (disposition, stop_reason)
+
     def _run_worker(self, active: _ActiveRun) -> None:
         disposition = "completed"
         stop_reason: str | None = active.cancel_reason
@@ -2898,6 +2922,8 @@ class ShadowRunCoordinator:
                     stop_reason = active.cancel_reason
                 if active.context.clock is not None:
                     active.run.clock_outcome = active.context.clock.outcome()
+                disposition,stop_reason = self._published_clock_disposition(
+                    active,disposition,stop_reason)
                 active.run.finalize(disposition=disposition, stop_reason=stop_reason)
                 parent_manifest_sha = sha256_file(active.run.run_dir / "manifest.json")
                 if active.verification is not None:
@@ -3901,6 +3927,37 @@ class ShadowRunCoordinator:
                     cpu_ms=(time.thread_time_ns() - started_cpu_ns) / 1_000_000.0,
                 )
 
+    def _verify_clock_headroom_open(self, active: _ActiveRun) -> bool:
+        """Gate optional VERIFY on the existing qualified quiescence budget.
+
+        No new timing allowance or engine-node estimate is introduced. In
+        clocked mode, a new VERIFY phase needs at least the configured
+        quiesce_budget_ms BEFORE soft expiry. The TimePlan's independent
+        post-soft stop and output margins remain untouched.
+        Non-clocked VERIFY keeps its existing admission semantics.
+        """
+        clock = active.context.clock
+        if clock is None:
+            return True
+        online = self.runtime.config.online_time
+        if online is None or not clock.work_open():
+            return False
+        reserve_s = max(0.0, float(online.quiesce_budget_ms)) / 1000.0
+        now = time.monotonic()
+        return bool(
+            now + reserve_s < clock.plan.soft_deadline
+            and now + reserve_s < clock.plan.hard_deadline
+        )
+
+    @staticmethod
+    def _withhold_late_verification(verification: VerificationRun) -> None:
+        # Before any dispatch, explicit SKIP; after partial dispatch, three-way
+        # VERIFY is INCOMPLETE. Neither status can authorize a completed VERIFY.
+        verification.set_disposition(
+            "incomplete" if verification.stages() else "skipped",
+            "clock_headroom_insufficient_for_optional_verify",
+        )
+
     def _execute_verification(self, active: _ActiveRun) -> None:
         settings = self.runtime.config.verification
         if settings is None or active.cancelled or self._closed:
@@ -3912,6 +3969,11 @@ class ShadowRunCoordinator:
             )
             return
         if active.anchor_completed.is_set():
+            return
+        if not self._verify_clock_headroom_open(active):
+            active.run.note(
+                "VERIFY skipped: insufficient qualified headroom before soft deadline"
+            )
             return
 
         owner_bestmoves: dict[str, str | None] = {}
@@ -3949,10 +4011,17 @@ class ShadowRunCoordinator:
         verification = VerificationRun(plan=plan, run_dir=active.run.run_dir)
         active.verification = verification
 
+        if not self._verify_clock_headroom_open(active):
+            self._withhold_late_verification(verification)
+            return
+
         # Prepare all three writers before dispatching any verifier. If setup
         # fails, v1 refuses a partial comparison instead of silently changing
         # the experiment from three-way to two-way.
         for owner in plan.owners:
+            if not self._verify_clock_headroom_open(active):
+                self._withhold_late_verification(verification)
+                return
             if active.anchor_completed.is_set() or active.cancelled:
                 verification.set_disposition("skipped", "anchor completed or run cancelled")
                 return
@@ -3990,7 +4059,7 @@ class ShadowRunCoordinator:
             else:
                 break
 
-        if dispatched != len(plan.owners):
+        if dispatched != len(plan.owners) and verification.disposition == "running":
             verification.set_disposition(
                 "incomplete",
                 "not all verification participants were dispatched before the decision boundary",
@@ -4019,6 +4088,9 @@ class ShadowRunCoordinator:
         spec = self.runtime.spec(instance)
         stream = verification.stream(instance)
         if stream is None:
+            return False
+        if not self._verify_clock_headroom_open(active):
+            self._withhold_late_verification(verification)
             return False
 
         search_id = f"{active.run.run_id}:verify:{instance}:0"
@@ -4142,12 +4214,14 @@ class ShadowRunCoordinator:
                 admission is not None
                 and not self._work_grant_dispatch_permitted(active, admission)
             )
+            headroom_expired = not self._verify_clock_headroom_open(active)
             if (
                 active.cancelled
                 or self._closed
                 or active.anchor_completed.is_set()
                 or not self.runtime.shadow_available(instance)
                 or grant_expired
+                or headroom_expired
             ):
                 if admission is not None:
                     self._release_work_grant(
@@ -4167,6 +4241,8 @@ class ShadowRunCoordinator:
                             "boundary closed during phase configuration"
                         ),
                     )
+                if headroom_expired:
+                    self._withhold_late_verification(verification)
                 return False
 
             verification.activate_stream(instance)
@@ -4201,9 +4277,11 @@ class ShadowRunCoordinator:
             phase="VERIFY",
         )
         permit = (
-            (lambda: self._work_grant_dispatch_permitted(active, admission))
+            (lambda: self._verify_clock_headroom_open(active)
+             and self._work_grant_dispatch_permitted(active, admission))
             if admission is not None
-            else (lambda: self._shadow_dispatch_permitted(active))
+            else (lambda: self._verify_clock_headroom_open(active)
+                  and self._shadow_dispatch_permitted(active))
         )
         dispatched = self.runtime.start_shadow_search(
             instance,
@@ -4242,7 +4320,11 @@ class ShadowRunCoordinator:
                     stage,
                     completed_ms=now_ms,
                     disposition="stopped",
-                    stop_reason="dispatch_window_closed_before_write",
+                    stop_reason=(
+                        "clock_headroom_insufficient_before_write"
+                        if not self._verify_clock_headroom_open(active)
+                        else "dispatch_window_closed_before_write"
+                    ),
                 )
                 verification.set_disposition(
                     "incomplete",

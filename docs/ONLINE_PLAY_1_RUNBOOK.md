@@ -57,6 +57,16 @@ an opportunity for automatic policy relaxation.
   PR-A or a GitHub workflow. CI signatures are ephemeral synthetic test
   fixtures, incapable of authorizing an actual Bot API account.
 
+### Production host receipt boundary
+
+The production gateway and bridge entrypoint accept **only**
+`host-observation-only` receipts from independently inspected hosts.
+A correctly signed `synthetic-ci-fixture-only` receipt is still refused by
+default. The synthetic Docker bridge test harness alone opts into fixture
+validation through a fixed in-process argument; the live CLI, source policy,
+and operator lease cannot enable that argument. A synthetic CI result remains
+ineligible for PR-B host admission.
+
 ## Synthetic developer tests
 
 This is an implementation/verification target, not a positive attestation.

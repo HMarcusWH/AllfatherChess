@@ -75,7 +75,8 @@ def main():
             release=ROOT/"dist/online3a-stage",
             bridge=ROOT/"build/vendor/lichess-bot",
             work=STAGE_SESSION,
-            state=Path("/var/lib/allfather-canary"))
+            state=Path("/var/lib/allfather-canary"),
+            allow_synthetic_ci_fixture=True)
         phase="supervised_pinned_game"
         result=supervisor.run(lease_file=op/"admission.json",
                               binding_file=op/"source-binding.json",timeout_s=780)

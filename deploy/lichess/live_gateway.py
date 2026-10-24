@@ -350,7 +350,9 @@ class LiveGateway:
                 game=payload.get("game",{})
                 if not isinstance(game,dict) or not re.fullmatch(r"[A-Za-z0-9]{8}",str(game.get("id",""))):
                     raise GatewayFailure("malformed gameStart")
-                if str(game.get("opponent",{}).get("username","")).casefold()!=self.session.opponent_bot.casefold():
+                opponent=game.get("opponent")
+                if (not isinstance(opponent,dict)
+                    or str(opponent.get("username","")).casefold()!=self.session.opponent_bot.casefold()):
                     raise GatewayFailure("unapproved gameStart opponent")
                 self.state.game_start(game["id"])
                 self.session.game_id=game["id"]

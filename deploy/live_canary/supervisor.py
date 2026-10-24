@@ -44,8 +44,9 @@ def _git(*args):
     return subprocess.check_output(["git","-C",str(ROOT),*args],
                                    text=True,stderr=subprocess.PIPE,timeout=12).strip()
 
-def verify_host_receipt(host: dict, binding: SourceBinding) -> None:
-    """Check exact source-bound host facts, not just the receipt's claimed hash."""
+def verify_host_receipt(host: dict, binding: SourceBinding, *,
+                        allow_synthetic_ci_fixture: bool = False) -> None:
+    """Check signed host facts; synthetic CI receipts cannot admit live runtime."""
     if not isinstance(host,dict) or host.get("scope") not in (
             "synthetic-ci-fixture-only","host-observation-only"):
         raise SupervisorRefused("host receipt format unrecognized")
@@ -64,6 +65,13 @@ def verify_host_receipt(host: dict, binding: SourceBinding) -> None:
             "gateway_only_secret_mount","bridge_external_tcp_denied"}
     if set(host)!=required or type(host.get("schema_version")) is not int or host["schema_version"]!=1:
         raise SupervisorRefused("host observation missing, extra or invalid fields")
+    # Signed fixtures prove only the isolated offline test. Even if their digest
+    # is valid and a future operator supplies a real trust key, production must
+    # reject them. This override is passed only by the fixed synthetic CI
+    # bridge harness, never sourced from a lease, environment or live CLI.
+    if (host["scope"]=="synthetic-ci-fixture-only"
+            and allow_synthetic_ci_fixture is not True):
+        raise SupervisorRefused("synthetic CI host receipt cannot authorize runtime admission")
     claimed=host.get("observation_digest")
     if not isinstance(claimed,str) or len(claimed)!=64:
         raise SupervisorRefused("host observation digest missing")
@@ -108,7 +116,8 @@ def verify_host_receipt(host: dict, binding: SourceBinding) -> None:
 
 
 def validate_runtime_source(binding: SourceBinding,*,policy: Path,
-                            release: Path,host_receipt: Path):
+                            release: Path,host_receipt: Path,
+                            allow_synthetic_ci_fixture: bool = False):
     policy_digest=policy_is_denied(policy)
     if binding.policy_sha256!=policy_digest:
         raise SupervisorRefused("source-controlled live policy digest drift")
@@ -132,7 +141,8 @@ def validate_runtime_source(binding: SourceBinding,*,policy: Path,
         raise SupervisorRefused("sealed engine source is not exact canary HEAD")
     if host_receipt.is_symlink() or not host_receipt.is_file():
         raise SupervisorRefused("host receipt missing")
-    verify_host_receipt(json.loads(host_receipt.read_text()),binding)
+    verify_host_receipt(json.loads(host_receipt.read_text()),binding,
+                        allow_synthetic_ci_fixture=allow_synthetic_ci_fixture)
 
 def reap_namespace(*,except_pids: tuple[int,...]=(),deadline_s:float=8.0)->dict:
     """Reap all descendants in the dedicated PID namespace, not by shared PID name."""
@@ -220,7 +230,8 @@ class SupervisedResult:
 class LiveSupervisor:
     def __init__(self,*,binding: SourceBinding,lease:dict,key:Path,
                  policy:Path,host_receipt:Path,release:Path,
-                 bridge:Path,work:Path,state:Path):
+                 bridge:Path,work:Path,state:Path,
+                 allow_synthetic_ci_fixture: bool = False):
         if os.getpid()!=1:
             raise SupervisorRefused("live supervisor requires private PID namespace PID1")
         self.binding,self.lease,self.key=binding,lease,Path(key)
@@ -229,6 +240,9 @@ class LiveSupervisor:
         if (self.work != STAGE_SESSION or self.work.is_symlink()
             or self.work.is_relative_to(self.state)):
             raise SupervisorRefused("staged bridge must occupy exact private disposable mount")
+        # Private, in-process test-harness capability. The live entrypoint
+        # constructs this class without it; operator inputs cannot select it.
+        self._synthetic_ci_fixture=allow_synthetic_ci_fixture is True
         self.stopping=False
         self.phase="preflight"
         self.cleanup_error_type=None
@@ -243,7 +257,8 @@ class LiveSupervisor:
         if directory.is_symlink() or not directory.is_dir() or not os.access(directory,os.W_OK|os.X_OK):
             raise SupervisorRefused("durable shared kill switch volume missing or unwritable")
         validate_runtime_source(self.binding,policy=self.policy,release=self.release,
-                                host_receipt=self.host_receipt)
+                                host_receipt=self.host_receipt,
+                                allow_synthetic_ci_fixture=self._synthetic_ci_fixture)
         verify_admission(self.lease,self.binding,self.key)
         self.ledger.initialize()
         self.ledger.claim(self.lease["session_nonce"])

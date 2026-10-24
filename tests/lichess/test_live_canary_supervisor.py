@@ -155,14 +155,19 @@ class RepairRegressions(unittest.TestCase):
                                         separators=(",",":")).encode()).hexdigest()
         binding=dataclasses.replace(BINDING,host_digest=digest)
         report["observation_digest"]=digest
-        verify_host_receipt(report,binding)
+        # Even a correctly signed/bound CI fixture must be refused in live mode.
+        with self.assertRaisesRegex(SupervisorRefused,"synthetic CI host"):
+            verify_host_receipt(report,binding)
+        # The fixed synthetic bridge harness opts in explicitly. All its
+        # source, topology and digest validation remains mandatory.
+        verify_host_receipt(report,binding,allow_synthetic_ci_fixture=True)
         report["storage_tests"]["exec_stage_mount_verified"]=False
         with self.assertRaises(SupervisorRefused):
-            verify_host_receipt(report,binding)
+            verify_host_receipt(report,binding,allow_synthetic_ci_fixture=True)
         report["storage_tests"]["exec_stage_mount_verified"]=True
         report["capacity"]["capacity_complete"]=False
         with self.assertRaises(SupervisorRefused):
-            verify_host_receipt(report,binding)
+            verify_host_receipt(report,binding,allow_synthetic_ci_fixture=True)
 
     def test_staging_failure_drains_once_preserves_primary_and_cleanup(self):
         with tempfile.TemporaryDirectory() as d:

@@ -377,6 +377,44 @@ class CanaryProtocolFaults(unittest.TestCase):
             gateway._on_ndjson("events",{"type":"gameFinish",
                             "game":{"id":"other001"}},first=False)
 
+    def test_malformed_game_start_opponent_suspends_before_forwarding(self):
+        # Untrusted gameStart data must produce a controlled GatewayFailure,
+        # never an uncaught AttributeError that skips persistent suspension.
+        for opponent in (None, [], "approved_test_bot", 42, True):
+            with self.subTest(opponent=opponent), tempfile.TemporaryDirectory() as tmp:
+                state=GatewayState(Path(tmp)/"db.sqlite3","a"*48,
+                                   "allfatherfixture","approved_test_bot")
+                event={"type":"gameStart","game":{"id":GAME,"opponent":opponent}}
+                response=Response(200,ctype="application/x-ndjson",
+                                  body=(json.dumps(event)+"\n").encode())
+                remote=Remote(response)
+                gateway=LiveGateway.for_fake_test_only(state,FAKE_TOKEN,lambda:remote)
+                gateway.verified=VerifiedBot("allfatherfixture","allfatherfixture",("bot:play",))
+                gateway.session.token_verified=True
+                forwarded=[]
+                with self.assertRaises(GatewayFailure):
+                    gateway.stream_request(
+                        AdmittedRoute("GET","events","/api/stream/event"),
+                        forwarded.append,
+                    )
+                self.assertEqual(forwarded,[])
+                self.assertEqual(state.snapshot()["suspended"],1)
+                self.assertIsNone(state.snapshot()["game"])
+                self.assertEqual(len(remote.calls),1)
+                self.assertTrue(response.closed)
+                self.assertEqual(gateway.active_streams["events"],0)
+                self.assertFalse(gateway.stream_locks["events"].locked())
+
+    def test_valid_game_start_opponent_remains_bound(self):
+        self.state.challenge(GAME)
+        self.state.accept_once(GAME)
+        gateway=self.gateway(Remote(Response()))
+        gateway._on_ndjson("events",
+                           {"type":"gameStart",
+                            "game":{"id":GAME,"opponent":{"username":"approved_test_bot"}}},
+                           first=False)
+        self.assertEqual(self.state.snapshot()["game"],GAME)
+
     def test_unapproved_incoming_challenge_filtered_before_bridge(self):
         gateway=self.gateway(Remote(Response()))
         event={"type":"challenge","challenge":{

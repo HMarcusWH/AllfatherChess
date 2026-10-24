@@ -1,6 +1,8 @@
 """Real local HTTP socket adversarial tests of restricted gateway, no live DNS."""
 from __future__ import annotations
 import json
+import queue
+import socket
 import tempfile
 import threading
 import time
@@ -21,9 +23,18 @@ OPP="approved_test_bot"
 class FakeRemote:
     def __init__(self):
         self.calls=[]
+        self.hold_event_stream_open=False
+        self.malformed_event_stream=False
+        self.event_stream_ready=threading.Event()
+        self.accept_seen=threading.Event()
+        self.release_stream=threading.Event()
         outer=self
         class Handler(BaseHTTPRequestHandler):
+            protocol_version="HTTP/1.1"
             def log_message(self,*_):pass
+            def send_chunk(self,data):
+                self.wfile.write(f"{len(data):x}\r\n".encode("ascii")+data+b"\r\n")
+                self.wfile.flush()
             def do_POST(self):
                 size=int(self.headers.get("Content-Length","0"))
                 body=self.rfile.read(size)
@@ -32,6 +43,8 @@ class FakeRemote:
                     content=json.dumps({TEST_REAL:{"scopes":"bot:play","userId":OWNER}}).encode()
                 elif self.path.startswith("/api/challenge/") or self.path.startswith("/api/bot/game/"):
                     content=b'{"ok":true}'
+                    if self.path=="/api/challenge/"+GAME+"/accept":
+                        outer.accept_seen.set()
                 else:
                     self.send_error(403);return
                 self.send_response(200)
@@ -53,7 +66,25 @@ class FakeRemote:
                         "challenger":{"name":OPP,"title":"BOT"},
                         "destUser":{"name":OWNER,"title":"BOT"},
                         "timeControl":{"type":"clock","limit":600,"increment":5}}}
-                    content=b"\n"+json.dumps(c).encode()+b"\n"
+                    content=b"not-json\n" if outer.malformed_event_stream else b"\n"+json.dumps(c).encode()+b"\n"
+                    if outer.hold_event_stream_open:
+                        self.send_response(200)
+                        self.send_header("Content-Type","application/x-ndjson")
+                        self.send_header("Transfer-Encoding","chunked")
+                        self.end_headers()
+                        try:
+                            self.send_chunk(b"\n")
+                            self.send_chunk(json.dumps(c).encode()+b"\n")
+                            outer.event_stream_ready.set()
+                            if outer.accept_seen.wait(6):
+                                game={"type":"gameStart","game":{
+                                    "id":GAME,"opponent":{"username":OPP}}}
+                                self.send_chunk(json.dumps(game).encode()+b"\n")
+                            outer.release_stream.wait(7)
+                            self.wfile.write(b"0\r\n\r\n");self.wfile.flush()
+                        except (OSError,BrokenPipeError,ConnectionError):
+                            pass
+                        return
                 else:
                     self.send_error(403);return
                 self.send_response(200)
@@ -67,6 +98,7 @@ class FakeRemote:
         self.thread.start()
         self.url="http://127.0.0.1:"+str(self.server.server_address[1])
     def close(self):
+        self.release_stream.set()
         self.server.shutdown();self.server.server_close();self.thread.join(5)
 
 class TestSession(requests.Session):
@@ -136,6 +168,67 @@ class RealLocalGatewayHTTP(unittest.TestCase):
         self.assertEqual(payload["type"],"challenge")
         self.assertEqual(self.gateway.state.snapshot()["challenge"],GAME)
         response.close()
+    def test_pinned_default_iter_lines_observes_open_stream_and_game_start(self):
+        # This is the pinned lichess-bot consumer's exact default call:
+        # response.iter_lines(), NOT the previous chunk_size=1 approximation.
+        # A still-open upstream stream must not buffer the challenge or
+        # gameStart event until EOF, and acceptance must remain source-bound.
+        self.remote.hold_event_stream_open=True
+        response=self.request("GET","/api/stream/event",stream=True)
+        received=queue.Queue()
+        reader=None
+        try:
+            self.assertEqual(response.status_code,200)
+            self.assertEqual(response.headers.get("Transfer-Encoding"),"chunked")
+            self.assertTrue(self.remote.event_stream_ready.wait(3))
+            def consume():
+                try:
+                    source=response.iter_lines()  # default 512-byte chunks
+                    for _ in range(3):
+                        received.put(next(source))
+                except Exception as exc:
+                    received.put(exc)
+            reader=threading.Thread(target=consume,daemon=True)
+            reader.start()
+            heartbeat=received.get(timeout=3)
+            self.assertEqual(heartbeat,b"")
+            challenge=received.get(timeout=3)
+            self.assertIsInstance(challenge,bytes)
+            self.assertEqual(json.loads(challenge)["type"],"challenge")
+            self.assertEqual(self.gateway.state.snapshot()["challenge"],GAME)
+            self.assertFalse(self.remote.release_stream.is_set())
+            reply=self.request("POST","/api/challenge/"+GAME+"/accept")
+            self.assertEqual(reply.status_code,200)
+            self.assertTrue(self.remote.accept_seen.wait(2))
+            started=received.get(timeout=3)
+            self.assertIsInstance(started,bytes)
+            self.assertEqual(json.loads(started)["type"],"gameStart")
+            self.assertEqual(self.gateway.state.snapshot()["game"],GAME)
+        finally:
+            self.remote.release_stream.set()
+            response.close()
+            if reader is not None: reader.join(4)
+
+    def test_midstream_upstream_error_has_no_second_http_status_or_clean_eof(self):
+        self.remote.malformed_event_stream=True
+        request=(b"GET /api/stream/event HTTP/1.1\r\n"
+                 b"Host: live-gateway:8765\r\n"
+                 b"Authorization: Bearer "+SYNTHETIC_TOKEN.encode("ascii")
+                 +b"\r\nConnection: close\r\n\r\n")
+        with socket.create_connection(self.http.server_address,timeout=3) as sock:
+            sock.settimeout(5)
+            sock.sendall(request)
+            pieces=[]
+            while True:
+                chunk=sock.recv(4096)
+                if not chunk: break
+                pieces.append(chunk)
+        wire=b"".join(pieces)
+        self.assertEqual(wire.count(b"HTTP/1.1 "),1)
+        self.assertIn(b"Transfer-Encoding: chunked",wire)
+        self.assertNotIn(b"0\r\n\r\n",wire)
+        self.assertTrue(self.gateway.state.snapshot()["suspended"])
+
     def test_same_move_cannot_be_reposted_even_after_success(self):
         state=self.gateway.state
         state.challenge(GAME);state.accept_once(GAME);state.game_start(GAME)

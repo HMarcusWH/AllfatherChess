@@ -130,6 +130,15 @@ def main():
             (output/"failure.json").write_text(json.dumps({
                 "scope":"synthetic-fake-only","phase":phase,
                 "exception_type":type(exc).__name__,
+                "transitions":(
+                    server.transition_evidence()
+                    if server is not None
+                    else {"account_stream_opened":False,
+                          "challenge_issued":False,
+                          "challenge_accept_attempts":0,
+                          "challenge_accepted":False,
+                          "game_start_emissions":0,
+                          "game_stream_opened":False}),
                 "live_game_authorized":False,"public_bot_release":False
             },sort_keys=True)+"\n")
         except OSError:

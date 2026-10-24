@@ -49,6 +49,8 @@ class FakeLichess:
         self.accepted: list[dict] = []
         self.attempted_forbidden: list[str] = []
         self.challenge_accepted = False
+        self.challenge_accept_attempts = 0
+        self.game_start_emissions = 0
         self.challenge_payload = None
         self.initial_full_state = None
         self.started = False
@@ -325,6 +327,7 @@ class FakeLichess:
                     return self.respond(200, {TOKEN: {"scopes": "bot:play", "userId": "allfatherfixture"}})
                 if path == "/api/challenge/" + GAME_ID + "/accept":
                     with server.lock:
+                        server.challenge_accept_attempts += 1
                         if server.challenge_accepted:
                             self.record("POST", path, 409)
                             return self.respond(409, {"error": "duplicate accept"})
@@ -340,6 +343,7 @@ class FakeLichess:
                             "status": {"id": 20, "name": "started"}
                         }}
                         server.events.put(start_event)
+                        server.game_start_emissions += 1
                         if server.sessions is not None:
                             server.sessions.publish("event", start_event)
                     self.record("POST", path, 200)
@@ -514,6 +518,22 @@ class FakeLichess:
         self.http.shutdown()
         self.http.server_close()
         self.thread.join(timeout=5)
+
+    def transition_evidence(self) -> dict[str, bool | int]:
+        """Bounded, nonsecret transition counts; never serialize HTTP bodies.
+
+        Only the test fixture can emit these facts. They cannot satisfy the
+        independent verifier's full-game and durable-history requirements.
+        """
+        with self.lock:
+            return {
+                "account_stream_opened": self.event_stream_open.is_set(),
+                "challenge_issued": self.challenge_payload is not None,
+                "challenge_accept_attempts": self.challenge_accept_attempts,
+                "challenge_accepted": self.challenge_accepted,
+                "game_start_emissions": self.game_start_emissions,
+                "game_stream_opened": self.game_stream_open.is_set(),
+            }
 
     def evidence(self):
         with self.lock:

@@ -527,6 +527,9 @@ class GatewayHandler(BaseHTTPRequestHandler):
             self._raw_target=raw[1]
         return super().parse_request()
     def _reply(self,status: int,body: bytes=b"",ctype: str="application/json"):
+        # Track the first response byte boundary explicitly. The private
+        # gateway must never append a second HTTP status on the same socket.
+        self._response_started=True
         self.send_response_only(status)
         self.send_header("Content-Length",str(len(body)))
         self.send_header("Content-Type",ctype)
@@ -553,17 +556,35 @@ class GatewayHandler(BaseHTTPRequestHandler):
                              body,gw.session)
             if route.action in ("events","game_stream"):
                 def open_stream():
-                    # Never report HTTP 200 until the upstream stream has been
-                    # verified and the one-stream lease has been acquired.
+                    # The pinned lichess-bot reads Response.iter_lines() using
+                    # its default buffer size. Raw close-delimited HTTP/1.1
+                    # traps small NDJSON frames until EOF; chunked wire framing
+                    # lets each complete event arrive without closing the stream.
+                    # Admission must precede any HTTP 200 publication.
+                    self._response_started=True
                     self.send_response_only(200)
                     self.send_header("Content-Type","application/x-ndjson")
+                    self.send_header("Transfer-Encoding","chunked")
                     self.send_header("Cache-Control","no-store")
                     self.send_header("Connection","close")
                     self.end_headers()
                     self.wfile.flush()
                 def write(data):
-                    self.wfile.write(data);self.wfile.flush()
+                    if not isinstance(data,bytes):
+                        raise GatewayFailure("non-byte NDJSON writer input")
+                    if not data:
+                        return
+                    # HTTP chunks are transport framing only. A blank NDJSON
+                    # heartbeat is b"\\n", a NONZERO chunk of size one.
+                    self.wfile.write(f"{len(data):x}\r\n".encode("ascii"))
+                    self.wfile.write(data)
+                    self.wfile.write(b"\r\n")
+                    self.wfile.flush()
+                # No terminal chunk may be written on upstream failure,
+                # interrupted framing, HTTP disconnect or gateway shutdown.
                 gw.stream_request(route,write,on_open=open_stream)
+                self.wfile.write(b"0\r\n\r\n")
+                self.wfile.flush()
                 self.close_connection=True
             else:
                 code,data,_=gw.nonstream_request(route,body)
@@ -579,7 +600,9 @@ class GatewayHandler(BaseHTTPRequestHandler):
                 except (OSError,BrokenPipeError): pass
             self.close_connection=True
     def headers_sent(self):
-        return getattr(self,"_headers_buffer",None)==[]
+        # BaseHTTPRequestHandler._headers_buffer is empty both before the
+        # first response and after end_headers(); it is not a commitment flag.
+        return getattr(self,"_response_started",False)
     def do_GET(self): self._handle()
     def do_POST(self): self._handle()
     def do_CONNECT(self): self._reply(405,b'{"error":"method denied"}')

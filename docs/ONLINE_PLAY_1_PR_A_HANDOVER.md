@@ -145,3 +145,18 @@ nor a preflight positive verdict alone authorizes a merge. White/Black
 synthetic complete games and a source-independent `DRY_RUN_PASS` remain
 mandatory on the **new exact source head**; review the actual artifacts
 before attributing the cause or promoting any qualification.
+
+## Stream delivery and fake challenge transition repair (24 October 2026)
+
+Source candidate adds HTTP/1.1 chunked forwarding for the pinned upstream
+client's default `requests.Response.iter_lines()`. The previous
+`chunk_size=1` test did not exercise the actual buffering boundary. The
+new real-socket test holds the upstream account stream open while checking
+challenge, one approved accept and gameStart arrival. The failed synthetic
+White game retained only a phase; the new transition receipt includes only
+bounded booleans/counts, no raw credential/request/event material.
+
+No claim of completed White/Black synthetic games or independent
+`DRY_RUN_PASS` transfers from earlier heads. Original offline stage, Lichess
+origin, durable journal, gateway authority, and PR-B admission prohibitions
+remain unchanged.

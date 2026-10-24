@@ -227,3 +227,26 @@ preflight, original `offline_session.stage()` and pinned validator passing,
 then both synthetic complete games and the independent `DRY_RUN_PASS`.
 An ordinary CI check or synthetic success never authorizes live play,
 production credentials, host admission or distribution.
+
+### Chunked HTTP/1.1 streaming interoperability repair (24 October 2026)
+
+The exact-head preflight and PID1 containment succeeded but the fake White game
+stalled before `gameStart`/game-stream opening. The pinned upstream client calls
+`requests.Response.iter_lines()` with its default buffering behavior. A prior
+unit test forced `chunk_size=1`, masking a gateway response-framing defect:
+HTTP/1.1 NDJSON events were forwarded without Content-Length or chunked
+Transfer-Encoding. Tiny events can remain buffered until EOF.
+
+The private gateway now delivers explicitly chunked HTTP/1.1 NDJSON with each
+complete event or heartbeat flushed as a nonzero wire chunk. Successful clean
+response completion gets a terminating zero-size chunk; interrupted upstream
+streams never receive a manufactured clean EOF or a second HTTP status. Tests
+exercise a real socket and the **actual default** pinned client `iter_lines()`,
+including delivery of challenge and gameStart before upstream connection close,
+and interrupted/malformed streams. Failure artifacts retain only allowlisted
+transition counters, not usernames, token content, raw URI, or game bodies.
+
+This is a new source candidate. The prior `NOT_RUN` verdict remains negative.
+Neither transport unit tests nor a passing stage preflight authorize live play,
+operator credentials, public release, or a merge. Both independently completed
+fake API games and a fresh source-independent `DRY_RUN_PASS` remain mandatory.

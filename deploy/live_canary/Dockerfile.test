@@ -1,0 +1,11 @@
+# Synthetic PR-A ONLY. BASE_IMAGE is local offline fixture; NO live Bot API.
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+RUN groupadd -g 10001 canary && useradd -u 10001 -g 10001 -m -d /home/canary -s /usr/sbin/nologin canary && \
+    mkdir -p /var/lib/allfather-canary/gateway-evidence /run/canary-control && \
+    chown -R 10001:10001 /var/lib/allfather-canary /run/canary-control
+ENV PYTHONPATH=/work PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+WORKDIR /work
+USER 10001:10001
+ENTRYPOINT ["/opt/online3b/bin/python","/work/tests/lichess/live_canary_test_wait.py"]
+CMD ["verify-only"]

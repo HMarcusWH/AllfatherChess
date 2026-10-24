@@ -1,0 +1,123 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:allfather:online-live-canary-v1",
+  "title": "ONLINE-PLAY-1 candidate source policy",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "scope",
+    "experiment_only",
+    "api_origin",
+    "transport_profile",
+    "engine_release",
+    "variant",
+    "initial_fen",
+    "rated",
+    "clock_seconds",
+    "increment_seconds",
+    "opponent_username",
+    "bot_account_username",
+    "max_concurrent_games",
+    "max_new_games_per_session",
+    "outbound_challenges_allowed",
+    "automatic_matchmaking_allowed",
+    "external_move_sources_allowed",
+    "chat_abort_resign_takeback_upgrade_allowed",
+    "move_retries_allowed",
+    "operator_armed",
+    "operator_authorization_required",
+    "production_publication_authorized",
+    "live_game_authorized",
+    "dependency_lock_approved",
+    "legal_review_completed",
+    "destination_host_qualified",
+    "public_bot_release"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "scope": {
+      "const": "single-operator-authorized-lichess-canary"
+    },
+    "experiment_only": {
+      "const": true
+    },
+    "api_origin": {
+      "const": "https://lichess.org"
+    },
+    "transport_profile": {
+      "const": "separate-live-gateway"
+    },
+    "engine_release": {
+      "const": "ONLINE-3A sealed HYBRID only"
+    },
+    "variant": {
+      "const": "standard"
+    },
+    "initial_fen": {
+      "const": "startpos"
+    },
+    "rated": {
+      "const": false
+    },
+    "clock_seconds": {
+      "const": 600
+    },
+    "increment_seconds": {
+      "const": 5
+    },
+    "opponent_username": {
+      "type": "null"
+    },
+    "bot_account_username": {
+      "type": "null"
+    },
+    "max_concurrent_games": {
+      "const": 1
+    },
+    "max_new_games_per_session": {
+      "const": 1
+    },
+    "outbound_challenges_allowed": {
+      "const": false
+    },
+    "automatic_matchmaking_allowed": {
+      "const": false
+    },
+    "external_move_sources_allowed": {
+      "const": false
+    },
+    "chat_abort_resign_takeback_upgrade_allowed": {
+      "const": false
+    },
+    "move_retries_allowed": {
+      "const": false
+    },
+    "operator_armed": {
+      "const": false
+    },
+    "operator_authorization_required": {
+      "const": true
+    },
+    "production_publication_authorized": {
+      "const": false
+    },
+    "live_game_authorized": {
+      "const": false
+    },
+    "dependency_lock_approved": {
+      "const": false
+    },
+    "legal_review_completed": {
+      "const": false
+    },
+    "destination_host_qualified": {
+      "const": false
+    },
+    "public_bot_release": {
+      "const": false
+    }
+  }
+}

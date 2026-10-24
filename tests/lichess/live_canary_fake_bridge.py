@@ -1,0 +1,180 @@
+"""Run the actual pinned upstream bot and sealed UCI under one-game supervisor.
+
+This PID1 process has no real token or external egress. Admission signature is
+ephemeral and CI-only. No source policy or public release flag is ever promoted.
+"""
+from __future__ import annotations
+import argparse
+import dataclasses
+import hashlib
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+ROOT=Path("/work")
+sys.path.insert(0,str(ROOT))
+from deploy.live_canary.admission import SourceBinding,verify_admission
+from deploy.live_canary.supervisor import LiveSupervisor
+from deploy.lichess.canary_staging import STAGE_SESSION
+from deploy.lichess.move_journal import MoveJournal
+from deploy.lichess.run_recovery import preserve_replays
+
+def safe_child_trace_hint(log_path: Path) -> dict:
+    """Report only traceback module/line/class, NEVER exception messages.
+
+    The actual upstream log can contain arbitrary configuration or transport
+    data and must remain in the private state volume.
+    """
+    import re
+    result={"exception_module":None,"exception_line":None,"exception_class":None}
+    if log_path.is_symlink() or not log_path.is_file(): return result
+    with log_path.open("rb") as stream:
+        size=log_path.stat().st_size
+        stream.seek(max(0,size-65536))
+        lines=stream.read(65536).decode("utf-8",errors="replace").splitlines()
+    allowed={"config.py","lichess_bot.py","lichess.py","engine_wrapper.py",
+             "guarded_transport.py","move_journal.py","session_owner.py",
+             "live_session.py","live_gateway.py","allfather-online",
+             "subprocess.py","threading.py","multiprocessing.py",
+             "requests.py","api.py","main.py","__main__.py"}
+    for line in lines:
+        frame=re.search(r'File "[^"]*/([^/"]+)", line ([0-9]{1,5}), in [A-Za-z_][A-Za-z_0-9]*',line)
+        if frame and frame.group(1) in allowed:
+            result["exception_module"]=frame.group(1)
+            result["exception_line"]=int(frame.group(2))
+        error=re.match(r"^(Exception|ValueError|RuntimeError|TypeError|KeyError|OSError|ImportError|ModuleNotFoundError|FileNotFoundError|HTTPError|ReadTimeout|ConnectionError|AssertionError):",line.strip())
+        if error: result["exception_class"]=error.group(1)
+    return result
+
+
+def _read(path:Path):
+    if path.is_symlink() or not path.is_file():raise RuntimeError("test input missing")
+    return json.loads(path.read_text())
+
+def main():
+    p=argparse.ArgumentParser()
+    p.add_argument("--color",required=True,choices=("white","black"))
+    args=p.parse_args()
+    phase="operator_admission"
+    supervisor=None
+    try:
+        if os.getpid()!=1 or os.environ.get("ALLFATHER_BRIDGE_EGRESS_ISOLATED")!="1":
+            raise RuntimeError("bridge must be a separate isolated container PID1")
+        op=Path("/run/operator")
+        source=SourceBinding(**_read(op/"source-binding.json"))
+        lease=_read(op/"admission.json")
+        verify_admission(lease,source,op/"operator-ed25519.pub.pem")
+        if os.environ.get("LICHESS_BOT_TOKEN") or Path("/run/secrets").exists():
+            raise RuntimeError("test bridge must not have gateway-only secret")
+        supervisor=LiveSupervisor(
+            binding=source,lease=lease,key=op/"operator-ed25519.pub.pem",
+            policy=ROOT/"qualification/online-live-canary-v1.json",
+            host_receipt=op/"host-report.json",
+            release=ROOT/"dist/online3a-stage",
+            bridge=ROOT/"build/vendor/lichess-bot",
+            work=STAGE_SESSION,
+            state=Path("/var/lib/allfather-canary"))
+        phase="supervised_pinned_game"
+        result=supervisor.run(lease_file=op/"admission.json",
+                              binding_file=op/"source-binding.json",timeout_s=780)
+        if not result.terminal or result.status!="TERMINAL_DURABLE":
+            raise RuntimeError("simulated lifecycle did not reach terminal")
+        phase="durable_terminal_evidence"
+        state=Path("/var/lib/allfather-canary")
+        out=Path("/results/bridge");out.mkdir(parents=True,exist_ok=True)
+        journal=MoveJournal(state/"recovery/move-journal.sqlite3").snapshot()
+        pgndata=(state/"game.pgn").read_text()
+        replay_root=STAGE_SESSION/"release/build/replays-online-hybrid-v2"
+        replay_files=list(replay_root.glob("*/manifest.json"))
+        if not replay_files or len(replay_files)>128:
+            raise RuntimeError("sealed UCI replay count missing or beyond bounded retention")
+        replay_index=preserve_replays(
+            STAGE_SESSION/"release",out)
+        if len(replay_index)<result.accepted_moves:
+            raise RuntimeError("one or more accepted UCI decisions lacks a replay")
+        def digest(path):
+            return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+        executed=STAGE_SESSION
+        source_manifest=json.loads((ROOT/"dist/online3a-stage/build/online-release/release-manifest.json").read_text())
+        overlay=json.loads((executed/"bridge/recovery-overlay-manifest.json").read_text())
+        lock=json.loads((ROOT/"deploy/lichess/bridge.lock.json").read_text())
+        source_record={
+            "sealed_release_source_commit":source_manifest["source_commit"],
+            "sealed_release_manifest_sha256":digest(ROOT/"dist/online3a-stage/build/online-release/release-manifest.json"),
+            "sealed_engine_launcher_sha256":digest(ROOT/"dist/online3a-stage/deploy/bin/allfather-online"),
+            "upstream_commit":lock["commit"],
+            "live_effective_config_sha256":digest(executed/"config.yml"),
+            "live_handler_sha256":digest(ROOT/"deploy/lichess/live_extra_game_handlers.py"),
+            "patched_upstream":overlay["patched_upstream"],
+            "guard_modules":overlay["guard_modules"],
+            "live_modules":overlay["live_modules"],
+            "live_profile":overlay["live_profile"],
+            "live_policy_sha256":digest(ROOT/"qualification/online-live-canary-v1.json"),
+        }
+        payload={"schema_version":1,"status":result.status,
+                 "source_sha":result.source_sha,
+                 "game_id":result.game_id,"accepted_moves":result.accepted_moves,
+                 "terminal":result.terminal,"processes":result.processes,
+                 "journal":journal,"game_pgn":pgndata,
+                 "one_game_lease":supervisor.ledger.snapshot(),
+                 "executed_source":source_record,
+                 "replay_index":replay_index}
+        with (out/"report.json").open("x",encoding="utf-8") as f:
+            json.dump(payload,f,sort_keys=True,indent=2)
+        return 0
+    except Exception as exc:
+        # The retained failure record has only a fixed phase and exception
+        # class. Never copy bridge stdout, tokens, config or raw HTTP bodies.
+        out=Path("/results/bridge")
+        # A command family is not a raw stderr transcript. In particular,
+        # never persist subprocess argv values that could contain bearer data.
+        family="none"
+        if isinstance(exc,subprocess.CalledProcessError):
+            words=[str(v) for v in exc.cmd] if isinstance(exc.cmd,(tuple,list)) else []
+            if words and words[0] in ("git","/usr/bin/git"):
+                family=("git-remote" if "remote" in words else
+                        "git-cat-file" if "cat-file" in words else
+                        "git-show" if "show" in words else
+                        "git-source")
+            elif words and "allfather-online" in words[0]:
+                family="engine-seal"
+            else:family="other-subprocess"
+        stage=getattr(supervisor,"phase",phase)
+        allowed={"operator_admission","preflight","workspace_stage",
+                 "journal_initialize","bridge_spawn","await_terminal",
+                 "durable_progress","bridge_early_exit","terminal_reconciled",
+                 "bounded_timeout","drain","drained","durable_terminal_evidence"}
+        if stage not in allowed: stage="unclassified"
+        cause=getattr(exc,"__cause__",None)
+        code=getattr(exc,"code","UNCLASSIFIED")
+        if code not in {"UPSTREAM_VERIFY_OR_ENGINE_SEAL","UPSTREAM_LOCK_CHECK",
+                        "ENGINE_SEAL_CHECK","EXEC_STAGE_MOUNT_CHECK",
+                        "OFFLINE_STAGE_COPY_OR_CONFIG","BRIDGE_CONFIG_VALIDATE",
+                        "UPSTREAM_RECOVERY_PATCH","LIVE_GUARD_SEAL"}:
+            code="UNCLASSIFIED"
+        child_trace=safe_child_trace_hint(Path("/var/lib/allfather-canary/bridge-private.log"))
+        child=getattr(supervisor,"process",None)
+        rc=child.poll() if child is not None else None
+        if type(rc) is not int or abs(rc)>255: rc=None
+        try:
+            out.mkdir(parents=True,exist_ok=True)
+            (out/"failure.json").write_text(json.dumps({
+                "scope":"synthetic-fake-only","phase":stage,
+                "exception_type":type(exc).__name__,
+                "cause_type":type(cause).__name__ if cause else None,
+                "stage_code":code,"command_family":family,
+                "child_exit_code":rc,
+                "child_trace":child_trace,
+                "cleanup_error_type":getattr(supervisor,"cleanup_error_type",None),
+                "source_sha":source.source_commit if 'source' in locals() else None,
+                "status":"NOT_COMPLETED",
+                "live_game_authorized":False,"public_bot_release":False
+            },sort_keys=True)+"\n")
+        except OSError:pass
+        print("synthetic bridge integration failed: "+stage+": "+
+              code+":"+type(exc).__name__,file=sys.stderr)
+        return 2
+
+if __name__=="__main__":raise SystemExit(main())

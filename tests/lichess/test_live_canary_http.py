@@ -229,6 +229,32 @@ class RealLocalGatewayHTTP(unittest.TestCase):
         self.assertNotIn(b"0\r\n\r\n",wire)
         self.assertTrue(self.gateway.state.snapshot()["suspended"])
 
+    def test_operator_stop_does_not_emit_a_clean_chunked_eof(self):
+        # A stop is an interruption, not a successful upstream close.
+        # The only allowed wire outcome is a 200 stream terminated without
+        # the zero-length chunk; it cannot become a synthetic completion.
+        from unittest import mock
+        def interrupted(route, writer, *, on_open):
+            on_open()
+            self.gateway.shutdown_event.set()
+        request=(b"GET /api/stream/event HTTP/1.1\r\n"
+                 b"Host: live-gateway:8765\r\n"
+                 b"Authorization: Bearer "+SYNTHETIC_TOKEN.encode("ascii")
+                 +b"\r\nConnection: close\r\n\r\n")
+        with mock.patch.object(self.gateway,"stream_request",side_effect=interrupted):
+            with socket.create_connection(self.http.server_address,timeout=3) as sock:
+                sock.settimeout(5)
+                sock.sendall(request)
+                pieces=[]
+                while True:
+                    segment=sock.recv(4096)
+                    if not segment: break
+                    pieces.append(segment)
+        wire=b"".join(pieces)
+        self.assertEqual(wire.count(b"HTTP/1.1 "),1)
+        self.assertIn(b"Transfer-Encoding: chunked",wire)
+        self.assertNotIn(b"0\r\n\r\n",wire)
+
     def test_same_move_cannot_be_reposted_even_after_success(self):
         state=self.gateway.state
         state.challenge(GAME);state.accept_once(GAME);state.game_start(GAME)

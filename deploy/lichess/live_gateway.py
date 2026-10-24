@@ -583,8 +583,12 @@ class GatewayHandler(BaseHTTPRequestHandler):
                 # No terminal chunk may be written on upstream failure,
                 # interrupted framing, HTTP disconnect or gateway shutdown.
                 gw.stream_request(route,write,on_open=open_stream)
-                self.wfile.write(b"0\r\n\r\n")
-                self.wfile.flush()
+                # A local operator stop interrupts the upstream iterator;
+                # that is NOT a clean upstream EOF and must not receive
+                # a forged terminating HTTP chunk.
+                if not gw.shutdown_event.is_set():
+                    self.wfile.write(b"0\r\n\r\n")
+                    self.wfile.flush()
                 self.close_connection=True
             else:
                 code,data,_=gw.nonstream_request(route,body)

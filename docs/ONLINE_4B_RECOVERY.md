@@ -1,5 +1,8 @@
 # ONLINE-4B — source-locked, guarded offline Lichess recovery
 
+> **Current qualified scope:** ONLINE-4B is merged. The source-locked real pinned-bridge offline guarded suite independently validated **10/10** scenarios on the #76 exact head (run [40140708280](https://github.com/HMarcusWH/AllfatherChess/actions/runs/40140708280)), with no qualification failures and `containment_qualified_offline=true`, `recovery_qualified_offline=true`. The network/cross-host recovery, public release and strength claim fields remain false. Do not confuse the deliberately unsafe 4A baseline harness with the guarded 4B recovery adapter.
+
+
 ## Scope and release boundary
 
 **OFFLINE ONLY**. This work remains disconnected from Lichess. It does not

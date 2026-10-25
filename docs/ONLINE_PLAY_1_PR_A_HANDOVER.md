@@ -1,12 +1,14 @@
 # ONLINE-PLAY-1 PR-A — source and qualification handover
 
+> **Final PR-A disposition (25 October 2026):** [PR #76](https://github.com/HMarcusWH/AllfatherChess/pull/76) was rebased onto #77/#78, repaired its two P2 security findings at `968fc7968f69dc82375e7e5c6d3394e7c8857e64`, passed **14/14 exact-head workflows**, and merged into `main` as `b1ee33b19b6cb9865d9c99d413041a8f6e8d468a`. The independent [run 40140708049](https://github.com/HMarcusWH/AllfatherChess/actions/runs/40140708049) concluded `DRY_RUN_PASS` for both colors with `live_game_authorized=false`. The older "candidate/unverified" tables below are **dated failure and repair history**, not the current verdict. PR-B independent operator trust, host evidence and legal approval remain absent; no real Lichess game, deployment or distribution is authorized.
+
+
 **Repository:** `HMarcusWH/AllfatherChess`  
 **PR:** [#76](https://github.com/HMarcusWH/AllfatherChess/pull/76)  
-**Base main:** `ad1e582637d981199550caf389b43861ce3d2596`  
-**Scope:** PRIVATE fake-Lichess dry run only. Not live authorization, deployment,
-account conversion, distribution, or approval to merge.
+**Historical PR-A base main:** `ad1e582637d981199550caf389b43861ce3d2596`  
+**Scope:** Private fake-Lichess dry-run implementation merged into main. No live authorization, deployment, account conversion or distribution.
 
-## Exact state and claim cap
+## Historical PR-A development state (superseded by final disposition above)
 
 PR-A is an **implemented source candidate under adversarial qualification**,
 not a verified `CANARY_DRY_RUN_PASS`. Always re-read `git rev-parse HEAD`

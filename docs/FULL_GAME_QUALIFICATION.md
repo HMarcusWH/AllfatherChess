@@ -1,5 +1,8 @@
 # LOCAL-1: full games and five descriptive constituent baselines
 
+> **Synchronized 25 October 2026 — post-PR #79.** The original #41 game counts below remain historical exact-head evidence. The rebased #76 [LOCAL-1 run 40140708158](https://github.com/HMarcusWH/AllfatherChess/actions/runs/40140708158) subsequently reported `passed=true`, `errors=[]` on the security-fixed #76 head. The descriptive five-arm, eight-games-per-arm snapshot is not matched-total-compute or Elo. Failures in [the October 23 incident](LOCAL1_RESOURCE_INCIDENT_2026-10-23.md) remain negative evidence rather than being converted into passes.
+
+
 **Implementation:** `tools/local_game/`, `tests/local_game/`, `Makefile.local-game` and
 `.github/workflows/full-game-qualification.yml`.  
 **State:** **QUALIFIED** on PR #41 exact head

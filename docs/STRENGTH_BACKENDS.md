@@ -1,5 +1,8 @@
 # LC0 strength-facing backend qualification
 
+> **Synchronized 25 October 2026 — post-PR #79.** The post-#64 canonical real-network BLAS-LC0 CPU b4 profile carries exact-host provenance/continuity evidence only, not playing-strength superiority. Random/fast diagnostic backends cannot support competitive claims. Future M15-B/C comparisons must bind the real network/backend, host/isolation, counted controller+solver compute, and direct constituent controls. No GPU or Elo claim is promoted here.
+
+
 > **Current composition note (26 September 2026):** the pinned real-network BLAS-LC0
 > qualification described here is reused by ONLINE-2 and PR #39 / M14-G3. This still does
 > not make the reference host a final equal-resource strength platform; M15-B/C remains the

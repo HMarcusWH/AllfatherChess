@@ -1,5 +1,8 @@
 # Theory → controller → code implementation map
 
+> **Synchronized 25 October 2026 — post-PR #79.** J12 instantiates HostCapabilities/GameEnvironment → MoveResourcePlan → J10 allocation → J9 bounded WorkGrants and budget evidence. Computation nomination differs from permission to spend, and both differ from chess DecisionAuthorization. J13 ANCHOR_CONTROL is a matched-resource experimental ablation, not a proof of hybrid move value. PR #76's synthetic Lichess experiment establishes only source-bound protocol operation. The chess optimization, RACR and ICW/NSG sources below provide architecture/method ideas, not transferred mathematical chess theorems or universal thresholds.
+
+
 ## Purpose
 
 This document is the audit trail required before the immediate controller stack

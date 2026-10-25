@@ -1,0 +1,67 @@
+name: PR81 retained-game strength investigation (read-only experiment)
+
+on:
+  pull_request:
+    paths:
+      - 'tools/pr81_strength_audit.py'
+      - '.github/workflows/pr81-strength-audit.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: pr81-strength-audit-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  retained-game-audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      AUDIT_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.AUDIT_SHA }}
+          persist-credentials: false
+      - name: Check diagnostic source and install existing hash-pinned chess rules
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$AUDIT_SHA"
+          python3 -m py_compile tools/pr81_strength_audit.py
+          python3 -m pip install --break-system-packages --no-build-isolation --no-deps \
+            --require-hashes -r qualification/local-game-requirements.txt
+      - name: Retrieve immutable PR81 successful raw games (not a rerun)
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          repository: HMarcusWH/AllfatherChess
+          run-id: 40216238892
+          name: g3-pilot-raw-40216238892-1
+          github-token: ${{ github.token }}
+          path: build/strength-audit/input/raw
+      - name: Retrieve the exact original engine binary and source manifest
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          repository: HMarcusWH/AllfatherChess
+          run-id: 40216238892
+          name: g3-pilot-exact-build
+          github-token: ${{ github.token }}
+          path: build/strength-audit/input/binaries
+      - name: Audit all 140 interventions at 250k and 1m Stockfish reference nodes
+        timeout-minutes: 27
+        run: |
+          set -euo pipefail
+          python3 tools/pr81_strength_audit.py \
+            --raw-root build/strength-audit/input/raw \
+            --build-root build/strength-audit/input/binaries \
+            --output build/strength-audit/results
+      - name: Preserve structural findings and any partial reference analyses
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: pr81-strength-audit-${{ github.run_id }}-${{ github.run_attempt }}
+          path: build/strength-audit/results
+          if-no-files-found: warn
+          retention-days: 30

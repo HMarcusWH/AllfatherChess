@@ -1,8 +1,58 @@
+# AllfatherChess roadmap — post-PR #79
+
+**Synchronized 25 October 2026 against merged baseline `b1ee33b19b6cb9865d9c99d413041a8f6e8d468a`.** This is the active forward-order authority. Earlier plans below are preserved as historical design/evidence records. [Current status](CURRENT_STATUS.md) records what exists; [Claim ledger](CLAIM_LEDGER.md) records what is and is not demonstrated. This roadmap creates no runtime, operator or deployment permission.
+
+## 1. Implemented baseline (do not rebuild as future work)
+
+- PR #1–#44: three pinned solver families, controller evidence/replay, clocked G3 hybrid decisions, LOCAL-1 and optimized real-BLAS CPU path.
+- PR #45–#64: M14-J host/resource orchestration through J12; J13 matched control and independent campaign plumbing; explicitly promoted canonical LC0 b4.
+- PR #65–#73: sealed ONLINE-3A UCI, pinned 3B bridge, ONLINE-4A unsafe fault witnesses, qualified 4B *offline* containment, and independently verified offline OCI/SLSA/SPDX candidate.
+- PR #74–#75: candidate-only Python wheel selection, signed Ubuntu native acquisition/source-index integrity; no approved release lock.
+- PR #76: source-bound restricted Lichess gateway plus independently replayed White/Black **synthetic** games (`DRY_RUN_PASS`), never a real live game.
+- PR #77–#79: signed host CI bootstrap and clocked publication, STOP, resource-report fail-closed repairs.
+
+## 2. Independent tracks and the sequence within each
+
+| Track | Next milestone | Condition for proceeding | Downstream |
+| --- | --- | --- | --- |
+| Scientific decision value | **J13/META-1** frozen 50 opening-pair, 100-game real-authority comparison | Real J12 qualified execution domain; independent pre/post-bound replay/paired report | J14 production-profile descriptive study; G4 if supported; M15-B/C |
+| Reproducible offline release | **RELEASE-2B-3** two clean dependency builders plus third independent comparison | Signed Ubuntu and wheel candidates frozen, unchanged evidence/byte identity | **RELEASE-2B-4** separately reviewed dependency-lock admission and full offline OCI requalification |
+| Restricted real-world operation | **PR-B** separate trust/legal/host/operator review | One named real BOT opponent/account, signed short lease, proper isolated secret mount and tested stop | One authorized unrated 10+5 game, then bounded monitored ONLINE-RC |
+| Repository governance | Protect `main`, status/claim reconciliation | Required `Merge gate / validate`; no force-push/deletion; admin exception defined | Evidence-controlled review/merge process |
+
+These tracks are intentionally **not a single claim ladder**. META-1 can run without real Lichess credentials. RELEASE-2B reproducibility does not grant live publication. A real canary requires human/operator and legal gates even when software is functional.
+
+## 3. J13/META-1: first scientific execution milestone
+
+Use [.github/workflows/meta-1.yml](../.github/workflows/meta-1.yml) only after verifying `qualification/meta-1-v1.json`. Manual dispatch is not a shortcut around J12 host authorization. Freeze the exact campaign SHA/attempt, 50 openings, two colors (100 games), 30+1 clock, one concurrent job, matched resource orchestration and outward `HYBRID` versus `ANCHOR_CONTROL`. Compare paired blocks, intervention/suppression and measured realized WorkGrants; postflight must retain the qualification domain. This is descriptive causal control, **not** equal compute, Elo or superiority. See [META-1 runbook](META_1_EXECUTION_RUNBOOK.md).
+
+## 4. RELEASE-2B-3/4: dependency assurance remaining
+
+RELEASE-2B-1 and 2B-2 are already merged; do not repeat their candidate-source work. Build two separately isolated native/wheel dependency candidates, retain complete signed-package and exact wheel-byte attestations, compare their outputs in an independent third job, and repeat on the identical SHA. Stop on any divergent byte, missing native-package origin or missing signature. In a distinct reviewed stage, admit only the matched lock and rerun exact-head offline OCI/SLSA/SPDX/SQLite/PGN qualifications. Until source-backed approval, `os_package_lock_complete`, `wheel_lock_complete`, `artifact_distribution_authorized` and public release stay false. See [RELEASE-2B-3/4 plan](RELEASE_2B_3_4_PLAN.md).
+
+## 5. PR-B: live canary admission boundary
+
+PR #76 provides only a tested private gateway. The real `qualification/online-canary-operator-trust-v1.json` does **not** yet exist. Require independent GPL/AGPL review, named host proof, separate signed operator authority, a short lease matching exact source/tree/image/host/BOT identities and gateway-only real credentials. Retain one incoming unrated standard 600+5 BOT challenge, no retries on unknown ACK, no outbound matchmaking, chat or takeback, and a fail-closed kill switch. Start no real game until these gates close. See [PR-B readiness](ONLINE_PLAY_1_PR_B_READINESS.md).
+
+## 6. G4, J14 and M15-B/C: the strength question remains open
+
+G4 requires train/serve-consistent held-out support for any SKIP authorization; unsupported cases retain BUY/deny/fallback. J14 compares production-profile execution and realized resources without claiming equal compute. M15-B/C alone runs predeclared constituent, anchor-only, observation-only, fixed-hybrid and later adaptive-policy ablations under matched measured total CPU/GPU/memory/wall cost. Preserve losses/timeouts, reverse openings, state uncertainty/effect sizes and accept inconclusive outcomes. Never infer move correctness or Elo from COMPARE/RELOCK, RTL resource accounting, or META-1's descriptive results.
+
+## 7. Governance and proof obligations
+
+Maintain separate states: **implemented** (source exists), **qualified** (named exact-head evidence passed), **deployed** (permitted real use happened), and **strength-supported** (predeclared comparative outcome supports a bounded claim). `main` protection is tracked in [#26](https://github.com/HMarcusWH/AllfatherChess/issues/26) and [#27](https://github.com/HMarcusWH/AllfatherChess/issues/27); the rule is not enforced merely because `.github/workflows/merge-gate.yml` exists. Preserving prior failed evidence is mandatory.
+
+---
+
+## Historical roadmap text (superseded implementation ordering)
+
+The material below is the unchanged October 4–18 planning lineage. Statements that those already-merged PRs are next do not describe the active repository. Refer to sections 1–7 above for present execution.
+
 > **Current execution (18 October 2026):** PR #71 merged into `main` as `952a2c5cddff842efc5418f21e5987f51bcad6bf` after 11/11 green exact-head workflows and independent code/security review. The offline RELEASE-1 image remains **release-blocked**, with OS/wheel locks and licensing, host, live transport, operator and publication gates still closed. **Next: RELEASE-2A**, candidate-only observation of exact installed OS and Python wheel dependencies (see [RELEASE-2A](RELEASE_2A_DEPENDENCY_OBSERVATION.md)). The older dated roadmap below is retained for historical execution lineage.
 
 > **Current RELEASE-1 entry point (2026-10-12):** PR #68 / ONLINE-4B merged at `f5eab35`, with exact-source offline recovery qualified. PR #69 adds immutable OCI candidate image/evidence only; destination host, licensing, live API and public game authorization remain blocked. [RELEASE-1 operations](RELEASE_1_OPERATIONS.md). Historical roadmap rows below are preserved.
 
-# AllfatherChess roadmap
+#### AllfatherChess roadmap (historical)
 
 **Status date:** 4 October 2026  
 **Current main:** `ff3d8adc166eb7ef2a9ad57da9d20e1b212df17d`  
@@ -16,7 +66,7 @@ This document is the canonical **forward execution roadmap**. Historical build p
 useful for architecture and design lineage, but future ordering should be read from this file.
 The roadmap deliberately separates operational release gates from later playing-strength claims.
 
-## 1. Where the project is now
+### 1. Where the project is now
 
 PR #39 completed the first production-shaped outward hybrid authority path:
 
@@ -76,7 +126,7 @@ isolated profile selections while preserving all historical J6/J7 evidence. Only
 measurement evidence is source-controlled does the roadmap permit an atomic canonical b4
 promotion and J3→J12 requalification.
 
-### PR #63 resource-accounting closure
+#### PR #63 resource-accounting closure
 
 PR #63 also repairs a legacy ONLINE/G3 resource-accounting defect exposed by fresh LOCAL-1 evidence before any b4 authority is promoted. The declared controller-overhead reserve is now treated as an absolute profile partition during per-move envelope derivation rather than being scaled with the clock. Two retained lifecycle artifacts also freeze owner-specific legacy G3 estimates: EXPLORE 100/100/1800 ms and VERIFY 100/100/1400 ms for Stockfish/Reckless/LC0 respectively, with the original 500/750 ms scalars retained only as unknown-owner fallbacks. The 4000 ms wall / 12000 ms CPU outer envelope remains unchanged and all ordinary fail-closed LOCAL-1 resource gates remain mandatory.
 
@@ -94,7 +144,7 @@ the eight-position/five-hash matrix and distinguishes qualified, failed and inco
 evidence. Inconclusive constituent timing blocks promotion rather than being treated as a
 pass. Binary A/B controls are paired by position and alternate execution order.
 
-## 2. Critical path to the first public canary
+### 2. Critical path to the first public canary
 
 ```text
 DONE
@@ -197,7 +247,7 @@ restricted unrated public bot canary
 
 The canary and ONLINE-PLAY-1 are operational experiments, not Elo/equal-resource superiority claims. META-1 isolates the value of hybrid move authority under matched orchestration, while M15-B/C remains the separate path to a formal common-resource strength claim.
 
-## 3. LOCAL-1 — full-game lifecycle qualification — **QUALIFIED**
+### 3. LOCAL-1 — full-game lifecycle qualification — **QUALIFIED**
 
 **PR:** #41  
 **Qualified head:** `6fc6522f863e2a15c6d4c230fa558cbb993f867e`  
@@ -206,12 +256,12 @@ The canary and ONLINE-PLAY-1 are operational experiments, not Elo/equal-resource
 **Workflow:** `36344180962` / run #100  
 **Required games:** 28/28 validated; zero qualification errors.
 
-### Objective
+#### Objective
 
 Qualify that the PR #39 composition remains correct across complete games rather than
 isolated `go` requests.
 
-### Qualified repository surface
+#### Qualified repository surface
 
 The canonical qualification is implemented as an isolated toolchain rather than a
 second production controller:
@@ -231,7 +281,7 @@ The G3 runtime is derived from `config/allfather.online-hybrid.validation.json` 
 time; LOCAL-1 does not maintain a second hand-edited copy of the authority policy. The gate
 closed on the exact PR #41 head above after the required workflow passed.
 
-### Lifecycle coverage
+#### Lifecycle coverage
 
 The campaign must cover:
 
@@ -250,7 +300,7 @@ The campaign must cover:
 - restart between games;
 - cleanup of all engine/search/process state.
 
-### Engineering acceptance gate
+#### Engineering acceptance gate
 
 A qualifying campaign requires:
 
@@ -267,7 +317,7 @@ A qualifying campaign requires:
 - no weakening of M14-G3 authority, timing, resource, or evidence gates merely to make
   the campaign pass.
 
-### Strength boundary
+#### Strength boundary
 
 LOCAL-1 may record W/D/L and controller behavior for diagnostics, but lifecycle acceptance
 is not an Elo test. A small campaign cannot become a playing-strength claim by implication.
@@ -276,7 +326,7 @@ The qualified campaign also records all ten color-reversed pairings across Stock
 Allfather-Anchor and Allfather-G3. That matrix is **same tournament clock**, not equal total
 compute. M15-B/C remains the only path to a comparative equal-resource strength claim.
 
-## 4. ENGINE-OPT-V2 — measured constituent/profile optimization — **QUALIFIED / MERGED**
+### 4. ENGINE-OPT-V2 — measured constituent/profile optimization — **QUALIFIED / MERGED**
 
 **PR:** #44  
 **Qualified head:** `085420843b95f3f2dd206fc1c66bf642cbd49b6d`  
@@ -288,7 +338,7 @@ ENGINE-OPT-V2 preserved the qualified n16 EXPLORE / n16 VERIFY / n32 staged-VERI
 
 Promotion also required a real-process non-anchor G3-v2 authority witness, owner-specific physical-resource bounds, the ordinary v1 LOCAL-1 control and complete LOCAL-1-v2 lifecycle qualification. The final aggregate reported `promotion_ready: true` with no errors. These results qualify a profile/build/resource composition; they do not establish Elo or constituent superiority.
 
-## 5. M14-J — Adaptive Resource Orchestration — **J13 / META-1 NEXT**
+### 5. M14-J — Adaptive Resource Orchestration — **J13 / META-1 NEXT**
 
 M14-J moves resource/profile authority above the constituent engines. The meta-controller will select only prequalified operating points, derive move-level resource envelopes from host/game context, issue typed WorkGrants, progressively buy the most valuable next computation, and preserve exact resource provenance for DecisionAuthorization. ENGINE-OPT-V2 remains the fail-closed fallback.
 
@@ -309,7 +359,7 @@ Implementation order:
 
 The full file-level rebuild plan is [M14_J_ADAPTIVE_RESOURCE_ORCHESTRATION.md](M14_J_ADAPTIVE_RESOURCE_ORCHESTRATION.md). M14-J does not authorize arbitrary runtime hyperparameter generation, chess-search retuning or learned outward authority. ResourceAuthorization and DecisionAuthorization remain separate hard gates.
 
-## 6. ONLINE-3 — reproducible service package and bridge
+### 6. ONLINE-3 — reproducible service package and bridge
 
 With LOCAL-1 green, package exactly the qualified engine rather than building new chess
 logic.
@@ -335,7 +385,7 @@ Initial policy:
 - no automatic resign/draw logic until score provenance is explicitly compatible;
 - credentials injected as secrets, never committed or logged.
 
-## 7. ONLINE-4 — network, restart, reconciliation and rollback
+### 7. ONLINE-4 — network, restart, reconciliation and rollback
 
 Qualify the service around the engine:
 
@@ -355,7 +405,7 @@ Qualify the service around the engine:
 A restart must rebuild correct repetition/history state. It may not silently reduce a game
 to a bare FEN if doing so loses decision-relevant history.
 
-## 8. RELEASE-QUALIFICATION
+### 8. RELEASE-QUALIFICATION
 
 Add an aggregate always-present release workflow that cannot succeed because a path-scoped
 required job was skipped.
@@ -375,7 +425,7 @@ Freeze:
 
 The release gate consumes the existing qualification families plus LOCAL-1 and ONLINE-3/4.
 
-## 9. ONLINE-RC — restricted public canary
+### 9. ONLINE-RC — restricted public canary
 
 Cut an explicitly experimental immutable release only after the preceding gates pass.
 
@@ -393,35 +443,35 @@ Proposed first canary:
 The canary demonstrates permitted online operation. It does not establish equal-envelope
 superiority.
 
-## 10. Parallel research track
+### 10. Parallel research track
 
 These may proceed without blocking the conservative first canary.
 
-### M14-G4 — production SKIP calibration
+#### M14-G4 — production SKIP calibration
 
 Required before learned compute suppression is promoted. It must bind train/serve
 intervention identity, independent position-group support, held-out qualification data,
 and uncertainty-aware shortcut risk. Unsupported/OOD evidence continues to BUY or deny
 compute fail-closed.
 
-### M15-B/C — strength campaign
+#### M15-B/C — strength campaign
 
 This is the formal path to the original strength objective. Run frozen comparative campaigns
 against each pinned constituent under a declared common resource regime, report actual
 consumption, preserve all losses/timeouts, predeclare analysis, and report effect sizes and
 uncertainty. CPU-reference, GPU-profile and broad "best engine" claims are distinct.
 
-### M15-A — governed policy evolution
+#### M15-A — governed policy evolution
 
 Only after stable full-game evidence exists: evolve allocation, nomination, verifier choice,
 reserve fractions and source-specific evidence as immutable policy generations.
 
-### M14-H/I — measured transport/native experiments
+#### M14-H/I — measured transport/native experiments
 
 Profile deployed process/UCI boundaries first. Replace IPC/native boundaries only when
 measured benefit justifies the additional integration, provenance and licensing risk.
 
-## 11. Administrative release gates
+### 11. Administrative release gates
 
 These remain separate from chess-controller correctness:
 
@@ -432,7 +482,7 @@ These remain separate from chess-controller correctness:
 - create a fresh Lichess BOT account/token for the canary;
 - define the first opponent allow-list.
 
-## 12. Claim discipline
+### 12. Claim discipline
 
 The roadmap uses four distinct levels:
 

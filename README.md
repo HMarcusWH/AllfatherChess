@@ -1,7 +1,6 @@
 # AllfatherChess
 
-> **Current release status (12 October 2026):** ONLINE-4B source-locked offline Lichess recovery merged in PR #68 (`f5eab35`) with 10/10 offline scenarios qualified. **Next: RELEASE-1 / PR #69**—immutable offline OCI candidate, independent image audit and still-blocked host/licensing/live promotion. See [docs/RELEASE_1_OPERATIONS.md](docs/RELEASE_1_OPERATIONS.md). No bot has been deployed or publicly released.
-
+> **Source-backed repository snapshot — 25 October 2026:** Three-source Stockfish / Reckless / LC0 controller; M14-G3, J12 WorkGrants, canonical LC0 b4, sealed offline UCI/lichess-bot bridge and independent two-color **synthetic** Lichess `DRY_RUN_PASS` are merged through [PR #76](https://github.com/HMarcusWH/AllfatherChess/pull/76) on `b1ee33b19b6c`. The host/lock/legal/operator approvals for live deployment remain absent. **No public bot release, live game, equal-compute Elo or superiority claim.** See [CURRENT_STATUS](docs/CURRENT_STATUS.md) and [ROADMAP](docs/ROADMAP.md).
 > See [docs/CURRENT_STATUS.md](docs/CURRENT_STATUS.md) for the exact implemented surface and
 > [docs/ROADMAP.md](docs/ROADMAP.md) for the canonical forward execution order.
 
@@ -60,14 +59,15 @@ The current stack includes the immediate controller layers plus an explicit comm
 16. **ONLINE-2 real-network online CPU reference (PR #38)** — packages portable Stockfish/Reckless builds with the pinned BLAS-LC0 network/backend identity under ONLINE timing/resource contracts while retaining Stockfish outward authority.
 17. **M14-G3 clock-aware staged hybrid authority (PR #39)** — composes ONLINE-2, G1/G2 staged VERIFY, frozen route-bound proposal evidence, clock-aware DecisionAuthorization, deadline-safe outward publication, deterministic Stockfish fallback, and post-output resource/replay sealing. The qualification requires a genuine real-backend non-anchor HYBRID emission.
 
-Documentation: `docs/README.md`, `docs/ENGINE_OPTIMIZATION.md`, `docs/M14_J_ADAPTIVE_RESOURCE_ORCHESTRATION.md`, `docs/CURRENT_STATUS.md`, `docs/ROADMAP.md`, `docs/ONLINE_RELEASE_PLAN.md`, `docs/ONLINE_TIME.md`, `docs/BUILD_PLAN.md`, `docs/ARCHITECTURE.md`, `docs/UCI_SHELL.md`, `docs/SHARD_LEDGER.md`, `docs/PREFIX_SHARDS.md`, `docs/SHADOW_EXECUTION.md`, `docs/REPLAY_FORMAT.md`, `docs/RESIDUAL_CALIBRATION.md`, `docs/BUDGET_ROUTING.md`, `docs/VERIFY_RELOCK.md`, `docs/COMPARE_RELOCK.md`, `docs/PREFIX_SHARDS.md`, `docs/REFINEMENT.md`, `docs/ACTIVE_SPECIALIST_SCHEDULER.md`, `docs/CROSS_FEED.md`, `docs/CROSS_FEED_ADAPTERS.md`, `docs/SEARCH_REGIMES.md`, `docs/STAGED_VERIFY.md`, `docs/UNIFIED_VALUE_ROUTER.md`, `docs/RESOURCE_ACCOUNTING.md`, `docs/SEARCH_SPACE_OWNERSHIP.md`, `docs/TELEMETRY_SCHEMA.md`, `docs/TELEMETRY_MAPPING.md`, `docs/THEORY_IMPLEMENTATION_MAP.md`, `docs/CLAIM_LEDGER.md`, `docs/ADVERSARIAL_AUDIT.md`, `docs/CODEX_REVIEW_AUDIT.md`, `docs/UPSTREAM_PROVENANCE.md`, and `LICENSES.md`.
+Documentation index: [docs/README.md](docs/README.md) (all current runbooks, component contracts and historical audits).
 
 **No strength claim is made.** No equal-envelope Elo/superiority campaign has been completed.
-PR #39 establishes the qualified real-network, clock-aware staged hybrid authority composition,
-and PR #41 / LOCAL-1 establishes that the same composition survives the declared complete-game
-lifecycle, failure, rules, replay and resource gates. Neither result shows that HYBRID choices
-are stronger. Stockfish remains the deterministic fallback on denied/unsupported authority
-states. Deployment and the formal equal-resource strength campaign remain separate gates.
+PR #39 qualified clocked staged authority; PR #41 qualified the declared full-game
+lifecycle; PRs #59–#64 added governed orchestration and canonical b4; PR #76
+proved the synthetic two-color gateway path. These are different evidence tiers.
+None shows HYBRID choices stronger under equal total compute. Stockfish remains the
+deterministic fallback on denied/unsupported move authority. Deployment and the
+formal equal-resource strength campaign remain separate gates.
 `docs/CLAIM_LEDGER.md` labels the evidence boundary explicitly.
 
 
@@ -90,37 +90,28 @@ make online-hybrid-contract       # consumes the frozen ONLINE-2 bundle
 make run-allfather-online-hybrid
 ```
 
-PR #41 completed LOCAL-1, PR #44 completed ENGINE-OPT-V2, PR #52 completed J6 of
-M14-J, PR #53 repaired the LOCAL-1 prerequisite boundary, PR #54 merged J7, PR #55
-merged the clamp-only J8 MoveResourcePlan, and PR #56 merged the J9 compatibility
-WorkGrant scheduler. PR #57 is the J10 adaptive-allocation candidate. The remaining
-first-canary path is now:
+The integration milestones previously listed as future work have already merged:
+J8–J12 and the META-1 infrastructure (#55–#61), canonical b4 (#64),
+ONLINE-3/4 offline bridge/recovery (#65–#68), RELEASE-2B candidates (#74–#75)
+and restricted synthetic ONLINE-PLAY-1 (#76). The #77–#79 CI, clock-publication
+and resource teardown repairs are also merged.
+
+The *remaining* tracks, each with a separate evidence and authority gate, are:
 
 ```text
-LOCAL-1 full-game lifecycle qualification  [DONE]
-    -> ENGINE-OPT-V2 measured constituent/profile optimization  [DONE]
-    -> M14-J J0-J6 orchestration substrate + resource laboratory  [DONE]
-    -> M14-J J7 evidence-backed isolated profile selection  [DONE]
-    -> M14-J J8 clamp-only adaptive outer resource plan  [DONE]
-    -> M14-J J9 WorkGrant compatibility scheduler  [DONE]
-    -> M14-J J10 deterministic adaptive allocator  [PR #57]
-    -> M14-J J11 allocation evidence + authority binding  [NEXT AFTER J10]
-    -> M14-J J12 full orchestrated composition
-    -> META-1 matched-resource authority-value control
-    -> ONLINE-PLAY-1 production-profile 10+5 experiment
-    -> ONLINE-3 reproducible package + pinned lichess-bot bridge
-    -> ONLINE-4 network/restart/reconciliation/rollback qualification
-    -> aggregate release qualification
-    -> ONLINE-RC restricted unrated bot canary
+J13 META-1: 100-game matched-authority real-host experiment
+RELEASE-2B-3: two clean dependency builders + independent comparison
+RELEASE-2B-4: independent reviewed dependency-lock admission
+PR-B: actual named host, legal/operator trust, one authorized BOT game
+M14-G4 / J14 / M15-B/C: production value-of-compute and formal strength experiments
 ```
 
-M14-G4 production SKIP calibration and M15-B/C equal-resource strength work proceed on
-separate promotion tracks. META-1 isolates hybrid authority value under matched orchestration;
-ONLINE-PLAY-1 measures the production profiles at 10+5. Neither substitutes for the formal
-M15-B/C equal-resource strength campaign.
-
-The complete M14-J rebuild sequence is documented in
-[docs/M14_J_ADAPTIVE_RESOURCE_ORCHESTRATION.md](docs/M14_J_ADAPTIVE_RESOURCE_ORCHESTRATION.md).
+See [ROADMAP](docs/ROADMAP.md), [META-1 runbook](docs/META_1_EXECUTION_RUNBOOK.md),
+[dependency plan](docs/RELEASE_2B_3_4_PLAN.md), and
+[PR-B readiness](docs/ONLINE_PLAY_1_PR_B_READINESS.md).
+None of the implemented pipelines grants public distribution or live Lichess use.
+The frozen former J10/J11 "next" milestone sequence is a historical execution record,
+not the current work order.
 
 ### LOCAL-1 full-game qualification — qualified
 

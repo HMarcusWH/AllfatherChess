@@ -1,5 +1,8 @@
 # RELEASE-2B-1 — Frozen Python source and selected wheel candidate
 
+> **Current state (25 October 2026):** Candidate **implementation merged** in [PR #74](https://github.com/HMarcusWH/AllfatherChess/pull/74). The twelve source-pinned distribution/wheel choices and source-locked builder provide testable acquisition/repeatability evidence, not independent multi-build lock approval. RELEASE-2B-3 must compare separate clean builds and repeat on the same source SHA; RELEASE-2B-4 must separately review/admit a lock. `wheel_lock_complete=false` and distribution permission remain unchanged. See [the remaining plan](RELEASE_2B_3_4_PLAN.md).
+
+
 **Status: candidate only; no dependency-lock approval or public deployment.**
 
 ## Evidence inputs and strict selection

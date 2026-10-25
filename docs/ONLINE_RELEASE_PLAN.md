@@ -1,3 +1,11 @@
+# AllfatherChess — Final plan from current repository to online bot play
+
+**Current execution override — 25 October 2026; baseline `b1ee33b19b6c`.** ONLINE-3A/3B, offline ONLINE-4A/4B, RELEASE-1 OCI assurance, RELEASE-2B-1/2 candidate inputs and the independent two-color **synthetic** ONLINE-PLAY-1 canary (#76) are already implemented/CI-qualified for their stated scopes. M14-J J12 and the J13 META-1 experiment *plumbing* have merged; its actual 100-game campaign has not. The remaining tracks are [META-1](META_1_EXECUTION_RUNBOOK.md), [RELEASE-2B-3/4](RELEASE_2B_3_4_PLAN.md), and [PR-B operator readiness](ONLINE_PLAY_1_PR_B_READINESS.md), followed by distinct G4/J14/M15 tests. This is **not** deployed live and proves no equal-resource strength, licensed distribution or real bot authorization.
+
+**Historical scope:** The September/October 12 deployment sequence further below is preserved as originally researched. References there to ONLINE-3, ONLINE-4, M14-J or RELEASE-1 as still unimplemented are superseded by [CURRENT_STATUS](CURRENT_STATUS.md) and [ROADMAP](ROADMAP.md).
+
+## Original historical preface (superseded)
+
 > **Implementation update (2026-10-12):** ONLINE-4B merged as PR #68. RELEASE-1 candidate implementation is PR #69 (offline OCI only). The historical sequencing and citations in this plan predate the merged recovery results; deployment, licensing and first live canary gates remain outstanding. [RELEASE-1 operations](RELEASE_1_OPERATIONS.md).
 
 > Repository integration: originally frozen as the 25 September 2026 post-#35 deployment audit;
@@ -8,7 +16,6 @@
 > the detailed deployment audit. Hardware, licensing and branch-protection items remain
 > explicit release gates.
 
-# AllfatherChess — Final plan from current repository to online bot play
 
 **Original review date:** 25 September 2026  
 **Status synchronization:** 28 September 2026  

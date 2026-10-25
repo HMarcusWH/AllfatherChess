@@ -1,5 +1,8 @@
 # RELEASE-2B-2 — Ubuntu signed snapshot and native dependency candidate
 
+> **Current state (25 October 2026):** Signed Ubuntu snapshot/native dependency **candidate stage merged** in [PR #75](https://github.com/HMarcusWH/AllfatherChess/pull/75), including 29 source-locked acquired native packages and 92/94/120 inventory observation boundary. CI host bootstrap was subsequently made fail-closed without unnecessary APT refresh in merged #77. Neither candidate stage constitutes independent builder reproducibility or lock approval. RELEASE-2B-3 independent two-build/third-comparator and RELEASE-2B-4 reviewed admission remain; `ca_bootstrap_snapshot_locked`, `os_package_lock_complete`, `wheel_lock_complete` and live/public permissions remain false. See [the plan](RELEASE_2B_3_4_PLAN.md).
+
+
 **Candidate only. No public bot, live transport, host or dependency-lock approval.**
 
 ## Starting point

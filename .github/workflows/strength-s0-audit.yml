@@ -1,0 +1,62 @@
+name: STRENGTH-S0 - historical nested evidence reconciliation (development only)
+
+on:
+  pull_request:
+    paths:
+      - 'tools/g3_pilot_health.py'
+      - 'tools/strength_lab/**'
+      - 'tests/g3_pilot/test_backend_health.py'
+      - 'tests/g3_pilot/test_nested_measurement.py'
+      - 'qualification/strength/dev-g3-20261025-v1.json'
+      - '.github/workflows/strength-s0-audit.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: strength-s0-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  remeasure:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      SOURCE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+      - name: Check exact checkout and install source-locked chess rules
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          python3 -m pip install --break-system-packages --no-build-isolation \
+            --no-deps --require-hashes -r qualification/local-game-requirements.txt
+          python3 -m unittest discover -s tests/g3_pilot -p 'test_*.py' -v
+          python3 scripts/check-current-status.py
+      - name: Download original 25 October PR81 artifact, not a new match
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: g3-pilot-raw-40216238892-1
+          path: build/strength/s0/raw
+          run-id: 40216238892
+          github-token: ${{ github.token }}
+      - name: Independently verify all nested VERIFY and STAGED_VERIFY evidence
+        timeout-minutes: 29
+        run: |
+          set -euo pipefail
+          python3 -m tools.strength_lab.extract \
+            --campaign "build/strength/s0/raw/796228796c09-40216238892-1" \
+            --audit-id dev-g3-20261025 \
+            --output "build/strength/s0/remeasured-${SOURCE_SHA:0:12}.json"
+      - name: Retain the new derived read-only evidence and any failures
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: strength-s0-${{ github.run_id }}-${{ github.run_attempt }}
+          path: build/strength/s0/remeasured-*.json
+          if-no-files-found: warn
+          retention-days: 30

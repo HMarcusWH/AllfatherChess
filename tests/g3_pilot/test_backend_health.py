@@ -36,6 +36,7 @@ class BackendHealthTests(unittest.TestCase):
             ],
         }
         self.final = {
+            "sources": {},
             "decision": {
                 "authority": "ANCHOR_FALLBACK",
                 "anchor_move": "e2e4",
@@ -65,7 +66,10 @@ class BackendHealthTests(unittest.TestCase):
         self.assertTrue(aggregate["three_family_evidence_complete"])
         self.assertEqual(aggregate["lc0_explore_stages_observed"], 1)
         self.assertEqual(aggregate["three_family_explore_completions"], 1)
-        self.assertEqual(aggregate["verify_stages_completed"], 1)
+        # Top-level synthetic EXPLORE stages are not nested VERIFY evidence.
+        self.assertEqual(aggregate["verify_stages_completed"], 0)
+        self.assertEqual(aggregate["verify_attempted"], 0)
+        self.assertEqual(aggregate["staged_verify_stages_completed"], 0)
         self.assertEqual(aggregate["hybrid_authorizations"], 0)
         self.assertEqual(aggregate["proposals_frozen_before_deadline"], 0)
         self.assertEqual(aggregate["authorization_denial_reasons"]["no verified proposal"], 1)

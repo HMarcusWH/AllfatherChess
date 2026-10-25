@@ -74,6 +74,10 @@ levels are implemented, qualified, deployed and strength-supported.
 - [RELEASE_2B_3_4_PLAN.md](RELEASE_2B_3_4_PLAN.md) — independent dependency comparison and separate lock review
 - [META_1_EXECUTION_RUNBOOK.md](META_1_EXECUTION_RUNBOOK.md) — real J12-host-only 100-game control, no Elo
 
+## Strength research and evidence
+
+- [STRENGTH_S0_BASELINE.md](STRENGTH_S0_BASELINE.md) — historical G3 nested-stage correction, read-only audit and no-strength-claim boundary
+
 ## Historical plans, incidents and audit trail
 
 - [ADVERSARIAL_AUDIT.md](ADVERSARIAL_AUDIT.md)

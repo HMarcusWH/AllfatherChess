@@ -1,5 +1,8 @@
 # AllfatherChess — Post-Merge Codex Debt Ledger (draft PR #71)
 
+> **Synchronized historical-scope banner, 25 October 2026.** **Historical review ledger:** The original "draft PR #71 / in-progress" status below is a dated review/repair snapshot. PR #71 subsequently merged offline-only, and later #74–#79 were merged. Preserve each original counterexample and evidence requirement, but do not treat a historical pending note as the current PR state or as a post-merge audit waiver. See [CURRENT_STATUS](CURRENT_STATUS.md) and [CLAIM_LEDGER](CLAIM_LEDGER.md).
+
+
 Scope: 18 code-review findings from #66–#69, plus two independently discovered admission holes.
 Base main commit: 449ff7eb1d4728b6d2a6ec8d6e84a85d3bf4b685.
 Status: code implementation in progress; not evidence of green CI or completed reviewer approval.

@@ -1,5 +1,8 @@
 # AllfatherChess Extended Build Plan
 
+> **Synchronized historical-scope banner, 25 October 2026.** **Historical research/architecture scope:** The initial PR #19–#24 design lineage is preserved; it predates merged J12 resource orchestration, canonical b4, offline Lichess gateway and release candidates. Treat proposed file-path and PR order in the dated narrative as historical, not current TODO or evidence. Current execution: [CURRENT_STATUS](CURRENT_STATUS.md), [ROADMAP](ROADMAP.md), [CLAIM_LEDGER](CLAIM_LEDGER.md). RACR/ICW/Weil concepts are architectural inspirations, not imported proof of chess correctness or numerical thresholds.
+
+
 > **Current-state overlay:** synchronized after PR #39 / M14-G3 at `c301e9986566febfbb7978d55c5a3d3429423cff`.
 > [CURRENT_STATUS.md](CURRENT_STATUS.md) is the authoritative short-form build/release state and
 > [ROADMAP.md](ROADMAP.md) is the canonical forward execution roadmap.

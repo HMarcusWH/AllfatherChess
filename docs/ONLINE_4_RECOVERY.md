@@ -1,5 +1,8 @@
 # ONLINE-4A — Offline fault injection and acceptance diagnostics
 
+> **Post-#79 evidence split:** ONLINE-4A has 13/13 validated adversarial scenarios and **six retained unsafe-behavior witnesses**. Those are successful negative *fault-harness* observations, not qualification that the unsafe behavior is harmless. ONLINE-4B independently established 10/10 source-guarded offline containment/recovery scenarios and `recovery_qualified_offline=true`. `network_recovery_qualified=false` and real-Lichess release stay blocked. See [ONLINE-4B recovery](ONLINE_4B_RECOVERY.md) and [claim ledger](CLAIM_LEDGER.md).
+
+
 ## Authority boundary
 
 **OFFLINE DIAGNOSTICS ONLY.** This stage does not qualify network recovery,

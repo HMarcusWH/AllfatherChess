@@ -1,5 +1,8 @@
 # LOCAL-1 implementation audit
 
+> **Synchronized historical-scope banner, 25 October 2026.** **Historical preimplementation audit only:** Later LOCAL-1 and G3 game/replay/resource qualifications were merged and rechecked, most recently at #76 exact-head [run 40140708158](https://github.com/HMarcusWH/AllfatherChess/actions/runs/40140708158). The original identified gaps remain as dated observations; only corresponding source and exact-head verification prove a repair. No lifecycle W/D/L is equal-resource Elo.
+
+
 See [FULL_GAME_QUALIFICATION.md](FULL_GAME_QUALIFICATION.md) for the campaign contract.
 This is an implementation/hardening record, not an exact-head CI success certificate.
 

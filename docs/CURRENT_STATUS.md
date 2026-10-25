@@ -1,5 +1,49 @@
 # AllfatherChess current build and release status
 
+> **Current source-backed snapshot — 25 October 2026; baseline `b1ee33b19b6cb9865d9c99d413041a8f6e8d468a`.** The **current canonical** LC0 profile is `b4-p0-c256k-cold` (BLAS, minibatch 4, NNCacheSize 262144, MaxPrefetch 0), explicitly promoted in [PR #64](https://github.com/HMarcusWH/AllfatherChess/pull/64). [PR #71](https://github.com/HMarcusWH/AllfatherChess/pull/71) remains the historical independent offline-only assurance milestone; RELEASE-2B-1/2 candidates and the separate ONLINE-PLAY-1 offline synthetic canary were subsequently merged. **no public bot release**, live game, hosted deployment, combined distribution, or equal-compute strength qualification is authorized.
+
+> **Source-of-truth rule:** The immutable policies and code define authority; exact-head GitHub CI and independent evidence define qualification. This dated status records what was observed on the baseline, not what later SHAs automatically qualify. See [ROADMAP.md](ROADMAP.md), [CLAIM_LEDGER.md](CLAIM_LEDGER.md) and `scripts/check-current-status.py`.
+
+## Canonical post-PR #79 milestone state
+
+| Milestone / PRs | What exists on the baseline | Evidence or outstanding boundary |
+| --- | --- | --- |
+| Three-engine controller (#1–#35) | Stockfish anchor/shadow, Reckless, LC0, typed evidence, ShardLedger, VERIFY/REFINE and separate proposals/resources | Contract-backed; shadow observation is not equal-compute strength evidence |
+| Online time, G3 and LOCAL-1 (#36–#44) | Clocked outward authority, real BLAS LC0, full-game lifecycle and optimized CPU composition | Qualification-specific, not an Elo claim |
+| M14-J J0–J12 (#45–#59) | Host/profile selection, TimePlan/MoveResourcePlan, WorkGrants, resource evidence, one J10 allocator and J12 controlled HYBRID authority | Positive authorization requires real host-domain and complete evidence |
+| J13 / META-1 (#60–#61) | Frozen ANCHOR_CONTROL arm, 50 reversed-color opening pairs, immutable attempt and independent requalification plumbing | **100-game real-host confirmatory campaign not run**; no claim of authority benefit |
+| Canonical LC0 b4 (#62–#64) | Cold BLAS b4 selection promoted into J3–J12 substrate | `QUALIFIED_EXACT_HOST_ONLY` is not generic host portability |
+| Offline UCI / Lichess bridge (#65–#68) | Sealed package, pinned `lichess-bot`, 4A faults and 4B guarded offline recovery | 4A unsafe witnesses remain *negative* evidence; 4B offline recovery qualified, not network recovery |
+| RELEASE-1 / assurance (#69–#73) | Offline OCI candidate, independently checked SLSA/SPDX/engine/bridge evidence | No distribution, legal, host, image-signing or live authorization |
+| RELEASE-2B-1/2 (#74–#75) | Twelve exact wheel candidates and signed-snapshot native package inputs | Candidate provenance only; 2B-3 independent repeats and 2B-4 reviewed lock admission remain |
+| ONLINE-PLAY-1 PR-A (#76) | Source-locked restricted gateway, gateway/bridge separation, durable one-game admission, two-color synthetic full games | [Exact-head canary run](https://github.com/HMarcusWH/AllfatherChess/actions/runs/40140708049): independent `DRY_RUN_PASS`, `live_game_authorized=false`; real PR-B trust remains absent |
+| Hardening (#77–#79) | Signed Ubuntu CI host install, `published_incomplete` clock disposition, no late optional VERIFY promotion, orderly stop/resource incident evidence | Prevents false-positive lifecycle/resource claims; no extension of move/clock authorization |
+
+The PR #76 source-security review found two P2 problems, repaired at `968fc7968f69dc82375e7e5c6d3394e7c8857e64`: the live source verifier now denies synthetic host receipts by default; malformed `gameStart.opponent` data triggers controlled durable suspension. The review discussions were resolved and the exact-head PR had **14/14 successful workflow families**, including both full fake games and the independent verdict, before merge at `b1ee33b19b6cb9865d9c99d413041a8f6e8d468a`. No live requests were authorized.
+
+## Current default reference and physical evidence
+
+The canonical source selection is `qualification/engine-opt-v2-selection.json`; the J3 catalog is `qualification/resource-profile-catalog-v1.json`; the G3 online reference is `config/allfather.online-hybrid-v2.validation.json`. LC0 b4's measured continuity on an exact host does not generalize to arbitrary hardware.
+
+The latest #76 exact-head LOCAL-1 producer reported `passed=true` and `errors=[]` on [run 40140708158](https://github.com/HMarcusWH/AllfatherChess/actions/runs/40140708158). Its eight-game-per-arm descriptive baseline cannot be used as a superiority, matched-compute or isolate-the-controller comparison. Historical failed qualification runs are preserved in [LOCAL1_RESOURCE_INCIDENT_2026-10-23.md](LOCAL1_RESOURCE_INCIDENT_2026-10-23.md), not retroactively reclassified as passes.
+
+## Outstanding work, ordered by independent gates
+
+1. **Governance:** protect `main` with required `Merge gate / validate`; [issues #26](https://github.com/HMarcusWH/AllfatherChess/issues/26) and [#27](https://github.com/HMarcusWH/AllfatherChess/issues/27) remain tracking items. GitHub returned `main.protected=false` with no ruleset on the audit baseline.
+2. **META-1:** dispatch frozen 100-game J13 campaign on a real J12-authority-qualified host, retain raw evidence and third-party-independent requalification. The control infrastructure itself has merged.
+3. **RELEASE-2B-3/4:** two independent clean dependency builds/comparison, exact-SHA repeat, and **separate** reviewed lock admission; currently approval flags remain false.
+4. **PR-B operational admission:** independent legal/host/operator/trust review, named BOT accounts, scoped token isolation and a single restricted approved game. PR-A is offline synthetic only.
+5. **G4/J14/M15:** supported production SKIP decisions, production-profile matched experimentation, and finally a predeclared equal-total-resource strength campaign. Their claims are not interchangeable.
+
+## Explicit prohibited promotion
+
+`qualification/current-status-v1.json`, `qualification/release-image-v1.json`, `qualification/release-qualification-v1.json`, `qualification/license-compliance-v1.json` and `qualification/online-live-canary-v1.json` remain the executable denials. `offline_candidate_qualified=false`, `playing_strength_qualified=false`, `public_bot_release=false`, `network_recovery_qualified=false` and `artifact_distribution_authorized=false` must **not** be changed by a documentation synchronization. CI qualification of an offline candidate never raises a release-policy authorization bit.
+
+## Historical evidence and pre-October 25 notes
+
+The following ledger is preserved as a dated implementation record. Earlier references to pending J7/J13C/ONLINE-3/4 are **historical**, not live instructions. The current sections above supersede their scheduling statements.
+
+---
 > **Current source-backed status — 18 October 2026:** The **current canonical**
 > LC0 engine-opt profile is `b4-p0-c256k-cold` (BLAS, minibatch 4,
 > NNCacheSize 262144, MaxPrefetch 0). It was promoted in

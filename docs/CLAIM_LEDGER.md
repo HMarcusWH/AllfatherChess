@@ -1,5 +1,38 @@
 # Claim ledger
 
+> **Current claims overlay — 25 October 2026, baseline `b1ee33b19b6cb9865d9c99d413041a8f6e8d468a`.** An item may be implemented without being qualified, or qualified for one exact physical/offline domain without being deployable or stronger in chess. Policies and independent verdicts take precedence over old milestone prose. See [CURRENT_STATUS.md](CURRENT_STATUS.md).
+
+## Current evidence and claim ceilings after PR #79
+
+| Area | Status | Boundaries, supporting evidence |
+| --- | --- | --- |
+| Stockfish / Reckless / LC0 derived sources | **IMPLEMENTED** | Pin provenance and native meanings; no shared node-cost unit; source ancestry is not strength |
+| M14-C/G3 outward non-anchor move | **MECHANISM QUALIFIED** | Requires timely staged evidence and separate DecisionAuthorization; fallback on non-admission; no chess value claim |
+| J8–J12 adaptive resource orchestration | **IMPLEMENTED / EXACT-DOMAIN MECHANISM EVIDENCE** | WorkGrants are compute authority, not move authority; synthetic host-capacity checks do not qualify live J12 |
+| Canonical LC0 b4 after PR #64 | **SELECTED / QUALIFIED_EXACT_HOST_ONLY** | `b4-p0-c256k-cold`; do not infer general CPU portability, GPU success, Elo |
+| J13/META-1 | **INFRASTRUCTURE QUALIFIED / REAL CAMPAIGN OPEN** | Frozen `qualification/meta-1-v1.json`: 50 paired openings, 100 games. No completed confirmatory `workflow_dispatch` campaign; result gates deliberately non-Elo |
+| ONLINE-3A/3B and 4B | **OFFLINE MECHANISM QUALIFIED** | Source sealed, pinned BOT bridge and offline guarded recovery; `network_recovery_qualified=false` |
+| ONLINE-4A | **FAULT HARNESS QUALIFIED / NEGATIVE WITNESSES RETAINED** | 13/13 fault scenarios validated; six unsafe witnesses are *negative* findings, not permission to release |
+| RELEASE-1 and 2B-1/2 | **IMMUTABLE OFFLINE CANDIDATE / UNAPPROVED DEPENDENCY LOCKS** | OCI/SLSA/SPDX and wheel/native candidates; no 2B-3 cross-build comparison or 2B-4 approval |
+| ONLINE-PLAY-1 PR-A #76 | **SYNTHETIC DRY_RUN_PASS** | [Run 40140708049](https://github.com/HMarcusWH/AllfatherChess/actions/runs/40140708049), exact qualified head `968fc7968f69dc82375e7e5c6d3394e7c8857e64`; both colors, independent verdict, `live_game_authorized=false` |
+| #77–#79 fail-closed repairs | **IMPLEMENTED / REGRESSION-GATED** | No retroactive cancellation of published bestmove, no phantom finished VERIFY, no unsafe clocked stop sequencing |
+| PR-B, host, operator, legal | **NOT AUTHORIZED** | Separate trust record, actual credentials/host inspection and legal review are required |
+| M14-G4 / J14 / M15-B/C | **OPEN EXPERIMENTS** | Reproducible profile/ablation study and equal-total-resource superiority must be measured; absent today |
+
+### Denial states are not defects to auto-fix
+
+`public_bot_release=false`, `playing_strength_qualified=false`, `offline_candidate_qualified=false`, `artifact_distribution_authorized=false`, `network_recovery_qualified=false`, and all license/host/live approvals remain false under the active policy. This documentation change must never flip them.
+
+### Published decisions, resource completion, and unsafe evidence
+
+A confirmed bestmove crossing stdout is an irrevocable **publication fact**, not automatically a completed resource/VERIFY certificate. `published_incomplete` from #78 preserves this distinction. The separate #79 clock worker teardown adjustments are lifecycle safety changes, not permission to extend the TimePlan or use extra compute. ONLINE-4A's unsafe witnesses are retained as a check that the harness detects precisely what ONLINE-4B must prevent.
+
+### Historical claim and implementation ledger
+
+The original ledger below is preserved verbatim for its source-backed chronology. Its opening "current after PR #58" and older OPEN lists are *historical*, not current-state authority.
+
+---
+
 ## Current repository synchronization after PR #58
 
 - **PROVED / CI-GATED FALLBACK:** ENGINE-OPT-V2 / PR #44 remains the frozen qualified

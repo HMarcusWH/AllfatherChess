@@ -1,5 +1,8 @@
 # LOCAL-1 / Engine Opt v2 — strict resource incident diagnosis (2026-10-23)
 
+> **Synchronized historical-scope banner, 25 October 2026.** **Retained negative evidence:** The three failures below remain unqualified at their original 23 October SHAs. PR #79 stop-ordering and PR #78 post-publication/headroom repairs subsequently merged and #76's exact-head LOCAL-1 passed; **later passes do not retroactively upgrade these failing resource certificates**. The original 677.229ms persistence tail and missing terminal procfs examples must remain visible as motivation for fail-closed physical accounting. See [publication disposition](ONLINE_PUBLICATION_DISPOSITION.md).
+
+
 This source-only note retains no private UCI trace or runner attachment. It
 describes three failed exact-head GitHub qualification runs as NEGATIVE evidence.
 

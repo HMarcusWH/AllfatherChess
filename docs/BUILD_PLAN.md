@@ -1,5 +1,8 @@
 # Build Plan
 
+> **Synchronized historical-scope banner, 25 October 2026.** **Historical build-plan scope:** This document's immediate PR train is anchored to the post-#39 stage; the later J0–J12, META-1 plumbing, ONLINE-3/4 offline bridge, RELEASE-1/2B candidate and synthetic canary are now on `main`. Keep its original acceptance rules and technical design as lineage, but use [CURRENT_STATUS](CURRENT_STATUS.md) and [ROADMAP](ROADMAP.md) for current implementation and future order. This file is not a live deployment release authorization.
+
+
 ## Current deployment work order (post-PR #39 / M14-G3)
 
 The authoritative current build state is [CURRENT_STATUS.md](CURRENT_STATUS.md) and the

@@ -1,5 +1,8 @@
 # Post-publication clock-work disposition (controller lifecycle repair)
 
+> **Synchronized 25 October 2026 — post-PR #79.** PR #78 merged after successful exact-head workflow qualification; the subsequent rebased #76 LOCAL-1 and two-color fake canary also passed. A bestmove crossing stdout is an immutable *publication event*; `published_incomplete` specifically does **not** assert completed VERIFY, complete resource coverage, chess strength or live deployment. PR #79 separately hardened clocked shadow STOP order without enlarging time or work authorizations.
+
+
 **Scope:** Governed UCI execution/replay classification only. No move-authority,
 resource-envelope, engine/profile or live transport changes.
 

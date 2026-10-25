@@ -28,6 +28,8 @@ jobs:
           python3 -m py_compile allfather-chess
           python3 scripts/check-current-status.py
           python3 tests/ci/test_current_status_contract.py
+          python3 scripts/check-docs-consistency.py
+          python3 -m unittest tests.ci.test_docs_consistency -v
           for config in config/*.json; do python3 -m json.tool "$config" >/dev/null; done
 
       - name: Run engine-independent contract and controller suites

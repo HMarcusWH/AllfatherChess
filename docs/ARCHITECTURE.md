@@ -1,5 +1,19 @@
 # Architecture
 
+> **Post-#79 documentation overlay, 25 October 2026.** **Post-PR #79 execution diagram.** J10's allocation is only a resource proposal; J9 WorkGrants/BudgetLedger authorize computation, not chess decisions. Complete and timely staged evidence can enter a separate DecisionAuthorization before at most one outward bestmove. Denial preserves Stockfish. PR #78's `published_incomplete` records publication without falsifying optional VERIFY completion, and PR #79 improves STOP/resource finalization without broadening TimePlan.
+
+```text
+UCI clock -> TimePlan -> Stockfish anchor/fallback
+             |
+HostCapabilities / GameEnvironment -> MoveResourcePlan
+ -> J10 allocation -> J9 WorkGrants + BudgetLedger
+ -> EXPLORE / VERIFY / staged VERIFY -> typed proposal
+ -> DecisionAuthorization -> outward bestmove -> sealed evidence
+```
+
+The #76 Lichess gateway is separately **synthetic-test qualified**, not authorized for real public play. See [CURRENT_STATUS](CURRENT_STATUS.md), [DECISION_AUTHORITY](DECISION_AUTHORITY.md), and [RESOURCE_ACCOUNTING](RESOURCE_ACCOUNTING.md). The architectural generations below are preserved as implementation history.
+
+
 ## Product boundary
 
 AllfatherChess is the externally visible chess engine. Stockfish, Reckless, and LC0 are heterogeneous solver backends managed by a meta-controller.

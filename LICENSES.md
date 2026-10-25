@@ -1,5 +1,16 @@
 # Licensing and provenance notice
 
+> **Provenance/legal status (25 October 2026):** The repository also pins
+> `lichess-bot` (AGPL-3.0) as the separate API bridge in
+> `deploy/lichess/bridge.lock.json`; consult its actual upstream license
+> and the component map in `qualification/license-compliance-v1.json`.
+> A source lock or offline SLSA/SPDX audit is not a combined-work licensing
+> opinion. Controller distribution license, GPL/AGPL obligations for any
+> combined release or remote network service, corresponding source packaging,
+> and a human legal review all remain **unapproved**. No distribution or public
+> BOT use is authorized by this notice.
+
+
 AllfatherChess contains vendored third-party/open-source engine code with its original notices and license texts preserved in the corresponding engine directories.
 
 - `engines/stockfish/` — Stockfish source, distributed under GNU GPL v3; see `engines/stockfish/Copying.txt`.

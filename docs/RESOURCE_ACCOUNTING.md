@@ -1,5 +1,8 @@
 # Measured process resource accounting
 
+> **Synchronized 25 October 2026 — post-PR #79.** J12's MoveResourcePlan, J9 WorkGrants and BudgetLedger remain **compute authority**, distinct from DecisionAuthorization. PR #79 improves non-invalidating shadow STOP order; PR #78 fences optional VERIFY on the existing quiescence budget and labels post-publication incomplete observation. Missing terminal LC0 procfs measurements are physical-resource failures, not clean completion; the [October 23 incident](LOCAL1_RESOURCE_INCIDENT_2026-10-23.md) remains retained. Constituent native node counts are not comparable total CPU/GPU/wall cost.
+
+
 ## Status
 
 M14-B adds physical resource evidence without changing chess authority.

@@ -1,5 +1,8 @@
 # RELEASE-2A: Independent dependency-inventory observations
 
+> **Status synchronization (25 October 2026):** The original RELEASE-2A observation work was merged as [PR #72](https://github.com/HMarcusWH/AllfatherChess/pull/72). Wheel and native provenance **candidate selection** followed in merged #74 and #75. The underlying 120-row installed dependency inventory is observational, not an approved lock. The next separate steps are independent two-clean-builder comparison (RELEASE-2B-3) and reviewed lock admission (RELEASE-2B-4); see [remaining release work](RELEASE_2B_3_4_PLAN.md). No public release or distribution authorization.
+
+
 **Status: evidence candidate, not a frozen lock or distribution permission.**
 
 ## Baseline and intent

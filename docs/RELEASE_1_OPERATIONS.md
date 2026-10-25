@@ -1,5 +1,8 @@
 # RELEASE-1: immutable offline OCI candidate (PR #69)
 
+> **Post-#79 offline release context:** PR #69–#73 independently qualified the immutable offline OCI/engine, SLSA/SPDX and bridge assurance mechanisms for their declared inputs. PRs #74 and #75 subsequently merged 12 exact selected-wheel/source candidates and signed Ubuntu native-package acquisition/installation candidates. Neither SOURCE-DIGEST verification nor green OCI tests constitute independently admitted reproducible locks: [RELEASE-2B-3/4](RELEASE_2B_3_4_PLAN.md) remain open. PR #76 added a *separate* synthetic-only Lichess gateway; RELEASE-1's own permitted entrypoints remain `verify` and `offline-smoke`. All legal/host/live/public flags remain false.
+
+
 **This is an experimental, offline-only packaging milestone, not a licensed
 public distribution, deployable Lichess bot, certified destination host,
 authenticated signature or playing-strength claim.**

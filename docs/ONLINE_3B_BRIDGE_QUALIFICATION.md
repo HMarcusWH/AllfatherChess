@@ -1,5 +1,8 @@
 # ONLINE-3B — pinned offline Lichess bridge qualification
 
+> **Current qualification record:** The pinned `lichess-bot` commit `df7e730de58cc3ef2f1415a0dc2eeda842d39167` is qualified only under its offline simulation, source-lock and sealed UCI constraints. The PR #76 synthetic gateway independently exercised White and Black complete fake games on [run 40140708049](https://github.com/HMarcusWH/AllfatherChess/actions/runs/40140708049), but this does not retroactively authorize real Bot API transport or change ONLINE-3B's original evidence. Preserve exact pinned source and distinct token/engine authority.
+
+
 **No live Lichess, real token, irreversible BOT conversion, public deployment,
 network recovery, or chess strength qualification.**
 

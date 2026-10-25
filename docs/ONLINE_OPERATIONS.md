@@ -1,5 +1,8 @@
 # ONLINE-3A: sealed offline AllfatherChess UCI package
 
+> **Current bridge/package status (25 October 2026):** ONLINE-3A/3B are merged, source-sealed and qualified for *offline* UCI/lichess-bot simulation. ONLINE-4B adds separately qualified offline guarded recovery. PR #76's live-capable gateway is a distinct synthetic-tested private component, not a replacement for the RELEASE-1 offline entrypoint or permission to send live credentials. The operational PR-B/legal/host/trust gate stays closed. See [offline bridge](ONLINE_3B_BRIDGE_QUALIFICATION.md), [PR-A runbook](ONLINE_PLAY_1_RUNBOOK.md), and [PR-B readiness](ONLINE_PLAY_1_PR_B_READINESS.md).
+
+
 **Scope:** offline controller/package validation. No lichess-bot bridge, credentials,
 BOT upgrade, network API, J12 host qualification or online deployment authority.
 

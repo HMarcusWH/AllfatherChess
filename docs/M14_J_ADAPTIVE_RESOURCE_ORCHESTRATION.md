@@ -1,10 +1,8 @@
 # AllfatherChess — M14-J Adaptive Resource Orchestration Rebuild Plan
 
-> **Status:** active implementation; J0-J12 and J13A control architecture merged, J13B execution qualification in progress  
-> **Current main:** `217de24902c50355f186fbae2bd2c558dd0a92ae` (PR #60 merge)  
-> **Frozen fallback composition:** ENGINE-OPT-V2 / PR #44  
-> **Latest completed stage:** J13A matched-orchestration ANCHOR_CONTROL / PR #60  
-> **Authority:** documentation only; this plan does not itself promote M14-J behavior  
+> **Current program status (25 October 2026):** J0–J12 merged; J13 control (#60), execution plumbing (#61) and canonical b4 promotion (#64) completed. **Real 100-game META-1 is not yet executed.** J14 and M15 remain separate research gates.
+>
+> **Historical specification:** J13C text lower in this file predates #64. [CURRENT_STATUS](CURRENT_STATUS.md), [ROADMAP](ROADMAP.md) and [META-1](META_1_EXECUTION_RUNBOOK.md) own present status. This plan confers no runtime authorization.
 
 **Program:** M14-J — Adaptive Resource Orchestration
 
@@ -1574,7 +1572,7 @@ The old path must remain green.
 
 ---
 
-## 42. J13 — META-1 — **EXECUTION QUALIFICATION MERGED / SUBSTRATE REQUALIFICATION IN PROGRESS**
+## 42. J13 — META-1 — **CONTROL/PLUMBING MERGED / REAL CAMPAIGN OPEN**
 
 Primary comparative experiment:
 
@@ -1583,6 +1581,8 @@ Primary comparative experiment:
 The J13A control plane is merged in PR #60. J13B does not change controller policy,
 engines, allocator, WorkGrants, openings or clocks. It makes the already-frozen experiment
 confirmatory and independently auditable:
+
+**Historical pre-#64 rationale:**
 
 PR #61 merged those J13B execution-qualification controls. Before the actual campaign,
 J13C must requalify the ENGINE-OPT-V2 substrate because the retained PR #61 aggregate was

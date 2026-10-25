@@ -1,8 +1,31 @@
 # ONLINE-PLAY-1 — restricted Lichess canary (PR-A only)
 
-**Status: candidate code; no permission to connect to Lichess, convert an account,
-publish a build, merge or deploy.** PR-B is a separate human approval boundary.
+**Current status (25 October 2026): PR-A merged and the independent two-color FAKE-API test qualified. No permission to connect to Lichess, convert an account, publish a build, or deploy.** PR-B is a separate human approval boundary.
 The source candidate deliberately has no account names and all permissions false.
+
+## Final PR-A source and verdict boundary
+
+[PR #76](https://github.com/HMarcusWH/AllfatherChess/pull/76) merged as
+`b1ee33b19b6cb9865d9c99d413041a8f6e8d468a` after the rebase and
+two P2 repairs at source head `968fc7968f69dc82375e7e5c6d3394e7c8857e64`.
+The final 14/14 exact-head workflow families passed.
+[Independent canary run 40140708049](https://github.com/HMarcusWH/AllfatherChess/actions/runs/40140708049)
+retained `{"verdict":"DRY_RUN_PASS","failures":[],"live_game_authorized":false}`.
+The real pinned bridge and sealed UCI played a complete fake game as White
+and as Black. The two resolved code review issues are (1) a synthetic
+`host-observation` receipt cannot satisfy live host admission by default,
+and (2) malformed `gameStart.opponent` data triggers controlled persistent
+suspension and never reaches the bridge.
+
+**Historical note:** The remaining PR-A candidate, staging, verifier-failure,
+and fault-reproduction sections document intermediate October 22–24 trials.
+Treat their unsuccessful/pending statements as dated observations, not the
+final merged PR verdict.
+
+The separate PR-B trust input `qualification/online-canary-operator-trust-v1.json`
+does not exist in this source baseline. Real host/license/operator/credential
+approval has **not** happened. The production RELEASE-1 no-network policy
+also remains unchanged. See [PR-B readiness](ONLINE_PLAY_1_PR_B_READINESS.md).
 
 ## Purpose and scope
 

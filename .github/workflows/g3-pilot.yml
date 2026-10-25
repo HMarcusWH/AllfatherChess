@@ -4,6 +4,8 @@ on:
   pull_request:
     paths:
       - 'tools/g3_pilot.py'
+      - 'tools/g3_pilot_preflight.py'
+      - 'tools/g3_pilot_health.py'
       - 'tests/g3_pilot/**'
       - 'qualification/g3-pilot-v1.json'
       - '.github/workflows/g3-pilot.yml'
@@ -32,7 +34,7 @@ jobs:
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$PILOT_SHA"
           python3 -m json.tool qualification/g3-pilot-v1.json >/dev/null
-          python3 -m compileall -q tools/g3_pilot.py tests/g3_pilot
+          python3 -m compileall -q tools/g3_pilot.py tools/g3_pilot_preflight.py tools/g3_pilot_health.py tests/g3_pilot
           python3 -m unittest discover -s tests/g3_pilot -p 'test_*.py' -v
           python3 -m tools.g3_pilot --phase contracts
           python3 scripts/check-current-status.py
@@ -124,9 +126,17 @@ jobs:
           set -euo pipefail
           chmod +x build/tools/fastchess/bin/fastchess
           find build/online-engine-opt-v2/bin -type f -exec chmod +x {} +
+          # The build job's shared libraries do not exist on this separate
+          # GitHub-hosted game runner. Match the successful LOCAL-1 runtime.
+          bash scripts/ci-install-apt-deps.sh             meson ninja-build pkg-config libprotobuf-dev protobuf-compiler             zlib1g-dev libopenblas-dev python3-pip python3-setuptools python3-wheel
           python3 -m pip install --break-system-packages --no-build-isolation \
             --no-deps --require-hashes -r qualification/local-game-requirements.txt
           python3 -m unittest discover -s tests/g3_pilot -p 'test_*.py' -v
+      - name: Verify real LC0 b4 linkage, UCI, ready and legal search on this game host
+        timeout-minutes: 8
+        run: |
+          set -euo pipefail
+          python3 -m tools.g3_pilot_preflight             --output build/test-results/g3-pilot/preflight.json
       - name: Run real eight-opening reversed-color G3-versus-anchor pilot
         timeout-minutes: 150
         run: |

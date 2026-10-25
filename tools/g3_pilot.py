@@ -15,6 +15,10 @@ from pathlib import Path
 import sys
 
 from tools.engine_opt.domain import candidate_bundle_identity
+from tools.g3_pilot_health import (
+    source_hygiene, require_clean_hygiene, observe_replay_backend,
+    aggregate_backend_coverage,
+)
 from tools.local_game.common import (
     ROOT, file_record, load, require, save, sha, source_identity, verify_record,
 )
@@ -133,7 +137,8 @@ def points(result: str, arm: str, white: str, black: str) -> float:
     return 1.0 if arm == winner else 0.0
 
 
-def summarize(p: dict, games: list[dict], plies: list[dict]) -> dict:
+def summarize(p: dict, games: list[dict], plies: list[dict],
+              backend_coverage: dict | None = None) -> dict:
     require(len(games) == p["total_games"], "pilot has incomplete game coverage")
     require(plies and {row.get("arm") for row in plies} == set(ARMS),
             "pilot lacks independent move evidence from both arms")
@@ -198,6 +203,8 @@ def summarize(p: dict, games: list[dict], plies: list[dict]) -> dict:
         "authority_counts": dict(Counter(r.get("authority") for r in plies
                                          if r.get("authority") is not None)),
         "arm_telemetry": arm_telemetry,
+        "backend_coverage": backend_coverage if backend_coverage is not None
+                            else {"scope": "synthetic-summary-no-backend-verification"},
     }
 
 
@@ -211,6 +218,7 @@ def campaign_identity(source: dict) -> str:
 
 
 def validate_campaign(output: Path) -> dict:
+    output = output.resolve()
     p = pilot_policy()
     source_id = source_identity()
     plans, blocks = planned_games(p)
@@ -240,7 +248,16 @@ def validate_campaign(output: Path) -> dict:
     require(manifest.get("producer_root") == str(ROOT)
             and manifest.get("fastchess") == str(fastchess),
             "pilot producer host/source layout drift")
+    from tools.g3_pilot_preflight import verify_preflight
+    preflight = verify_record(ROOT, manifest.get("backend_preflight") or {})
+    require(preflight == ROOT_OUTPUT / "preflight.json",
+            "source-bound LC0 preflight is not at canonical game-host path")
+    verified_preflight = verify_preflight(load(preflight), source_id)
+    require(manifest.get("lc0_uci_preflight_passed") is True
+            and verified_preflight["passed"] is True,
+            "pilot did not prove game-host LC0 UCI/BLAS readiness")
     runtime = load(ROOT / p["source_runtime"])
+    backend_observations: list[dict] = []
     game_rows: list[dict] = []
     ply_rows: list[dict] = []
     unique_run_ids: set[str] = set()
@@ -259,6 +276,10 @@ def validate_campaign(output: Path) -> dict:
             python_executable=manifest["python_executable"],
         )
         execution = job["execution"]
+        require_clean_hygiene(job.get("source_hygiene_before"))
+        require_clean_hygiene(job.get("source_hygiene_after"))
+        require(execution.get("cwd") == str(folder),
+                "Fastchess did not execute inside isolated match folder")
         require(execution["argv"] == expected
                 and execution["returncode"] == 0
                 and execution["timed_out"] is False
@@ -279,6 +300,11 @@ def validate_campaign(output: Path) -> dict:
             require(len(groups) == 2 and len(summaries) == 1,
                     "pilot expected exactly two games on one persistent engine process")
             streams[arm] = groups
+        for searches in streams[ARMS[0]]:
+            for item in searches:
+                require(item.get("run") is not None,
+                        "G3 move has no source-bound replay")
+                backend_observations.append(observe_replay_backend(item["run"]))
         for game_id, game in enumerate(games):
             expected_colors = (plan["arms"] if game_id == 0
                                else list(reversed(plan["arms"])))
@@ -303,10 +329,19 @@ def validate_campaign(output: Path) -> dict:
                 "result": game.headers["Result"],
             })
             ply_rows.extend({"block": plan["id"], "game": game_id, **x} for x in moves)
-    return summarize(p, game_rows, ply_rows)
+    coverage = aggregate_backend_coverage(backend_observations)
+    require(coverage["backend_failure_count"] == 0,
+            "G3 pilot shadow backend failed; retained details in raw replay")
+    require(coverage["lc0_explore_stages_observed"] > 0
+            and coverage["three_family_explore_completions"] > 0,
+            "G3 pilot lacks real completed LC0/three-family EXPLORE evidence")
+    require(source_identity() == source_id,
+            "pilot source identity drifted after Fastchess games")
+    return summarize(p, game_rows, ply_rows, coverage)
 
 
 def execute(output: Path) -> int:
+    output = output.resolve()
     p = pilot_policy()
     source_id = source_identity()
     require(output.resolve().parent == ROOT_OUTPUT.resolve()
@@ -318,6 +353,12 @@ def execute(output: Path) -> int:
     candidate = candidate_bundle_identity(
         ROOT / p["bundle_root"], expected_source_commit=source_id["commit"])
     plans, blocks = planned_games(p)
+    from tools.g3_pilot_preflight import verify_preflight
+    preflight = ROOT_OUTPUT / "preflight.json"
+    require(preflight.is_file() and not preflight.is_symlink(),
+            "real game-host LC0 preflight was not executed")
+    require(verify_preflight(load(preflight), source_id).get("passed") is True,
+            "LC0 game-host preflight is not verified")
     output.parent.mkdir(parents=True, exist_ok=True)
     output.mkdir()
     manifest = {
@@ -332,6 +373,8 @@ def execute(output: Path) -> int:
         "fixture": file_record(ROOT / p["opening_file"]),
         "source_runtime": file_record(ROOT / p["source_runtime"]),
         "candidate_bundle": candidate,
+        "backend_preflight": file_record(preflight),
+        "lc0_uci_preflight_passed": True,
         "plans": plans,
         "jobs": [],
         "failures": [],
@@ -342,6 +385,10 @@ def execute(output: Path) -> int:
     runtime = load(ROOT / p["source_runtime"])
     try:
         for plan in plans:
+            before = source_hygiene()
+            require_clean_hygiene(before)
+            require(source_identity() == source_id,
+                    "pilot repository modified before starting game pair")
             print(f"G3 pilot playing {plan['id']} {plan['arms']}", flush=True)
             folder = output / plan["id"]
             folder.mkdir()
@@ -351,9 +398,18 @@ def execute(output: Path) -> int:
                     "pilot opening fixture was changed during generation")
             argv = frozen_command(plan, folder, p, runtime, fastchess,
                                   opening, write_specs=True)
-            result = bounded(argv, ROOT, folder / "runner.log", p["job_timeout_s"])
-            manifest["jobs"].append({"plan": plan, "execution": result})
+            result = bounded(argv, folder, folder / "runner.log", p["job_timeout_s"])
+            result["cwd"] = str(folder)
+            after = source_hygiene()
+            manifest["jobs"].append({
+                "plan": plan, "execution": result,
+                "source_hygiene_before": before,
+                "source_hygiene_after": after,
+            })
             save(output / "manifest.json", manifest)
+            require_clean_hygiene(after)
+            require(source_identity() == source_id,
+                    "Fastchess wrote or changed source outside isolated match folder")
             if (result["returncode"] != 0 or result["timed_out"]
                     or result.get("descendants_before_cleanup")
                     or result.get("descendants_after_cleanup")):
@@ -373,6 +429,7 @@ def execute(output: Path) -> int:
 
 
 def verify(output: Path) -> int:
+    output = output.resolve()
     result: dict = {
         "schema_version": 1,
         "profile_id": "g3-v2-anchor-exploratory-pilot",
@@ -395,6 +452,7 @@ def verify(output: Path) -> int:
         "actual_overrides": (result.get("arm_telemetry") or {})
             .get("allfather-g3", {}).get("actual_anchor_changing_overrides"),
         "errors": result["errors"],
+        "backend_coverage": result.get("backend_coverage"),
         "same_compute_claim": False,
         "meta1_campaign_qualified": False,
     }, sort_keys=True), flush=True)

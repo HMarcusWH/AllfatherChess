@@ -1,5 +1,8 @@
 # Hybrid decision authority
 
+> **Post-#79 documentation overlay, 25 October 2026.** M14-C `movetime_v0`, M14-G3 `clocked_staged_preanchor_v1` and J12 `orchestrated_clocked_staged_preanchor_v1` have distinct evidence and policy gates. J13's `anchor_control_v1` experiment shares the same J12 WorkGrants and proposal computation but deliberately publishes Stockfish's anchor. A WorkGrant is not move authority; even a completed route proposal cannot bypass DecisionAuthorization. An already-published bestmove may be `published_incomplete` if optional VERIFY/resources were stopped; that is not a completed authority/strength certificate. Gateway transport has no extra chess-authority power. See [META-1](META_1_EXECUTION_RUNBOOK.md).
+
+
 ## Status
 
 PR #22 introduced deterministic hybrid **proposals** while Stockfish remained sole outward

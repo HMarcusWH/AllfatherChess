@@ -1,5 +1,8 @@
 # ENGINE-OPT-V2
 
+> **Post-#79 documentation overlay, 25 October 2026.** Current canonical LC0 selection after PR #64: `b4-p0-c256k-cold`, BLAS, `MinibatchSize=4`, `NNCacheSize=262144`, `MaxPrefetch=0`, `AdaptivePrefetch=false`, no warmup. The profile was explicitly promoted and requalified into J3–J12; `QUALIFIED_EXACT_HOST_ONLY` does not assert generic CPU portability, GPU, Elo or equal-compute advantage. Historic b7 and v1/candidate measurements below are preserved. Sources: `qualification/engine-opt-v2-selection.json`, `qualification/resource-profile-catalog-v1.json`.
+
+
 ENGINE-OPT-V2 was the controlled optimization programme inserted after qualified LOCAL-1 v1. PR #44 qualified the selected v2 composition on exact head `085420843b95f3f2dd206fc1c66bf642cbd49b6d` and merged the identical tree as `7248f25fc64be4d04a78ec2b1f0c9de2986a11a5`.
 
 The v1 composition remains the historical control. Qualification of v2 did **not** rewrite the already-qualified v1 runtime or retroactively transfer LOCAL-1 evidence; PR #44 reran both the ordinary v1 control and a separate LOCAL-1-v2 lifecycle campaign.

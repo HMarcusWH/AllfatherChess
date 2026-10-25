@@ -1,5 +1,18 @@
 # ONLINE-PLAY-1 adversarial threat model and residual risks
 
+> **Final merged PR-A review (25 October 2026).** Exact source
+> `968fc7968f69dc82375e7e5c6d3394e7c8857e64`, merge
+> `b1ee33b19b6cb9865d9c99d413041a8f6e8d468a`. The two original P2
+> review findings are resolved: production host validation denies signed
+> `synthetic-ci-fixture-only` reports by default (only the fixed test harness
+> explicitly opts in); malformed `gameStart.opponent` type is converted to
+> `GatewayFailure` and durable suspension. Negative source/unit/stream tests
+> passed and independent [two-color canary](https://github.com/HMarcusWH/AllfatherChess/actions/runs/40140708049)
+> returned `DRY_RUN_PASS` with `live_game_authorized=false`.
+> No legal review, PR-B operator trust, real named host or live Bot API
+> transport has been approved.
+
+
 This document is a **security contract**, not evidence that tests have passed.
 PR-A is offline synthetic only. The original RELEASE-1 offline entrypoint
 and no-publication policy remain unchanged.

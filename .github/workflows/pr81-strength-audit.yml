@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - 'tools/pr81_strength_audit.py'
+      - 'tools/pr81_reference_refinement.py'
       - '.github/workflows/pr81-strength-audit.yml'
   workflow_dispatch:
 
@@ -30,7 +31,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$AUDIT_SHA"
-          python3 -m py_compile tools/pr81_strength_audit.py
+          python3 -m py_compile tools/pr81_strength_audit.py tools/pr81_reference_refinement.py
           python3 -m pip install --break-system-packages --no-build-isolation --no-deps \
             --require-hashes -r qualification/local-game-requirements.txt
       - name: Retrieve immutable PR81 successful raw games (not a rerun)
@@ -49,11 +50,11 @@ jobs:
           name: g3-pilot-exact-build
           github-token: ${{ github.token }}
           path: build/strength-audit/input/binaries
-      - name: Audit all 140 interventions at 250k and 1m Stockfish reference nodes
+      - name: Reconstruct complete exact MultiPV pairs for all 140 overrides
         timeout-minutes: 27
         run: |
           set -euo pipefail
-          python3 tools/pr81_strength_audit.py \
+          python3 -m tools.pr81_reference_refinement \
             --raw-root build/strength-audit/input/raw \
             --build-root build/strength-audit/input/binaries \
             --output build/strength-audit/results

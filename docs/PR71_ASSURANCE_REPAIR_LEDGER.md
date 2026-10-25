@@ -1,5 +1,15 @@
 # PR #71 — Assurance Repair and Review Closure Ledger
 
+> **Dated PR #71 historical review ledger (25 October 2026 synchronization).**
+> The original `pending` and `candidate` review findings below describe
+> earlier exact-head work. PR #71 merged a source-verified offline-only assurance
+> pipeline; source and CI evidence, not the mere presence of a repair sentence,
+> determines a claim. Subsequent #74/#75 dependency locks are **unapproved**
+> candidates and #76's live-capable gateway has only synthetic fake-API
+> qualification. See [CURRENT_STATUS](CURRENT_STATUS.md) and
+> [CLAIM_LEDGER](CLAIM_LEDGER.md).
+
+
 **Scope:** source-confirmed repair chain for PR #71, based on original head `887acbb2b1f33c65a9a322eae32fa1327ce3d203`. This ledger is historical and must be updated against the final pushed SHA and latest CI evidence before merger.
 
 **Authority:** Offline assurance only. No public bot, real credentials, production host qualification, publisher signature, licensing approval, artifact distribution, Elo or deployment authority.

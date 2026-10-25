@@ -19,7 +19,7 @@
 | ONLINE-PLAY-1 PR-A (#76) | Source-locked restricted gateway, gateway/bridge separation, durable one-game admission, two-color synthetic full games | [Exact-head canary run](https://github.com/HMarcusWH/AllfatherChess/actions/runs/40140708049): independent `DRY_RUN_PASS`, `live_game_authorized=false`; real PR-B trust remains absent |
 | Hardening (#77–#79) | Signed Ubuntu CI host install, `published_incomplete` clock disposition, no late optional VERIFY promotion, orderly stop/resource incident evidence | Prevents false-positive lifecycle/resource claims; no extension of move/clock authorization |
 
-The #76 source-security review found two P2 problems, repaired at `968fc7968f69dc82375e7e5c6d3394e7c8857e64`: the live source verifier now denies synthetic host receipts by default; malformed `gameStart.opponent` data triggers controlled durable suspension. The review discussions were resolved and the exact-head PR had **14/14 successful workflow families**, including both full fake games and the independent verdict, before merge at `b1ee33b19b6cb9865d9c99d413041a8f6e8d468a`. No live requests were authorized.
+The PR #76 source-security review found two P2 problems, repaired at `968fc7968f69dc82375e7e5c6d3394e7c8857e64`: the live source verifier now denies synthetic host receipts by default; malformed `gameStart.opponent` data triggers controlled durable suspension. The review discussions were resolved and the exact-head PR had **14/14 successful workflow families**, including both full fake games and the independent verdict, before merge at `b1ee33b19b6cb9865d9c99d413041a8f6e8d468a`. No live requests were authorized.
 
 ## Current default reference and physical evidence
 

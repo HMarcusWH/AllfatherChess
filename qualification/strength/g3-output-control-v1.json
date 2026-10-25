@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "profile_id": "strength-s1-g3-output-only-v1",
+  "status": "EXPERIMENTAL_CONTROL_IMPLEMENTED_NOT_MATCH_QUALIFIED",
+  "source_runtime": "config/allfather.online-hybrid-v2.validation.json",
+  "source_runtime_git_blob": "e9ad5f4b312d76140124113832d2bdd6a5eed8f6",
+  "source_policy": "clocked_staged_preanchor_v1",
+  "comparison_arm": "allfather-g3",
+  "control_arm": "allfather-g3-anchor-control",
+  "only_runtime_difference": "hybrid_authority.outward_mode",
+  "control_outward_mode": "g3_anchor_control_v1",
+  "underlying_authorization_unchanged": true,
+  "outward_authority": "ANCHOR_CONTROL",
+  "same_compute_claim": false,
+  "whole_participant_resource_qualified": false,
+  "equal_compute": false,
+  "strength_qualified": false,
+  "live_game_authorized": false,
+  "public_bot_release": false,
+  "artifact_distribution_authorized": false
+}

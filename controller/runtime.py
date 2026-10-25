@@ -928,6 +928,15 @@ def _load_refinement_settings(
     ):
         raise RuntimeError("refinement.max_expansions must be an integer in [1, 64]")
 
+    if (
+        outward_mode == "g3_anchor_control_v1"
+        and policy != "clocked_staged_preanchor_v1"
+    ):
+        raise RuntimeError(
+            "g3_anchor_control_v1 is diagnostic-only and requires "
+            "clocked_staged_preanchor_v1 (not J12 or legacy M14-C)"
+        )
+
     unknown = sorted(
         set(raw)
         - {
@@ -1111,10 +1120,11 @@ def _load_hybrid_authority_settings(
             )
 
     outward_mode = raw.get("outward_mode", "authorized_hybrid_v1")
-    if outward_mode not in ("authorized_hybrid_v1", "anchor_control_v1"):
+    if outward_mode not in ("authorized_hybrid_v1", "anchor_control_v1",
+                            "g3_anchor_control_v1"):
         raise RuntimeError(
-            "hybrid_authority.outward_mode must be 'authorized_hybrid_v1' "
-            "or 'anchor_control_v1'"
+            "hybrid_authority.outward_mode must be one of authorized_hybrid_v1, "
+            "anchor_control_v1, or g3_anchor_control_v1"
         )
     if (
         outward_mode == "anchor_control_v1"

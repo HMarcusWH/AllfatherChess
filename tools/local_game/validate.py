@@ -77,7 +77,7 @@ def verify_runner_log(path: Path, plan: dict) -> None:
     """
     allowed = re.compile(
         r"^Warning; No info line available to extract score from engine "
-        r"allfather-(?:g3|anchor|orchestrated|anchor-control)$"
+        r"allfather-(?:g3|g3-anchor-control|anchor|orchestrated|anchor-control)$"
     )
     for raw in path.read_text(encoding="utf-8", errors="replace").splitlines():
         line = raw.strip()
@@ -467,6 +467,7 @@ def _scoreless_timeleft_sentinel(arm: str, node, recorded_ms: int) -> bool:
             "allfather-g3",
             "allfather-orchestrated",
             "allfather-anchor-control",
+            "allfather-g3-anchor-control",
         )
         and recorded_ms == 0
         and SCORELESS_FASTCHESS.match(node.comment or "")

@@ -130,8 +130,14 @@ def check_active_status(status: str, roadmap: str, readme: str) -> None:
                 "roadmap missing open/denial boundary: " + token)
     require("25 October 2026" in active and "25 October 2026" in forward,
             "active status/roadmap snapshot date absent")
+    # Bind the two active entry points to the same *dated source snapshot*.
+    # Do not freeze the changing HEAD SHA into this verifier: a later documented
+    # snapshot can use a new source commit without weakening any claim gate.
+    recorded = re.search(r"baseline `([0-9a-f]{40})`", active)
+    require(recorded is not None, "current status lacks a full baseline SHA")
     first = "\n".join(readme.splitlines()[:16])
-    require("b1ee33b19b6c" in first and "synthetic" in first.lower()
+    require(recorded.group(1)[:12] in first
+            and "synthetic" in first.lower()
             and "no public bot release" in first.lower(),
             "root README active status is stale or promotes a release")
 

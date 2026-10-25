@@ -80,6 +80,13 @@ class DocsConsistencyTests(unittest.TestCase):
             docs.check_active_status(source,
                                      roadmap.replace("RELEASE-2B-4","RELEASE-2B-X"),
                                      readme)
+        with self.assertRaisesRegex(docs.DocsDrift, "root README"):
+            docs.check_active_status(
+                source, roadmap, readme.replace("b1ee33b19b6c","000000000000",1))
+        with self.assertRaisesRegex(docs.DocsDrift, "full baseline SHA"):
+            docs.check_active_status(
+                source.replace("b1ee33b19b6cb9865d9c99d413041a8f6e8d468a",
+                               "not-a-sha",1), roadmap, readme)
 
 
 if __name__ == "__main__":

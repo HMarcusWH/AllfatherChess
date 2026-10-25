@@ -12,7 +12,7 @@
 | Online time, G3 and LOCAL-1 (#36–#44) | Clocked outward authority, real BLAS LC0, full-game lifecycle and optimized CPU composition | Qualification-specific, not an Elo claim |
 | M14-J J0–J12 (#45–#59) | Host/profile selection, TimePlan/MoveResourcePlan, WorkGrants, resource evidence, one J10 allocator and J12 controlled HYBRID authority | Positive authorization requires real host-domain and complete evidence |
 | J13 / META-1 (#60–#61) | Frozen ANCHOR_CONTROL arm, 50 reversed-color opening pairs, immutable attempt and independent requalification plumbing | **100-game real-host confirmatory campaign not run**; no claim of authority benefit |
-| Canonical LC0 b4 (#62–#64) | `b4-p0-c256k-cold` promoted into J3–J12 substrate | `QUALIFIED_EXACT_HOST_ONLY` is not generic host portability |
+| Canonical LC0 b4 (#62–#64) | Cold BLAS b4 selection promoted into J3–J12 substrate | `QUALIFIED_EXACT_HOST_ONLY` is not generic host portability |
 | Offline UCI / Lichess bridge (#65–#68) | Sealed package, pinned `lichess-bot`, 4A faults and 4B guarded offline recovery | 4A unsafe witnesses remain *negative* evidence; 4B offline recovery qualified, not network recovery |
 | RELEASE-1 / assurance (#69–#73) | Offline OCI candidate, independently checked SLSA/SPDX/engine/bridge evidence | No distribution, legal, host, image-signing or live authorization |
 | RELEASE-2B-1/2 (#74–#75) | Twelve exact wheel candidates and signed-snapshot native package inputs | Candidate provenance only; 2B-3 independent repeats and 2B-4 reviewed lock admission remain |

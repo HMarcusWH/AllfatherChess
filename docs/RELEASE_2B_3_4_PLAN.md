@@ -1,102 +1,178 @@
-# RELEASE-2B-3 / 2B-4 — independent dependency comparison and reviewed admission
+# RELEASE-2B-3 / 2B-4 — reproducible dependency candidate and reviewed lock
 
-**Status: proposed implementation work, not a source-level approval.**
-RELEASE-2B-1 [PR #74](https://github.com/HMarcusWH/AllfatherChess/pull/74)
-merged twelve exact selected Python source/wheel candidates.
-RELEASE-2B-2 [PR #75](https://github.com/HMarcusWH/AllfatherChess/pull/75)
-merged the signed Ubuntu snapshot and 29 source-selected native package
-acquisition/installation candidate. PR #77 later repaired the shared CI-host
-signed APT prerequisite. The current policies deliberately retain
-`os_package_lock_complete=false`, `wheel_lock_complete=false`,
-`ca_bootstrap_snapshot_locked=false` and all release/host/live/public flags
-false. These booleans are not implementation TODOs for this documentation PR.
+**Source-grounded status, 25 October 2026:** This is an implementation plan,
+not an approval or completed qualification. RELEASE-2B-1 [PR #74](https://github.com/HMarcusWH/AllfatherChess/pull/74)
+merged source-selected and exact-wheel-byte candidates for 12 Python
+dependencies; RELEASE-2B-2 [PR #75](https://github.com/HMarcusWH/AllfatherChess/pull/75)
+merged signed Ubuntu snapshot/native acquisition and candidate environment
+evidence. PR #77 hardened unrelated CI host APT prerequisites. No 2B-3
+independent comparison or 2B-4 approval has been performed in this baseline.
 
-## 1. Evidence inputs and identity contract
+This plan follows the attached *AllfatherChess RELEASE-2B Complete
+Implementation Specification* (2026-10-20), §§0, 6–7. Status and exact
+source inputs are checked against [CURRENT_STATUS](CURRENT_STATUS.md)
+and the repository policy, not the specification's historical `main` SHA.
 
-- `qualification/release-image-v1.json`: pinned Ubuntu OCI index,
-  `linux/amd64`, 20261001T000000Z snapshot, offline runtime limitations.
-- `qualification/release-bootstrap-v1.json`:
-  Signed-By/trust-root/snapshot metadata candidate.
-- `qualification/release-os-packages.lock`:
-  source-selected versions/architectures/pool files/native archive SHA256,
-  signed Packages/InRelease membership, 92 base / 94 bootstrap / 120 final
-  observed inventories (not universally assumed host facts).
-- `deploy/lichess/requirements.release.lock` and
-  `qualification/release-python-wheels-v1.json`: twelve pinned Python
-  dependency source resolutions and exact wheel filenames/bytes.
-- `qualification/release-python-builder-v1.json` and
-  `qualification/release-native-build-v1.json`: candidate toolchain and
-  build-envelope policy.
+## 1. Exact source-input contract
 
-A retained candidate hash is an integrity predicate; it does not prove two
-builders independently reproduced it.
+- `qualification/release-image-v1.json`: Ubuntu OCI base digest,
+  `linux/amd64`, signed APT snapshot `20261001T000000Z`, and existing
+  no-egress/offline runtime boundaries.
+- `qualification/release-bootstrap-v1.json` and
+  `qualification/release-os-packages.lock`: snapshot trust sources,
+  native archive version/architecture/pool path/SHA256 and signed
+  `InRelease` → `Packages` provenance, plus 92 base, 94 bootstrap,
+  120 final observed dpkg inventories. These are the observed candidate
+  bounds, not unqualified generic-host measurements.
+- `deploy/lichess/requirements.release.lock`,
+  `qualification/release-python-wheels-v1.json` and
+  `qualification/release-python-builder-v1.json`: twelve Python
+  dependencies and exact wheel choices, builder identity and hashes.
+- `qualification/release-native-build-v1.json`: candidate dependency
+  stage and installed-environment identity.
 
-## 2. RELEASE-2B-3 — independent clean-build comparison
+**Meaning of "reproducible" here:** Eleven third-party Python wheels are
+reacquired and compared to their pinned bytes; they are **not** rebuilt
+from upstream source. Only the pinned `chess==1.11.2` sdist is rebuilt
+into a checked wheel. Ubuntu packages are signed-source-acquired, not
+recompiled from Ubuntu source. Matching inventories do not imply
+bit-for-bit reproduction of the whole OCI image.
 
-Implement a bounded workflow with **two separate clean dependency builds**,
-each on the *same immutable source SHA*, with independent workspace/cache
-identity, signed Ubuntu acquisition rechecked, networkless post-admission
-package installation, pinned wheel builder and source lock, and exact final
-package and wheel inventories.
+## 2. RELEASE-2B-3 — independent execution and evidence comparison
 
-Each builder must upload immutable raw manifests containing Git SHA/tree,
-run/job identity, runner architecture/OS, base digest, signed apt
-InRelease/Packages source proofs, native archive hashes, installed dpkg
-inventory, full wheel file names and SHA256, builder policy and actual
-dependency-stage image/bundle identity. No real BOT token.
+The candidate reproducibility PR must freeze a separate source closure,
+execute **two genuine clean build jobs** with independent full checkouts,
+builder instances and wheelhouse acquisition, and retain a third,
+source-independent verification job. No sibling build imports the other
+builder's output or shares a mutable acquisition cache.
 
-Add a **third, source-independent comparator** (planned:
-`scripts/compare-release-dependencies.py`) that reopens *both* retained
-artifacts, independently recomputes their hashes, verifies their source/source
-index membership and schema, rejects missing or duplicate files, and
-cross-compares native/wheel and image-stage evidence. It must not trust a
-producer's own `passed` flag.
+### Required planned paths
 
-Then rerun/recompare with the **same SHA** but new run/attempt identity. A
-mismatch, missing signature, wrong architecture, signed index drift, URL
-fallback, unpinned dependency, altered wheel metadata or package post-install
-download produces a recorded **NOT QUALIFIED**, not an automatically repaired
-or retroactively asserted PASS. Include destructive fixture mutations.
+| Path | Responsibility |
+| --- | --- |
+| `qualification/release-dependency-build-v1.json` | Frozen source/input/toolchain/host/receipt policy |
+| `qualification/schemas/release-dependency-receipt-v1.json` | Typed and bounded build evidence schema |
+| `qualification/schemas/release-dependency-comparison-v1.json` | Independent comparison/verdict schema |
+| `scripts/verify-release-dependency-build.py` (extend existing) | Exact source/installed-native/Python inventory verification; candidate receipt |
+| `scripts/compare-release-dependencies.py` (new) | Rebuild receipt identity, compare both complete observed inventories/wheel maps and validate CI evidence |
+| `.github/workflows/release-dependency-repro.yml` (new) | Contracts → build A/B → independent compare → explicit summary |
+| `tests/release/test_release_dependency_comparison.py` (new) | Tampered source/job identity, missing evidence, mismatches and skipped-run destructive controls |
+| `docs/RELEASE_2B_REPRODUCIBILITY.md` (future implementation PR) | Run and artifact-custody procedure |
 
-### Minimum proposed repository wiring (not yet present)
+These filenames are **planned**; their absence from the present PR is
+expected and must not be presented as completed implementation.
 
-- `scripts/compare-release-dependencies.py`: independent two-builder reader
-  and comparator.
-- `tests/release/test_compare_release_dependencies.py`: malicious/negative
-  fixtures and exact positive evidence.
-- `.github/workflows/release-2b-reproducibility.yml`: two producers,
-  independent evidence verifier and same-SHA second attempt.
-- Optional source-bound evidence schema under `qualification/schemas/`,
-  reviewed with the implementation rather than inventing approval flags.
+```text
+source-contracts + frozen exact source SHA
+                  |
+            dependency-contracts
+                  |
+     +------------+------------+
+     |                         |
+dependency-build-a       dependency-build-b
+clean Git checkout       clean Git checkout
+isolated Builder A       isolated Builder B
+     |                         |
+     +------------+------------+
+                  |
+         independent-compare
+         (third clean source)
+                  |
+        qualification-summary
+            PASS / FAIL /
+            INCONCLUSIVE
+```
 
-The exact filenames above are work-package targets; their existence and
-successful execution must be verified in the future PR.
+Both producers must attest exact source SHA/tree/input-closure hashes,
+the real signed APT source evidence, complete OS/Python inventories,
+twelve wheel filenames/SHA256, builder/platform identities, executable
+dependencies, **actual** GitHub job/run/artifact provenance and
+well-typed negative dispositions. Raw evidence must be uploaded before
+producer verdicts can be read as authoritative. A `run_id` printed
+inside JSON is not proof it came from the claimed GitHub job; the
+independent verifier must corroborate externally obtainable execution/
+artifact metadata or fail/inconclusive.
 
-## 3. RELEASE-2B-4 — separate dependency-lock approval
+**Claim ceiling:** The third job can independently inspect retained
+sanitized receipts and source and compare the builders' measured
+inventories/hashes; it **cannot rehash raw wheel bytes which are not
+retained for that job**. This is *independent execution and evidence
+comparison*, **not** cryptographic third-party build attestation.
 
-A **different PR/review** must consume complete 2B-3 outputs, independently
-recheck signatures, source identity, byte equality and external license
-obligations, then decide whether a source-controlled lock-admission
-record can be approved. A planned record such as
-`qualification/release-dependency-lock-v1.json` must never be committed
-as `approved=true` without actual human review and portable evidence.
+Retain one independent complete compare verdict for two distinct build
+jobs, then repeat the **entire DAG in a second distinct Actions run on
+the exact same Git SHA and dependency closure**. Require both executions
+to succeed and retain their distinct run/job IDs, artifact digests and
+comparison verdicts. Fail on skipped/cancelled/missing prerequisite
+jobs; no summary may be green by default when the comparator never ran.
 
-Re-run the complete exact-head offline RELEASE-1 OCI, runtime entrypoint,
-engine/bridge source, SPDX/SLSA, SQLite/PGN, image and no-publication gates.
-All `public_bot_release`, artifact distribution, host, live transport and
-playing-strength authority remain **separate false gates** even after a valid
-dependency lock.
+A mismatch, changed signed `Packages` origin, wrong architecture,
+altered wheel metadata, missing hash, unexpected mutable fallback,
+unverified job separation, bad package post-install behavior, expired/
+missing artifacts, or absent repeat must return NOT QUALIFIED, with
+sanitized failure evidence preserved.
 
-## 4. Non-transfer claims and acceptance
+RELEASE-2B-3 can at most qualify a reproducible **dependency candidate**;
+it must **not** turn on the positive lock or public release flags.
 
-RELEASE-2B-3/4 prove independent dependency acquisition/build reproducibility
-only for the declared platform and input domain. They do not prove the full
-OCI byte stream reproducible unless that was separately measured; nor do they
-grant a combined license, signed publisher approval, real Lichess account,
-network recovery or engine superiority.
+## 3. RELEASE-2B-4 — distinct reviewed lock admission
 
-Cross-references: [RELEASE-1](RELEASE_1_OPERATIONS.md),
-[2B Python](RELEASE_2B_PYTHON_LOCKS.md),
-[2B native](RELEASE_2B_UBUNTU_LOCKS.md),
-[PR-B readiness](ONLINE_PLAY_1_PR_B_READINESS.md),
-and [CURRENT_STATUS](CURRENT_STATUS.md).
+Only after all 2B-3 independent candidate evidence exists, submit a
+**separate** source-reviewed approval PR. Its eventual
+`qualification/release-dependency-lock-v1.json` must be the single
+approved input-closure authority, binding real signed native origins,
+installed package inventory, Python source/wheel SHA identities,
+builder identities, immutable evidence and an independently verified
+approval disposition.
+
+Required source changes **in that future PR only**:
+
+- `scripts/qualify-release-dependency-lock.py`: independently derive
+  `FROZEN_APPROVED` from source, observed bytes and comparison evidence,
+  never a producer's self-reported PASS.
+- `scripts/observe-release-dependencies.py`: add explicit candidate and
+  approved verification modes while still rechecking *actual* package
+  and wheel bytes.
+- `qualification/release-image-v1.json`: populate approved OS/wheel
+  hash slots and permit `os_package_lock_complete` /
+  `wheel_lock_complete=true` **only** under the source-admitted
+  independent approved-lock verdict; set
+  `ca_bootstrap_snapshot_locked=true` only when that proof is complete.
+- `scripts/check-current-status.py` and
+  `qualification/current-status-v1.json`: migrate today's false-only
+  **dependency lock** guard to an enumerated independently verified
+  candidate/approved state; preserve the unrelated false-only public/
+  license/host/network/strength denials. This docs PR deliberately does
+  not make that migration.
+- `scripts/qualify-release-aggregate.py`,
+  `.github/workflows/release-candidate.yml`, and applicable
+  source/seal/dependency tests: require an approved verifier result,
+  not only matching policy flags plus digest fields.
+
+The approval PR necessarily has a **different Git commit SHA** from the
+candidate PR. Admit the older candidate evidence only under exactly
+unchanged dependency-input closure, then rerun the complete offline
+RELEASE-1 OCI/SLSA/SPDX/source/engine/bridge/packaged-game,
+source-status and LOCAL-1 qualifications **at the new approval SHA**.
+The final OCI digest may differ; do not falsely attribute the older
+image to the approval commit.
+
+## 4. Mandatory remaining denials after an approved dependency lock
+
+Lock approval cannot grant licensed combined distribution, publisher
+signature, a qualified physical destination host, live transport,
+public Bot API use, network-failure recovery, or superior chess
+strength. Even in the future `FROZEN_APPROVED` dependency state,
+`public_bot_release=false`,
+`artifact_distribution_authorized=false`,
+`offline_candidate_qualified=false`,
+`destination_host_qualified=false`,
+`network_recovery_qualified=false`,
+`live_transport_qualified=false`, and human legal review remains
+separate. RELEASE-1 still only admits `verify` and `offline-smoke`.
+
+See [RELEASE-1](RELEASE_1_OPERATIONS.md),
+[2B Python candidates](RELEASE_2B_PYTHON_LOCKS.md),
+[2B Ubuntu candidates](RELEASE_2B_UBUNTU_LOCKS.md),
+[PR-B](ONLINE_PLAY_1_PR_B_READINESS.md),
+and [claims](CLAIM_LEDGER.md).

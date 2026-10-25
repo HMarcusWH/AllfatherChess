@@ -1,0 +1,119 @@
+#!/usr/bin/env python3
+"""PR-A only: stage the exact pinned bridge and sealed UCI without any network.
+
+A PASS validates source/overlay/configuration construction, not a game or live
+transport. This test needs the PR's ephemeral Docker image and read-only source.
+"""
+from __future__ import annotations
+import argparse
+import hashlib
+import json
+import shutil
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+ROOT=Path("/work")
+if str(ROOT) not in sys.path:
+    sys.path.insert(0,str(ROOT))
+
+from deploy.lichess.live_session import LiveStageError,stage_live
+from deploy.lichess.canary_staging import (
+    STAGE_ROOT, StageMountDenied, require_private_stage_mount,
+)
+from deploy.lichess.live_bridge_policy import assert_safety
+
+def check(source_sha: str) -> dict:
+    current=subprocess.check_output(
+        ["git","-C",str(ROOT),"rev-parse","HEAD"],
+        text=True,stderr=subprocess.DEVNULL,timeout=12).strip()
+    if current!=source_sha:
+        raise ValueError("unapproved source SHA")
+    lock=json.loads((ROOT/"deploy/lichess/bridge.lock.json").read_text())
+    if (lock["commit"]!="df7e730de58cc3ef2f1415a0dc2eeda842d39167"
+        or lock["live_api_permitted"] is not False):
+        raise ValueError("unapproved pinned upstream")
+    try:
+        stage_mount = require_private_stage_mount()
+    except StageMountDenied as exc:
+        raise LiveStageError("EXEC_STAGE_MOUNT_CHECK") from exc
+    with tempfile.TemporaryDirectory(prefix="allfather-stage-",dir=STAGE_ROOT) as directory:
+        stage=Path(directory)/"session"
+        result=stage_live(
+            release=ROOT/"dist/online3a-stage",
+            bridge=ROOT/"build/vendor/lichess-bot",
+            workspace=stage,opponent="approved_test_bot")
+        effective=result["effective_live_config"]
+        assert_safety(effective,release=result["release"],opponent="approved_test_bot")
+        config=result["config"]
+        if (not config.is_file() or config.is_symlink()
+            or hashlib.sha256(config.read_bytes()).hexdigest()!=result["live_config_sha256"]):
+            raise ValueError("effective live bridge config is not source-sealed")
+        overlay=result["overlay_manifest"]
+        guards=overlay.get("guard_modules",{})
+        modules=overlay.get("live_modules",{})
+        paths={**guards,**modules}
+        for name,digest in paths.items():
+            file=result["bridge"]/"deploy"/"lichess"/name
+            if (not file.is_file() or file.is_symlink() or
+                hashlib.sha256(file.read_bytes()).hexdigest()!=digest):
+                raise ValueError("source-bound guard overlay differs from staged bytes")
+        engine=result["release"]/"deploy/bin/allfather-online"
+        verified=subprocess.run([sys.executable,str(engine),"--check"],cwd=result["release"],
+                                capture_output=True,timeout=45,check=False)
+        if verified.returncode or b"offline seal verified" not in verified.stdout:
+            raise ValueError("sealed Allfather UCI verification failed")
+        return {
+            "scope":"synthetic-stage-preflight-only",
+            "status":"PASS","source_sha":source_sha,
+            "upstream_commit":lock["commit"],
+            "live_config_sha256":result["live_config_sha256"],
+            "overlay_guard_count":len(paths),
+            **stage_mount,
+            "live_game_authorized":False,"public_bot_release":False,
+        }
+
+def main():
+    parser=argparse.ArgumentParser()
+    parser.add_argument("--source-sha",required=True)
+    options=parser.parse_args()
+    try:
+        verdict=check(options.source_sha)
+    except (OSError,ValueError,RuntimeError,KeyError,subprocess.SubprocessError) as exc:
+        allowed={"EXEC_STAGE_MOUNT_CHECK","UPSTREAM_LOCK_CHECK","ENGINE_SEAL_CHECK",
+                 "OFFLINE_STAGE_COPY_OR_CONFIG","BRIDGE_CONFIG_VALIDATE",
+                 "UPSTREAM_RECOVERY_PATCH","LIVE_GUARD_SEAL"}
+        code=exc.code if isinstance(exc,LiveStageError) and exc.code in allowed else "SOURCE_OR_PACKAGE_PREFLIGHT"
+        failure=exc.__cause__ if isinstance(exc,LiveStageError) else exc
+        approved_classes={"ValueError","RuntimeError","OSError","PermissionError",
+                          "FileNotFoundError","CalledProcessError","TimeoutExpired",
+                          "KeyError","TypeError"}
+        failure_class = "ShutilError" if isinstance(failure, shutil.Error) else type(failure).__name__
+        approved_classes.update({"ShutilError","ModuleNotFoundError","ImportError","AttributeError","Exception"})
+        if failure_class not in approved_classes:
+            failure_class="OtherError"
+        offline_operation = (
+            exc.operation_code
+            if isinstance(exc, LiveStageError) and code == "OFFLINE_STAGE_COPY_OR_CONFIG"
+            else "NOT_APPLICABLE"
+        )
+        config_substage = (
+            exc.config_substage
+            if isinstance(exc, LiveStageError)
+            and offline_operation == "OFFLINE_STAGE_CONFIG_GENERATE"
+            else "NOT_APPLICABLE"
+        )
+        print(json.dumps({"scope":"synthetic-stage-preflight-only",
+            "status":"FAIL","stage_code":code,
+            "exception_type":failure_class,
+            "offline_operation":offline_operation,
+            "config_substage":config_substage,
+            "live_game_authorized":False,"public_bot_release":False},
+            sort_keys=True),file=sys.stderr)
+        return 2
+    print(json.dumps(verdict,sort_keys=True))
+    return 0
+
+if __name__=="__main__":
+    raise SystemExit(main())

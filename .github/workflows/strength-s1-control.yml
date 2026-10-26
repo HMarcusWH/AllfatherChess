@@ -1,0 +1,39 @@
+name: STRENGTH-S1 - G3 output-only ablation source contract
+
+on:
+  pull_request:
+    paths:
+      - 'controller/decision.py'
+      - 'controller/runtime.py'
+      - 'tools/local_game/common.py'
+      - 'tools/local_game/validate.py'
+      - 'tools/strength_lab/diagnostic.py'
+      - 'qualification/strength/g3-output-control-v1.json'
+      - 'tests/controller/test_g3_diagnostic_control.py'
+      - '.github/workflows/strength-s1-control.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  source-contracts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    env:
+      SOURCE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+      - name: Validate narrow source-derived output-only arm
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          python3 -m compileall -q controller tools/strength_lab tests/controller
+          python3 -m tools.strength_lab.diagnostic --phase contracts
+          python3 -m unittest tests.controller.test_g3_diagnostic_control -v
+          python3 -m unittest tests.controller.test_meta1_anchor_control -v
+          python3 -m unittest tests.controller.test_online_hybrid_authority -v
+          python3 scripts/check-current-status.py
+          python3 scripts/check-docs-consistency.py

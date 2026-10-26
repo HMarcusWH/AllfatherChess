@@ -26,6 +26,7 @@ AUTHORITY_ARMS = (
     "allfather-g3",
     "allfather-orchestrated",
     "allfather-anchor-control",
+    "allfather-g3-anchor-control",  # S1 output-only diagnostic, never J12 META-1
 )
 
 
@@ -182,6 +183,17 @@ def runtime_config(source: dict, arm: str, root: Path, replay: Path) -> dict:
         config = copy.deepcopy(source)
         config["root"] = str(root.resolve())
         config["shadow"]["replay_root"] = str(replay.resolve())
+        if arm == "allfather-g3-anchor-control":
+            authority = config.get("hybrid_authority")
+            require(
+                isinstance(authority, dict)
+                and authority.get("enabled") is True
+                and authority.get("policy") == "clocked_staged_preanchor_v1"
+                and authority.get("outward_mode", "authorized_hybrid_v1")
+                    == "authorized_hybrid_v1",
+                "G3 diagnostic output-only control requires exact G3 source profile",
+            )
+            authority["outward_mode"] = "g3_anchor_control_v1"
         if arm == "allfather-anchor-control":
             authority = config.get("hybrid_authority")
             require(

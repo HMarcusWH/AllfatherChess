@@ -44,9 +44,11 @@ ANCHOR_FALLBACK = "ANCHOR_FALLBACK"
 ANCHOR_CONTROL = "ANCHOR_CONTROL"
 AUTHORIZED_HYBRID_OUTWARD_MODE = "authorized_hybrid_v1"
 ANCHOR_CONTROL_OUTWARD_MODE = "anchor_control_v1"
+G3_ANCHOR_CONTROL_OUTWARD_MODE = "g3_anchor_control_v1"
 OUTWARD_MODES = (
     AUTHORIZED_HYBRID_OUTWARD_MODE,
     ANCHOR_CONTROL_OUTWARD_MODE,
+    G3_ANCHOR_CONTROL_OUTWARD_MODE,
 )
 OWNER_ORDER = ("stockfish", "reckless", "lc0")
 _MOVE_RE = re.compile(r"^[a-h][1-8][a-h][1-8][qrbn]?$")
@@ -1270,7 +1272,11 @@ def select_final_decision(
     proposal_move = None if proposal is None else proposal.move
     if outward_mode not in OUTWARD_MODES:
         raise DecisionError(f"unsupported outward decision mode: {outward_mode!r}")
-    if outward_mode == ANCHOR_CONTROL_OUTWARD_MODE:
+    if outward_mode in (ANCHOR_CONTROL_OUTWARD_MODE,
+                        G3_ANCHOR_CONTROL_OUTWARD_MODE):
+        # Output-only ablation: preserve the very same proposal, evidence and
+        # authorization. The legacy J12 control remains differently gated by
+        # runtime.py; this path does not grant a new move authority.
         return FinalDecision(
             authority=ANCHOR_CONTROL,
             emitted_move=anchor,

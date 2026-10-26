@@ -452,13 +452,18 @@ def verify(output: Path) -> int:
             save(output / "io-forensics.json", io_report)
         except Exception as forensic_error:
             # Missing/incomplete evidence cannot be repaired by diagnostics.
-            # Retain the error separately; never alter the strict pilot result.
-            save(output / "io-forensics-error.json", {
-                "schema_version": 1,
-                "diagnostic_only": True,
-                "qualifies": False,
-                "error": f"{type(forensic_error).__name__}: {forensic_error}",
-            })
+            # Diagnostic persistence failure must not replace the original
+            # qualification error or prevent the canonical report being saved.
+            try:
+                output.mkdir(parents=True, exist_ok=True)
+                save(output / "io-forensics-error.json", {
+                    "schema_version": 1,
+                    "diagnostic_only": True,
+                    "qualifies": False,
+                    "error": f"{type(forensic_error).__name__}: {forensic_error}",
+                })
+            except OSError:
+                pass
     output.mkdir(parents=True, exist_ok=True)
     save(output / "report.json", result)
     print(json.dumps({

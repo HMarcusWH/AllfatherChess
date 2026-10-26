@@ -147,6 +147,19 @@ class StrengthCoordinator:
                                           "at_ns":time.monotonic_ns() if published_ns is None else published_ns,
                                           "epoch":selection.incumbent_epoch})
  
+    def mark_observation_failure(self, *,token:int,reason:str) -> None:
+        """Mark evidence NEGATIVE; cannot revoke a previously published anchor.
+
+        Called on a bestmove path only after stdout has crossed the writer.
+        No disk I/O and no new move authorization is possible here.
+        """
+        with self._lock:
+            if self._tracker is None or self._tracker.identity.turn.generation!=token:
+                return
+            if self._log is not None:
+                # The independent verifier refuses every flight with failure.
+                self._log.failure=str(reason)[:240]
+
     def abort_generation(self, *,token:int,reason:str) -> None:
         with self._lock:
             if self._tracker is None or self._tracker.identity.turn.generation!=token:

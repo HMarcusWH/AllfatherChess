@@ -112,7 +112,7 @@ def membership_parent(mount: Path, membership_text: str) -> Path:
     raw = lines[0][3:]
     if not raw.startswith("/") or "\x00" in raw:
         raise ResourceScopeError("invalid cgroup membership path")
-    parts = raw.lstrip("/").split("/") if raw != "/" else []
+    parts = raw[1:].split("/") if raw != "/" else []
     if any(part in ("", ".", "..") for part in parts):
         raise ResourceScopeError("unsafe cgroup membership path")
     root = mount.resolve(strict=True)

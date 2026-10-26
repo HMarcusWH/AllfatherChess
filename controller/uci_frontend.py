@@ -270,9 +270,17 @@ class UciFrontend:
                     if written:
                         self._post_output_generation = token
                 if written and getattr(self, "strength", None) is not None and selection is not None:
-                    # Post-write, bounded MEMORY-ONLY evidence. Never a second
-                    # bestmove writer or a pre-publication blocking dependency.
-                    self.strength.note_published(token=token, selection=selection)
+                    # Bytes have ALREADY crossed stdout. A recording failure
+                    # may invalidate S2 evidence but cannot cause a second
+                    # terminal line or rewrite the authoritative Stockfish move.
+                    try:
+                        self.strength.note_published(token=token, selection=selection)
+                    except Exception as exc:
+                        try:
+                            self.strength.mark_observation_failure(
+                                token=token, reason=f"post-write observer: {type(exc).__name__}: {exc}")
+                        except Exception:
+                            pass  # Cannot let an evidence failure escape after bytes have crossed.
                 if written and self.shadow is not None:
                     # Bytes have crossed stdout. Retain the exact decision
                     # before the clock publication gate opens to quit/next-turn
@@ -373,7 +381,16 @@ class UciFrontend:
         if suppress:
             return
         if getattr(self, "strength", None) is not None:
-            self.strength.on_anchor_info(token=token, line=line)
+            try:
+                self.strength.on_anchor_info(token=token, line=line)
+            except Exception as exc:
+                # S2 is pure observation; it must not block the native engine's
+                # original stdout info/PV or move authority on a logger fault.
+                try:
+                    self.strength.mark_observation_failure(
+                        token=token, reason=f"PV observer: {type(exc).__name__}: {exc}")
+                except Exception:
+                    pass
         self._write(line)
 
     def _on_search_complete(self, token: int, line: str) -> None:

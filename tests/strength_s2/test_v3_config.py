@@ -44,6 +44,10 @@ class V3ConfigTests(unittest.TestCase):
             lambda d:d["instances"]["stockfish-anchor"]["options"].update(MultiPV=2),
             lambda d:d["instances"]["stockfish-anchor"]["options"].update(Ponder=True),
             lambda d:d["instances"]["stockfish-anchor"]["options"].update(Threads=0),
+            lambda d:d["instances"]["stockfish-anchor"]["options"].update(UCI_LimitStrength=True),
+            lambda d:d["instances"]["stockfish-anchor"]["options"].update(Skill_Level=0),
+            lambda d:d["instances"]["stockfish-anchor"].update(fallback_glob="other*"),
+            lambda d:d["instances"]["stockfish-anchor"].update(args=["--unsafe"]),
             lambda d:d["instances"]["stockfish-anchor"].update(role="shadow"),
             lambda d:d["instances"].update(other=deepcopy(d["instances"]["stockfish-anchor"])),
             lambda d:d.update(shadow={"owners":[]}),
@@ -55,6 +59,23 @@ class V3ConfigTests(unittest.TestCase):
                 change(a)
                 with self.assertRaises((RuntimeError,ValueError)):
                     self.load(a)
+
+    def test_duplicate_json_keys_and_nan_are_denied_in_v3(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            profile=Path(tmp)/"s2.json"
+            doc=deepcopy(VALID)
+            doc["root"]=str(ROOT)
+            doc["instances"]["stockfish-anchor"]["binary"]=sys.executable
+            serialized=json.dumps(doc)
+            variants=(
+                serialized.replace('"schema_version": 3,',
+                                   '"schema_version": 3, "schema_version": 3,',1),
+                serialized.replace('"Threads": 1','"Threads": NaN',1),
+            )
+            for source in variants:
+                profile.write_text(source,encoding="utf-8")
+                with self.subTest(source=source[:100]),self.assertRaises(RuntimeError):
+                    load_runtime_config(profile)
 
     def test_strength_key_rejected_by_v2_even_when_disabled(self):
         a=deepcopy(VALID)

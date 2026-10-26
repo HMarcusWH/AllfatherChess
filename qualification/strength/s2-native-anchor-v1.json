@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "policy_id": "strength-s2-native-incumbent-observe-v1",
+  "status": "SOURCE_CANDIDATE_NOT_REAL_GAME_QUALIFIED",
+  "runtime_config": "config/allfather.strength-s2-observe.experimental.json",
+  "declared_source_binding": "live_git_HEAD_required_clean_tracked_tree",
+  "runtime_schema": 3,
+  "mode": "observe_only",
+  "anchor_engine": "stockfish",
+  "anchor_multi_pv": 1,
+  "native_timing_policy": "native_anchor_clock_watchdog_v1",
+  "evidence_kind": "strength_s2_flight_v1",
+  "allowed_handlers": [
+    "info",
+    "bestmove",
+    "stop",
+    "ucinewgame",
+    "position",
+    "isready",
+    "quit"
+  ],
+  "no_auxiliary_processes": true,
+  "no_chess_move_replacements": true,
+  "claim_boundary": {
+    "native_clock_protocol_qualified": false,
+    "e00_real_binary_equivalence_qualified": false,
+    "strength_qualified": false,
+    "equal_compute": false,
+    "public_bot_release": false,
+    "live_game_authorized": false,
+    "release_authorized": false,
+    "artifact_distribution_authorized": false,
+    "deployment": false
+  },
+  "next_gate": "E00 source/protocol equivalence, actual pinned native Stockfish probe, independently sealed evidence before S3"
+}

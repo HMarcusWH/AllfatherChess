@@ -1177,6 +1177,24 @@ def load_runtime_config(path: Path) -> RuntimeConfig:
     root = (path.parent / root_value).resolve()
 
     if version == 3:
+        # V3 records are source claims: legacy json.loads() silently accepts
+        # duplicate keys and NaN. Re-parse only v3 with strict closed JSON;
+        # do not retroactively change old v1/v2 profile bytes or semantics.
+        from controller.strength.contracts import StrengthContractError
+        def _reject_duplicate_keys(pairs):
+            obj = {}
+            for key, value in pairs:
+                if key in obj:
+                    raise StrengthContractError(f"duplicate v3 JSON key: {key}")
+                obj[key] = value
+            return obj
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"),
+                              object_pairs_hook=_reject_duplicate_keys,
+                              parse_constant=lambda value: (_ for _ in ()).throw(
+                                  StrengthContractError(f"nonfinite v3 JSON constant: {value}")))
+        except (OSError, json.JSONDecodeError, StrengthContractError) as exc:
+            raise RuntimeError(f"strict v3 configuration rejected: {exc}") from exc
         # Strictly closed native-anchor-only experiment. Old schema parsers and
         # G3/J12 authority contracts never see this version or its records.
         from controller.strength.config import from_v3

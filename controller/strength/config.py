@@ -29,6 +29,17 @@ def from_v3(*,raw:dict,path:Path,root:Path,
     require(not spec.phase_options and spec.warmup is None,
             "S2 forbids phase rewrites or unmeasured warmups")
     opts=spec.options
+    permitted_options={"Threads","Hash","MultiPV","Move Overhead","Ponder","UCI_Chess960"}
+    require(set(opts)==permitted_options,
+            "S2 forbids unreviewed Stockfish options, skill handicaps and networks")
+    original=data["instances"][anchor]
+    require(set(original)=={"family","role","binary","cwd","args","options"},
+            "S2 forbids fallback_glob and unreviewed process/phase overrides")
+    require(type(original["args"]) is list and not original["args"],
+            "S2 Stockfish command-line arguments must be empty")
+    require(type(opts["Ponder"]) is bool and opts["Ponder"] is False
+            and type(opts["UCI_Chess960"]) is bool and opts["UCI_Chess960"] is False,
+            "S2 requires explicitly disabled ponder and Chess960")
     require(type(opts.get("MultiPV")) is int and opts["MultiPV"]==1,
             "S2 incumbent must search unrestricted MultiPV1")
     require(type(opts.get("Threads")) is int and opts["Threads"]>=1,
@@ -38,9 +49,6 @@ def from_v3(*,raw:dict,path:Path,root:Path,
     require(type(opts.get("Move Overhead")) is int
             and 0<=opts["Move Overhead"]<=1000,
             "S2 requires explicit bounded Stockfish Move Overhead")
-    require(opts.get("Ponder") in (None,False)
-            and opts.get("UCI_Chess960") in (None,False),
-            "S2 forbids ponder/Chess960")
     require(not spec.environment,"S2 does not accept unaudited engine environment")
     conf=raw["strength"]
     require(type(conf) is dict and set(conf)==STRENGTH_KEYS,

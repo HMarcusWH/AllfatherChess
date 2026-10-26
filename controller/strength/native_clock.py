@@ -156,7 +156,7 @@ def make_native_plan(*, command:str, position:PositionRequest, generation:int,
         helper_advice_ms=max(0,advice),restriction=roots,settings=settings)
 
 
-def verify_native_plan(doc: dict) -> list[str]:
+def verify_native_plan(doc: dict, *, position: PositionRequest | None = None) -> list[str]:
     """Independent schema-v2 native timing validation; never reinterpret v1."""
     try:
         require(type(doc) is dict and doc.get("schema_version")==2
@@ -180,9 +180,34 @@ def verify_native_plan(doc: dict) -> list[str]:
                 "invalid hard guard")
         require(type(doc["soft_budget_ms"]) is int and 0<doc["soft_budget_ms"]<doc["hard_budget_ms"],
                 "invalid soft cutoff")
+        require(type(doc["generation"]) is int and doc["generation"]>0,
+                "invalid native search generation")
+        require(type(doc["received_monotonic"]) in (int,float) and
+                math.isfinite(doc["received_monotonic"]) and
+                type(doc["controller_cpu_started_ns"]) is int and
+                doc["controller_cpu_started_ns"]>=0,
+                "invalid native command receipt")
+        side=doc["side_to_move"]
+        require(side in ("w","b"), "invalid timing side to move")
+        if position is not None:
+            require(position.variant=="standard" and position.position_id==doc["position_id"]
+                    and position.side_to_move==side, "native timing/history/side mismatch")
         if "movetime" in limits:
-            require(doc["hard_budget_ms"]==limits["movetime"]-settings.output_margin_ms,
-                    "analysis budget mutated")
+            remaining=limits["movetime"]
+            inc=0
+            expected_hard=remaining-settings.output_margin_ms
+        else:
+            remaining=limits[f"{side}time"]
+            inc=limits.get(f"{side}inc",0)
+            expected_hard=remaining-settings.guard_ms
+        require(doc["hard_budget_ms"]==expected_hard
+                and expected_hard>settings.stop_grace_ms+settings.output_margin_ms+settings.prepare_budget_ms,
+                "native timing guard does not reconstruct")
+        require(doc["soft_budget_ms"]==expected_hard-settings.stop_grace_ms-settings.output_margin_ms
+                and doc["prepare_budget_ms"]==settings.prepare_budget_ms,
+                "native stop/preparation budgets mutated")
+        advice=min(500,int(.25*(remaining/30+.75*inc)),int(.1*remaining))
+        require(doc["helper_advice_ms"]==max(0,advice), "helper budget does not reconstruct")
         return []
     except (StrengthContractError,KeyError,TypeError,AssertionError,ValueError) as exc:
         return [str(exc)]

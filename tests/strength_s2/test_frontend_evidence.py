@@ -107,6 +107,39 @@ class FrontendS2Tests(unittest.TestCase):
             self.assertEqual(c._tracker.root_epoch,before)
             shell._shutdown()
 
+    def test_post_write_observer_failure_cannot_publish_second_terminal(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            shell,runtime,c=self.make(tmp)
+            def crash_on_published(*,token,selection):
+                raise RuntimeError("injected observer-only persistence fault")
+            c.note_published=crash_on_published
+            shell.handle_command("go movetime 3000")
+            moves=[line for line in shell.output.getvalue().splitlines()
+                   if line.startswith("bestmove ")]
+            self.assertEqual(moves,["bestmove e2e4 ponder e7e5"])
+            self.assertEqual(shell.state,ShellState.READY)
+            self.assertTrue(runtime.healthy)
+            shell._shutdown()
+            doc=strict_load(next(Path(tmp).glob("*.json")))
+            self.assertIn("post-write observer",doc["failure"])
+            self.assertEqual(verify_flight(doc)["status"],"INVALID")
+
+    def test_preterminal_pv_observer_fault_does_not_affect_native_anchor(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            shell,runtime,c=self.make(tmp)
+            def crash_on_info(*,token,line,observed_ns=None):
+                raise RuntimeError("injected PV observer failure")
+            c.on_anchor_info=crash_on_info
+            shell.handle_command("go movetime 3000")
+            self.assertEqual([line for line in shell.output.getvalue().splitlines()
+                              if line.startswith("bestmove ")],
+                             ["bestmove e2e4 ponder e7e5"])
+            self.assertTrue(runtime.healthy)
+            shell._shutdown()
+            doc=strict_load(next(Path(tmp).glob("*.json")))
+            self.assertIn("PV observer",doc["failure"])
+            self.assertEqual(verify_flight(doc)["status"],"INVALID")
+
     def test_corrupt_event_chain_and_forged_promotion_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
             shell,runtime,c=self.make(tmp)

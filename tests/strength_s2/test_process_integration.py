@@ -22,8 +22,8 @@ class S2RealProcessTests(unittest.TestCase):
             path=Path(tmp)/"s2.json"
             doc=json.loads(PROFILE.read_text())
             doc["root"]=str(ROOT)
-            doc["instances"]["stockfish-anchor"]["binary"]=sys.executable
-            doc["instances"]["stockfish-anchor"]["args"]=[str(FAKE)]
+            doc["instances"]["stockfish-anchor"]["binary"]=str(FAKE)
+            doc["instances"]["stockfish-anchor"]["args"]=[]
             path.write_text(json.dumps(doc),encoding="utf-8")
             with UciSession(Path(sys.executable),cwd=ROOT,timeout=8,
                             args=["-m","controller","--config",str(path)]) as u:

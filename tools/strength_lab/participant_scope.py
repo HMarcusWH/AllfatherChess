@@ -41,6 +41,27 @@ def _regular_control(path: Path) -> None:
         raise ResourceScopeError(f"invalid or symlinked cgroup control: {path.name}")
 
 
+def _open_control_write(path: Path) -> int:
+    """Never follow a replaced symlink, and reject unwritable controls early."""
+    _regular_control(path)
+    flags = os.O_WRONLY | os.O_CLOEXEC
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        return os.open(path, flags)
+    except OSError as exc:
+        raise ResourceScopeError(f"unwritable cgroup control {path.name}: {exc}") from exc
+
+
+def _write_control(path: Path, value: bytes) -> None:
+    fd = _open_control_write(path)
+    try:
+        if os.write(fd, value) != len(value):
+            raise ResourceScopeError(f"partial cgroup control write: {path.name}")
+    finally:
+        os.close(fd)
+
+
 def _read_nonnegative(path: Path) -> int:
     _regular_control(path)
     raw = path.read_text(encoding="ascii").strip()
@@ -130,6 +151,11 @@ class ParticipantCgroup:
             for control in ("cgroup.procs", "cgroup.kill", "cpu.stat",
                             "cgroup.events", "memory.peak", "memory.current"):
                 _regular_control(directory / control)
+            # Delegated write authority must be established BEFORE a chess
+            # process is launched, never discovered only during cleanup.
+            for control in ("cgroup.procs", "cgroup.kill"):
+                fd = _open_control_write(directory / control)
+                os.close(fd)
             return cls(directory)
         except BaseException:
             try:
@@ -145,16 +171,8 @@ class ParticipantCgroup:
     def join_in_child(self) -> None:
         """Only called by subprocess preexec before the child executes Python."""
         self._check_identity()
-        flags = os.O_WRONLY | os.O_CLOEXEC
-        if hasattr(os, "O_NOFOLLOW"):
-            flags |= os.O_NOFOLLOW
-        fd = os.open(self.directory / "cgroup.procs", flags)
-        try:
-            written = os.write(fd, str(os.getpid()).encode("ascii"))
-            if written != len(str(os.getpid())):
-                os._exit(125)
-        finally:
-            os.close(fd)
+        _write_control(
+            self.directory / "cgroup.procs", str(os.getpid()).encode("ascii"))
 
     def counters(self) -> dict:
         self._check_identity()
@@ -169,7 +187,7 @@ class ParticipantCgroup:
         if self.counters()["populated"] == 0:
             return False
         self._check_identity()
-        (self.directory / "cgroup.kill").write_text("1", encoding="ascii")
+        _write_control(self.directory / "cgroup.kill", b"1")
         limit = time.monotonic() + 5.0
         while self.counters()["populated"] and time.monotonic() < limit:
             time.sleep(0.05)

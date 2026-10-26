@@ -46,6 +46,8 @@ on:
       - 'tools/local_game/**'
       - 'scripts/engine-opt-*.py'
       - 'scripts/build-online-engine-opt-v2.sh'
+      - 'scripts/fetch-lc0-network.py'
+      - 'tests/ci/test_lc0_fetch_retry.py'
       - 'scripts/qualify-engine-opt-v2.py'
       - 'scripts/qualify-engine-opt-evidence.py'
       - 'scripts/qualify-engine-opt-v2-promotion-gate.py'

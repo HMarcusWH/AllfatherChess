@@ -61,10 +61,86 @@ def require_clean_hygiene(observation: dict) -> None:
             "untracked repository source detected; campaign not qualified")
 
 
+
+def _nested_verification(run: Path, final_record: dict, kind: str) -> dict:
+    """Count only independently verified nested terminal evidence.
+
+    Absent means NOT ATTEMPTED only if the final decision also denies the
+    artifact's existence. A missing declared source, orphan staged manifest,
+    bad hash, or malformed owner triple is a qualification failure.
+    """
+    from controller.verification import (
+        load_verification_manifest, verify_verification_integrity,
+    )
+    from controller.staged_verification import (
+        load_staged_verification_manifest,
+        verify_staged_verification_integrity,
+    )
+    require(kind in ("verification", "staged_verification"),
+            "unknown pilot nested evidence type")
+    declared_sources = final_record.get("sources")
+    require(type(declared_sources) is dict,
+            "final decision source index is unavailable")
+    relative = f"{kind}/manifest.json"
+    declared = relative in declared_sources
+    child = run / relative
+    present = child.is_file() and not child.is_symlink()
+    require(declared == present,
+            f"{kind} manifest presence differs from sealed final sources")
+    require(not (child.parent.exists() and not child.parent.is_dir()),
+            f"{kind} evidence directory is not a regular directory")
+    if not declared:
+        require(not child.parent.exists(),
+                f"{kind} orphan evidence directory present without final source link")
+        return {"attempted": 0, "complete": 0, "incomplete": 0,
+                "completed_owner_stages": 0, "state": "NOT_ATTEMPTED"}
+    require(type(declared_sources[relative]) is str
+            and len(declared_sources[relative]) == 64
+            and declared_sources[relative] == sha(child),
+            f"{kind} final decision hash differs from nested manifest")
+    integrity = (verify_verification_integrity(run) if kind == "verification"
+                 else verify_staged_verification_integrity(run))
+    require(integrity == [], f"{kind} source integrity failure: {integrity[:4]}")
+    manifest = (load_verification_manifest(run) if kind == "verification"
+                else load_staged_verification_manifest(run))
+    state = (manifest.get("disposition") or {}).get("run")
+    require(state in ("completed", "incomplete", "stopped", "failed"),
+            f"{kind} has unknown disposition")
+    stages = manifest.get("stages")
+    require(type(stages) is list and len(stages) <= 3,
+            f"{kind} contains invalid stage array")
+    owners = ("stockfish", "reckless", "lc0")
+    seen = set()
+    completed_owner_stages = 0
+    for stage in stages:
+        require(type(stage) is dict, f"{kind} stage must be an object")
+        owner = stage.get("owner")
+        require(owner in owners and owner not in seen
+                and stage.get("family") == owner,
+                f"{kind} stage owner/family invalid or duplicated")
+        seen.add(owner)
+        if stage.get("disposition") == "completed":
+            require(stage.get("failure") is None
+                    and type(stage.get("bestmove")) is str,
+                    f"{kind} completed stage has missing/invalid terminal evidence")
+            completed_owner_stages += 1
+    is_complete = (state == "completed" and len(stages) == 3
+                   and seen == set(owners)
+                   and completed_owner_stages == 3)
+    require(state != "completed" or is_complete,
+            f"{kind} claims completed without three healthy owner terminals")
+    return {"attempted": 1, "complete": int(is_complete),
+            "incomplete": int(not is_complete),
+            "completed_owner_stages": completed_owner_stages,
+            "state": state}
+
+
+
 def observe_replay_backend(run: Path) -> dict:
     """Derive backend vitality and VERIFY/proposal coverage from sealed replays."""
     manifest = load(run / "manifest.json")
-    final = load(run / "decision/final.json")["decision"]
+    final_record = load(run / "decision/final.json")
+    final = final_record["decision"]
     health = manifest.get("shadow_health")
     require(type(health) is dict, "G3 replay has no shadow-health evidence")
     failures = []
@@ -79,6 +155,10 @@ def observe_replay_backend(run: Path) -> dict:
             })
     stages = manifest.get("stages")
     require(type(stages) is list, "G3 replay missing executed stage records")
+    verification = _nested_verification(run, final_record, "verification")
+    staged = _nested_verification(run, final_record, "staged_verification")
+    require(not staged["attempted"] or verification["complete"],
+            "staged VERIFY exists without completed base VERIFY")
     complete = {(row.get("owner"), row.get("phase"))
                 for row in stages
                 if type(row) is dict and row.get("disposition") == "completed"
@@ -94,9 +174,16 @@ def observe_replay_backend(run: Path) -> dict:
         "three_family_explore_completed": int(all(
             (owner, "EXPLORE") in complete for owner in
             ("stockfish", "reckless", "lc0"))),
-        "verify_triples_completed": int(all(
-            (owner, "VERIFY") in complete for owner in
-            ("stockfish", "reckless", "lc0"))),
+        # VERIFY/STAGED_VERIFY live under nested source-bound manifests;
+        # the parent EXPLORE stage array cannot measure either.
+        "verify_triples_completed": verification["complete"],
+        "verify_attempted": verification["attempted"],
+        "verify_incomplete": verification["incomplete"],
+        "verify_owner_stage_completions": verification["completed_owner_stages"],
+        "staged_verify_triples_completed": staged["complete"],
+        "staged_verify_attempted": staged["attempted"],
+        "staged_verify_incomplete": staged["incomplete"],
+        "staged_verify_owner_stage_completions": staged["completed_owner_stages"],
         "proposals_frozen_before_deadline": int(frozen),
         "hybrid_authorizations": int(
             authorization.get("authorized") is True
@@ -122,6 +209,18 @@ def aggregate_backend_coverage(observations: list[dict]) -> dict:
             row["three_family_explore_completed"] for row in observations),
         "verify_stages_completed": sum(
             row["verify_triples_completed"] for row in observations),
+        "verify_attempted": sum(row["verify_attempted"] for row in observations),
+        "verify_incomplete": sum(row["verify_incomplete"] for row in observations),
+        "staged_verify_stages_completed": sum(
+            row["staged_verify_triples_completed"] for row in observations),
+        "staged_verify_attempted": sum(
+            row["staged_verify_attempted"] for row in observations),
+        "staged_verify_incomplete": sum(
+            row["staged_verify_incomplete"] for row in observations),
+        "verify_owner_stage_completions": sum(
+            row["verify_owner_stage_completions"] for row in observations),
+        "staged_verify_owner_stage_completions": sum(
+            row["staged_verify_owner_stage_completions"] for row in observations),
         "proposals_frozen_before_deadline": sum(
             row["proposals_frozen_before_deadline"] for row in observations),
         "hybrid_authorizations": sum(

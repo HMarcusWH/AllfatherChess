@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "id": "dev-g3-20261025",
+  "role": "development_negative_baseline_only",
+  "archive_name": "g3-pilot-raw-40216238892-1.zip",
+  "archive_sha256": "9be9eb650689916847f1fa61f7835f3c7c3a6d4b399070cf03d454435fee68f6",
+  "campaign_directory": "796228796c09-40216238892-1",
+  "source_commit": "796228796c098df88ad406d595dda4c6db3d5848",
+  "source_tree": "ace9aa44d620331c5bcb5db54be6757cbfcefd78",
+  "source_run_id": 40216238892,
+  "retained_artifact_id": 12609439308,
+  "expected": {
+    "games": 16,
+    "g3_replays_inspected": 993,
+    "hybrid_authorizations": 402,
+    "anchor_changing_overrides": 140,
+    "lc0_explore_stages_observed": 925,
+    "verify_attempted": 925,
+    "verify_stages_completed": 925,
+    "verify_incomplete": 0,
+    "staged_verify_attempted": 925,
+    "staged_verify_stages_completed": 923,
+    "staged_verify_incomplete": 2,
+    "g3_wins": 0,
+    "g3_draws": 4,
+    "g3_losses": 12
+  },
+  "can_inform": [
+    "engineering_repair",
+    "development",
+    "negative_regression_fixtures"
+  ],
+  "may_qualify": [
+    "historical_record_reconciliation"
+  ],
+  "cannot_qualify": [
+    "playing_strength",
+    "holdout",
+    "promotion",
+    "live_bot",
+    "release",
+    "matched_compute"
+  ],
+  "public_bot_release": false,
+  "playing_strength_qualified": false,
+  "live_game_authorized": false
+}

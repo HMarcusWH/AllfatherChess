@@ -4,6 +4,8 @@ on:
   pull_request:
     paths:
       - 'tools/g3_pilot.py'
+      - 'scripts/fetch-lc0-network.py'
+      - 'tests/ci/test_lc0_fetch_retry.py'
       - 'tools/g3_pilot_preflight.py'
       - 'tools/g3_pilot_health.py'
       - 'tests/g3_pilot/**'

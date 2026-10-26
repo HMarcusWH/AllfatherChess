@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """Minimal single-process fake native SF for schema-v3 end-to-end smoke.
 
 This is protocol evidence only, never actual chess strength.

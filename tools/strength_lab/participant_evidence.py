@@ -36,6 +36,14 @@ def verify_resource_receipts(job: Path, arms: tuple[str, ...]) -> dict:
     require(bool(arms) and len(set(arms)) == len(arms), "invalid resource arm set")
     result: dict[str, dict] = {}
     seen_ids: set[str] = set()
+    for directory in (job / "sessions", job / "participant_resources"):
+        require(directory.is_dir() and not directory.is_symlink(),
+                "missing participant evidence root")
+        present = {child.name for child in directory.iterdir()
+                   if child.is_dir() and not child.is_symlink()}
+        require(present == set(arms)
+                and len(list(directory.iterdir())) == len(arms),
+                "missing, extra or symlinked participant arm directory")
     for arm in arms:
         require(isinstance(arm, str) and arm and "/" not in arm
                 and arm not in (".", ".."), "invalid resource arm identity")

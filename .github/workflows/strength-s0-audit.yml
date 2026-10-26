@@ -60,3 +60,77 @@ jobs:
           path: build/strength/s0/remeasured-*.json
           if-no-files-found: warn
           retention-days: 30
+
+  io-postmortem:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SOURCE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          persist-credentials: false
+      - name: Verify exact-head source and forensic destructive regressions
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          python3 -m unittest tests.g3_pilot.test_io_forensics -v
+          python3 -m json.tool qualification/strength/negative-g3-durable-tail-20261026-v1.json >/dev/null
+      - name: Read only pinned historical GitHub artifact ZIPs
+        timeout-minutes: 8
+        run: |
+          set -euo pipefail
+          mkdir -p build/strength/forensics
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/12609439308/zip" > build/strength/forensics/historical.zip
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/12672732421/zip" > build/strength/forensics/failed-s0.zip
+          echo "9be9eb650689916847f1fa61f7835f3c7c3a6d4b399070cf03d454435fee68f6  build/strength/forensics/historical.zip" | sha256sum -c -
+          echo "30987beea5deb737ceef2859720a91a5fcd29864abca71b8d7b7d94b5276ce7b  build/strength/forensics/failed-s0.zip" | sha256sum -c -
+      - name: Reconcile original and failed pilot resource seals without promoting either
+        timeout-minutes: 12
+        run: |
+          set -euo pipefail
+          python3 -m tools.strength_lab.g3_io_forensics \
+            --input build/strength/forensics/historical.zip \
+            --expected-sha256 9be9eb650689916847f1fa61f7835f3c7c3a6d4b399070cf03d454435fee68f6 \
+            --expected-source-commit 796228796c098df88ad406d595dda4c6db3d5848 \
+            --output build/strength/forensics/historical.json
+          python3 -m tools.strength_lab.g3_io_forensics \
+            --input build/strength/forensics/failed-s0.zip \
+            --expected-sha256 30987beea5deb737ceef2859720a91a5fcd29864abca71b8d7b7d94b5276ce7b \
+            --expected-source-commit afc7cb40243c985f91c9f9638cabe7edc261a28b \
+            --output build/strength/forensics/failed-s0.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          base=Path("build/strength/forensics")
+          contract=json.loads(Path("qualification/strength/negative-g3-durable-tail-20261026-v1.json").read_text())
+          for label, key in (("historical","historical_success"), ("failed-s0","failed_s0_attempt")):
+              doc=json.loads((base/(label+".json")).read_text())
+              expected=contract[key]
+              assert doc["diagnostic_only"] is True and doc["qualifies"] is False
+              assert doc["qualified_games"] is None and doc["live_game_authorized"] is False
+              assert doc["archive_sha256"] == expected["archive_sha256"]
+              assert doc["source_commit"] == expected["source_commit"]
+              assert doc["g3_replays_observed"] == expected["observed_g3_replays"]
+              assert doc["wall_claim_false"] == expected["observed_wall_denials"]
+              assert doc["durable_write_ms"]["max_ms"] == expected["max_durable_write_ms"]
+          failed=json.loads((base/"failed-s0.json").read_text())
+          assert failed["durable_write_ms"]["above_100ms"] == contract["failed_s0_attempt"]["writes_above_100ms"]
+          assert len(failed["denied_replays"]) == 1
+          event=failed["denied_replays"][0]
+          assert event["replay_id"] == contract["failed_s0_attempt"]["failing_replay_id"]
+          assert event["wall_within_envelope"] is False and event["full_claimed"] is False
+          assert event["outward_before_deadline"] is True and event["physical_cpu_qualified"] is True
+          assert event["wall_excess_ms"] == 192.588
+          print("S0 I/O postmortem verified: original attempt remains unqualified.")
+          PY
+      - name: Retain source-locked descriptive outputs and errors
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: strength-s0-io-${{ github.run_id }}-${{ github.run_attempt }}
+          path: build/strength/forensics/*.json
+          if-no-files-found: warn
+          retention-days: 30

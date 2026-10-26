@@ -109,6 +109,14 @@ class ResourceEvidenceTests(unittest.TestCase):
             with self.assertRaises(QualificationError):
                 verify_resource_receipts(root, ("allfather-g3",))
 
+    def test_undeclared_participant_arm_is_not_ignored(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            fixture(root, "allfather-g3")
+            (root / "participant_resources" / "unapproved").mkdir()
+            with self.assertRaises(QualificationError):
+                verify_resource_receipts(root, ("allfather-g3",))
+
     def test_tampered_session_hash_is_fatal(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

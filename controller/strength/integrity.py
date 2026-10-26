@@ -88,7 +88,8 @@ def verify_flight(record: dict) -> dict:
                         and pos.side_to_move==turn.side_to_move and pos.variant==turn.variant,
                         "full history identity mismatch")
                 plan=data["native_time"]
-                require(not verify_native_plan(plan), "native clock source/timing mismatch")
+                require(not verify_native_plan(plan,position=pos),
+                        "native clock source/timing mismatch")
                 require(plan["generation"]==turn.generation
                         and plan["position_id"]==pos.position_id
                         and turn.restriction_sha256==digest({"searchmoves":plan["restriction"]}),
@@ -102,6 +103,12 @@ def verify_flight(record: dict) -> dict:
                 root=ck["move"]
                 require(isinstance(root,str) and MOVE.fullmatch(root) is not None,
                         "invalid root")
+                require(not plan["restriction"] or root in plan["restriction"],
+                        "out-of-restriction incumbent checkpoint")
+                require(type(ck.get("depth")) is int and ck["depth"]>0
+                        and type(ck.get("nodes")) is int and ck["nodes"]>=0
+                        and type(ck.get("observed_ns")) is int and ck["observed_ns"]>=0,
+                        "invalid incumbent native-depth/node/time metadata")
                 observed_epoch += int(root!=last_root)
                 last_progress+=1
                 require(ck["root_epoch"]==observed_epoch
@@ -116,6 +123,8 @@ def verify_flight(record: dict) -> dict:
                 ck=data["checkpoint"]
                 sel=data["selection"]
                 root=ck["move"]
+                require(not plan["restriction"] or root in plan["restriction"],
+                        "terminal bestmove outside external-root restriction")
                 observed_epoch+=int(root!=last_root)
                 last_progress+=1
                 require(ck["root_epoch"]==observed_epoch

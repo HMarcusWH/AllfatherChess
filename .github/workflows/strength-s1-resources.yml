@@ -1,0 +1,38 @@
+name: STRENGTH-S1 E01 - strict participant accounting contracts (source only)
+
+on:
+  pull_request:
+    paths:
+      - 'tools/strength_lab/**'
+      - 'tests/strength_lab/**'
+      - 'qualification/strength/s1-e01-v1.json'
+      - 'docs/STRENGTH_S1_PARTICIPANT_RESOURCES.md'
+      - '.github/workflows/strength-s1-resources.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  source-and-destructive-controls:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      SOURCE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+      - name: Validate exact checked-out source and frozen nonqualifying policy
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          python3 -m json.tool qualification/strength/s1-e01-v1.json >/dev/null
+          python3 -m compileall -q tools/strength_lab tests/strength_lab
+          python3 -m unittest discover -s tests/strength_lab -p 'test_*.py' -v
+          python3 -m tools.strength_lab.s1_campaign --phase contracts
+          python3 -m tools.strength_lab.diagnostic --phase contracts
+          python3 scripts/check-current-status.py
+          python3 scripts/check-docs-consistency.py
+      # Deliberate: this GitHub-hosted job does not qualify E01 games or
+      # silently substitute procfs guesses when cgroup v2 is not delegated.

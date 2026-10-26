@@ -1,0 +1,44 @@
+name: STRENGTH-S2 — native-anchor observe-only contracts
+
+on:
+  pull_request:
+    paths:
+      - 'controller/strength/**'
+      - 'controller/runtime.py'
+      - 'controller/__main__.py'
+      - 'controller/uci_frontend.py'
+      - 'config/allfather.strength-s2-observe.experimental.json'
+      - 'qualification/strength/s2-native-anchor-v1.json'
+      - 'tests/strength_s2/**'
+      - 'docs/STRENGTH_S2_NATIVE_ANCHOR.md'
+      - '.github/workflows/strength-s2-native.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native-source-contracts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      SOURCE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify source identity, v3 contracts and old v1/v2 regression
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          python3 -m json.tool config/allfather.strength-s2-observe.experimental.json >/dev/null
+          python3 -m json.tool qualification/strength/s2-native-anchor-v1.json >/dev/null
+          python3 -m compileall -q controller/strength controller/runtime.py controller/uci_frontend.py controller/__main__.py tests/strength_s2
+          python3 -m unittest discover -s tests/strength_s2 -p 'test_*.py' -v
+          python3 -m unittest tests.controller.test_uci_frontend tests.controller.test_online_time tests.controller.test_clock_soft_stop_priority -v
+          python3 scripts/check-current-status.py
+          python3 scripts/check-docs-consistency.py
+      # This never starts a game, delegates a cgroup, certifies E00 equivalence,
+      # or authorizes release/live chess just because source tests are green.

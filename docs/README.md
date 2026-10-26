@@ -54,6 +54,7 @@ levels are implemented, qualified, deployed and strength-supported.
 ## Online, game and release runbooks
 
 - [G3_EXPLORATORY_PILOT.md](G3_EXPLORATORY_PILOT.md) — pre-registered real Fastchess G3-versus-anchor descriptive pilot (NOT META-1 or equal compute)
+- [G3_PILOT_DURABILITY_INCIDENT_2026-10-26.md](G3_PILOT_DURABILITY_INCIDENT_2026-10-26.md) — negative full-run wall evidence, source-locked postmortem, and proposed versioned repair
 - [FULL_GAME_QUALIFICATION.md](FULL_GAME_QUALIFICATION.md)
 - [ONLINE_3B_BRIDGE_QUALIFICATION.md](ONLINE_3B_BRIDGE_QUALIFICATION.md)
 - [ONLINE_4B_RECOVERY.md](ONLINE_4B_RECOVERY.md)

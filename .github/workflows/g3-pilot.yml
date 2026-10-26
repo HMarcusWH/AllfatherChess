@@ -8,6 +8,9 @@ on:
       - 'tests/ci/test_lc0_fetch_retry.py'
       - 'tools/g3_pilot_preflight.py'
       - 'tools/g3_pilot_health.py'
+      - 'tools/strength_lab/g3_io_forensics.py'
+      - 'tools/strength_lab/g3_host_io_context.py'
+      - 'qualification/strength/negative-g3-durable-tail-20261026-v1.json'
       - 'tests/g3_pilot/**'
       - 'qualification/g3-pilot-v1.json'
       - '.github/workflows/g3-pilot.yml'
@@ -36,6 +39,7 @@ jobs:
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$PILOT_SHA"
           python3 -m json.tool qualification/g3-pilot-v1.json >/dev/null
+          python3 -m json.tool qualification/strength/negative-g3-durable-tail-20261026-v1.json >/dev/null
           python3 -m compileall -q tools/g3_pilot.py tools/g3_pilot_preflight.py tools/g3_pilot_health.py tests/g3_pilot
           python3 -m unittest discover -s tests/g3_pilot -p 'test_*.py' -v
           python3 -m tools.g3_pilot --phase contracts
@@ -139,6 +143,13 @@ jobs:
         run: |
           set -euo pipefail
           python3 -m tools.g3_pilot_preflight             --output build/test-results/g3-pilot/preflight.json
+      - name: Observe host I/O context before games (diagnostic only)
+        timeout-minutes: 2
+        run: |
+          set -euo pipefail
+          python3 -m tools.strength_lab.g3_host_io_context \
+            --phase before --source-commit "$PILOT_SHA" \
+            --output build/test-results/g3-pilot/host-io-before.json
       - name: Run real eight-opening reversed-color G3-versus-anchor pilot
         timeout-minutes: 150
         run: |
@@ -146,6 +157,46 @@ jobs:
           PILOT_ID="${PILOT_SHA:0:12}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           python3 -m tools.g3_pilot --phase run \
             --output "build/test-results/g3-pilot/$PILOT_ID"
+      - name: Observe host I/O context after games (diagnostic only)
+        if: always()
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          python3 -m tools.strength_lab.g3_host_io_context \
+            --phase after --source-commit "$PILOT_SHA" \
+            --output build/test-results/g3-pilot/host-io-after.json
+      - name: Retain source-bound before/after host I/O context
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: g3-pilot-host-io-${{ github.run_id }}-${{ github.run_attempt }}
+          path: build/test-results/g3-pilot/host-io-*.json
+          if-no-files-found: warn
+          retention-days: 30
+      - name: Preserve non-authorizing durable-I/O forensic index
+        if: always()
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          PILOT_ID="${PILOT_SHA:0:12}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          CAMPAIGN="build/test-results/g3-pilot/$PILOT_ID"
+          if [ -f "$CAMPAIGN/manifest.json" ]; then
+            python3 -m tools.strength_lab.g3_io_forensics \
+              --input "$CAMPAIGN" \
+              --expected-source-commit "$PILOT_SHA" \
+              --expected-campaign "$PILOT_ID" \
+              --output "$CAMPAIGN/io-forensics-standalone.json"
+          else
+            echo "No executed campaign manifest; preserve original pilot error."
+          fi
+      - name: Retain independent G3 durable-I/O forensic index
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: g3-pilot-io-forensics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: build/test-results/g3-pilot/**/io-forensics*.json
+          if-no-files-found: warn
+          retention-days: 30
       - name: Retain ALL PGNs, UCI sessions, authority replays and negative diagnostics
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

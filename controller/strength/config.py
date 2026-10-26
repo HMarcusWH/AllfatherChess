@@ -32,7 +32,7 @@ def from_v3(*,raw:dict,path:Path,root:Path,
     permitted_options={"Threads","Hash","MultiPV","Move Overhead","Ponder","UCI_Chess960"}
     require(set(opts)==permitted_options,
             "S2 forbids unreviewed Stockfish options, skill handicaps and networks")
-    original=data["instances"][anchor]
+    original=raw["instances"][anchor]
     require(set(original)=={"family","role","binary","cwd","args","options"},
             "S2 forbids fallback_glob and unreviewed process/phase overrides")
     require(type(original["args"]) is list and not original["args"],

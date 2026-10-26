@@ -1,0 +1,154 @@
+name: G3-v2 vs Anchor — offline exploratory Fastchess pilot (not META-1)
+
+on:
+  pull_request:
+    paths:
+      - 'tools/g3_pilot.py'
+      - 'tools/g3_pilot_preflight.py'
+      - 'tools/g3_pilot_health.py'
+      - 'tests/g3_pilot/**'
+      - 'qualification/g3-pilot-v1.json'
+      - '.github/workflows/g3-pilot.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PILOT_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+
+concurrency:
+  group: g3-pilot-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  source-contracts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.PILOT_SHA }}
+      - name: Bind source identity and verify strictly non-live experimental policy
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$PILOT_SHA"
+          python3 -m json.tool qualification/g3-pilot-v1.json >/dev/null
+          python3 -m compileall -q tools/g3_pilot.py tools/g3_pilot_preflight.py tools/g3_pilot_health.py tests/g3_pilot
+          python3 -m unittest discover -s tests/g3_pilot -p 'test_*.py' -v
+          python3 -m tools.g3_pilot --phase contracts
+          python3 scripts/check-current-status.py
+          python3 scripts/release-promotion-policy.py \
+            --output build/test-results/g3-pilot-source-no-release.json
+
+  fastchess-source-tests:
+    needs: source-contracts
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    env:
+      JOBS: '2'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.PILOT_SHA }}
+      - name: Verify pinned Fastchess upstream on reference Linux
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$PILOT_SHA"
+          sudo sysctl -w vm.mmap_rnd_bits=28
+          python3 -m tools.local_game.build_fastchess --source-test-only \
+            --attestation build/fastchess-source-test/attestation.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: g3-pilot-fastchess-source-test
+          path: build/fastchess-source-test/attestation.json
+          if-no-files-found: error
+          retention-days: 14
+
+  build:
+    needs: fastchess-source-tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      JOBS: '2'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.PILOT_SHA }}
+      - name: Verify exact source
+        run: test "$(git rev-parse HEAD)" = "$PILOT_SHA"
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: g3-pilot-fastchess-source-test
+          path: build/fastchess-source-test
+      - name: Install frozen engine build prerequisites
+        timeout-minutes: 9
+        run: |
+          bash scripts/ci-install-apt-deps.sh \
+            build-essential git meson ninja-build pkg-config \
+            libprotobuf-dev protobuf-compiler zlib1g-dev libopenblas-dev
+      - name: Build pinned Fastchess plus real-network canonical b4 constituent bundle
+        run: |
+          set -euo pipefail
+          make -f Makefile.local-game build-fastchess
+          make build-online-engine-opt-v2
+          python3 scripts/qualify-engine-opt-v2.py
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: g3-pilot-exact-build
+          path: |
+            build/tools/fastchess
+            build/online-engine-opt-v2
+            build/artifacts/lc0/791556.pb.gz
+            engines/lc0/build/release/lc0
+          if-no-files-found: error
+          retention-days: 14
+
+  exploratory-games:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.PILOT_SHA }}
+      - name: Verify game-source identity
+        run: test "$(git rev-parse HEAD)" = "$PILOT_SHA"
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: g3-pilot-exact-build
+          path: .
+      - name: Prepare UCI and pinned chess-rules environment
+        timeout-minutes: 9
+        run: |
+          set -euo pipefail
+          chmod +x build/tools/fastchess/bin/fastchess
+          find build/online-engine-opt-v2/bin -type f -exec chmod +x {} +
+          # The build job's shared libraries do not exist on this separate
+          # GitHub-hosted game runner. Match the successful LOCAL-1 runtime.
+          bash scripts/ci-install-apt-deps.sh             meson ninja-build pkg-config libprotobuf-dev protobuf-compiler             zlib1g-dev libopenblas-dev python3-pip python3-setuptools python3-wheel
+          python3 -m pip install --break-system-packages --no-build-isolation \
+            --no-deps --require-hashes -r qualification/local-game-requirements.txt
+          python3 -m unittest discover -s tests/g3_pilot -p 'test_*.py' -v
+      - name: Verify real LC0 b4 linkage, UCI, ready and legal search on this game host
+        timeout-minutes: 8
+        run: |
+          set -euo pipefail
+          python3 -m tools.g3_pilot_preflight             --output build/test-results/g3-pilot/preflight.json
+      - name: Run real eight-opening reversed-color G3-versus-anchor pilot
+        timeout-minutes: 150
+        run: |
+          set -euo pipefail
+          PILOT_ID="${PILOT_SHA:0:12}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          python3 -m tools.g3_pilot --phase run \
+            --output "build/test-results/g3-pilot/$PILOT_ID"
+      - name: Retain ALL PGNs, UCI sessions, authority replays and negative diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: g3-pilot-raw-${{ github.run_id }}-${{ github.run_attempt }}
+          path: build/test-results/g3-pilot
+          if-no-files-found: warn
+          retention-days: 30

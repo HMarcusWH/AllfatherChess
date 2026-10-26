@@ -73,6 +73,8 @@ class ParticipantAccountingTests(TestCase):
             self.assertEqual(membership_parent(root, "0::/workers\n"), root / "workers")
             for bad in ("", "2:cpu:/workers\n0::/workers\n",
                         "0::/../workers\n", "0:://workers\n",
+                        "0::///workers\n", "0::/workers//child\n",
+                        "0::/workers/\n",
                         "0::/workers/./bad\n", "0::workers\n",
                         "0::/workers\n1:memory:/workers\n"):
                 with self.subTest(bad=bad):

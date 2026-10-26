@@ -122,6 +122,22 @@ class ParticipantAccountingTests(TestCase):
             with self.assertRaises(ResourceScopeError):
                 scope.counters()
 
+    def test_unwritable_control_fails_before_engine_launch(self):
+        from tools.strength_lab.participant_scope import _open_control_write
+        with tempfile.TemporaryDirectory() as tmp:
+            control = Path(tmp) / "cgroup.procs"
+            control.write_text("", encoding="ascii")
+            with mock.patch(
+                "tools.strength_lab.participant_scope.os.open",
+                side_effect=PermissionError("delegation denied"),
+            ):
+                with self.assertRaises(ResourceScopeError):
+                    _open_control_write(control)
+            control.unlink()
+            control.symlink_to(Path(tmp) / "elsewhere")
+            with self.assertRaises(ResourceScopeError):
+                _open_control_write(control)
+
     def test_proxy_command_is_exact_unmodified_module(self):
         self.assertEqual(
             command_for_proxy(Path("/tmp/exact-spec.json")),

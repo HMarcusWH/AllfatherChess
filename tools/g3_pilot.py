@@ -443,6 +443,22 @@ def verify(output: Path) -> int:
         result["passed"] = True
     except Exception as exc:
         result["errors"] = [f"{type(exc).__name__}: {exc}"]
+        # A failed game/resource qualification remains failed. Preserve a
+        # separate, never-authorizing descriptive index so eight completed
+        # Fastchess blocks are not mistaken for zero executed games.
+        try:
+            from tools.strength_lab.g3_io_forensics import inspect as io_inspect
+            io_report = io_inspect(output)
+            save(output / "io-forensics.json", io_report)
+        except Exception as forensic_error:
+            # Missing/incomplete evidence cannot be repaired by diagnostics.
+            # Retain the error separately; never alter the strict pilot result.
+            save(output / "io-forensics-error.json", {
+                "schema_version": 1,
+                "diagnostic_only": True,
+                "qualifies": False,
+                "error": f"{type(forensic_error).__name__}: {forensic_error}",
+            })
     output.mkdir(parents=True, exist_ok=True)
     save(output / "report.json", result)
     print(json.dumps({

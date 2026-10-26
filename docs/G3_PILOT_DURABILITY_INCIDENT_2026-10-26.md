@@ -46,6 +46,10 @@ python3 -m tools.strength_lab.g3_io_forensics \
 
 The inspector checks ZIP/member bounds, source SHA, duplicate keys, replay IDs, triplet integrity, wall-flag arithmetic and seal phases. It returns only `diagnostic_only=true`, `qualifies=false`, and `qualified_games=null`. It does not independently requalify PGNs, clock authority, release or resource certificates. Each new failed campaign additionally retains its own attempt-specific forensic index when possible; failure to write an index does not improve qualification.
 
+## Bounded host observations on future exact-head games
+
+The G3 pilot CI also records `host-io-before.json` and `host-io-after.json` in an independent artifact. These snapshots include the pinned source and run attempt, kernel/runner image, available filesystem statistics, cgroup-v2 presence, and available Linux I/O-pressure counters. They are sampled **before and after** the Fastchess job, outside the UCI move and resource-persistence critical paths. Missing host counters are recorded as unavailable, not zero. Two snapshots do not identify the precise cause of an individual I/O stall or qualify hardware equivalence; they exist to support future host-latency investigations without altering the v1 wall gate.
+
 ## Required next actions
 
 1. Run one predeclared *unchanged-source* retry of the original failed `exploratory-games` job with its own GitHub attempt identity; keep both artifacts even if the new attempt passes. Do not retry in a loop.

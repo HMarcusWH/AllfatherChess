@@ -117,7 +117,7 @@ class FetchTests(unittest.TestCase):
         sleeper.assert_not_called()
 
     def test_wrong_download_hash_never_installed_as_valid_network(self):
-        opener = Mock(return_value=io.BytesIO(b"malicious different weights"))
+        opener = Mock(return_value=io.BytesIO(b"X" * len(self.payload)))
         sleeper = Mock()
         with self.assertRaisesRegex(Exception, "sha256 mismatch"):
             fetcher._download_with_retry(

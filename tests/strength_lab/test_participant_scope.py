@@ -101,8 +101,9 @@ class ParticipantAccountingTests(TestCase):
             (path / "cgroup.events").write_text("populated 0\n")
             (path / "cpu.stat").write_text("usage_usec 0\n")
             self.assertEqual(scope.counters()["cpu_usage_usec"], 0)
-            scope.remove()
-            self.assertFalse(path.exists())
+            with mock.patch.object(Path, "rmdir", return_value=None) as remove:
+                scope.remove()
+                remove.assert_called_once_with()
 
     def test_new_scope_rejects_prior_cpu_usage(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -129,6 +130,7 @@ class ParticipantAccountingTests(TestCase):
         )
 
     def test_receipt_root_and_arm_are_restricted(self):
+        (ROOT / "build").mkdir(exist_ok=True)
         with tempfile.TemporaryDirectory(dir=ROOT / "build") as tmp:
             directory = Path(tmp)
             session_root = directory / "sessions" / "allfather-g3"

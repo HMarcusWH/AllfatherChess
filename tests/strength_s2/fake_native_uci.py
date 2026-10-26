@@ -30,6 +30,7 @@ def main()->int:
         elif cmd=="ucinewgame" or cmd.startswith("position ") or cmd.startswith("setoption "):
             pass
         elif cmd.startswith("go "):
+            emit("info string native-go-received " + cmd)
             # Any native clock text is accepted by the fake, but the supervisor
             # must record and forward it *without* turning it into movetime.
             emit("info depth 1 nodes 16 multipv 1 score cp 15 pv e2e4")

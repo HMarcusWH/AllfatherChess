@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "profile_id": "negative-g3-durable-tail-20261026-v1",
+  "status": "RETAINED_NEGATIVE_FORENSIC_EVIDENCE_ONLY",
+  "scope": "two_retained_16_game_exploratory_attempts_not_elo_or_equal_compute",
+  "historical_success": {
+    "run_id": 40216238892,
+    "artifact_id": 12609439308,
+    "source_commit": "796228796c098df88ad406d595dda4c6db3d5848",
+    "archive_sha256": "9be9eb650689916847f1fa61f7835f3c7c3a6d4b399070cf03d454435fee68f6",
+    "campaign_id": "796228796c09-40216238892-1",
+    "observed_g3_replays": 993,
+    "observed_wall_denials": 0,
+    "max_durable_write_ms": 4.978,
+    "original_match_result": "0W-4D-12L_for_G3_exploratory_only"
+  },
+  "failed_s0_attempt": {
+    "run_id": 40361350837,
+    "artifact_id": 12672732421,
+    "source_commit": "afc7cb40243c985f91c9f9638cabe7edc261a28b",
+    "source_tree": "a8ac17b4061f91fb8924c12063ff93cc238f0fd2",
+    "archive_sha256": "30987beea5deb737ceef2859720a91a5fcd29864abca71b8d7b7d94b5276ce7b",
+    "campaign_id": "afc7cb40243c-40361350837-1",
+    "observed_g3_replays": 889,
+    "observed_wall_denials": 1,
+    "writes_above_100ms": 18,
+    "max_durable_write_ms": 539.635,
+    "failing_replay_id": "20261026T171358480563Z-g000131-10a3472e",
+    "observed_claims": {
+      "output_within_deadline": true,
+      "physical_measurement_qualified": true,
+      "wall_within_envelope": false,
+      "claimed": false
+    },
+    "emitted_ms": 1162.977327,
+    "measurement_freeze_ms": 1164.4,
+    "durable_write_ms": 539.635,
+    "terminal_wall_ms": 1704.588,
+    "wall_limit_ms": 1512,
+    "wall_excess_ms": 192.588
+  },
+  "historical_preservation": {
+    "attempt_1_failure_remains_unqualified": true,
+    "later_pass_cannot_relabel_failed_attempt": true,
+    "non_authorizing_diagnostics_only": true
+  },
+  "claim_boundary": {
+    "qualified": false,
+    "elo": false,
+    "playing_strength": false,
+    "equal_compute": false,
+    "live_game_authorized": false,
+    "artifact_distribution_authorized": false,
+    "public_bot_release": false,
+    "deployment": false
+  }
+}

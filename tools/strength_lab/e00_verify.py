@@ -1,0 +1,405 @@
+"""Independent E00 campaign reconstruction. Never infer qualification from green CI."""
+from __future__ import annotations
+import hashlib
+import json
+import math
+from pathlib import Path
+import re
+import subprocess
+
+from controller.strength.integrity import strict_load,verify_flight
+from tools.strength_lab.e00_corpus import ROOT,POLICY,build_corpus,bytes_for
+from tools.strength_lab.e00_runner import (ARMS,BUNDLE,ROOT_OUT,E00_PROFILE,NATIVE_PROFILE,
+                                           preflight,sha,head)
+from tools.strength_lab.e00_evidence import reconcile_flight,reconstruct_stdout_times
+from tools.strength_lab.e00_metrics import paired_metrics
+from tools.strength_lab.e00_resources import verify_profile,verify_cpu_counters
+from tools.strength_lab.e00_clock import (frontend_publication_delay_ms,
+                                           last_engine_work,summarize_clock)
+
+class E00Failure(ValueError):
+    pass
+
+def need(ok:bool,reason:str)->None:
+    if not ok:raise E00Failure(reason)
+
+def _file(path:Path, root:Path) -> Path:
+    """No symlinked or escaped evidence inputs."""
+    root=root.resolve(strict=True)
+    need(not path.is_symlink() and path.is_file(), "E00 missing/symlinked evidence file")
+    resolved=path.resolve(strict=True)
+    need(resolved.is_relative_to(root), "E00 evidence path escapes owned root")
+    return resolved
+
+def _bestmove(line:str,board) -> str:
+    import chess
+    hit=re.fullmatch(r"bestmove ([a-h][1-8][a-h][1-8][qrbn]?)(?: ponder [a-h][1-8][a-h][1-8][qrbn]?)?",line)
+    need(hit is not None,"E00 terminal move missing/invalid")
+    move=chess.Move.from_uci(hit.group(1))
+    need(move in board.legal_moves,"E00 terminal chess move illegal")
+    return hit.group(1)
+
+def _board(command:str):
+    import chess
+    words=command.split()
+    need(len(words)>=2 and words[0]=="position","invalid E00 full history")
+    if words[1]=="startpos":
+        board=chess.Board()
+        rest=words[2:]
+    else:
+        need(words[1]=="fen" and len(words)>=8,"invalid E00 FEN")
+        board=chess.Board(" ".join(words[2:8]))
+        rest=words[8:]
+    need(not rest or rest[0]=="moves","invalid E00 move suffix")
+    for text in rest[1:] if rest else []:
+        move=chess.Move.from_uci(text)
+        need(move in board.legal_moves,"E00 history move illegal")
+        board.push(move)
+    need(board.is_valid() and bool(list(board.legal_moves)),"invalid/terminal E00 board")
+    return board
+
+def p95(rows:list[float])->float:
+    need(bool(rows) and all(type(x) in (float,int) and math.isfinite(x) for x in rows),
+         "E00 p95 missing/nonfinite")
+    return float(sorted(rows)[math.ceil(.95*len(rows))-1])
+
+def verify_campaign(run:Path) -> dict:
+    run=run.resolve(strict=True)
+    need(run.is_dir() and run.is_relative_to(ROOT_OUT.resolve()),"E00 run outside build campaign root")
+    manifest=strict_load(_file(run/"manifest.json",run))
+    policy=strict_load(POLICY)
+    keys={"schema_version","kind","phase","status","source_commit","policy_sha256",
+          "profile_sha256","binary_sha256","bundle_manifest_sha256","corpus_sha256",
+          "corpus_count","expected_samples","go_command","arms","samples","flights",
+          "participants","host_profile","host_post","errors","resource_qualified","equal_compute",
+          "strength_qualified","live_game_authorized","release_authorized"}
+    need(set(manifest)==keys and manifest["schema_version"]==1
+         and manifest["kind"]=="strength_e00_campaign_v1"
+         and manifest["phase"] in ("smoke","full","functional-512","native-smoke","native-matrix")
+         and manifest["status"]=="COMPLETE" and manifest["errors"]==[],
+         "E00 incomplete/failed or unknown manifest")
+    host_record=manifest["host_profile"]
+    need(type(host_record) is dict and host_record.get("path")=="host-profile.json",
+         "E00 missing host profile binding")
+    host_file=_file(run/"host-profile.json",run)
+    need(sha(host_file)==host_record.get("sha256"),
+         "E00 host profile digest mismatch")
+    host=strict_load(host_file)
+    post=manifest.get("host_post")
+    need(type(post) is dict and post.get("path")=="host-after.json",
+         "E00 missing host postflight")
+    post_file=_file(run/"host-after.json",run)
+    need(sha(post_file)==post.get("sha256"),
+         "E00 postflight hash mismatch")
+    host_after=strict_load(post_file)
+    for frozen in ("system","architecture","kernel","allowed_cpus",
+                   "cpuinfo_sha256","cgroup_cpu_max",
+                   "cgroup_cpuset_effective","cgroup_memory_max"):
+        need(host[frozen]==host_after[frozen],
+             "E00 qualified host changed during campaign: "+frozen)
+    try:verify_profile(host,require_strict=manifest["phase"]=="full")
+    except ValueError as exc:raise E00Failure(str(exc)) from exc
+    native=manifest["phase"] in ("native-smoke","native-matrix")
+    profile=NATIVE_PROFILE if native else E00_PROFILE
+    source=head()
+    binary,opts=preflight(profile,source)
+    need(manifest["source_commit"]==source and manifest["policy_sha256"]==sha(POLICY)
+         and manifest["profile_sha256"]==sha(profile)
+         and manifest["binary_sha256"]==sha(binary)
+         and manifest["bundle_manifest_sha256"]==sha(BUNDLE/"build-manifest.json")
+         and manifest["corpus_count"]==policy["sample_count"]
+         and manifest["arms"]==list(ARMS)
+         and manifest["equal_compute"] is False
+         and manifest["strength_qualified"] is False
+         and manifest["live_game_authorized"] is False
+         and manifest["release_authorized"] is False,
+         "E00 source/bundle/authority drift")
+    go=manifest["go_command"]
+    expected_go=("native-matrix-v1" if manifest["phase"]=="native-matrix"
+                 else "go wtime 30000 btime 30000 winc 1000 binc 1000"
+                 if manifest["phase"]=="native-smoke"
+                 else f"go nodes {policy['search_nodes']}")
+    need(go==expected_go,"E00 go request drift")
+    case_go=(policy["native_clock_cases_v1"] if manifest["phase"]=="native-matrix"
+             else [go]*(policy["sample_count"] if manifest["phase"] in ("full","functional-512")
+                       else policy["smoke_count"]))
+    need(len(case_go)==(policy["sample_count"] if manifest["phase"] in ("full","functional-512")
+                       else policy["smoke_count"]),
+         "E00 native-clock case count/source drift")
+    rows=build_corpus()
+    content=bytes_for(rows)
+    need(_file(run/"corpus.jsonl",run).read_bytes()==content and
+         hashlib.sha256(content).hexdigest()==manifest["corpus_sha256"],
+         "E00 frozen corpus mismatch")
+    count=policy["sample_count"] if manifest["phase"] in ("full","functional-512") else policy["smoke_count"]
+    need(manifest["expected_samples"]==count
+         and len(manifest["samples"])==count
+         and len(manifest["flights"])==count
+         and len(manifest["participants"])==len(ARMS),
+         "E00 missing/extra sample, flight or participant")
+    receipt_arms=set()
+    have_cgroup=True
+    all_receipts={}
+    resource_dispositions={}
+    for rec in manifest["participants"]:
+        arm=rec["arm"]
+        need(arm in ARMS and arm not in receipt_arms, "E00 duplicated participant")
+        receipt_arms.add(arm)
+        need(rec["path"]==arm+"-session.json","E00 unexpected participant path")
+        file=_file(run/rec["path"],run)
+        need(sha(file)==rec["sha256"],"E00 participant receipt altered")
+        receipt=strict_load(file)
+        need(receipt["arm"]==arm and receipt["session_id"] and
+             receipt["exit_code"]==0 and receipt["errors"]==[]
+             and receipt["leaked_before_cleanup"] is False,
+             "E00 participant crashed or leaked a child")
+        needs={"started_ns","ended_ns","events","resource_status","cpu_ms",
+               "memory_peak_bytes","arm","session_id","exit_code","errors",
+               "leaked_before_cleanup","effective_affinity","cgroup_cpu_stat"}
+        need(set(receipt)==needs and receipt["started_ns"]<receipt["ended_ns"],
+             "E00 participant receipt contract mismatch")
+        is_measured=rec["resource_status"]==receipt["resource_status"]=="MEASURED"
+        have_cgroup=have_cgroup and is_measured
+        throttling=receipt["cgroup_cpu_stat"]
+        if is_measured:
+            need(type(throttling) is dict and
+                 all(type(k) is str and type(v) is int and v>=0
+                     for k,v in throttling.items()) and
+                 throttling.get("usage_usec") is not None and
+                 abs(throttling["usage_usec"]/1000.0-receipt["cpu_ms"])<1e-3,
+                 "E00 total CPU/throttle receipt contradicts cgroup stat")
+        else:
+            need(throttling is None,
+                 "E00 missing cgroup misrepresented as throttle observation")
+        if is_measured:
+            need(type(receipt["cpu_ms"]) in (float,int) and receipt["cpu_ms"]>0
+                 and type(receipt["memory_peak_bytes"]) is int
+                 and receipt["memory_peak_bytes"]>0,"invalid cgroup receipt")
+        else:
+            need(receipt["cpu_ms"] is None and receipt["memory_peak_bytes"] is None,
+                 "unavailable E00 cgroup presented as zero")
+        affinity=receipt["effective_affinity"]
+        need(type(affinity) is list and bool(affinity) and
+             all(type(cpu) is int for cpu in affinity),
+             "E00 participant effective CPU affinity not recorded")
+        if manifest["phase"]=="full":
+            need(affinity==[host["search_cpu"]],
+                 "E00 participant escaped frozen search CPU")
+        whole_wall=(receipt["ended_ns"]-receipt["started_ns"])/1e6
+        need(whole_wall>=0 and math.isfinite(whole_wall),
+             "E00 participant lifecycle elapsed invalid")
+        throttled_usec=(throttling.get("throttled_usec")
+                        if type(throttling) is dict else None)
+        if manifest["phase"]=="full":
+            need(type(throttled_usec) is int and
+                 throttled_usec<=policy["max_participant_cpu_throttled_usec"],
+                 "E00 physical CPU was throttled beyond frozen limit")
+        resource_dispositions[arm]={
+            "whole_participant_wall_ms":whole_wall,
+            "whole_participant_cpu_ms":receipt["cpu_ms"],
+            "whole_participant_peak_memory_bytes":receipt["memory_peak_bytes"],
+            "kernel_cgroup_throttled_usec":throttled_usec,
+            "resource_status":receipt["resource_status"],
+            "effective_affinity":affinity}
+        all_receipts[arm]=receipt
+    qualified_resource=have_cgroup and manifest["phase"]=="full"
+    need(receipt_arms==set(ARMS)
+         and manifest["resource_qualified"] is qualified_resource,
+         "E00 cgroup availability contradiction")
+    actual_terminals={}
+    actual_stamps={}
+    for arm in ARMS:
+        events=all_receipts[arm]["events"]
+        output_moves=[e["line"] for e in events
+                      if e.get("direction")=="stdout" and e.get("line","").startswith("bestmove ")]
+        need(len(output_moves)==count,
+             "E00 missing/extra actual stdout terminal moves")
+        actual_terminals[arm]=output_moves
+        actual_stamps[arm]=reconstruct_stdout_times(events,case_go,count)
+        stdout=[e["line"] for e in events if e.get("direction")=="stdout"]
+        need(stdout.count("uciok")==1 and stdout.count("readyok")==count*2+1,
+             "E00 handshake/readiness coverage incomplete")
+        actual_input=[e["line"] for e in events if e.get("direction")=="stdin"]
+        expected_input=["uci"]
+        if arm==ARMS[0]:
+            for name,value in opts.items():
+                rendered=str(value).lower() if type(value) is bool else str(value)
+                expected_input.append(f"setoption name {name} value {rendered}")
+        expected_input.append("isready")
+        for idx,row in enumerate(rows[:count]):
+            expected_input.extend(["ucinewgame","isready",row["position_command"],
+                                   case_go[idx],"isready"])
+        expected_input.append("quit")
+        need(actual_input==expected_input,
+             "E00 exact source UCI commands, history, options or reset order differ")
+    witness_files={}
+    flight_ids=set()
+    flight_sessions=set()
+    flight_dir=(ROOT/("build/strength-s2-evidence" if native else
+                      "build/strength-e00-evidence")).resolve()
+    for rec in manifest["flights"]:
+        rel=rec["path"]
+        need(type(rel) is str and rel.startswith(str(flight_dir.relative_to(ROOT))+"/"),
+             "E00 flight path mismatch")
+        file=_file(ROOT/rel,flight_dir)
+        need(sha(file)==rec["sha256"],"E00 flight source bytes changed")
+        raw=strict_load(file)
+        checked=verify_flight(raw)
+        need(checked["status"]=="PUBLISHED_ANCHOR" and checked["qualified"] is False
+             and checked["source_commit"]==source
+             and checked["replacement_count"]==0,"invalid S2/E00 anchor flight")
+        begin=raw["events"][0]["data"]
+        plan=begin["native_time"]
+        need(plan["kind"]==("strength_native_clock_plan_v1" if native else
+                           "strength_e00_node_plan_v1") and
+             plan["external_go_command"] in case_go,
+             "E00 evidence not of the requested UCI policy")
+        pos=begin["position_command"]
+        key=hashlib.sha256(pos.encode("utf-8")).hexdigest()
+        need(key not in witness_files,"duplicate E00 flight for full history")
+        witness_files[key]=raw
+    overhead_wall=[]
+    overhead_cpu=[]
+    terminal_to_publication=[]
+    engine_work={arm:[] for arm in ARMS}
+    independent_wall={arm:[] for arm in ARMS}
+    sample_cpu={arm:[] for arm in ARMS}
+    seen_ids=set()
+    discrepancies=[]
+    for idx,entry in enumerate(manifest["samples"]):
+        row=rows[idx]
+        need(entry["id"]==row["id"] and
+             entry["path"]==f"samples/{row['id']}.json" and row["id"] not in seen_ids,
+             "E00 missing/reordered/duplicated sample")
+        seen_ids.add(row["id"])
+        file=_file(run/entry["path"],run)
+        need(sha(file)==entry["sha256"],"E00 sample hash mismatch")
+        record=strict_load(file)
+        need(record["id"]==row["id"] and record["history_sha256"]==row["history_sha256"]
+             and record["occurrence"]==idx and record["go_command"]==case_go[idx]
+             and set(record["arms"])==set(ARMS),
+             "E00 occurrence or arm join mismatch")
+        board=_board(row["position_command"])
+        need(row["final_fen"]==board.fen(en_passant="fen"),
+             "E00 full chess history differs from sealed corpus")
+        terminal={}
+        for arm in ARMS:
+            value=record["arms"][arm]
+            need(value["arm"]==arm and value["session_id"]==all_receipts[arm]["session_id"]
+                 and value["position_command"]==row["position_command"]
+                 and value["go_command"]==case_go[idx]
+                 and value["resource_status"]==all_receipts[arm]["resource_status"],
+                 "E00 source/session/command mismatch")
+            need(type(value["wall_ms"]) in (int,float) and 0<=value["wall_ms"]<120000
+                 and type(value["search_sent_ns"]) is int
+                 and type(value["search_ended_ns"]) is int
+                 and abs((value["search_ended_ns"]-value["search_sent_ns"])/1e6 -
+                         value["wall_ms"])<1e-6,
+                 "E00 timing receipt invalid")
+            stdout=value["stdout"]
+            need(type(stdout) is list and len(stdout)>0
+                 and all(type(line) is str for line in stdout),
+                 "E00 stdout missing")
+            best=[s for s in stdout if s.startswith("bestmove ")]
+            need(len(best)==1 and best[0]==value["bestmove"]
+                 and stdout[-1]==best[0]
+                 and best[0]==actual_terminals[arm][idx],
+                 "E00 raw session vs sample terminal occurrence differs")
+            terminal[arm]=_bestmove(best[0],board)
+            independent=actual_stamps[arm][idx]
+            need(independent["terminal_line"]==value["bestmove"]
+                 and independent["go_ns"]<=value["search_sent_ns"]
+                 and independent["terminal_ns"]<=value["search_ended_ns"]
+                 and value["search_sent_ns"]-independent["go_ns"]<5_000_000_000
+                 and value["search_ended_ns"]-independent["terminal_ns"]<5_000_000_000,
+                 "E00 sample timing is inconsistent with independent UCI events")
+            independent_wall[arm].append(independent["wall_ms"])
+            arm_measured=all_receipts[arm]["resource_status"]=="MEASURED"
+            need((value["cpu_ms"] is None) if not arm_measured else
+                 (type(value["cpu_ms"]) in (int,float) and
+                  math.isfinite(value["cpu_ms"]) and value["cpu_ms"]>=0),
+                 "E00 CPU observation invalid")
+            if arm_measured:
+                before=value.get("cpu_usage_usec_before")
+                after=value.get("cpu_usage_usec_after")
+                need(verify_cpu_counters(before,after,value["cpu_ms"]),
+                     "E00 CPU receipt does not reconstruct")
+                sample_cpu[arm].append(value["cpu_ms"])
+            else:
+                need(value.get("cpu_usage_usec_before") is None and
+                     value.get("cpu_usage_usec_after") is None,
+                     "E00 missing cgroup encoded as zero CPU counters")
+        need(row["history_sha256"] in witness_files,
+             "E00 missing matched S2/E00 flight")
+        flight=witness_files[row["history_sha256"]]
+        terminal_to_publication.append(frontend_publication_delay_ms(flight))
+        for arm in ARMS:
+            engine_work[arm].append(last_engine_work(record["arms"][arm]["stdout"]))
+        try:
+            sid,nonce=reconcile_flight(
+                flight,row=row,occurrence=idx,
+                published_stdout=record["arms"][ARMS[1]]["bestmove"],
+                expected_go=case_go[idx],source_commit=source,
+                binary_sha256=sha(binary),profile_sha256=sha(profile),
+                options_sha256=__import__("controller.strength.contracts",
+                    fromlist=["digest"]).digest({"options":opts,"args":[]}),
+                prior_session=next(iter(flight_sessions)) if flight_sessions else None)
+        except ValueError as exc:
+            raise E00Failure(str(exc)) from exc
+        need(nonce not in flight_ids,"E00 search nonce reused across occurrences")
+        flight_ids.add(nonce)
+        flight_sessions.add(sid)
+        need(len(flight_sessions)==1,"E00 mixed S2 sessions")
+        if not native and terminal[ARMS[0]]!=terminal[ARMS[1]]:
+            discrepancies.append(row["id"])
+        overhead_wall.append(independent_wall[ARMS[1]][-1]-
+                             independent_wall[ARMS[0]][-1])
+        if have_cgroup:
+            overhead_cpu.append(record["arms"][ARMS[1]]["cpu_ms"]-
+                                record["arms"][ARMS[0]]["cpu_ms"])
+    if have_cgroup:
+        for arm in ARMS:
+            need(all_receipts[arm]["cpu_ms"]+1e-3>=sum(sample_cpu[arm]),
+                 "E00 whole-participant CPU less than sum of search slices")
+    need(set(witness_files)=={x["history_sha256"] for x in rows[:count]},
+         "unmatched/missing/extra E00 flight histories")
+    need(not discrepancies,"E00 real fixed-node terminal move disagreements: "+",".join(discrepancies[:12]))
+    clock_summary=summarize_clock(terminal_to_publication,engine_work)
+    paired=paired_metrics(independent_wall[ARMS[1]],independent_wall[ARMS[0]],
+         sample_cpu[ARMS[1]] if have_cgroup else None,
+         sample_cpu[ARMS[0]] if have_cgroup else None)
+    wall=paired["wrapper_minus_direct_wall_ms"]["p95"]
+    cpu=paired["wrapper_minus_direct_cpu_ms"]["p95"] if have_cgroup else None
+    wall_budget=policy["max_p95_wall_overhead_ms_seed"]
+    cpu_budget=policy["max_p95_extra_cpu_ms_seed"]
+    within=wall<=wall_budget and (cpu is not None and cpu<=cpu_budget)
+    # Native-clock smoke PASS means command/single-writer protocol only.
+    # It says nothing about timed-search parity, resources or overhead.
+    status=("PASS" if native else
+            "PASS" if qualified_resource and within else
+            "INCONCLUSIVE" if not qualified_resource else "FAIL")
+    return {"schema_version":1,"status":status,
+            "phase":manifest["phase"],"source_commit":source,
+            "actual_history_count":count,"legal_move_count":2*count,
+            "fixed_node_bestmove_agreement":None if native else count,
+            "flight_reconstructed_count":count,
+            "p95_wrapper_minus_direct_wall_ms":wall,
+            "p95_wrapper_minus_direct_cpu_ms":cpu,
+            "independent_paired_metrics":paired,
+            "native_clock_diagnostics":clock_summary,
+            "native_clock_performance_qualified":False,
+            "resource_coverage":"MEASURED" if have_cgroup else "UNAVAILABLE",
+            "resource_qualified":qualified_resource,
+            "whole_participant_measurements":resource_dispositions,
+            "whole_participant_wrapper_minus_direct_cpu_ms":(
+                resource_dispositions[ARMS[1]]["whole_participant_cpu_ms"]-
+                resource_dispositions[ARMS[0]]["whole_participant_cpu_ms"]
+                if have_cgroup else None),
+            "host_profile_sha256":sha(host_file),
+            "physical_cpu_isolation":host["strict_physical_isolation"],
+            "overhead_budget_pass":within if have_cgroup else None,
+            "functional_equivalence":None if native else True,
+            "native_protocol_smoke":True if native else None,
+            "e00_scientifically_qualified":False,
+            "strength_qualified":False,"equal_compute":False,
+            "live_game_authorized":False,"public_release":False}

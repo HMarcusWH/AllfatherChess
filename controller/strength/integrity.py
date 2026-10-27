@@ -12,6 +12,7 @@ from typing import Any
 from common.search_request import parse_position_command
 from .contracts import StrengthContractError, TurnKey, SearchIdentity, FinalSelection, digest, require, MOVE
 from .native_clock import verify_native_plan
+from .e00_nodes import verify_e00_plan
 
 
 def strict_load(path: Path) -> dict:
@@ -88,8 +89,12 @@ def verify_flight(record: dict) -> dict:
                         and pos.side_to_move==turn.side_to_move and pos.variant==turn.variant,
                         "full history identity mismatch")
                 plan=data["native_time"]
-                require(not verify_native_plan(plan,position=pos),
-                        "native clock source/timing mismatch")
+                if plan.get("kind")=="strength_e00_node_plan_v1":
+                    require(not verify_e00_plan(plan,position=pos),
+                            "offline E00 node source/timing mismatch")
+                else:
+                    require(not verify_native_plan(plan,position=pos),
+                            "native clock source/timing mismatch")
                 require(plan["generation"]==turn.generation
                         and plan["position_id"]==pos.position_id
                         and turn.restriction_sha256==digest({"searchmoves":plan["restriction"]}),

@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "id": "e00-histories-v1",
+  "count": 512,
+  "seed": 20261027,
+  "source_blobs": {
+    "tests/fixtures/meta1/openings-v1.pgn": "4ecb89dbf95d19b5f46d2d670635fce4f0502aea",
+    "tests/fixtures/engine_opt/positions.epd": "d24e371f0f5e44b069d6090a77a4566a0d218146",
+    "tests/fixtures/lichess/legal_histories.json": "bb5d8445c0953ee5b784155aba7e8cb2e07a0f32",
+    "qualification/local-game-requirements.txt": "ba79ec3b5590dec0d99d66103c58e395a98c3957"
+  },
+  "expected_corpus_sha256": "3cd76e1e6acf62a7ceedeec13ccc0c4ed619987d86cdf43bdaf0e427c387f1c5"
+}

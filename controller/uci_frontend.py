@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, TextIO
 from .runtime import BackendManager, RuntimeError
 from .online_time import ClockSearch, OnlineTimeError, make_time_plan
 from .strength.native_clock import make_native_plan
+from .strength.e00_nodes import E00NodeSettings, make_e00_plan
 from .strength.contracts import FinalSelection, StrengthContractError
 from .decision import revoke_final_decision_to_anchor
 from .budget import ResourceEnvelope
@@ -713,7 +714,9 @@ class UciFrontend:
                 if getattr(self.runtime.config, "strength", None) is not None:
                     if getattr(self, "strength", None) is None:
                         raise StrengthContractError("S2 coordinator is not attached")
-                    plan = make_native_plan(
+                    plan_fn = (make_e00_plan if isinstance(self.online_time, E00NodeSettings)
+                               else make_native_plan)
+                    plan = plan_fn(
                         command=command, position=position, generation=token,
                         settings=self.online_time, received_monotonic=received,
                         controller_cpu_started_ns=cpu_started)

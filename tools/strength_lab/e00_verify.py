@@ -14,6 +14,8 @@ from tools.strength_lab.e00_runner import (ARMS,BUNDLE,ROOT_OUT,E00_PROFILE,NATI
 from tools.strength_lab.e00_evidence import reconcile_flight,reconstruct_stdout_times
 from tools.strength_lab.e00_metrics import paired_metrics
 from tools.strength_lab.e00_resources import verify_profile,verify_cpu_counters
+from tools.strength_lab.e00_clock import (frontend_publication_delay_ms,
+                                           last_engine_work,summarize_clock)
 
 class E00Failure(ValueError):
     pass
@@ -201,6 +203,8 @@ def verify_campaign(run:Path) -> dict:
         witness_files[key]=raw
     overhead_wall=[]
     overhead_cpu=[]
+    terminal_to_publication=[]
+    engine_work={arm:[] for arm in ARMS}
     independent_wall={arm:[] for arm in ARMS}
     sample_cpu={arm:[] for arm in ARMS}
     seen_ids=set()
@@ -271,6 +275,9 @@ def verify_campaign(run:Path) -> dict:
         need(row["history_sha256"] in witness_files,
              "E00 missing matched S2/E00 flight")
         flight=witness_files[row["history_sha256"]]
+        terminal_to_publication.append(frontend_publication_delay_ms(flight))
+        for arm in ARMS:
+            engine_work[arm].append(last_engine_work(record["arms"][arm]["stdout"]))
         try:
             sid,nonce=reconcile_flight(
                 flight,row=row,occurrence=idx,
@@ -296,6 +303,7 @@ def verify_campaign(run:Path) -> dict:
     need(set(witness_files)=={x["history_sha256"] for x in rows[:count]},
          "unmatched/missing/extra E00 flight histories")
     need(not discrepancies,"E00 real fixed-node terminal move disagreements: "+",".join(discrepancies[:12]))
+    clock_summary=summarize_clock(terminal_to_publication,engine_work)
     paired=paired_metrics(independent_wall[ARMS[1]],independent_wall[ARMS[0]],
          sample_cpu[ARMS[1]] if have_cgroup else None,
          sample_cpu[ARMS[0]] if have_cgroup else None)
@@ -304,6 +312,8 @@ def verify_campaign(run:Path) -> dict:
     wall_budget=policy["max_p95_wall_overhead_ms_seed"]
     cpu_budget=policy["max_p95_extra_cpu_ms_seed"]
     within=wall<=wall_budget and (cpu is not None and cpu<=cpu_budget)
+    # Native-clock smoke PASS means command/single-writer protocol only.
+    # It says nothing about timed-search parity, resources or overhead.
     status=("PASS" if native else
             "PASS" if have_cgroup and within else
             "INCONCLUSIVE" if not have_cgroup else "FAIL")
@@ -315,6 +325,8 @@ def verify_campaign(run:Path) -> dict:
             "p95_wrapper_minus_direct_wall_ms":wall,
             "p95_wrapper_minus_direct_cpu_ms":cpu,
             "independent_paired_metrics":paired,
+            "native_clock_diagnostics":clock_summary,
+            "native_clock_performance_qualified":False,
             "resource_coverage":"MEASURED" if have_cgroup else "UNAVAILABLE",
             "host_profile_sha256":sha(host_file),
             "physical_cpu_isolation":host["strict_physical_isolation"],

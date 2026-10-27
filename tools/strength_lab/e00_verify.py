@@ -135,14 +135,30 @@ def verify_campaign(run:Path) -> dict:
     need(receipt_arms==set(ARMS)
          and manifest["resource_qualified"] is have_cgroup,
          "E00 cgroup availability contradiction")
+    actual_terminals={}
     for arm in ARMS:
-        output_moves=[e["line"] for e in all_receipts[arm]["events"]
+        events=all_receipts[arm]["events"]
+        output_moves=[e["line"] for e in events
                       if e.get("direction")=="stdout" and e.get("line","").startswith("bestmove ")]
         need(len(output_moves)==count,
              "E00 missing/extra actual stdout terminal moves")
-        sent_go=[e["line"] for e in all_receipts[arm]["events"]
-                 if e.get("direction")=="stdin" and e.get("line","").startswith("go ")]
-        need(sent_go==[go]*count,"E00 actual UCI command stream was altered")
+        actual_terminals[arm]=output_moves
+        stdout=[e["line"] for e in events if e.get("direction")=="stdout"]
+        need(stdout.count("uciok")==1 and stdout.count("readyok")==count*2+1,
+             "E00 handshake/readiness coverage incomplete")
+        actual_input=[e["line"] for e in events if e.get("direction")=="stdin"]
+        expected_input=["uci"]
+        if arm==ARMS[0]:
+            for name,value in opts.items():
+                rendered=str(value).lower() if type(value) is bool else str(value)
+                expected_input.append(f"setoption name {name} value {rendered}")
+        expected_input.append("isready")
+        for row in rows[:count]:
+            expected_input.extend(["ucinewgame","isready",row["position_command"],
+                                   go,"isready"])
+        expected_input.append("quit")
+        need(actual_input==expected_input,
+             "E00 exact source UCI commands, history, options or reset order differ")
     witness_files={}
     flight_dir=(ROOT/("build/strength-s2-evidence" if native else
                       "build/strength-e00-evidence")).resolve()
@@ -207,7 +223,9 @@ def verify_campaign(run:Path) -> dict:
                  "E00 stdout missing")
             best=[s for s in stdout if s.startswith("bestmove ")]
             need(len(best)==1 and best[0]==value["bestmove"]
-                 and stdout[-1]==best[0],"duplicate/incomplete E00 bestmove")
+                 and stdout[-1]==best[0]
+                 and best[0]==actual_terminals[arm][idx],
+                 "E00 raw session vs sample terminal occurrence differs")
             terminal[arm]=_bestmove(best[0],board)
             arm_measured=all_receipts[arm]["resource_status"]=="MEASURED"
             need((value["cpu_ms"] is None) if not arm_measured else

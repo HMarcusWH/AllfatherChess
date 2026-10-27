@@ -7,7 +7,7 @@
     "stockfish-anchor": {
       "family": "stockfish",
       "role": "anchor",
-      "binary": "build/strength-e00/bin/stockfish",
+      "binary": "build/online-engine-opt-v2/bin/stockfish",
       "cwd": ".",
       "args": [],
       "options": {

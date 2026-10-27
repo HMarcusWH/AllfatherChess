@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "profile_id": "strength-e00-native-equivalence-v1",
+  "status": "IMPLEMENTED_NOT_EXECUTED_OR_QUALIFIED",
+  "corpus_recipe": "tests/fixtures/strength_e00/corpus-recipe-v1.json",
+  "sample_count": 512,
+  "smoke_count": 8,
+  "search_nodes": 50000,
+  "required_chess_version": "1.11.2",
+  "config": "config/allfather.strength-e00-nodes.experimental.json",
+  "native_s2_config": "config/allfather.strength-s2-observe.experimental.json",
+  "stockfish_bundle": "build/online-engine-opt-v2",
+  "source_engine_manifest": "build/online-engine-opt-v2/build-manifest.json",
+  "arms": [
+    "stockfish-direct-nodes",
+    "allfather-e00-observe-nodes"
+  ],
+  "per_turn_reset": "ucinewgame_then_isready",
+  "threads": 1,
+  "multipv": 1,
+  "clock_protocol_suite": "independent_required",
+  "max_p95_wall_overhead_ms_seed": 50,
+  "max_p95_extra_cpu_ms_seed": 100,
+  "require_cgroup_for_resource_qualification": true,
+  "claims": {
+    "source_contract_qualified": false,
+    "real_binary_smoke_qualified": false,
+    "fixed_nodes_512_qualified": false,
+    "native_clock_qualified": false,
+    "resource_overhead_qualified": false,
+    "strength_qualified": false,
+    "equal_compute": false,
+    "elo": false,
+    "live_game_authorized": false,
+    "artifact_distribution_authorized": false,
+    "release_authorized": false
+  }
+}

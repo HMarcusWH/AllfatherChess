@@ -5,7 +5,7 @@ Runs from an exact-source CI worktree with actual pinned Ubuntu keyring
 extracted from the release image. No positive public/distribution authority.
 """
 from __future__ import annotations
-import argparse,hashlib,importlib.util,json,lzma,re,subprocess,tempfile,time,urllib.request,urllib.error
+import argparse,hashlib,importlib.util,json,lzma,os,stat,re,subprocess,sys,tempfile,time,urllib.request,urllib.error
 from pathlib import Path
 
 SNAP="20261001T000000Z"
@@ -81,10 +81,21 @@ def cached_signed_bytes(bundle, uri, limit):
     root=bundle.resolve(strict=True)
     path=bundle.joinpath(*rel.split("/"))
     check(path.is_file() and not path.is_symlink() and
-          path.resolve(strict=True).is_relative_to(root) and
-          0<path.stat().st_size<=limit,
+          path.resolve(strict=True).is_relative_to(root),
           "missing/symlinked/oversized exact signed Ubuntu byte: "+rel)
-    data=path.read_bytes()
+    flags=os.O_RDONLY|os.O_CLOEXEC|getattr(os,"O_NOFOLLOW",0)
+    try:
+        fd=os.open(path,flags)
+        try:
+            meta=os.fstat(fd)
+            check(stat.S_ISREG(meta.st_mode) and 0<meta.st_size<=limit,
+                  "missing/symlinked/oversized exact signed Ubuntu byte: "+rel)
+            with os.fdopen(fd,"rb",closefd=False) as stream:
+                data=stream.read(limit+1)
+        finally:
+            os.close(fd)
+    except OSError as exc:
+        raise ValueError("unavailable cached signed source: "+rel) from exc
     check(0<len(data)<=limit,"signed source cache read exceeded bound")
     return data
 
@@ -375,7 +386,22 @@ def main():
     p.add_argument("--source-bundle",type=Path,
                    help="offline exact signed native byte bundle; no network fallback")
     a=p.parse_args()
-    report=verify(a.root,a.evidence_dir,a.keyring,a.allow_unlocked_discovery,a.source_bundle)
+    try:
+        report=verify(a.root,a.evidence_dir,a.keyring,a.allow_unlocked_discovery,a.source_bundle)
+    except (ValueError,OSError,KeyError,TypeError) as exc:
+        message=str(exc)[:500]
+        inconclusive=any(word in message for word in
+                         ("transport timeout","HTTP 429","HTTP 502","HTTP 503","HTTP 504"))
+        report={"schema_version":1,"verdict":"INCONCLUSIVE" if inconclusive else "FAIL",
+                "source_mode":("cached_signed_exact_bytes" if a.source_bundle is not None
+                               else "live_snapshot"),
+                "signed_source_provenance_verified":False,"exact_package_count":0,
+                "failure_reason":message,"candidate_only":True,
+                "native_lock_approved":False,"public_bot_release":False}
+        a.output.parent.mkdir(parents=True,exist_ok=True)
+        a.output.write_text(json.dumps(report,indent=2,sort_keys=True)+"\n")
+        print("SIGNED_INDEX_VERIFICATION_BLOCKED: "+message,file=sys.stderr)
+        raise SystemExit(2) from exc
     a.output.parent.mkdir(parents=True,exist_ok=True)
     a.output.write_text(json.dumps(report,indent=2,sort_keys=True)+"\n")
     print(json.dumps({"verdict":report["verdict"],

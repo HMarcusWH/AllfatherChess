@@ -57,6 +57,14 @@ def from_v3(*,raw:dict,path:Path,root:Path,
     require(conf["mode"]=="observe_only", "S2/E00 is strictly observe-only")
     if conf["policy"]=="strength_s2_incumbent_observe_v1":
         timing=NativeClockSettings.from_config(conf["timing"])
+    elif conf["policy"]=="strength_s3a_contracts_observe_v1":
+        import os
+        require(os.environ.get("ALLFATHER_S3A_OFFLINE")=="1",
+                "S3-A source-only profile requires explicit offline opt-in")
+        # Preparation uses ONLY S2's native clock, original Stockfish
+        # MultiPV=1 and immutable anchor publication. No helper launches,
+        # resource cost approvals, comparison or move replacement.
+        timing=NativeClockSettings.from_config(conf["timing"])
     elif conf["policy"]=="strength_e00_incumbent_observe_v1":
         import os
         require(os.environ.get("ALLFATHER_E00_OFFLINE")=="1",

@@ -61,7 +61,7 @@ jobs:
   real-engine-smoke:
     needs: source-contracts
     runs-on: ubuntu-24.04
-    timeout-minutes: 75
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -92,6 +92,10 @@ jobs:
         run: python3 scripts/qualify-strength-e00.py --phase smoke
       - name: Real original S2 native-clock smoke (not strength qualification)
         run: python3 scripts/qualify-strength-e00.py --phase native-smoke
+      - name: Run frozen eight-case native-clock characterization matrix
+        run: python3 scripts/qualify-strength-e00.py --phase native-matrix
+      - name: Run complete 512-history functional comparison (not cgroup-qualified)
+        run: python3 scripts/qualify-strength-e00.py --phase functional-512
       - name: Retain raw runs, negative evidence and original source manifest
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

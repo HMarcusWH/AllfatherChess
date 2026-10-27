@@ -208,3 +208,27 @@ The Ubuntu snapshot service returned intermittent HTTP 500/502/503 and
 socket timeouts during development. All checks fail closed on missing
 source evidence; no live/unpinned Ubuntu archive substitute is allowed.
 A green earlier head is not a successful final-head qualification.
+
+
+## 27 October 2026 — retained signed-byte verification repair candidate
+
+The legacy independent source-chain verifier fetched the same signed Ubuntu
+snapshot a second time during the release-dependency stage, even when the
+exact signed native source bundle had already been source-locked, acquired,
+cached and reverified. A failed second acquisition produced 29 missing
+package origins without retaining an authenticated negative mirror response.
+
+The repaired `--source-bundle` mode takes the previously acquired private
+`build/release2b2-native-bundle` as an **untrusted** source of raw bytes.
+It independently verifies the entire pinned bundle (four signed InRelease
+files, four exact signed Packages indexes and 29 native .deb files), and
+then independently reconstructs the normal 29/29 package-origin chain by
+re-reading the same signed bytes. The existing live acquisition command
+remains available for explicitly named forensic experiments, but is not an
+automatic fallback. No cached byte is trusted merely because an Actions
+cache key matched.
+
+The failed original attempt remains an unchanged negative artifact.
+Neither source-bundle PASS nor full RELEASE-2B-2 CI grants release, wheel
+lock, OS lock, public bot or live API authority; RELEASE-2B-3/4 remain
+separate required approvals.

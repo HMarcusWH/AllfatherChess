@@ -1,7 +1,8 @@
 """RELEASE-2B-2 signed index provenance destructive parsing tests."""
 from __future__ import annotations
-import importlib.util,lzma,unittest
+import importlib.util,lzma,tempfile,unittest
 from pathlib import Path
+from unittest.mock import patch
 ROOT=Path(__file__).resolve().parents[2]
 spec=importlib.util.spec_from_file_location("native_signed_index",
                                            ROOT/"scripts/verify-release-native-index-chain.py")
@@ -82,6 +83,36 @@ class IndexChainNegatives(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,"HTTP 500 refused after 1"):
                 m.get(url,m.MAX_RELEASE)
         self.assertEqual(opener.call_count,1)
+
+    def test_exact_cached_source_read_no_network(self):
+        uri=m.BASE+"/dists/noble/InRelease"
+        with tempfile.TemporaryDirectory() as td:
+            root=Path(td)
+            target=root/"dists/noble/InRelease"
+            target.parent.mkdir(parents=True)
+            target.write_bytes(b"source bytes")
+            with patch.object(m.urllib.request,"urlopen",
+                              side_effect=AssertionError("network forbidden")) as fetch:
+                self.assertEqual(m.cached_signed_bytes(root,uri,100),b"source bytes")
+                target.write_bytes(b"")
+                with self.assertRaisesRegex(ValueError,"missing/symlinked/oversized"):
+                    m.cached_signed_bytes(root,uri,100)
+                target.unlink()
+                target.symlink_to(root/"not-actual-index")
+                with self.assertRaises(ValueError):
+                    m.cached_signed_bytes(root,uri,100)
+                with self.assertRaises(ValueError):
+                    m.cached_signed_bytes(root,m.BASE+"/dists/../../evil",100)
+                fetch.assert_not_called()
+
+    def test_missing_bundle_must_fail_before_live_acquisition(self):
+        with tempfile.TemporaryDirectory() as td:
+            missing=Path(td)/"missing"
+            with patch.object(m.urllib.request,"urlopen",
+                              side_effect=AssertionError("network forbidden")) as fetch:
+                with self.assertRaisesRegex(ValueError,"missing/unsafe source-bound"):
+                    m.cached_signed_bytes(missing,m.BASE+"/dists/noble/InRelease",100)
+                fetch.assert_not_called()
 
     def test_expected_suite_and_snapshot_are_constant(self):
         self.assertEqual(m.SNAP,"20261001T000000Z")

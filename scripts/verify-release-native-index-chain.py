@@ -5,7 +5,7 @@ Runs from an exact-source CI worktree with actual pinned Ubuntu keyring
 extracted from the release image. No positive public/distribution authority.
 """
 from __future__ import annotations
-import argparse,hashlib,json,lzma,re,subprocess,tempfile,time,urllib.request,urllib.error
+import argparse,hashlib,importlib.util,json,lzma,re,subprocess,tempfile,time,urllib.request,urllib.error
 from pathlib import Path
 
 SNAP="20261001T000000Z"
@@ -64,6 +64,47 @@ def get(uri,limit):
                     f"refused after {attempt} bounded attempt(s)") from exc
             time.sleep(min(attempt*4,12))
     raise ValueError("snapshot acquisition attempts exhausted")
+def cached_signed_bytes(bundle, uri, limit):
+    """Offline *read only*: never turn a missing signed byte into a live fetch.
+
+    A cached index is untrusted until its GPG signature, exact source hash
+    and selected package identity are independently reconstructed below.
+    """
+    check(isinstance(bundle,Path) and bundle.is_dir() and not bundle.is_symlink(),
+          "missing/unsafe source-bound Ubuntu signed byte bundle")
+    check(type(uri) is str and uri.startswith(BASE+"/dists/") and len(uri)<220,
+          "unapproved signed snapshot source URL")
+    rel=uri.removeprefix(BASE+"/")
+    check(not any(part in ("",".","..") for part in rel.split("/")) and
+          re.fullmatch(r"[A-Za-z0-9._+/-]+",rel) is not None,
+          "unsafe Ubuntu signed byte source path")
+    root=bundle.resolve(strict=True)
+    path=bundle.joinpath(*rel.split("/"))
+    check(path.is_file() and not path.is_symlink() and
+          path.resolve(strict=True).is_relative_to(root) and
+          0<path.stat().st_size<=limit,
+          "missing/symlinked/oversized exact signed Ubuntu byte: "+rel)
+    data=path.read_bytes()
+    check(0<len(data)<=limit,"signed source cache read exceeded bound")
+    return data
+
+def verify_cached_source_bundle(root,bundle,keyring):
+    """Second verifier reopens all 37 exact inputs; cached origin is never authority."""
+    source=root/"scripts/prepare-release-native-bundle.py"
+    check(source.is_file() and not source.is_symlink(),"missing signed source bundle verifier")
+    spec=importlib.util.spec_from_file_location("release_native_bundle_for_index",source)
+    check(spec is not None and spec.loader is not None,
+          "cannot load signed source bundle verifier")
+    module=importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    receipt=module.verify(root,bundle,keyring)
+    check(receipt["verdict"]=="PASS" and receipt["verified_native_archives"]==29
+          and receipt["verified_signed_releases"]==4
+          and receipt["verified_signed_package_indexes"]==4
+          and receipt["approved"] is False and receipt["public_bot_release"] is False,
+          "cached native source bundle lacks full independent provenance")
+    return receipt
+
 def parse_sha256_inrelease(data):
     content=data.decode("utf-8")
     check(content.startswith("-----BEGIN PGP SIGNED MESSAGE-----\n") and
@@ -187,12 +228,19 @@ def validate_receipt(root,evidence):
     check(json.loads((root/"qualification/release-image-v1.json").read_text())["public_bot_release"] is False,
           "external release authority forbidden")
     return expected,signed,boot
-def verify(root,evidence,keyring,allow_unlocked=False):
+def verify(root,evidence,keyring,allow_unlocked=False,source_bundle=None):
     check(keyring.is_file() and not keyring.is_symlink(),"missing real pinned Ubuntu signing key")
     bootstrap=json.loads((root/"qualification/release-bootstrap-v1.json").read_text())
     check(digest(keyring.read_bytes())==bootstrap["candidate_ca"]["trust_keyring_sha256"],
           "pinned Ubuntu signing key bytes mismatch")
     expected,signed,_=validate_receipt(root,evidence)
+    source_mode="cached_signed_exact_bytes" if source_bundle is not None else "live_snapshot"
+    if source_bundle is not None:
+        source_bundle=Path(source_bundle)
+        verify_cached_source_bundle(root,source_bundle,keyring)
+        acquire=lambda uri,maximum: cached_signed_bytes(source_bundle,uri,maximum)
+    else:
+        acquire=get
     signatures={}
     releases={}
     scanned=[]
@@ -208,7 +256,7 @@ def verify(root,evidence,keyring,allow_unlocked=False):
         if all(found.values()):
             break
         try:
-            raw=get(f"{BASE}/dists/{suite}/InRelease",MAX_RELEASE)
+            raw=acquire(f"{BASE}/dists/{suite}/InRelease",MAX_RELEASE)
         except ValueError as err:
             # An unavailable suite contributes ZERO trusted evidence. Skip only
             # if another signed suite ultimately proves every package.
@@ -229,7 +277,7 @@ def verify(root,evidence,keyring,allow_unlocked=False):
             check(signed_entry is not None,"missing signed Packages.xz entry for "+suite+"/"+component)
             original_uri=f"{BASE}/dists/{suite}/{rel}"
             try:
-                blob=get(original_uri,MAX_INDEX)
+                blob=acquire(original_uri,MAX_INDEX)
             except ValueError as e:
                 # Only a transiently unavailable optional signed pocket may
                 # be skipped. Missing mandatory package provenance still
@@ -238,7 +286,7 @@ def verify(root,evidence,keyring,allow_unlocked=False):
                     raise
                 byhash=f"{BASE}/dists/{suite}/{component}/binary-amd64/by-hash/SHA256/{signed_entry[0]}"
                 try:
-                    blob=get(byhash,MAX_INDEX)
+                    blob=acquire(byhash,MAX_INDEX)
                 except ValueError as other:
                     if not (re.search(r"(HTTP (429|500|502|503|504)|transport timeout) refused after",str(other))
                             or "HTTP 404 refused" in str(other)):
@@ -308,6 +356,8 @@ def verify(root,evidence,keyring,allow_unlocked=False):
     return {"schema_version":1,"verdict":"PASS" if locked else "CANDIDATE",
             "signed_source_provenance_verified":True,
             "exact_package_count":len(found),"index_count":len(scanned),
+            "source_mode":source_mode,
+            "cached_source_reverified":source_bundle is not None,
             "candidate_only":True,"native_lock_approved":False,
             "public_bot_release":False,
             "origin_candidates":found,"signed_index_catalogue":scanned,
@@ -322,8 +372,10 @@ def main():
     p.add_argument("--keyring",type=Path,required=True)
     p.add_argument("--output",type=Path,required=True)
     p.add_argument("--allow-unlocked-discovery",action="store_true")
+    p.add_argument("--source-bundle",type=Path,
+                   help="offline exact signed native byte bundle; no network fallback")
     a=p.parse_args()
-    report=verify(a.root,a.evidence_dir,a.keyring,a.allow_unlocked_discovery)
+    report=verify(a.root,a.evidence_dir,a.keyring,a.allow_unlocked_discovery,a.source_bundle)
     a.output.parent.mkdir(parents=True,exist_ok=True)
     a.output.write_text(json.dumps(report,indent=2,sort_keys=True)+"\n")
     print(json.dumps({"verdict":report["verdict"],

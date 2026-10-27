@@ -34,5 +34,6 @@
     "live_game_authorized": false,
     "artifact_distribution_authorized": false,
     "release_authorized": false
-  }
+  },
+  "expected_corpus_sha256": "3cd76e1e6acf62a7ceedeec13ccc0c4ed619987d86cdf43bdaf0e427c387f1c5"
 }

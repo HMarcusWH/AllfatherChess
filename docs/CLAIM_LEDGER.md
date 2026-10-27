@@ -1416,3 +1416,18 @@ workflow families.
   equal-resource superiority;
 - J8 Adaptive Outer Time and J9 WorkGrant scheduling remain later promotion boundaries.
 
+
+
+## STRENGTH-E00 native Stockfish equivalence (PR #88, experimental)
+
+### Implemented source candidate
+
+- Closed opt-in schema-v3 `go nodes` watchdog is separate from S2 native clocks and requires `ALLFATHER_E00_OFFLINE=1`.
+- Source-frozen 512-history recipe, pinned chess legality, paired direct-versus-wrapped same-Stockfish binary/NNUE UCI runner, independent S2 flight reconstruction and destructive source tests.
+- Source-only reproducibility reproduced the frozen generated corpus digest; no real 512-history qualification is inferred.
+
+### OPEN / expressly forbidden claims
+
+- The full 512-pair real Stockfish equivalence experiment, native-clock characterization, and strict cgroup/overhead qualification require independently retained exact-head execution evidence.
+- Matching native nodes is not equal total resources, and a green S2/E00 source CI is not Elo, strength improvement, release, public bot, or a license to replace the incumbent.
+- PR #88 is stacked on unmerged PR #87; no strength or publication policy is promoted by either source candidate.

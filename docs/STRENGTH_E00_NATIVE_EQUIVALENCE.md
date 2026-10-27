@@ -35,7 +35,10 @@ source recipe (seed, 512 count, source Git blob identifiers and pinned
 chess==1.11.2 rules library). tools/strength_lab/e00_corpus.py builds
 deterministic legal complete histories from 50 META-1 openings, eight
 ENGINE-OPT EPD positions and three special-move histories. Every run
-retains the exact corpus JSONL and SHA256.
+retains the exact corpus JSONL and SHA256. Source-only exact-head CI on
+27 October 2026 independently reproduced the 512-row SHA256 twice:
+`3cd76e1e6acf62a7ceedeec13ccc0c4ed619987d86cdf43bdaf0e427c387f1c5`.
+That digest is now frozen in both the corpus recipe and policy.
 
 This is a *source-frozen generated corpus*, not a checked-in 512-row file
 and not a completed test. A separately reviewed static corpus artifact

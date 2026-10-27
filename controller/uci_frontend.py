@@ -16,6 +16,8 @@ from typing import TYPE_CHECKING, TextIO
 
 from .runtime import BackendManager, RuntimeError
 from .online_time import ClockSearch, OnlineTimeError, make_time_plan
+from .strength.native_clock import make_native_plan
+from .strength.contracts import FinalSelection, StrengthContractError
 from .decision import revoke_final_decision_to_anchor
 from .budget import ResourceEnvelope
 from common.search_request import parse_position_command, SearchRequestError
@@ -53,6 +55,7 @@ class UciFrontend:
     ) -> None:
         self.runtime = runtime
         self.shadow = shadow
+        self.strength = None  # Factory attaches schema-v3 native observer only.
         self.output = sys.stdout if output is None else output
         self._state_lock = threading.RLock()
         self._write_lock = threading.Lock()
@@ -233,6 +236,7 @@ class UciFrontend:
         clock: ClockSearch,
         anchor_line: str,
         final_decision,
+        selection: FinalSelection | None = None,
     ) -> tuple[str | None, object | None, str]:
         """Publish one terminal line without blocking stop or hard expiry."""
         while True:
@@ -244,8 +248,13 @@ class UciFrontend:
                 final_decision is not None
                 and final_decision.authorization.authorized
             )
-            outward_line = anchor_line
-            if (
+            outward_line = anchor_line if selection is None else selection.chosen_line
+            if selection is not None and (
+                final_decision is not None or selection.anchor_line != anchor_line
+                or selection.replaces_anchor or selection.would_authorize
+            ):
+                raise StrengthContractError("S2 attempted non-anchor publication")
+            if selection is None and (
                 hybrid
                 and final_decision.emitted_move != final_decision.anchor_move
             ):
@@ -260,6 +269,18 @@ class UciFrontend:
                     written = self._try_write_online_line_once(outward_line)
                     if written:
                         self._post_output_generation = token
+                if written and getattr(self, "strength", None) is not None and selection is not None:
+                    # Bytes have ALREADY crossed stdout. A recording failure
+                    # may invalidate S2 evidence but cannot cause a second
+                    # terminal line or rewrite the authoritative Stockfish move.
+                    try:
+                        self.strength.note_published(token=token, selection=selection)
+                    except Exception as exc:
+                        try:
+                            self.strength.mark_observation_failure(
+                                token=token, reason=f"post-write observer: {type(exc).__name__}: {exc}")
+                        except Exception:
+                            pass  # Cannot let an evidence failure escape after bytes have crossed.
                 if written and self.shadow is not None:
                     # Bytes have crossed stdout. Retain the exact decision
                     # before the clock publication gate opens to quit/next-turn
@@ -359,6 +380,17 @@ class UciFrontend:
         # the anchor's score/PV to a different outward move.
         if suppress:
             return
+        if getattr(self, "strength", None) is not None:
+            try:
+                self.strength.on_anchor_info(token=token, line=line)
+            except Exception as exc:
+                # S2 is pure observation; it must not block the native engine's
+                # original stdout info/PV or move authority on a logger fault.
+                try:
+                    self.strength.mark_observation_failure(
+                        token=token, reason=f"PV observer: {type(exc).__name__}: {exc}")
+                except Exception:
+                    pass
         self._write(line)
 
     def _on_search_complete(self, token: int, line: str) -> None:
@@ -377,6 +409,13 @@ class UciFrontend:
                 return
 
             final_decision = None
+            selection = None
+            if getattr(self, "strength", None) is not None:
+                try:
+                    selection = self.strength.on_anchor_bestmove(token=token, line=line)
+                except StrengthContractError as exc:
+                    self._clock_fail(token, f"invalid native incumbent terminal: {exc}")
+                    return
             if self.shadow is not None:
                 try:
                     # Publish the physical anchor-completion boundary for every
@@ -407,6 +446,7 @@ class UciFrontend:
                     clock=clock,
                     anchor_line=line,
                     final_decision=final_decision,
+                    selection=selection,
                 )
             )
             if publish_status == "expired":
@@ -670,16 +710,29 @@ class UciFrontend:
             try:
                 position = parse_position_command(self.runtime.position_command or "position startpos",
                                                   variant="chess960" if self.runtime.chess960 else "standard")
-                plan = make_time_plan(command=command, position=position, generation=token,
-                                      settings=self.online_time,
-                                      envelope=ResourceEnvelope.from_config(self.runtime.config.budget),
-                                      received_monotonic=received, controller_cpu_started_ns=cpu_started)
+                if getattr(self.runtime.config, "strength", None) is not None:
+                    if getattr(self, "strength", None) is None:
+                        raise StrengthContractError("S2 coordinator is not attached")
+                    plan = make_native_plan(
+                        command=command, position=position, generation=token,
+                        settings=self.online_time, received_monotonic=received,
+                        controller_cpu_started_ns=cpu_started)
+                    self.strength.begin_turn(
+                        token=token, position=position,
+                        original_position_command=self.runtime.position_command or "position startpos",
+                        plan=plan)
+                else:
+                    plan = make_time_plan(command=command, position=position, generation=token,
+                                          settings=self.online_time,
+                                          envelope=ResourceEnvelope.from_config(self.runtime.config.budget),
+                                          received_monotonic=received, controller_cpu_started_ns=cpu_started)
             except (OnlineTimeError, SearchRequestError, ValueError) as exc:
                 self._diagnostic(f"clock request rejected: {exc}")
                 self._write("bestmove 0000")  # Protocol failure, not a legal fallback move.
                 return
             try:
-                resource_plan = self.runtime.make_move_resource_plan(plan)
+                resource_plan = (None if getattr(self.runtime.config, "strength", None) is not None
+                                 else self.runtime.make_move_resource_plan(plan))
             except RuntimeError as exc:
                 # J8 is strictly subordinate to the already-qualified TimePlan.
                 # A planner failure may remove the adaptive resource claim but
@@ -776,6 +829,8 @@ class UciFrontend:
         # There is never an intermediate revoked-but-publishable fallback state.
         if not clock.fail(reason=reason, line="bestmove 0000"):
             return
+        if getattr(self, "strength", None) is not None:
+            self.strength.abort_generation(token=token, reason=reason)
 
         with self._state_lock:
             if self._active_generation == token:
@@ -986,3 +1041,10 @@ class UciFrontend:
             except Exception as exc:  # pragma: no cover - shutdown is best effort
                 self._diagnostic(f"shadow shutdown failed: {exc}")
         self.runtime.close()
+        if getattr(self, "strength", None) is not None:
+            try:
+                # Persistence occurs AFTER shutdown, never on the move path.
+                self.strength.close()
+            except (OSError, ValueError) as exc:
+                print(f"S2 evidence persistence failed: {type(exc).__name__}",
+                      file=sys.stderr)

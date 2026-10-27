@@ -80,6 +80,7 @@ levels are implemented, qualified, deployed and strength-supported.
 - [STRENGTH_S0_BASELINE.md](STRENGTH_S0_BASELINE.md) — historical G3 nested-stage correction, read-only audit and no-strength-claim boundary
 - [STRENGTH_S1_DIAGNOSTIC_CONTROL.md](STRENGTH_S1_DIAGNOSTIC_CONTROL.md) — opt-in G3-only output suppression and pending whole-participant matched control tests
 - [STRENGTH_S1_PARTICIPANT_RESOURCES.md](STRENGTH_S1_PARTICIPANT_RESOURCES.md) — strict cgroup-v2 resource wrapper and E01 16-game harness (real evidence pending)
+- [STRENGTH_S2_NATIVE_ANCHOR.md](STRENGTH_S2_NATIVE_ANCHOR.md) — native Stockfish observe-only epochs and flight evidence (E00 real-engine qualification pending)
 
 ## Historical plans, incidents and audit trail
 

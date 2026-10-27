@@ -249,6 +249,7 @@ class RuntimeConfig:
     orchestration: "AdaptiveTimeSettings | None" = None
     work_scheduler: "WorkSchedulerSettings | None" = None
     resource_allocator: "ResourceAllocatorSettings | None" = None
+    strength: "S2Settings | None" = None  # Schema-v3 S2 observe-only; never a legacy decision.
 
     @property
     def instances(self) -> dict[str, BackendSpec]:
@@ -1167,13 +1168,48 @@ def load_runtime_config(path: Path) -> RuntimeConfig:
     if not isinstance(data, dict):
         raise RuntimeError("runtime config root must be an object")
     version = data.get("schema_version")
-    if isinstance(version, bool) or not isinstance(version, int) or version not in (1, 2):
+    if isinstance(version, bool) or not isinstance(version, int) or version not in (1, 2, 3):
         raise RuntimeError(f"unsupported runtime config schema_version: {version!r}")
 
     root_value = data.get("root", "..")
     if not isinstance(root_value, str) or not root_value:
         raise RuntimeError("runtime config root must be a non-empty path string")
     root = (path.parent / root_value).resolve()
+
+    if version == 3:
+        # V3 records are source claims: legacy json.loads() silently accepts
+        # duplicate keys and NaN. Re-parse only v3 with strict closed JSON;
+        # do not retroactively change old v1/v2 profile bytes or semantics.
+        from controller.strength.contracts import StrengthContractError
+        def _reject_duplicate_keys(pairs):
+            obj = {}
+            for key, value in pairs:
+                if key in obj:
+                    raise StrengthContractError(f"duplicate v3 JSON key: {key}")
+                obj[key] = value
+            return obj
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"),
+                              object_pairs_hook=_reject_duplicate_keys,
+                              parse_constant=lambda value: (_ for _ in ()).throw(
+                                  StrengthContractError(f"nonfinite v3 JSON constant: {value}")))
+        except (OSError, json.JSONDecodeError, StrengthContractError) as exc:
+            raise RuntimeError(f"strict v3 configuration rejected: {exc}") from exc
+        # Strictly closed native-anchor-only experiment. Old schema parsers and
+        # G3/J12 authority contracts never see this version or its records.
+        from controller.strength.config import from_v3
+        from controller.strength.contracts import StrengthContractError
+        try:
+            anchor, specs = _load_instances(data, root)
+            strength, native_time = from_v3(raw=data, path=path, root=root,
+                                            anchor=anchor, specs=specs)
+        except StrengthContractError as exc:
+            raise RuntimeError(f"strength v3 denied: {exc}") from exc
+        return RuntimeConfig(path=path, root=root, mode="anchor", anchor=anchor,
+                             backends=specs, online_time=native_time,
+                             strength=strength)
+    if "strength" in data:
+        raise RuntimeError("strength configuration requires closed schema_version 3")
 
     if version == 1:
         if "online_time" in data:

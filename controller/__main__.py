@@ -41,6 +41,24 @@ def _build_shadow(runtime: BackendManager, frontend_diagnostic):
     return ShadowRunCoordinator(runtime, router=router, diagnostic=frontend_diagnostic)
 
 
+def _build_strength(runtime: BackendManager):
+    """S2's isolated observe-only coordinator; never a second stdout writer."""
+    settings = getattr(runtime.config, "strength", None)
+    if settings is None:
+        return None
+    import hashlib
+    from .strength.coordinator import StrengthCoordinator
+    from .strength.contracts import digest
+    spec = runtime.spec(runtime.config.anchor)
+    sha = hashlib.sha256()
+    with spec.binary.open("rb") as source:
+        for chunk in iter(lambda: source.read(1048576), b""):
+            sha.update(chunk)
+    return StrengthCoordinator(settings=settings,binary_sha256=sha.hexdigest(),
+                               options_sha256=digest({"options":dict(spec.options),
+                                                      "args":list(spec.args)}))
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     runtime: BackendManager | None = None
@@ -49,6 +67,8 @@ def main(argv: list[str] | None = None) -> int:
         runtime = BackendManager.from_path(args.config)
         runtime.start()
         frontend = UciFrontend(runtime)
+        # S2 and legacy shadow engines are separate source-locked protocols.
+        frontend.strength = _build_strength(runtime)
         shadow = _build_shadow(runtime, frontend._diagnostic)
         frontend.shadow = shadow
         frontend.run()

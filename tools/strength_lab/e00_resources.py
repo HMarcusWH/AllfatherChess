@@ -41,6 +41,21 @@ def _read(path:Path,limit=1024)->str|None:
     except (OSError,UnicodeError):
         return None
 
+def cgroup_cpu_stat(scope:Path)->dict|None:
+    """Observe native cgroup throttling without inventing absent CPU counters."""
+    raw=_read(scope/"cpu.stat",4096)
+    if raw is None:
+        return None
+    values={}
+    for line in raw.splitlines():
+        fields=line.split()
+        if len(fields)!=2 or fields[0] in values or not fields[1].isdecimal():
+            raise ValueError("E00 cgroup CPU stat malformed")
+        values[fields[0]]=int(fields[1])
+    if "usage_usec" not in values:
+        raise ValueError("E00 cgroup CPU usage disappeared")
+    return values
+
 def host_profile(*,strict:bool)->dict:
     allowed=tuple(sorted(os.sched_getaffinity(0)))
     if not allowed:
@@ -96,6 +111,13 @@ def host_profile(*,strict:bool)->dict:
             "cgroup_cpu_max":_read(Path("/sys/fs/cgroup/cpu.max")),
             "cgroup_cpuset_effective":_read(Path("/sys/fs/cgroup/cpuset.cpus.effective")),
             "cgroup_memory_max":_read(Path("/sys/fs/cgroup/memory.max")),
+            "host_cgroup_cpu_stat":cgroup_cpu_stat(Path("/sys/fs/cgroup")),
+            "search_cpu_frequency_khz":(
+                _read(Path(f"/sys/devices/system/cpu/cpu{search_cpu}/cpufreq/scaling_cur_freq"))
+                if search_cpu is not None else None),
+            "search_cpu_governor":(
+                _read(Path(f"/sys/devices/system/cpu/cpu{search_cpu}/cpufreq/scaling_governor"))
+                if search_cpu is not None else None),
             "cpu_pressure_before":_read(Path("/proc/pressure/cpu"),4096),
             "memory_pressure_before":_read(Path("/proc/pressure/memory"),4096),
             "strength_qualified":False,

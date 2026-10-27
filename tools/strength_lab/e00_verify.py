@@ -154,11 +154,22 @@ def verify_campaign(run:Path) -> dict:
              "E00 participant crashed or leaked a child")
         needs={"started_ns","ended_ns","events","resource_status","cpu_ms",
                "memory_peak_bytes","arm","session_id","exit_code","errors",
-               "leaked_before_cleanup","effective_affinity"}
+               "leaked_before_cleanup","effective_affinity","cgroup_cpu_stat"}
         need(set(receipt)==needs and receipt["started_ns"]<receipt["ended_ns"],
              "E00 participant receipt contract mismatch")
         is_measured=rec["resource_status"]==receipt["resource_status"]=="MEASURED"
         have_cgroup=have_cgroup and is_measured
+        throttling=receipt["cgroup_cpu_stat"]
+        if is_measured:
+            need(type(throttling) is dict and
+                 all(type(k) is str and type(v) is int and v>=0
+                     for k,v in throttling.items()) and
+                 throttling.get("usage_usec") is not None and
+                 abs(throttling["usage_usec"]/1000.0-receipt["cpu_ms"])<1e-3,
+                 "E00 total CPU/throttle receipt contradicts cgroup stat")
+        else:
+            need(throttling is None,
+                 "E00 missing cgroup misrepresented as throttle observation")
         if is_measured:
             need(type(receipt["cpu_ms"]) in (float,int) and receipt["cpu_ms"]>0
                  and type(receipt["memory_peak_bytes"]) is int

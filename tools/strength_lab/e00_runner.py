@@ -264,11 +264,14 @@ class UciParticipant:
                     try:stream.close()
                     except OSError:pass
         counters=None
+        throttling=None
         leaked=False
         if self.scope is not None:
             try:
                 leaked=self.scope.kill_if_populated()
                 counters=self.scope.counters()
+                from tools.strength_lab.e00_resources import cgroup_cpu_stat
+                throttling=cgroup_cpu_stat(self.scope.directory)
                 self.scope.remove()
                 if leaked:self.errors.append("child survives participant exit")
             except (ResourceScopeError,OSError) as exc:
@@ -279,6 +282,7 @@ class UciParticipant:
                 "started_ns":self.started_ns,"ended_ns":time.monotonic_ns(),
                 "exit_code":None if p is None else p.returncode,
                 "resource_status":self.counter_state if counters is not None else "UNAVAILABLE",
+                "cgroup_cpu_stat":throttling,
                 "cpu_ms":None if counters is None else counters["cpu_usage_usec"]/1000.0,
                 "memory_peak_bytes":None if counters is None else counters["memory_peak_bytes"],
                 "leaked_before_cleanup":leaked,"errors":self.errors,

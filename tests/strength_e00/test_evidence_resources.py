@@ -5,7 +5,7 @@ import hashlib
 import unittest
 from tools.strength_lab.e00_evidence import reconcile_flight,reconstruct_stdout_times
 from tools.strength_lab.e00_metrics import paired_metrics
-from tools.strength_lab.e00_resources import cpulist,verify_profile,verify_cpu_counters
+from tools.strength_lab.e00_resources import cpulist,verify_profile,verify_cpu_counters,cgroup_cpu_stat
 from tools.strength_lab.e00_clock import (
     last_engine_work,frontend_publication_delay_ms,summarize_clock)
 
@@ -108,6 +108,18 @@ class EvidenceTests(unittest.TestCase):
         bad=copy.deepcopy(profile)
         bad["sibling_sets"]["2"]=[2,3]
         with self.assertRaises(ValueError):verify_profile(bad,require_strict=True)
+
+    def test_cgroup_throttling_is_observed_not_invented(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            folder=__import__("pathlib").Path(td)
+            self.assertIsNone(cgroup_cpu_stat(folder))
+            (folder/"cpu.stat").write_text("usage_usec 1200\nnr_periods 5\nnr_throttled 1\nthrottled_usec 40\n")
+            row=cgroup_cpu_stat(folder)
+            self.assertEqual(row["nr_throttled"],1)
+            self.assertEqual(row["usage_usec"],1200)
+            (folder/"cpu.stat").write_text("usage_usec 1\nusage_usec 2\n")
+            with self.assertRaises(ValueError):cgroup_cpu_stat(folder)
 
     def test_native_clock_diagnostics_are_not_equal_work_claims(self):
         row,flight=fixture()

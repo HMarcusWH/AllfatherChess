@@ -9,7 +9,7 @@ import sys
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from tools.strength_lab.e00_corpus import POLICY
 from tools.strength_lab.e00_runner import run
-from tools.strength_lab.e00_verify import verify_campaign
+from tools.strength_lab.e00_verify import verify_campaign,E00Failure
 
 def main() -> int:
     parser=argparse.ArgumentParser(description=__doc__)
@@ -34,14 +34,29 @@ def main() -> int:
         if args.run is not None:
             parser.error("--run only applies to verification")
         folder=run(phase=args.phase,strict_cgroup=(args.phase=="full"))
-    result=verify_campaign(folder)
+    try:
+        result=verify_campaign(folder)
+    except (E00Failure,ValueError,TypeError,KeyError,OSError) as exc:
+        errors=[f"{type(exc).__name__}: {exc}"]
+        status="FAIL"
+        try:
+            manifest=json.loads((folder/"manifest.json").read_text(encoding="utf-8"))
+            if args.phase=="full" and any("no delegated cgroup-v2" in x
+                    for x in manifest.get("errors",[])):
+                status="INCONCLUSIVE"
+        except (OSError,ValueError,TypeError):
+            pass
+        result={"schema_version":1,"status":status,"phase":args.phase,
+                "errors":errors,"e00_scientifically_qualified":False,
+                "strength_qualified":False,"equal_compute":False,
+                "live_game_authorized":False,"public_release":False}
     target=folder/"independent-verdict.json"
     target.write_text(json.dumps(result,indent=2,sort_keys=True,allow_nan=False)+"\n",
                       encoding="utf-8")
     print(json.dumps({**result,"run":str(folder)},sort_keys=True,allow_nan=False))
     if args.phase=="full":
         return 0 if result["status"]=="PASS" else 2
-    return 0 if result["status"] in ("PASS","INCONCLUSIVE") else 2
+    return 0 if result["status"] in ("PASS","INCONCLUSIVE") and not result.get("errors") else 2
 
 if __name__=="__main__":
     raise SystemExit(main())

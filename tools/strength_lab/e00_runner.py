@@ -92,7 +92,8 @@ class UciParticipant:
         self.scope=None
         self.process=None
         self.rows=[]
-        self.q=queue.Queue()
+        self.q=queue.Queue(maxsize=65536)
+        self.readers=[]
         self.errors=[]
         self.started_ns=time.monotonic_ns()
         self.counter_state="UNAVAILABLE"
@@ -114,8 +115,10 @@ class UciParticipant:
                 start_new_session=True,bufsize=0,
                 preexec_fn=None if self.scope is None else self.scope.join_in_child)
             for name,stream in (("stdout",self.process.stdout),("stderr",self.process.stderr)):
-                threading.Thread(target=self._reader,args=(name,stream),
-                                 name=f"e00-{arm}-{name}",daemon=True).start()
+                reader=threading.Thread(target=self._reader,args=(name,stream),
+                                        name=f"e00-{arm}-{name}",daemon=True)
+                self.readers.append(reader)
+                reader.start()
             self.send("uci")
             hello=self.until(lambda line:line=="uciok",12,allow_bestmove=False)
             offered=set()
@@ -144,15 +147,23 @@ class UciParticipant:
                     text=line.rstrip(b"\r\n").decode("utf-8","strict")
                 except UnicodeDecodeError as exc:
                     raise RuntimeError("non-UTF8 "+name) from exc
-                self.q.put((name,text,time.monotonic_ns()))
+                try:
+                    self.q.put_nowait((name,text,time.monotonic_ns()))
+                except queue.Full:
+                    raise RuntimeError("bounded E00 UCI stream overflow")
         except BaseException as exc:
-            self.q.put(("error",f"{type(exc).__name__}: {exc}",time.monotonic_ns()))
+            message=f"{type(exc).__name__}: {exc}"
+            self.errors.append("UCI reader "+message)
+            try:self.q.put_nowait(("error",message,time.monotonic_ns()))
+            except queue.Full:pass
 
     def send(self,command:str) -> None:
         if self.process is None or self.process.poll() is not None:
             raise RuntimeError("E00 participant exited before UCI command")
         if len(command)>4096 or "\n" in command or "\r" in command:
             raise RuntimeError("invalid UCI input line")
+        if len(self.rows)>=200000:
+            raise RuntimeError("bounded E00 transcript exhausted")
         self.rows.append({"direction":"stdin","line":command,"ns":time.monotonic_ns()})
         assert self.process.stdin is not None
         self.process.stdin.write((command+"\n").encode())
@@ -169,6 +180,8 @@ class UciParticipant:
                 origin,line,when=self.q.get(timeout=remaining)
             except queue.Empty as exc:
                 raise TimeoutError(f"E00 {self.arm} UCI queue timeout") from exc
+            if len(self.rows)>=200000:
+                raise RuntimeError("bounded E00 transcript exhausted")
             self.rows.append({"direction":origin,"line":line,"ns":when})
             if origin=="error":
                 raise RuntimeError("E00 reader: "+line)
@@ -221,6 +234,20 @@ class UciParticipant:
                 p.kill()
                 try:p.wait(timeout=5)
                 except subprocess.TimeoutExpired:self.errors.append("unreaped UCI process")
+            # Drain both source streams AFTER the engine has exited, so any
+            # delayed second bestmove or stderr framing error remains visible.
+            for reader in self.readers:
+                reader.join(timeout=2)
+                if reader.is_alive():
+                    self.errors.append("UCI reader still running after process exit")
+            while True:
+                try:origin,line,when=self.q.get_nowait()
+                except queue.Empty:break
+                self.rows.append({"direction":origin,"line":line,"ns":when})
+                if origin=="error":
+                    self.errors.append("post-search reader error "+line)
+                if origin=="stdout" and line.startswith("bestmove "):
+                    self.errors.append("unsolicited/duplicate terminal after readiness")
             for stream in (p.stdin,p.stdout,p.stderr):
                 if stream is not None:
                     try:stream.close()

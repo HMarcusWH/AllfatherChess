@@ -206,14 +206,16 @@ jobs:
             --python-inventory build/test-results/release2b2-dependencies/python-packages.txt \
             --wheelhouse build/test-results/release2b2-dependencies/wheels \
             --output build/test-results/release2b2-stage-verdict.json
-          # Independently authenticate upstream signed raw InRelease and
-          # Packages.xz repository bytes, including package-specific pockets.
-          # Before candidates are frozen, discovery prints evidence but
-          # produces an INCONCLUSIVE status and fails the admission gate.
+          # Independently verify *the same exact source-locked signed bytes*
+          # already acquired and retained by signed-index-source-chain.
+          # No second live snapshot request may be necessary for qualification.
+          # The verifier reopens, hashes, gpgv-checks and reconstructs the
+          # complete 29-deb signed origin chain; missing cache fails closed.
           python3 "$RUNNER_TEMP/release2b2-source/scripts/verify-release-native-index-chain.py" \
             --root "$RUNNER_TEMP/release2b2-source" \
             --evidence-dir build/test-results/release2b2-dependencies \
             --keyring build/test-results/release2b2-dependencies/ubuntu-keyring.gpg \
+            --source-bundle build/release2b2-native-bundle \
             --output build/test-results/release2b2-index-chain.json
           python3 - <<'PY'
           import json
@@ -221,6 +223,8 @@ jobs:
           if report["verdict"]!="PASS" or not report["per_package_origins_source_locked"]:
               raise SystemExit("INCONCLUSIVE: signed Packages-to-deb origins not yet source-locked")
           assert report["exact_package_count"]==29
+          assert report["source_mode"]=="cached_signed_exact_bytes"
+          assert report["cached_source_reverified"] is True
           assert report["signed_source_provenance_verified"] is True
           assert report["public_bot_release"] is False
           PY

@@ -13,7 +13,7 @@ from tools.strength_lab.e00_verify import verify_campaign,E00Failure
 
 def main() -> int:
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--phase",required=True,choices=("contracts","smoke","full","native-smoke","verify"))
+    parser.add_argument("--phase",required=True,choices=("contracts","smoke","full","functional-512","native-smoke","native-matrix","verify"))
     parser.add_argument("--run",type=Path)
     args=parser.parse_args()
     policy=json.loads(POLICY.read_text(encoding="utf-8"))

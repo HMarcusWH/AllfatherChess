@@ -282,15 +282,15 @@ class UciParticipant:
                 "events":list(self.rows)}
 
 def run(*,phase:str,strict_cgroup:bool=False) -> Path:
-    if phase not in ("smoke","full","native-smoke"):
+    if phase not in ("smoke","full","functional-512","native-smoke","native-matrix"):
         raise ValueError("unknown E00 run phase")
     policy=json.loads(POLICY.read_text(encoding="utf-8"))
     source=head()
-    native=phase=="native-smoke"
+    native=phase in ("native-smoke","native-matrix")
     profile=NATIVE_PROFILE if native else E00_PROFILE
     binary,options=preflight(profile,source)
     rows=build_corpus()
-    total=policy["sample_count"] if phase=="full" else policy["smoke_count"]
+    total=policy["sample_count"] if phase in ("full","functional-512") else policy["smoke_count"]
     run_dir=ROOT_OUT/("e00-"+phase+"-"+uuid.uuid4().hex)
     run_dir.mkdir(parents=True,exist_ok=False)
     host=host_profile(strict=strict_cgroup)
@@ -310,8 +310,10 @@ def run(*,phase:str,strict_cgroup:bool=False) -> Path:
               "bundle_manifest_sha256":sha(BUNDLE/"build-manifest.json"),
               "corpus_sha256":hashlib.sha256(corpus).hexdigest(),
               "corpus_count":len(rows),"expected_samples":total,
-              "go_command":("go wtime 30000 btime 30000 winc 1000 binc 1000"
-                            if native else f"go nodes {policy['search_nodes']}"),
+              "go_command":("native-matrix-v1" if phase=="native-matrix"
+                            else "go wtime 30000 btime 30000 winc 1000 binc 1000"
+                            if phase=="native-smoke"
+                            else f"go nodes {policy['search_nodes']}"),
               "arms":list(ARMS),"samples":[],"flights":[],"participants":[],
               "host_profile":{"path":"host-profile.json",
                               "sha256":sha(run_dir/"host-profile.json")},
@@ -330,7 +332,8 @@ def run(*,phase:str,strict_cgroup:bool=False) -> Path:
                 arm,binary,options,profile,strict_cgroup=strict_cgroup,
                 search_cpu=host["search_cpu"] if strict_cgroup else None))
         for i,row in enumerate(rows[:total]):
-            go=manifest["go_command"]
+            go=(policy["native_clock_cases_v1"][i] if phase=="native-matrix"
+                else manifest["go_command"])
             sample={"schema_version":1,"id":row["id"],"history_sha256":row["history_sha256"],
                     "occurrence":i,"arms":{},"go_command":go}
             order=(ARMS if i%2==0 else tuple(reversed(ARMS)))

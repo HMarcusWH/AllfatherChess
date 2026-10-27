@@ -65,9 +65,13 @@ def reconcile_flight(flight:dict, *, row:dict, occurrence:int,
     need(isinstance(nonce,str) and len(nonce)==32,"missing search nonce")
     return turn["session_id"],nonce
 
-def reconstruct_stdout_times(events:list[dict],go:str,count:int) -> list[dict]:
+def reconstruct_stdout_times(events:list[dict],go:str|list[str],count:int) -> list[dict]:
     """Use real recorded UCI command/terminal events, not sample summary times."""
     need(type(events) is list and count>0,"empty UCI session evidence")
+    expected=[go]*count if type(go) is str else go
+    need(type(expected) is list and len(expected)==count and
+         all(type(x) is str and x.startswith("go ") for x in expected),
+         "invalid native search request sequence")
     rows=[]
     pending=None
     for event in events:
@@ -79,7 +83,8 @@ def reconstruct_stdout_times(events:list[dict],go:str,count:int) -> list[dict]:
         channel=event["direction"]
         line=event["line"]
         if channel=="stdin" and line.startswith("go "):
-            need(line==go and pending is None,"overlapping or changed real UCI go")
+            need(len(rows)<count and line==expected[len(rows)] and pending is None,
+                 "overlapping or changed real UCI go")
             pending=event
         elif channel=="stdout" and line.startswith("bestmove "):
             need(pending is not None,"unsolicited/duplicate real terminal")

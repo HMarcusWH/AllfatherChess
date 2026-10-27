@@ -75,7 +75,7 @@ def verify_campaign(run:Path) -> dict:
           "strength_qualified","live_game_authorized","release_authorized"}
     need(set(manifest)==keys and manifest["schema_version"]==1
          and manifest["kind"]=="strength_e00_campaign_v1"
-         and manifest["phase"] in ("smoke","full","native-smoke")
+         and manifest["phase"] in ("smoke","full","functional-512","native-smoke","native-matrix")
          and manifest["status"]=="COMPLETE" and manifest["errors"]==[],
          "E00 incomplete/failed or unknown manifest")
     host_record=manifest["host_profile"]
@@ -87,7 +87,7 @@ def verify_campaign(run:Path) -> dict:
     host=strict_load(host_file)
     try:verify_profile(host,require_strict=manifest["phase"]=="full")
     except ValueError as exc:raise E00Failure(str(exc)) from exc
-    native=manifest["phase"]=="native-smoke"
+    native=manifest["phase"] in ("native-smoke","native-matrix")
     profile=NATIVE_PROFILE if native else E00_PROFILE
     source=head()
     binary,opts=preflight(profile,source)
@@ -103,14 +103,23 @@ def verify_campaign(run:Path) -> dict:
          and manifest["release_authorized"] is False,
          "E00 source/bundle/authority drift")
     go=manifest["go_command"]
-    need(go==("go wtime 30000 btime 30000 winc 1000 binc 1000" if native
-              else f"go nodes {policy['search_nodes']}"),"E00 go request drift")
+    expected_go=("native-matrix-v1" if manifest["phase"]=="native-matrix"
+                 else "go wtime 30000 btime 30000 winc 1000 binc 1000"
+                 if manifest["phase"]=="native-smoke"
+                 else f"go nodes {policy['search_nodes']}")
+    need(go==expected_go,"E00 go request drift")
+    case_go=(policy["native_clock_cases_v1"] if manifest["phase"]=="native-matrix"
+             else [go]*(policy["sample_count"] if manifest["phase"] in ("full","functional-512")
+                       else policy["smoke_count"]))
+    need(len(case_go)==(policy["sample_count"] if manifest["phase"] in ("full","functional-512")
+                       else policy["smoke_count"]),
+         "E00 native-clock case count/source drift")
     rows=build_corpus()
     content=bytes_for(rows)
     need(_file(run/"corpus.jsonl",run).read_bytes()==content and
          hashlib.sha256(content).hexdigest()==manifest["corpus_sha256"],
          "E00 frozen corpus mismatch")
-    count=policy["sample_count"] if manifest["phase"]=="full" else policy["smoke_count"]
+    count=policy["sample_count"] if manifest["phase"] in ("full","functional-512") else policy["smoke_count"]
     need(manifest["expected_samples"]==count
          and len(manifest["samples"])==count
          and len(manifest["flights"])==count
@@ -158,7 +167,7 @@ def verify_campaign(run:Path) -> dict:
         need(len(output_moves)==count,
              "E00 missing/extra actual stdout terminal moves")
         actual_terminals[arm]=output_moves
-        actual_stamps[arm]=reconstruct_stdout_times(events,go,count)
+        actual_stamps[arm]=reconstruct_stdout_times(events,case_go,count)
         stdout=[e["line"] for e in events if e.get("direction")=="stdout"]
         need(stdout.count("uciok")==1 and stdout.count("readyok")==count*2+1,
              "E00 handshake/readiness coverage incomplete")
@@ -169,9 +178,9 @@ def verify_campaign(run:Path) -> dict:
                 rendered=str(value).lower() if type(value) is bool else str(value)
                 expected_input.append(f"setoption name {name} value {rendered}")
         expected_input.append("isready")
-        for row in rows[:count]:
+        for idx,row in enumerate(rows[:count]):
             expected_input.extend(["ucinewgame","isready",row["position_command"],
-                                   go,"isready"])
+                                   case_go[idx],"isready"])
         expected_input.append("quit")
         need(actual_input==expected_input,
              "E00 exact source UCI commands, history, options or reset order differ")
@@ -195,7 +204,7 @@ def verify_campaign(run:Path) -> dict:
         plan=begin["native_time"]
         need(plan["kind"]==("strength_native_clock_plan_v1" if native else
                            "strength_e00_node_plan_v1") and
-             plan["external_go_command"]==go,
+             plan["external_go_command"] in case_go,
              "E00 evidence not of the requested UCI policy")
         pos=begin["position_command"]
         key=hashlib.sha256(pos.encode("utf-8")).hexdigest()
@@ -219,7 +228,7 @@ def verify_campaign(run:Path) -> dict:
         need(sha(file)==entry["sha256"],"E00 sample hash mismatch")
         record=strict_load(file)
         need(record["id"]==row["id"] and record["history_sha256"]==row["history_sha256"]
-             and record["occurrence"]==idx and record["go_command"]==go
+             and record["occurrence"]==idx and record["go_command"]==case_go[idx]
              and set(record["arms"])==set(ARMS),
              "E00 occurrence or arm join mismatch")
         board=_board(row["position_command"])
@@ -230,7 +239,7 @@ def verify_campaign(run:Path) -> dict:
             value=record["arms"][arm]
             need(value["arm"]==arm and value["session_id"]==all_receipts[arm]["session_id"]
                  and value["position_command"]==row["position_command"]
-                 and value["go_command"]==go
+                 and value["go_command"]==case_go[idx]
                  and value["resource_status"]==all_receipts[arm]["resource_status"],
                  "E00 source/session/command mismatch")
             need(type(value["wall_ms"]) in (int,float) and 0<=value["wall_ms"]<120000
@@ -282,7 +291,7 @@ def verify_campaign(run:Path) -> dict:
             sid,nonce=reconcile_flight(
                 flight,row=row,occurrence=idx,
                 published_stdout=record["arms"][ARMS[1]]["bestmove"],
-                expected_go=go,source_commit=source,
+                expected_go=case_go[idx],source_commit=source,
                 binary_sha256=sha(binary),profile_sha256=sha(profile),
                 options_sha256=__import__("controller.strength.contracts",
                     fromlist=["digest"]).digest({"options":opts,"args":[]}),

@@ -35,5 +35,15 @@
     "artifact_distribution_authorized": false,
     "release_authorized": false
   },
-  "expected_corpus_sha256": "3cd76e1e6acf62a7ceedeec13ccc0c4ed619987d86cdf43bdaf0e427c387f1c5"
+  "expected_corpus_sha256": "3cd76e1e6acf62a7ceedeec13ccc0c4ed619987d86cdf43bdaf0e427c387f1c5",
+  "native_clock_cases_v1": [
+    "go wtime 30000 btime 30000 winc 1000 binc 1000",
+    "go wtime 30000 btime 30000 winc 0 binc 0 movestogo 20",
+    "go wtime 45000 btime 30000 winc 1500 binc 0",
+    "go wtime 30000 btime 45000 winc 0 binc 1500",
+    "go wtime 25000 btime 35000 winc 100 binc 100 movestogo 8",
+    "go wtime 40000 btime 20000 winc 0 binc 0",
+    "go movetime 1800",
+    "go wtime 12000 btime 18000 winc 500 binc 500"
+  ]
 }

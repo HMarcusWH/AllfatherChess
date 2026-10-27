@@ -68,9 +68,21 @@ def host_profile(*,strict:bool)->dict:
     if strict and (platform.system()!="Linux" or machine not in ("x86_64","AMD64")):
         raise ValueError("E00 full source domain requires Linux x86_64")
     try:
-        cpuinfo=Path("/proc/cpuinfo").read_bytes()
-        cpuinfo_digest=hashlib.sha256(cpuinfo).hexdigest()
-    except OSError:
+        cpuinfo=Path("/proc/cpuinfo").read_text(encoding="ascii")
+        # /proc/cpuinfo reports *changing* CPU MHz on many processors.
+        # Host identity excludes runtime frequency; pressure/frequency must
+        # be measured separately rather than treated as immutable SHA.
+        stable=[]
+        for line in cpuinfo.splitlines():
+            if ":" not in line:
+                continue
+            key,value=line.split(":",1)
+            if key.strip() in {"vendor_id","cpu family","model","model name",
+                               "stepping","microcode","physical id","core id",
+                               "cpu cores","siblings","flags"}:
+                stable.append(key.strip()+":"+value.strip())
+        cpuinfo_digest=hashlib.sha256(("\n".join(stable)+"\n").encode()).hexdigest()
+    except (OSError,UnicodeError):
         cpuinfo_digest=None
     return {"schema_version":1,"kind":"e00_host_profile_v1",
             "observed_ns":time.monotonic_ns(),"system":platform.system(),

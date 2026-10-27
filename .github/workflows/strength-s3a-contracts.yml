@@ -1,0 +1,53 @@
+name: STRENGTH-S3-A — source-only specialist contracts
+
+on:
+  pull_request:
+    paths:
+      - 'controller/strength/**'
+      - 'controller/runtime.py'
+      - 'controller/__main__.py'
+      - 'controller/uci_frontend.py'
+      - 'controller/budget.py'
+      - 'controller/work_grant.py'
+      - 'controller/work_scheduler.py'
+      - 'config/allfather.strength-s3a-observe.experimental.json'
+      - 'qualification/strength/s3a-contracts-v1.json'
+      - 'tools/strength_lab/s3a_rules.py'
+      - 'tests/strength_s3a/**'
+      - 'docs/STRENGTH_S3A_RESOURCE_CONTRACTS.md'
+      - '.github/workflows/strength-s3a-contracts.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  source-and-destructive-contracts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      SOURCE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify exact source and pin independent chess rules
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          python3 -m pip install --require-hashes -r qualification/local-game-requirements.txt
+          python3 -m json.tool qualification/strength/s3a-contracts-v1.json >/dev/null
+          python3 -m json.tool config/allfather.strength-s3a-observe.experimental.json >/dev/null
+      - name: Type-check syntax, S3-A contracts and S2/frontend regressions
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          python3 -m compileall -q controller/strength tools/strength_lab/s3a_rules.py tests/strength_s3a
+          python3 -m unittest discover -s tests/strength_s3a -p 'test_*.py' -v
+          python3 -m unittest discover -s tests/strength_s2 -p 'test_*.py' -v
+          python3 -m unittest tests.controller.test_uci_frontend tests.controller.test_online_time tests.controller.test_clock_soft_stop_priority -v
+          python3 scripts/check-current-status.py
+          python3 scripts/check-docs-consistency.py
+      # No real helper dispatch, WorkGrant promotion, quality witness or strength claim.

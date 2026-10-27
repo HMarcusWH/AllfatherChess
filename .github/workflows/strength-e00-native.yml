@@ -1,0 +1,106 @@
+name: STRENGTH-E00 — real Stockfish equivalence candidate
+
+on:
+  pull_request:
+    paths:
+      - 'controller/strength/**'
+      - 'controller/runtime.py'
+      - 'controller/uci_frontend.py'
+      - 'config/allfather.strength-e00-nodes.experimental.json'
+      - 'qualification/strength/e00-native-equivalence-v1.json'
+      - 'tests/strength_e00/**'
+      - 'tests/fixtures/strength_e00/**'
+      - 'tools/strength_lab/e00_*.py'
+      - 'scripts/qualify-strength-e00.py'
+      - 'docs/STRENGTH_E00_NATIVE_EQUIVALENCE.md'
+      - '.github/workflows/strength-e00-native.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  SOURCE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+
+jobs:
+  source-contracts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install pinned independent chess rules
+        run: |
+          python3 -m venv build/e00-venv
+          build/e00-venv/bin/python -m pip install --require-hashes -r qualification/local-game-requirements.txt
+          echo "$GITHUB_WORKSPACE/build/e00-venv/bin" >> "$GITHUB_PATH"
+      - name: Source tests, destructive E00 controls and S2 regressions
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          python3 -m compileall -q controller/strength tools/strength_lab scripts/qualify-strength-e00.py tests/strength_e00
+          python3 scripts/qualify-strength-e00.py --phase contracts
+          python3 -m unittest discover -s tests/strength_e00 -p 'test_*.py' -v
+          python3 -m unittest discover -s tests/strength_s2 -p 'test_*.py' -v
+          python3 -m unittest tests.controller.test_uci_frontend tests.controller.test_online_time tests.controller.test_clock_soft_stop_priority -v
+          python3 -m tools.strength_lab.e00_corpus
+          python3 -m tools.strength_lab.e00_corpus --check
+          python3 scripts/check-current-status.py
+          python3 scripts/check-docs-consistency.py
+      - name: Retain source-only experiment outputs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: strength-e00-source-only
+          path: build/test-results/strength-e00
+          if-no-files-found: warn
+
+  real-engine-smoke:
+    needs: source-contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install source-pinned engine and chess prerequisites
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          bash scripts/ci-install-apt-deps.sh build-essential meson ninja-build pkg-config libprotobuf-dev protobuf-compiler zlib1g-dev libopenblas-dev
+          python3 -m venv build/e00-venv
+          build/e00-venv/bin/python -m pip install --require-hashes -r qualification/local-game-requirements.txt
+          echo "$GITHUB_WORKSPACE/build/e00-venv/bin" >> "$GITHUB_PATH"
+      - name: Cache pinned NNUE and LC0 network inputs
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: |
+            build/artifacts/stockfish
+            build/artifacts/reckless
+            build/artifacts/lc0
+          key: strength-e00-nets-${{ runner.os }}-${{ hashFiles('vendor.lock.json','qualification/lc0-strength.lock.json') }}
+      - name: Rebuild exact-head ENGINE-OPT-V2 reference bundle
+        env:
+          JOBS: '2'
+        run: bash scripts/build-online-engine-opt-v2.sh
+      - name: Pinned real-engine fixed-node smoke (not 512 E00 qualification)
+        run: python3 scripts/qualify-strength-e00.py --phase smoke
+      - name: Real original S2 native-clock smoke (not strength qualification)
+        run: python3 scripts/qualify-strength-e00.py --phase native-smoke
+      - name: Retain raw runs, negative evidence and original source manifest
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: strength-e00-real-stockfish-smoke
+          path: |
+            build/test-results/strength-e00
+            build/strength-e00-evidence
+            build/strength-s2-evidence
+            build/online-engine-opt-v2/build-manifest.json
+          if-no-files-found: warn
+          retention-days: 14

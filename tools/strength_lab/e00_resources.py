@@ -29,9 +29,15 @@ def cpulist(raw:str)->set[int]:
 
 def _read(path:Path,limit=1024)->str|None:
     try:
-        if path.is_symlink() or not path.is_file() or path.stat().st_size>limit:
+        if path.is_symlink() or not path.is_file():
             return None
-        return path.read_text(encoding="ascii").strip()
+        # sysfs/procfs virtual files commonly report st_size=4096 (or 0)
+        # independently of their actual bytes. Bound the actual read.
+        with path.open("rb") as stream:
+            raw=stream.read(limit+1)
+        if len(raw)>limit:
+            return None
+        return raw.decode("ascii").strip()
     except (OSError,UnicodeError):
         return None
 

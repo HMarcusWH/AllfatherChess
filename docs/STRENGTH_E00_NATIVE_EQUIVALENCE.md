@@ -140,3 +140,17 @@ A manual full-campaign workflow is defined at
 self-hosted runner exists. Missing host access means the full resource
 qualification is NOT_RUN/INCONCLUSIVE; no result is invented and no release
 or strength permission changes. Preserve all negative artifacts.
+
+
+### E00 strict-host throttling and full-participant settlement
+
+Before executing the full qualifying 512-history campaign, the source contract
+freezes `max_participant_cpu_throttled_usec=0`. A full strict-cgroup candidate
+with measured throttling must fail qualification rather than hide the effect
+inside a paired wall-time average. Every participant receipt preserves
+kernel throttling, effective CPU affinity, memory peak, whole-participant CPU,
+start/end monotonic timestamps, and individual search CPU deltas; the
+independent report exposes whole-participant costs separately from the
+per-search p95 statistics. Hosted functional-only runs remain nonqualifying
+for resource equivalence. This threshold is a source-frozen experiment policy,
+not an empirically established optimum.

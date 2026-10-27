@@ -45,5 +45,6 @@
     "go wtime 40000 btime 20000 winc 0 binc 0",
     "go movetime 1800",
     "go wtime 12000 btime 18000 winc 500 binc 500"
-  ]
+  ],
+  "max_participant_cpu_throttled_usec": 0
 }

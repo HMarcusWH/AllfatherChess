@@ -140,6 +140,7 @@ def verify_campaign(run:Path) -> dict:
     receipt_arms=set()
     have_cgroup=True
     all_receipts={}
+    resource_dispositions={}
     for rec in manifest["participants"]:
         arm=rec["arm"]
         need(arm in ARMS and arm not in receipt_arms, "E00 duplicated participant")
@@ -184,6 +185,22 @@ def verify_campaign(run:Path) -> dict:
         if manifest["phase"]=="full":
             need(affinity==[host["search_cpu"]],
                  "E00 participant escaped frozen search CPU")
+        whole_wall=(receipt["ended_ns"]-receipt["started_ns"])/1e6
+        need(whole_wall>=0 and math.isfinite(whole_wall),
+             "E00 participant lifecycle elapsed invalid")
+        throttled_usec=(throttling.get("throttled_usec")
+                        if type(throttling) is dict else None)
+        if manifest["phase"]=="full":
+            need(type(throttled_usec) is int and
+                 throttled_usec<=policy["max_participant_cpu_throttled_usec"],
+                 "E00 physical CPU was throttled beyond frozen limit")
+        resource_dispositions[arm]={
+            "whole_participant_wall_ms":whole_wall,
+            "whole_participant_cpu_ms":receipt["cpu_ms"],
+            "whole_participant_peak_memory_bytes":receipt["memory_peak_bytes"],
+            "kernel_cgroup_throttled_usec":throttled_usec,
+            "resource_status":receipt["resource_status"],
+            "effective_affinity":affinity}
         all_receipts[arm]=receipt
     qualified_resource=have_cgroup and manifest["phase"]=="full"
     need(receipt_arms==set(ARMS)
@@ -373,6 +390,11 @@ def verify_campaign(run:Path) -> dict:
             "native_clock_performance_qualified":False,
             "resource_coverage":"MEASURED" if have_cgroup else "UNAVAILABLE",
             "resource_qualified":qualified_resource,
+            "whole_participant_measurements":resource_dispositions,
+            "whole_participant_wrapper_minus_direct_cpu_ms":(
+                resource_dispositions[ARMS[1]]["whole_participant_cpu_ms"]-
+                resource_dispositions[ARMS[0]]["whole_participant_cpu_ms"]
+                if have_cgroup else None),
             "host_profile_sha256":sha(host_file),
             "physical_cpu_isolation":host["strict_physical_isolation"],
             "overhead_budget_pass":within if have_cgroup else None,

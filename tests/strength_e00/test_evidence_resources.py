@@ -143,6 +143,17 @@ class EvidenceTests(unittest.TestCase):
             with self.assertRaises(ResourceScopeError):
                 enforce_search_cpu(2,scope)
 
+    def test_frozen_throttle_budget_and_claim_denials(self):
+        from pathlib import Path
+        import json
+        root=Path(__file__).resolve().parents[2]
+        doc=json.loads((root/"qualification/strength/e00-native-equivalence-v1.json").read_text())
+        self.assertEqual(doc["max_participant_cpu_throttled_usec"],0)
+        self.assertTrue(doc["require_cgroup_for_resource_qualification"])
+        for flag in ("strength_qualified","equal_compute",
+                     "live_game_authorized","release_authorized"):
+            self.assertIs(doc["claims"][flag],False)
+
     def test_native_clock_diagnostics_are_not_equal_work_claims(self):
         row,flight=fixture()
         work=last_engine_work(["info depth 2 time 15 nodes 100 pv e2e4",

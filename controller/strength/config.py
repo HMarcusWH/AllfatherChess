@@ -12,12 +12,13 @@ import subprocess
 from .contracts import StrengthContractError, require
 from .coordinator import S2Settings
 from .native_clock import NativeClockSettings
+from .e00_nodes import E00NodeSettings
 
 TOP_KEYS = {"schema_version","root","mode","anchor","instances","strength"}
 STRENGTH_KEYS = {"policy","mode","timing","evidence_dir"}
  
 def from_v3(*,raw:dict,path:Path,root:Path,
-            anchor:str,specs:dict) -> tuple[S2Settings,NativeClockSettings]:
+            anchor:str,specs:dict) -> tuple[S2Settings,NativeClockSettings | E00NodeSettings]:
     require(set(raw)==TOP_KEYS, "S2 v3 unknown/missing top-level keys")
     require(raw["schema_version"]==3 and type(raw["schema_version"]) is int,
             "wrong S2 runtime version")
@@ -53,9 +54,16 @@ def from_v3(*,raw:dict,path:Path,root:Path,
     conf=raw["strength"]
     require(type(conf) is dict and set(conf)==STRENGTH_KEYS,
             "S2 unknown/missing strength profile keys")
-    require(conf["policy"]=="strength_s2_incumbent_observe_v1"
-            and conf["mode"]=="observe_only","S2 mode/policy is observe-only only")
-    timing=NativeClockSettings.from_config(conf["timing"])
+    require(conf["mode"]=="observe_only", "S2/E00 is strictly observe-only")
+    if conf["policy"]=="strength_s2_incumbent_observe_v1":
+        timing=NativeClockSettings.from_config(conf["timing"])
+    elif conf["policy"]=="strength_e00_incumbent_observe_v1":
+        import os
+        require(os.environ.get("ALLFATHER_E00_OFFLINE")=="1",
+                "E00 node path requires explicit offline experimental opt-in")
+        timing=E00NodeSettings.from_config(conf["timing"])
+    else:
+        raise StrengthContractError("unknown strength v3 policy")
     target=conf["evidence_dir"]
     require(type(target) is str and target.startswith("build/") and
             len(target)<=192, "evidence root must be relative under build/")
@@ -84,4 +92,5 @@ def from_v3(*,raw:dict,path:Path,root:Path,
     require(not dirty.stdout.strip(), "S2 source checkout has modified tracked files")
     profile_digest=hashlib.sha256(path.read_bytes()).hexdigest()
     return S2Settings(source_commit=source_commit,profile_sha256=profile_digest,
-                      evidence_dir=evidence,max_events_per_turn=timing.max_events_per_turn),timing
+                      evidence_dir=evidence,max_events_per_turn=timing.max_events_per_turn,
+                      policy=conf["policy"]),timing

@@ -1443,3 +1443,11 @@ declared delegated-cgroup and physical CPU-qualified host. Native matrix
 protocol success must not be reported as native-clock timing equivalence.
 Neither added source tests nor a green Actions job toggles E00 scientific
 qualification, equal compute, strength, bot, live, release or distribution.
+
+
+### Full E00 admission artifact
+
+The separate `qualification/strength/e00-admission-contract-v1.json`
+source policy permits only a **REVIEW_REQUIRED** record after exact-source
+512/512, resource-qualified, independently verified E00 PASS. It does not
+create a scientific certificate or grant any move/publication authority.

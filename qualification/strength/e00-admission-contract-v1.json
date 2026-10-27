@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "kind": "strength_e00_admission_policy_v1",
+  "verdict": "REVIEW_REQUIRED",
+  "full_history_count": 512,
+  "requires_exact_source": true,
+  "requires_strict_cgroup": true,
+  "requires_independent_flight_and_move_replay": true,
+  "human_review_required": true,
+  "scientific_qualified": false,
+  "strength_qualified": false,
+  "equal_compute": false,
+  "live_game_authorized": false,
+  "public_bot_release": false,
+  "release_authorized": false
+}

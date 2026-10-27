@@ -13,7 +13,7 @@ from tools.strength_lab.e00_verify import verify_campaign,E00Failure
 
 def main() -> int:
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--phase",required=True,choices=("contracts","smoke","full","functional-512","native-smoke","native-matrix","verify"))
+    parser.add_argument("--phase",required=True,choices=("contracts","smoke","full","functional-512","native-smoke","native-matrix","verify","candidate"))
     parser.add_argument("--run",type=Path)
     args=parser.parse_args()
     policy=json.loads(POLICY.read_text(encoding="utf-8"))
@@ -26,14 +26,27 @@ def main() -> int:
                           "history_recipe_count":policy["sample_count"],
                           "e00_qualified":False,"real_binary_executed":False},sort_keys=True))
         return 0
-    if args.phase=="verify":
+    if args.phase in ("verify","candidate"):
         if args.run is None:
-            parser.error("--run is required for --phase verify")
+            parser.error("--run is required for --phase verify/candidate")
         folder=args.run
     else:
         if args.run is not None:
             parser.error("--run only applies to verification")
         folder=run(phase=args.phase,strict_cgroup=(args.phase=="full"))
+    if args.phase=="candidate":
+        from tools.strength_lab.e00_admission import review_candidate
+        try:
+            candidate=review_candidate(folder)
+        except (E00Failure,ValueError,TypeError,KeyError,OSError) as exc:
+            print(json.dumps({"status":"FAIL","reason":str(exc)[:300],
+                              "scientific_qualified":False,"release_authorized":False},
+                             sort_keys=True))
+            return 2
+        print(json.dumps({"status":candidate["verdict"],"run":str(folder),
+                          "scientific_qualified":False,"release_authorized":False},
+                         sort_keys=True))
+        return 0
     try:
         result=verify_campaign(folder)
     except (E00Failure,ValueError,TypeError,KeyError,OSError) as exc:

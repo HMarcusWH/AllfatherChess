@@ -7,7 +7,7 @@ on:
       - 'controller/runtime.py'
       - 'controller/uci_frontend.py'
       - 'config/allfather.strength-e00-nodes.experimental.json'
-      - 'qualification/strength/e00-native-equivalence-v1.json'
+      - 'qualification/strength/e00-*.json'
       - 'tests/strength_e00/**'
       - 'tests/fixtures/strength_e00/**'
       - 'tools/strength_lab/e00_*.py'

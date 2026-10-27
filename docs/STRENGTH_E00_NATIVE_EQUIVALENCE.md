@@ -154,3 +154,17 @@ independent report exposes whole-participant costs separately from the
 per-search p95 statistics. Hosted functional-only runs remain nonqualifying
 for resource equivalence. This threshold is a source-frozen experiment policy,
 not an empirically established optimum.
+
+
+## Post-campaign scientific review candidate
+
+After a real `--phase full` (512/512, independent result `PASS`, valid
+strict cgroup/CPU host measurements), run
+`python3 scripts/qualify-strength-e00.py --phase candidate --run <run-directory>`.
+The output `e00-review-candidate.json` binds exact source, artifact SHA-256,
+corpus, profile, binary, host pre/post, paired timing and resource evidence.
+Its verdict is **REVIEW_REQUIRED**, and all strength, scientific, equal-compute,
+live, release and public flags remain false. A hosted 512 functional-only run
+or a smoke can never produce an eligible admission record.
+The independent reviewer must inspect the retained evidence before deciding
+whether to admit a scientific E00 certificate. No self-certification exists.

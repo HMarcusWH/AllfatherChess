@@ -13,6 +13,7 @@ from tools.strength_lab.e00_runner import (ARMS,BUNDLE,ROOT_OUT,E00_PROFILE,NATI
                                            preflight,sha,head)
 from tools.strength_lab.e00_evidence import reconcile_flight,reconstruct_stdout_times
 from tools.strength_lab.e00_metrics import paired_metrics
+from tools.strength_lab.e00_resources import verify_profile,verify_cpu_counters
 
 class E00Failure(ValueError):
     pass
@@ -68,13 +69,22 @@ def verify_campaign(run:Path) -> dict:
     keys={"schema_version","kind","phase","status","source_commit","policy_sha256",
           "profile_sha256","binary_sha256","bundle_manifest_sha256","corpus_sha256",
           "corpus_count","expected_samples","go_command","arms","samples","flights",
-          "participants","errors","resource_qualified","equal_compute",
+          "participants","host_profile","errors","resource_qualified","equal_compute",
           "strength_qualified","live_game_authorized","release_authorized"}
     need(set(manifest)==keys and manifest["schema_version"]==1
          and manifest["kind"]=="strength_e00_campaign_v1"
          and manifest["phase"] in ("smoke","full","native-smoke")
          and manifest["status"]=="COMPLETE" and manifest["errors"]==[],
          "E00 incomplete/failed or unknown manifest")
+    host_record=manifest["host_profile"]
+    need(type(host_record) is dict and host_record.get("path")=="host-profile.json",
+         "E00 missing host profile binding")
+    host_file=_file(run/"host-profile.json",run)
+    need(sha(host_file)==host_record.get("sha256"),
+         "E00 host profile digest mismatch")
+    host=strict_load(host_file)
+    try:verify_profile(host,require_strict=manifest["phase"]=="full")
+    except ValueError as exc:raise E00Failure(str(exc)) from exc
     native=manifest["phase"]=="native-smoke"
     profile=NATIVE_PROFILE if native else E00_PROFILE
     source=head()
@@ -251,9 +261,7 @@ def verify_campaign(run:Path) -> dict:
             if arm_measured:
                 before=value.get("cpu_usage_usec_before")
                 after=value.get("cpu_usage_usec_after")
-                need(type(before) is int and type(after) is int and
-                     0<=before<=after and
-                     abs(value["cpu_ms"]-(after-before)/1000.0)<1e-6,
+                need(verify_cpu_counters(before,after,value["cpu_ms"]),
                      "E00 CPU receipt does not reconstruct")
                 sample_cpu[arm].append(value["cpu_ms"])
             else:
@@ -308,6 +316,8 @@ def verify_campaign(run:Path) -> dict:
             "p95_wrapper_minus_direct_cpu_ms":cpu,
             "independent_paired_metrics":paired,
             "resource_coverage":"MEASURED" if have_cgroup else "UNAVAILABLE",
+            "host_profile_sha256":sha(host_file),
+            "physical_cpu_isolation":host["strict_physical_isolation"],
             "overhead_budget_pass":within if have_cgroup else None,
             "functional_equivalence":None if native else True,
             "native_protocol_smoke":True if native else None,

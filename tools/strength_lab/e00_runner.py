@@ -19,6 +19,7 @@ import uuid
 
 from tools.strength_lab.e00_corpus import ROOT, POLICY, build_corpus, bytes_for
 from tools.strength_lab.participant_scope import ParticipantCgroup, ResourceScopeError
+from tools.strength_lab.e00_resources import host_profile,verify_profile
 
 BUNDLE=ROOT/"build/online-engine-opt-v2"
 ROOT_OUT=ROOT/"build/test-results/strength-e00"
@@ -86,7 +87,7 @@ def preflight(profile:Path,source:str) -> tuple[Path,dict]:
 class UciParticipant:
     """One real private process tree; only UCI data can influence its chess decisions."""
     def __init__(self,arm:str,binary:Path,options:dict,profile:Path,
-                 *,strict_cgroup:bool=False):
+                 *,strict_cgroup:bool=False,search_cpu:int|None=None):
         self.arm=arm
         self.source_session_id=uuid.uuid4().hex
         self.scope=None
@@ -107,13 +108,18 @@ class UciParticipant:
             cmd=([str(binary)] if arm==ARMS[0] else
                  [sys.executable,"-m","controller","--config",str(profile)])
             env=os.environ.copy()
+            if self.scope is not None:
+                cmd=[sys.executable,"-m","tools.strength_lab.e00_exec",
+                     "--scope",str(self.scope.directory),
+                     "--inode",str(self.scope.inode),
+                     *(["--cpu",str(search_cpu)] if search_cpu is not None else []),
+                     "--",*cmd]
             if arm==ARMS[1] and profile==E00_PROFILE:
                 env["ALLFATHER_E00_OFFLINE"]="1"
             self.process=subprocess.Popen(
                 cmd,cwd=ROOT,env=env,stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,stderr=subprocess.PIPE,
-                start_new_session=True,bufsize=0,
-                preexec_fn=None if self.scope is None else self.scope.join_in_child)
+                start_new_session=True,bufsize=0)
             for name,stream in (("stdout",self.process.stdout),("stderr",self.process.stderr)):
                 reader=threading.Thread(target=self._reader,args=(name,stream),
                                         name=f"e00-{arm}-{name}",daemon=True)
@@ -287,6 +293,10 @@ def run(*,phase:str,strict_cgroup:bool=False) -> Path:
     total=policy["sample_count"] if phase=="full" else policy["smoke_count"]
     run_dir=ROOT_OUT/("e00-"+phase+"-"+uuid.uuid4().hex)
     run_dir.mkdir(parents=True,exist_ok=False)
+    host=host_profile(strict=strict_cgroup)
+    verify_profile(host,require_strict=strict_cgroup)
+    write(run_dir/"host-profile.json",host)
+    original_affinity=os.sched_getaffinity(0)
     corpus=bytes_for(rows)
     corpus_path=run_dir/"corpus.jsonl"
     corpus_path.write_bytes(corpus)
@@ -303,15 +313,22 @@ def run(*,phase:str,strict_cgroup:bool=False) -> Path:
               "go_command":("go wtime 30000 btime 30000 winc 1000 binc 1000"
                             if native else f"go nodes {policy['search_nodes']}"),
               "arms":list(ARMS),"samples":[],"flights":[],"participants":[],
+              "host_profile":{"path":"host-profile.json",
+                              "sha256":sha(run_dir/"host-profile.json")},
               "errors":[],"resource_qualified":False,
               "equal_compute":False,"strength_qualified":False,
               "live_game_authorized":False,"release_authorized":False}
     write(run_dir/"manifest.json",manifest)
     participants=[]
     try:
+        if strict_cgroup:
+            os.sched_setaffinity(0,{host["harness_cpu"]})
+            if os.sched_getaffinity(0)!={host["harness_cpu"]}:
+                raise RuntimeError("E00 harness CPU affinity not enforced")
         for arm in ARMS:
             participants.append(UciParticipant(
-                arm,binary,options,profile,strict_cgroup=strict_cgroup))
+                arm,binary,options,profile,strict_cgroup=strict_cgroup,
+                search_cpu=host["search_cpu"] if strict_cgroup else None))
         for i,row in enumerate(rows[:total]):
             go=manifest["go_command"]
             sample={"schema_version":1,"id":row["id"],"history_sha256":row["history_sha256"],
@@ -328,6 +345,10 @@ def run(*,phase:str,strict_cgroup:bool=False) -> Path:
     except BaseException as exc:
         manifest["errors"].append(f"{type(exc).__name__}: {exc}")
     finally:
+        if strict_cgroup:
+            try:os.sched_setaffinity(0,original_affinity)
+            except OSError as exc:manifest["errors"].append(
+                "E00 host affinity restore failed: "+str(exc))
         for p in participants:
             receipt=p.close()
             path=run_dir/(p.arm+"-session.json")

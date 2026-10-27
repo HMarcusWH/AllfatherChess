@@ -41,8 +41,12 @@ def main() -> int:
         status="FAIL"
         try:
             manifest=json.loads((folder/"manifest.json").read_text(encoding="utf-8"))
-            if args.phase=="full" and any("no delegated cgroup-v2" in x
+            if args.phase=="full" and any(
+                    "no delegated cgroup-v2" in x or
+                    "E00 host qualification preflight:" in x
                     for x in manifest.get("errors",[])):
+                # Missing qualified hardware is a negative nonqualifying
+                # experiment result, never a scientific PASS.
                 status="INCONCLUSIVE"
         except (OSError,ValueError,TypeError):
             pass

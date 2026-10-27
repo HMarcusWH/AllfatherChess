@@ -209,8 +209,10 @@ def verify_campaign(run:Path) -> dict:
             need(len(best)==1 and best[0]==value["bestmove"]
                  and stdout[-1]==best[0],"duplicate/incomplete E00 bestmove")
             terminal[arm]=_bestmove(best[0],board)
-            need(value["cpu_ms"] is None if not have_cgroup else
-                 type(value["cpu_ms"]) in (int,float) and value["cpu_ms"]>=0,
+            arm_measured=all_receipts[arm]["resource_status"]=="MEASURED"
+            need((value["cpu_ms"] is None) if not arm_measured else
+                 (type(value["cpu_ms"]) in (int,float) and
+                  math.isfinite(value["cpu_ms"]) and value["cpu_ms"]>=0),
                  "E00 CPU observation invalid")
         need(row["history_sha256"] in witness_files,
              "E00 missing matched S2/E00 flight")

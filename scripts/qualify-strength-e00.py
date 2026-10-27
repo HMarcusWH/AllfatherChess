@@ -4,6 +4,9 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+import sys
+# Script entrypoints run with scripts/ on sys.path; add the exact source tree.
+sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from tools.strength_lab.e00_corpus import POLICY
 from tools.strength_lab.e00_runner import run
 from tools.strength_lab.e00_verify import verify_campaign

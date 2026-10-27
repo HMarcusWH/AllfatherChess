@@ -188,9 +188,9 @@ class UciParticipant:
         self.send("ucinewgame")
         self.ready()
         self.send(row["position_command"])
+        before=self.scope.counters() if self.scope else None
         self.send(go)
         marker=len(self.rows)
-        before=self.scope.counters() if self.scope else None
         sent_ns=time.monotonic_ns()
         lines=self.until(lambda s:s.startswith("bestmove "),timeout,allow_bestmove=True)
         ended_ns=time.monotonic_ns()

@@ -273,7 +273,8 @@ def verify(root,evidence,keyring,allow_unlocked=False,source_bundle=None):
             # if another signed suite ultimately proves every package.
             if not re.search(r"(HTTP (429|500|502|503|504)|transport timeout) refused after",str(err)):
                 raise
-            unavailable_suites.append({"suite":suite,"reason":"snapshot_release_unavailable"})
+            unavailable_suites.append({"suite":suite,"reason":"snapshot_release_unavailable",
+                                       "source_error":str(err)[:220]})
             continue
         check(digest(raw)==want[suite],
               "signed Ubuntu release bytes differ from frozen source: "+suite)
@@ -305,7 +306,8 @@ def verify(root,evidence,keyring,allow_unlocked=False,source_bundle=None):
                     unavailable_indices.append({"suite":suite,"component":component,
                                                 "index_path":rel,
                                                 "index_sha256":signed_entry[0],
-                                                "reason":"temporary_signed_snapshot_index_unavailable"})
+                                                "reason":"temporary_signed_snapshot_index_unavailable",
+                                                "source_error":str(other)[:220]})
                     continue
             check((digest(blob),len(blob))==signed_entry,
                   "Packages.xz bytes/size differ from signed InRelease")
@@ -351,6 +353,11 @@ def verify(root,evidence,keyring,allow_unlocked=False,source_bundle=None):
         if all(found.values()):
             break
     missing=sorted(n for n,origins in found.items() if not origins)
+    if missing and (unavailable_suites or unavailable_indices):
+        raise ValueError("INCONCLUSIVE: authenticated Ubuntu index acquisition incomplete; "+
+                         "missing_count="+str(len(missing))+
+                         " suites="+json.dumps(unavailable_suites,sort_keys=True)+
+                         " indices="+json.dumps(unavailable_indices,sort_keys=True))
     check(not missing,"29 acquired packages not linked to signed Packages metadata: "+",".join(missing))
     for n in found:
         found[n].sort(key=lambda x:(x["suite"],x["component"],x["packages_index_path"],
@@ -389,9 +396,10 @@ def main():
     try:
         report=verify(a.root,a.evidence_dir,a.keyring,a.allow_unlocked_discovery,a.source_bundle)
     except (ValueError,OSError,KeyError,TypeError) as exc:
-        message=str(exc)[:500]
-        inconclusive=any(word in message for word in
-                         ("transport timeout","HTTP 429","HTTP 502","HTTP 503","HTTP 504"))
+        message=str(exc)[:1500]
+        inconclusive=message.startswith("INCONCLUSIVE:") or any(
+            word in message for word in
+            ("transport timeout","HTTP 429","HTTP 502","HTTP 503","HTTP 504"))
         report={"schema_version":1,"verdict":"INCONCLUSIVE" if inconclusive else "FAIL",
                 "source_mode":("cached_signed_exact_bytes" if a.source_bundle is not None
                                else "live_snapshot"),

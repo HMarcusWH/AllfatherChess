@@ -6,6 +6,9 @@ import unittest
 from tools.strength_lab.e00_evidence import reconcile_flight,reconstruct_stdout_times
 from tools.strength_lab.e00_metrics import paired_metrics
 from tools.strength_lab.e00_resources import cpulist,verify_profile,verify_cpu_counters,cgroup_cpu_stat
+from tools.strength_lab.e00_exec import enforce_search_cpu
+from tools.strength_lab.participant_scope import ResourceScopeError
+from unittest.mock import patch
 from tools.strength_lab.e00_clock import (
     last_engine_work,frontend_publication_delay_ms,summarize_clock)
 
@@ -120,6 +123,25 @@ class EvidenceTests(unittest.TestCase):
             self.assertEqual(row["usage_usec"],1200)
             (folder/"cpu.stat").write_text("usage_usec 1\nusage_usec 2\n")
             with self.assertRaises(ValueError):cgroup_cpu_stat(folder)
+
+    def test_worker_switches_from_harness_affinity_to_delegated_search_cpu(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            scope=__import__("pathlib").Path(td)
+            (scope/"cpuset.cpus.effective").write_text("2-3\n")
+            with patch("tools.strength_lab.e00_exec.os.sched_setaffinity") as setter, \
+                 patch("tools.strength_lab.e00_exec.os.sched_getaffinity",
+                       return_value={2}) as getter:
+                enforce_search_cpu(2,scope)
+                setter.assert_called_once_with(0,{2})
+                getter.assert_called_once()
+            with patch("tools.strength_lab.e00_exec.os.sched_setaffinity") as setter:
+                with self.assertRaises(ResourceScopeError):
+                    enforce_search_cpu(4,scope)
+                setter.assert_not_called()
+            (scope/"cpuset.cpus.effective").unlink()
+            with self.assertRaises(ResourceScopeError):
+                enforce_search_cpu(2,scope)
 
     def test_native_clock_diagnostics_are_not_equal_work_claims(self):
         row,flight=fixture()

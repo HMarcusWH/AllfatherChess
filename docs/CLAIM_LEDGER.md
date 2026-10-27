@@ -1431,3 +1431,15 @@ workflow families.
 - The full 512-pair real Stockfish equivalence experiment, native-clock characterization, and strict cgroup/overhead qualification require independently retained exact-head execution evidence.
 - Matching native nodes is not equal total resources, and a green S2/E00 source CI is not Elo, strength improvement, release, public bot, or a license to replace the incumbent.
 - PR #88 is stacked on unmerged PR #87; no strength or publication policy is promoted by either source candidate.
+
+
+### E00 correction qualification boundary
+
+The R1/R2 source repairs add real UCI to flight provenance joins, independent
+go/terminal timing reconstruction and scoped participant CPU/host evidence.
+The hosted 512-history functional mode is nonqualifying without physical
+resource scope; the `strictfull` route additionally requires a real,
+declared delegated-cgroup and physical CPU-qualified host. Native matrix
+protocol success must not be reported as native-clock timing equivalence.
+Neither added source tests nor a green Actions job toggles E00 scientific
+qualification, equal compute, strength, bot, live, release or distribution.

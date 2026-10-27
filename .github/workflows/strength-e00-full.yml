@@ -1,0 +1,115 @@
+name: STRENGTH-E00 — explicit full campaign (NO live/release authority)
+
+on:
+  workflow_dispatch:
+    inputs:
+      execution:
+        description: 'Selected offline workload (full needs a delegated-cgroup host)'
+        required: true
+        type: choice
+        options:
+          - functional512
+          - native-matrix
+          - strictfull
+
+permissions:
+  contents: read
+
+env:
+  SOURCE_SHA: ${{ github.sha }}
+
+jobs:
+  hosted-functional:
+    if: ${{ inputs.execution == 'functional512' || inputs.execution == 'native-matrix' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install exact source build and independent chess requirements
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          bash scripts/ci-install-apt-deps.sh build-essential meson ninja-build pkg-config libprotobuf-dev protobuf-compiler zlib1g-dev libopenblas-dev
+          python3 -m venv build/e00-venv
+          build/e00-venv/bin/python -m pip install --require-hashes -r qualification/local-game-requirements.txt
+          echo "$GITHUB_WORKSPACE/build/e00-venv/bin" >> "$GITHUB_PATH"
+      - name: Retain source-bound canonical NNUE bundle inputs
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: |
+            build/artifacts/stockfish
+            build/artifacts/reckless
+            build/artifacts/lc0
+          key: strength-e00-full-nets-${{ runner.os }}-${{ hashFiles('vendor.lock.json','qualification/lc0-strength.lock.json') }}
+      - name: Compile canonical exact-head ENGINE-OPT-V2
+        env:
+          JOBS: '2'
+        run: bash scripts/build-online-engine-opt-v2.sh
+      - name: Run complete functional-only 512 history or native matrix
+        env:
+          EXPERIMENT: ${{ inputs.execution }}
+        run: |
+          set -euo pipefail
+          if [ "$EXPERIMENT" = "functional512" ]; then
+            python3 scripts/qualify-strength-e00.py --phase functional-512
+          elif [ "$EXPERIMENT" = "native-matrix" ]; then
+            python3 scripts/qualify-strength-e00.py --phase native-matrix
+          else
+            echo 'Unsupported hosted experiment' >&2; exit 2
+          fi
+      - name: Retain all source, legal moves, resources, failures and journals
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: strength-e00-full-hosted-functional-${{ inputs.execution }}
+          path: |
+            build/test-results/strength-e00
+            build/strength-e00-evidence
+            build/strength-s2-evidence
+            build/online-engine-opt-v2/build-manifest.json
+          if-no-files-found: warn
+          retention-days: 14
+
+  strict-full-cgroup:
+    if: ${{ inputs.execution == 'strictfull' }}
+    runs-on: [self-hosted, Linux, X64, e00-cgroup-qualified]
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify host/source access and prebuild requirements
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          test "$(uname -s)" = "Linux"
+          test "$(uname -m)" = "x86_64"
+          python3 -m venv build/e00-venv
+          build/e00-venv/bin/python -m pip install --require-hashes -r qualification/local-game-requirements.txt
+          echo "$GITHUB_WORKSPACE/build/e00-venv/bin" >> "$GITHUB_PATH"
+      - name: Build canonical source/NNUE engine bundle
+        env:
+          JOBS: '2'
+        run: bash scripts/build-online-engine-opt-v2.sh
+      - name: Execute all 512 real comparisons with strict cgroups and CPU placement
+        run: python3 scripts/qualify-strength-e00.py --phase full
+      - name: Retain independent source, host, timed and negative evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: strength-e00-strict-full-cgroup
+          path: |
+            build/test-results/strength-e00
+            build/strength-e00-evidence
+            build/strength-s2-evidence
+            build/online-engine-opt-v2/build-manifest.json
+          if-no-files-found: warn
+          retention-days: 14
+      # This job does not approve E00 science until independent human review.
+      # It cannot grant live chess, strength claims or public distribution.

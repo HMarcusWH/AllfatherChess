@@ -138,6 +138,9 @@ class UciParticipant:
                     value=str(value).lower() if type(value) is bool else value
                     self.send(f"setoption name {name} value {value}")
             self.ready()
+            self.effective_affinity=sorted(os.sched_getaffinity(self.process.pid))
+            if search_cpu is not None and self.effective_affinity!=[search_cpu]:
+                raise RuntimeError("E00 child search CPU affinity not enforced")
         except BaseException:
             self.close()
             raise
@@ -279,6 +282,7 @@ class UciParticipant:
                 "cpu_ms":None if counters is None else counters["cpu_usage_usec"]/1000.0,
                 "memory_peak_bytes":None if counters is None else counters["memory_peak_bytes"],
                 "leaked_before_cleanup":leaked,"errors":self.errors,
+                "effective_affinity":getattr(self,"effective_affinity",None),
                 "events":list(self.rows)}
 
 def run(*,phase:str,strict_cgroup:bool=False) -> Path:
@@ -293,8 +297,13 @@ def run(*,phase:str,strict_cgroup:bool=False) -> Path:
     total=policy["sample_count"] if phase in ("full","functional-512") else policy["smoke_count"]
     run_dir=ROOT_OUT/("e00-"+phase+"-"+uuid.uuid4().hex)
     run_dir.mkdir(parents=True,exist_ok=False)
-    host=host_profile(strict=strict_cgroup)
-    verify_profile(host,require_strict=strict_cgroup)
+    preflight_error=None
+    try:
+        host=host_profile(strict=strict_cgroup)
+        verify_profile(host,require_strict=strict_cgroup)
+    except (OSError,ValueError) as exc:
+        preflight_error=f"{type(exc).__name__}: {exc}"
+        host=host_profile(strict=False)
     write(run_dir/"host-profile.json",host)
     original_affinity=os.sched_getaffinity(0)
     corpus=bytes_for(rows)
@@ -317,12 +326,15 @@ def run(*,phase:str,strict_cgroup:bool=False) -> Path:
               "arms":list(ARMS),"samples":[],"flights":[],"participants":[],
               "host_profile":{"path":"host-profile.json",
                               "sha256":sha(run_dir/"host-profile.json")},
+              "host_post":None,
               "errors":[],"resource_qualified":False,
               "equal_compute":False,"strength_qualified":False,
               "live_game_authorized":False,"release_authorized":False}
     write(run_dir/"manifest.json",manifest)
     participants=[]
     try:
+        if preflight_error is not None:
+            raise RuntimeError("E00 host qualification preflight: "+preflight_error)
         if strict_cgroup:
             os.sched_setaffinity(0,{host["harness_cpu"]})
             if os.sched_getaffinity(0)!={host["harness_cpu"]}:
@@ -366,9 +378,22 @@ def run(*,phase:str,strict_cgroup:bool=False) -> Path:
                                        "sha256":sha(file)})
         if len(manifest["flights"])!=len(manifest["samples"]):
             manifest["errors"].append("E00 observer flight count disagrees with sample count")
+        try:
+            host_after=host_profile(strict=False)
+            write(run_dir/"host-after.json",host_after)
+            manifest["host_post"]={"path":"host-after.json",
+                                   "sha256":sha(run_dir/"host-after.json")}
+            for frozen in ("system","architecture","kernel","allowed_cpus",
+                           "cpuinfo_sha256","cgroup_cpu_max",
+                           "cgroup_cpuset_effective","cgroup_memory_max"):
+                if host.get(frozen)!=host_after.get(frozen):
+                    manifest["errors"].append("E00 host/source domain drift: "+frozen)
+        except (OSError,ValueError) as exc:
+            manifest["errors"].append("host postflight: "+str(exc))
         manifest["status"]="COMPLETE" if len(manifest["samples"])==total and not manifest["errors"] else "FAILED"
         manifest["resource_qualified"]=bool(
-            len(participants)==2 and all(x["resource_status"]=="MEASURED"
-                                         for x in manifest["participants"]))
+            strict_cgroup and preflight_error is None and len(participants)==2
+            and all(x["resource_status"]=="MEASURED"
+                    for x in manifest["participants"]))
         write(run_dir/"manifest.json",manifest)
     return run_dir

@@ -71,7 +71,7 @@ def verify_campaign(run:Path) -> dict:
     keys={"schema_version","kind","phase","status","source_commit","policy_sha256",
           "profile_sha256","binary_sha256","bundle_manifest_sha256","corpus_sha256",
           "corpus_count","expected_samples","go_command","arms","samples","flights",
-          "participants","host_profile","errors","resource_qualified","equal_compute",
+          "participants","host_profile","host_post","errors","resource_qualified","equal_compute",
           "strength_qualified","live_game_authorized","release_authorized"}
     need(set(manifest)==keys and manifest["schema_version"]==1
          and manifest["kind"]=="strength_e00_campaign_v1"
@@ -85,6 +85,18 @@ def verify_campaign(run:Path) -> dict:
     need(sha(host_file)==host_record.get("sha256"),
          "E00 host profile digest mismatch")
     host=strict_load(host_file)
+    post=manifest.get("host_post")
+    need(type(post) is dict and post.get("path")=="host-after.json",
+         "E00 missing host postflight")
+    post_file=_file(run/"host-after.json",run)
+    need(sha(post_file)==post.get("sha256"),
+         "E00 postflight hash mismatch")
+    host_after=strict_load(post_file)
+    for frozen in ("system","architecture","kernel","allowed_cpus",
+                   "cpuinfo_sha256","cgroup_cpu_max",
+                   "cgroup_cpuset_effective","cgroup_memory_max"):
+        need(host[frozen]==host_after[frozen],
+             "E00 qualified host changed during campaign: "+frozen)
     try:verify_profile(host,require_strict=manifest["phase"]=="full")
     except ValueError as exc:raise E00Failure(str(exc)) from exc
     native=manifest["phase"] in ("native-smoke","native-matrix")
@@ -142,7 +154,7 @@ def verify_campaign(run:Path) -> dict:
              "E00 participant crashed or leaked a child")
         needs={"started_ns","ended_ns","events","resource_status","cpu_ms",
                "memory_peak_bytes","arm","session_id","exit_code","errors",
-               "leaked_before_cleanup"}
+               "leaked_before_cleanup","effective_affinity"}
         need(set(receipt)==needs and receipt["started_ns"]<receipt["ended_ns"],
              "E00 participant receipt contract mismatch")
         is_measured=rec["resource_status"]==receipt["resource_status"]=="MEASURED"
@@ -154,9 +166,17 @@ def verify_campaign(run:Path) -> dict:
         else:
             need(receipt["cpu_ms"] is None and receipt["memory_peak_bytes"] is None,
                  "unavailable E00 cgroup presented as zero")
+        affinity=receipt["effective_affinity"]
+        need(type(affinity) is list and bool(affinity) and
+             all(type(cpu) is int for cpu in affinity),
+             "E00 participant effective CPU affinity not recorded")
+        if manifest["phase"]=="full":
+            need(affinity==[host["search_cpu"]],
+                 "E00 participant escaped frozen search CPU")
         all_receipts[arm]=receipt
+    qualified_resource=have_cgroup and manifest["phase"]=="full"
     need(receipt_arms==set(ARMS)
-         and manifest["resource_qualified"] is have_cgroup,
+         and manifest["resource_qualified"] is qualified_resource,
          "E00 cgroup availability contradiction")
     actual_terminals={}
     actual_stamps={}
@@ -309,6 +329,10 @@ def verify_campaign(run:Path) -> dict:
         if have_cgroup:
             overhead_cpu.append(record["arms"][ARMS[1]]["cpu_ms"]-
                                 record["arms"][ARMS[0]]["cpu_ms"])
+    if have_cgroup:
+        for arm in ARMS:
+            need(all_receipts[arm]["cpu_ms"]+1e-3>=sum(sample_cpu[arm]),
+                 "E00 whole-participant CPU less than sum of search slices")
     need(set(witness_files)=={x["history_sha256"] for x in rows[:count]},
          "unmatched/missing/extra E00 flight histories")
     need(not discrepancies,"E00 real fixed-node terminal move disagreements: "+",".join(discrepancies[:12]))
@@ -324,8 +348,8 @@ def verify_campaign(run:Path) -> dict:
     # Native-clock smoke PASS means command/single-writer protocol only.
     # It says nothing about timed-search parity, resources or overhead.
     status=("PASS" if native else
-            "PASS" if have_cgroup and within else
-            "INCONCLUSIVE" if not have_cgroup else "FAIL")
+            "PASS" if qualified_resource and within else
+            "INCONCLUSIVE" if not qualified_resource else "FAIL")
     return {"schema_version":1,"status":status,
             "phase":manifest["phase"],"source_commit":source,
             "actual_history_count":count,"legal_move_count":2*count,
@@ -337,6 +361,7 @@ def verify_campaign(run:Path) -> dict:
             "native_clock_diagnostics":clock_summary,
             "native_clock_performance_qualified":False,
             "resource_coverage":"MEASURED" if have_cgroup else "UNAVAILABLE",
+            "resource_qualified":qualified_resource,
             "host_profile_sha256":sha(host_file),
             "physical_cpu_isolation":host["strict_physical_isolation"],
             "overhead_budget_pass":within if have_cgroup else None,

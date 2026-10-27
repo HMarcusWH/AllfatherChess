@@ -219,6 +219,8 @@ class UciParticipant:
                 "wall_ms":(ended_ns-sent_ns)/1e6,
                 "cpu_ms":None if before is None else
                     (after["cpu_usage_usec"]-before["cpu_usage_usec"])/1000.0,
+                "cpu_usage_usec_before":None if before is None else before["cpu_usage_usec"],
+                "cpu_usage_usec_after":None if after is None else after["cpu_usage_usec"],
                 "memory_peak_bytes":None if after is None else after["memory_peak_bytes"],
                 "resource_status":self.counter_state,
                 "transcript_marker":marker}

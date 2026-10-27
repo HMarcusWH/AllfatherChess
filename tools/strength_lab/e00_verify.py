@@ -11,6 +11,8 @@ from controller.strength.integrity import strict_load,verify_flight
 from tools.strength_lab.e00_corpus import ROOT,POLICY,build_corpus,bytes_for
 from tools.strength_lab.e00_runner import (ARMS,BUNDLE,ROOT_OUT,E00_PROFILE,NATIVE_PROFILE,
                                            preflight,sha,head)
+from tools.strength_lab.e00_evidence import reconcile_flight,reconstruct_stdout_times
+from tools.strength_lab.e00_metrics import paired_metrics
 
 class E00Failure(ValueError):
     pass
@@ -136,6 +138,7 @@ def verify_campaign(run:Path) -> dict:
          and manifest["resource_qualified"] is have_cgroup,
          "E00 cgroup availability contradiction")
     actual_terminals={}
+    actual_stamps={}
     for arm in ARMS:
         events=all_receipts[arm]["events"]
         output_moves=[e["line"] for e in events
@@ -143,6 +146,7 @@ def verify_campaign(run:Path) -> dict:
         need(len(output_moves)==count,
              "E00 missing/extra actual stdout terminal moves")
         actual_terminals[arm]=output_moves
+        actual_stamps[arm]=reconstruct_stdout_times(events,go,count)
         stdout=[e["line"] for e in events if e.get("direction")=="stdout"]
         need(stdout.count("uciok")==1 and stdout.count("readyok")==count*2+1,
              "E00 handshake/readiness coverage incomplete")
@@ -160,6 +164,8 @@ def verify_campaign(run:Path) -> dict:
         need(actual_input==expected_input,
              "E00 exact source UCI commands, history, options or reset order differ")
     witness_files={}
+    flight_ids=set()
+    flight_sessions=set()
     flight_dir=(ROOT/("build/strength-s2-evidence" if native else
                       "build/strength-e00-evidence")).resolve()
     for rec in manifest["flights"]:
@@ -182,9 +188,11 @@ def verify_campaign(run:Path) -> dict:
         pos=begin["position_command"]
         key=hashlib.sha256(pos.encode("utf-8")).hexdigest()
         need(key not in witness_files,"duplicate E00 flight for full history")
-        witness_files[key]=begin
+        witness_files[key]=raw
     overhead_wall=[]
     overhead_cpu=[]
+    independent_wall={arm:[] for arm in ARMS}
+    sample_cpu={arm:[] for arm in ARMS}
     seen_ids=set()
     discrepancies=[]
     for idx,entry in enumerate(manifest["samples"]):
@@ -227,25 +235,64 @@ def verify_campaign(run:Path) -> dict:
                  and best[0]==actual_terminals[arm][idx],
                  "E00 raw session vs sample terminal occurrence differs")
             terminal[arm]=_bestmove(best[0],board)
+            independent=actual_stamps[arm][idx]
+            need(independent["terminal_line"]==value["bestmove"]
+                 and independent["go_ns"]<=value["search_sent_ns"]
+                 and independent["terminal_ns"]<=value["search_ended_ns"]
+                 and value["search_sent_ns"]-independent["go_ns"]<5_000_000_000
+                 and value["search_ended_ns"]-independent["terminal_ns"]<5_000_000_000,
+                 "E00 sample timing is inconsistent with independent UCI events")
+            independent_wall[arm].append(independent["wall_ms"])
             arm_measured=all_receipts[arm]["resource_status"]=="MEASURED"
             need((value["cpu_ms"] is None) if not arm_measured else
                  (type(value["cpu_ms"]) in (int,float) and
                   math.isfinite(value["cpu_ms"]) and value["cpu_ms"]>=0),
                  "E00 CPU observation invalid")
+            if arm_measured:
+                before=value.get("cpu_usage_usec_before")
+                after=value.get("cpu_usage_usec_after")
+                need(type(before) is int and type(after) is int and
+                     0<=before<=after and
+                     abs(value["cpu_ms"]-(after-before)/1000.0)<1e-6,
+                     "E00 CPU receipt does not reconstruct")
+                sample_cpu[arm].append(value["cpu_ms"])
+            else:
+                need(value.get("cpu_usage_usec_before") is None and
+                     value.get("cpu_usage_usec_after") is None,
+                     "E00 missing cgroup encoded as zero CPU counters")
         need(row["history_sha256"] in witness_files,
              "E00 missing matched S2/E00 flight")
+        flight=witness_files[row["history_sha256"]]
+        try:
+            sid,nonce=reconcile_flight(
+                flight,row=row,occurrence=idx,
+                published_stdout=record["arms"][ARMS[1]]["bestmove"],
+                expected_go=go,source_commit=source,
+                binary_sha256=sha(binary),profile_sha256=sha(profile),
+                options_sha256=__import__("controller.strength.contracts",
+                    fromlist=["digest"]).digest({"options":opts,"args":[]}),
+                prior_session=next(iter(flight_sessions)) if flight_sessions else None)
+        except ValueError as exc:
+            raise E00Failure(str(exc)) from exc
+        need(nonce not in flight_ids,"E00 search nonce reused across occurrences")
+        flight_ids.add(nonce)
+        flight_sessions.add(sid)
+        need(len(flight_sessions)==1,"E00 mixed S2 sessions")
         if not native and terminal[ARMS[0]]!=terminal[ARMS[1]]:
             discrepancies.append(row["id"])
-        overhead_wall.append(record["arms"][ARMS[1]]["wall_ms"]-
-                             record["arms"][ARMS[0]]["wall_ms"])
+        overhead_wall.append(independent_wall[ARMS[1]][-1]-
+                             independent_wall[ARMS[0]][-1])
         if have_cgroup:
             overhead_cpu.append(record["arms"][ARMS[1]]["cpu_ms"]-
                                 record["arms"][ARMS[0]]["cpu_ms"])
     need(set(witness_files)=={x["history_sha256"] for x in rows[:count]},
          "unmatched/missing/extra E00 flight histories")
     need(not discrepancies,"E00 real fixed-node terminal move disagreements: "+",".join(discrepancies[:12]))
-    wall=p95(overhead_wall)
-    cpu=p95(overhead_cpu) if overhead_cpu else None
+    paired=paired_metrics(independent_wall[ARMS[1]],independent_wall[ARMS[0]],
+         sample_cpu[ARMS[1]] if have_cgroup else None,
+         sample_cpu[ARMS[0]] if have_cgroup else None)
+    wall=paired["wrapper_minus_direct_wall_ms"]["p95"]
+    cpu=paired["wrapper_minus_direct_cpu_ms"]["p95"] if have_cgroup else None
     wall_budget=policy["max_p95_wall_overhead_ms_seed"]
     cpu_budget=policy["max_p95_extra_cpu_ms_seed"]
     within=wall<=wall_budget and (cpu is not None and cpu<=cpu_budget)
@@ -259,6 +306,7 @@ def verify_campaign(run:Path) -> dict:
             "flight_reconstructed_count":count,
             "p95_wrapper_minus_direct_wall_ms":wall,
             "p95_wrapper_minus_direct_cpu_ms":cpu,
+            "independent_paired_metrics":paired,
             "resource_coverage":"MEASURED" if have_cgroup else "UNAVAILABLE",
             "overhead_budget_pass":within if have_cgroup else None,
             "functional_equivalence":None if native else True,

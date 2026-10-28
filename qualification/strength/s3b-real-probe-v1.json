@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "kind": "strength_s3b_unplayed_real_probe_v1",
+  "status": "REAL_ENGINE_DIAGNOSTIC_NOT_RESOURCE_QUALIFIED",
+  "mode": "observe_only",
+  "allow_unqualified_source_only_diagnostic": true,
+  "source_profile": "config/allfather.strength-s3a-observe.experimental.json",
+  "source_bundle": "build/online-engine-opt-v2",
+  "first_incumbent_timeout_s": 3,
+  "anchor_wait_timeout_s": 35,
+  "supported_native_go_commands": [
+    "go wtime 300000 btime 300000 winc 0 binc 0"
+  ],
+  "diagnostic_wall_budget_ms": 7500,
+  "diagnostic_cpu_budget_ms": 16000,
+  "verification_reserve_fraction": 0.4,
+  "controller_overhead_reserve_ms": 400,
+  "memory_seed_bytes": 6442450944,
+  "anchor_memory_seed_bytes": 2147483648,
+  "stop_cleanup_wall_ms": 200,
+  "proposer": {
+    "lc0": {
+      "family": "lc0",
+      "nodes": 128,
+      "reserved_cpu_ms": 2000,
+      "wall_bound_ms": 1750,
+      "peak_memory_seed_bytes": 536870912,
+      "multipv": 2
+    },
+    "reckless": {
+      "family": "reckless",
+      "nodes": 4096,
+      "reserved_cpu_ms": 1200,
+      "wall_bound_ms": 1200,
+      "peak_memory_seed_bytes": 268435456
+    }
+  },
+  "comparator": {
+    "family": "stockfish",
+    "nodes": 16384,
+    "reserved_cpu_ms": 3500,
+    "wall_bound_ms": 3300,
+    "peak_memory_seed_bytes": 268435456,
+    "round_nodes": [
+      16384,
+      65536
+    ],
+    "round_timeout_s": 2
+  },
+  "note": "Seed allowances are NOT physical host calibration, not a WorkGrant, not a strength claim; diagnostic only.",
+  "claims": {
+    "real_backend_executed": false,
+    "source_provenance_independently_reconstructed": false,
+    "whole_participant_cgroup_qualified": false,
+    "quality_witness_qualified": false,
+    "real_comparator_qualified": false,
+    "equal_compute": false,
+    "strength_qualified": false,
+    "move_authorized": false,
+    "public_bot_release": false,
+    "live_game_authorized": false,
+    "release_authorized": false
+  },
+  "incumbent_stabilization_s": 0.45
+}

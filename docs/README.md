@@ -82,6 +82,7 @@ levels are implemented, qualified, deployed and strength-supported.
 - [STRENGTH_S1_PARTICIPANT_RESOURCES.md](STRENGTH_S1_PARTICIPANT_RESOURCES.md) — strict cgroup-v2 resource wrapper and E01 16-game harness (real evidence pending)
 - [STRENGTH_S2_NATIVE_ANCHOR.md](STRENGTH_S2_NATIVE_ANCHOR.md) — native Stockfish observe-only epochs and flight evidence (E00 real-engine qualification pending)
 - [STRENGTH_S3A_RESOURCE_CONTRACTS.md](STRENGTH_S3A_RESOURCE_CONTRACTS.md) — S3-A typed candidates, comparator-first one-slot ledger reservations and inert anchor-only opt-in
+- [STRENGTH_S3B_REAL_COMPARATOR.md](STRENGTH_S3B_REAL_COMPARATOR.md) — source-locked real unplayed specialist and same-Stockfish two-root comparator; unqualified
 - [STRENGTH_E00_NATIVE_EQUIVALENCE.md](STRENGTH_E00_NATIVE_EQUIVALENCE.md) — source-locked fixed-node real-Stockfish observer tests, independent evidence and full qualification pending
 
 ## Historical plans, incidents and audit trail

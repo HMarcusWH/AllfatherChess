@@ -1,0 +1,100 @@
+name: STRENGTH-S3-B real specialist and two-root comparator
+
+on:
+  pull_request:
+    paths:
+      - 'controller/strength/**'
+      - 'tools/strength_lab/s3b_*.py'
+      - 'qualification/strength/s3b-real-probe-v1.json'
+      - 'tests/strength_s3b/**'
+      - 'docs/STRENGTH_S3B_REAL_COMPARATOR.md'
+      - '.github/workflows/strength-s3b-real.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  SOURCE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+
+jobs:
+  source-contracts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install pinned independent rules
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          python3 -m venv build/s3b-venv
+          build/s3b-venv/bin/python -m pip install --require-hashes -r qualification/local-game-requirements.txt
+          echo "$GITHUB_WORKSPACE/build/s3b-venv/bin" >> "$GITHUB_PATH"
+      - name: Destructive S3-B source, S3-A and S2 regressions
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          python3 -m json.tool qualification/strength/s3b-real-probe-v1.json >/dev/null
+          python3 -m compileall -q controller/strength tools/strength_lab/s3b_runner.py tools/strength_lab/s3b_verify.py tests/strength_s3b
+          python3 -m unittest discover -s tests/strength_s3b -p 'test_*.py' -v
+          python3 -m unittest discover -s tests/strength_s3a -p 'test_*.py' -v
+          python3 -m unittest discover -s tests/strength_s2 -p 'test_*.py' -v
+          python3 scripts/check-current-status.py
+          python3 scripts/check-docs-consistency.py
+
+  real-engine-smoke:
+    needs: source-contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install frozen engine build and chess prerequisites
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          bash scripts/ci-install-apt-deps.sh build-essential meson ninja-build pkg-config libprotobuf-dev protobuf-compiler zlib1g-dev libopenblas-dev
+          python3 -m venv build/s3b-venv
+          build/s3b-venv/bin/python -m pip install --require-hashes -r qualification/local-game-requirements.txt
+          echo "$GITHUB_WORKSPACE/build/s3b-venv/bin" >> "$GITHUB_PATH"
+      - name: Cache exact source-pinned network bytes
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: |
+            build/artifacts/stockfish
+            build/artifacts/reckless
+            build/artifacts/lc0
+          key: strength-s3b-nets-${{ runner.os }}-${{ hashFiles('vendor.lock.json','qualification/lc0-strength.lock.json') }}
+      - name: Build exact-head three real engines
+        env:
+          JOBS: '2'
+        run: bash scripts/build-online-engine-opt-v2.sh
+      - name: Real Reckless proposal + Stockfish comparison unplayed diagnostic
+        env:
+          ALLFATHER_S3B_OFFLINE: '1'
+        run: python3 -m tools.strength_lab.s3b_runner --family reckless --require-comparison
+      - name: Real BLAS LC0 proposal + Stockfish comparison unplayed diagnostic
+        env:
+          ALLFATHER_S3B_OFFLINE: '1'
+          OPENBLAS_NUM_THREADS: '1'
+          OMP_NUM_THREADS: '1'
+        run: python3 -m tools.strength_lab.s3b_runner --family lc0 --require-comparison
+      - name: Preserve every raw and negative S3B artifact
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: strength-s3b-real-backend-diagnostic
+          path: |
+            build/test-results/strength-s3b
+            build/strength-s3a-evidence
+            build/online-engine-opt-v2/build-manifest.json
+          if-no-files-found: warn
+          retention-days: 14
+      # Green diagnostic is NOT resource qualification or move authority.

@@ -512,6 +512,13 @@ def run(*,family:str,position_command:str,go_command:str,
                 except (OSError,ValueError,UciProcessError,RuntimeError) as exc:
                     rows["errors"].append(label+" cleanup: "+str(exc)[:200])
                     rows["status"]="INCOMPLETE"
+        rows["bounded_raw_uci"]={
+            label:list(obj._transcript)[-500:]
+            for label,obj in started.items()}
+        if any(len(event)>4096 for events in rows["bounded_raw_uci"].values()
+               for event in events):
+            rows["errors"].append("UNBOUNDED_RAW_UCI_LINE")
+            rows["status"]="INCOMPLETE"
         if rows["anchor_terminal"] is not None:
             try:
                 rows["flight"]=_join_flight(

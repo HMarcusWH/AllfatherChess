@@ -187,12 +187,30 @@ def verify(directory:Path)->dict[str,Any]:
     else:
         require(record["status"]=="INCOMPLETE" or bool(record["errors"]),
                 "S3B producer suppressed an actual anchor output")
+    streams=record.get("bounded_raw_uci")
+    require(type(streams) is dict and set(streams)=={"anchor","helper","comparator"}
+            and all(type(rows) is list and len(rows)<=500 and
+                    all(type(line) is str and len(line)<=4096 for line in rows)
+                    for rows in streams.values()),
+            "S3B source UCI transcript absent/oversized")
+    def commands(name):
+        return [line[3:] for line in streams[name] if line.startswith(">> go ")]
+    def terminals(name):
+        return [line[3:] for line in streams[name] if line.startswith("<< bestmove ")]
+    if record["anchor_terminal"] is not None:
+        require(terminals("anchor")==[record["anchor_terminal"]] and
+                (not commands("anchor") or
+                 commands("anchor")==[record["external_go_command"]]),
+                "S3B actual anchor UCI differs from published source")
     proposal_seen=False
     comparisons=0
     proposal=None
     if record["proposer"] is not None:
         item=record["proposer"]
         req=_proposer_request(item["request"])
+        require(commands("helper")==[req.search_command] and
+                terminals("helper")==[item["terminal"]],
+                "S3B real proposer UCI go/terminal differs from record")
         legacy_spec=assets["legacy"]["instances"][req.family+"-shadow"]
         expected_opts=dict(legacy_spec["options"])
         if req.family=="lc0":
@@ -226,6 +244,11 @@ def verify(directory:Path)->dict[str,Any]:
         require(proposal is not None,"S3B comparator without real legal challenger")
         req=_comparator_request(raw["request"],proposal,
                                 record["bundle_manifest_sha256"])
+        require(len(commands("comparator"))>=i and
+                commands("comparator")[i-1]==req.go_command and
+                len(terminals("comparator"))>=i and
+                terminals("comparator")[i-1]==raw["terminal_line"],
+                "S3B actual Stockfish UCI go/terminal disagrees with evidence")
         comparator_options=dict(anchor_options)
         comparator_options.update({"Threads":1,"Hash":128,"MultiPV":2})
         require(req.round_number==i and req.comparator_search.binary_sha256==
@@ -241,6 +264,11 @@ def verify(directory:Path)->dict[str,Any]:
         require(actual==raw,"S3B raw MultiPV/terminal transcript altered")
         comparisons+=1
     require(comparisons<=2,"S3B unapproved comparator budget/round inflation")
+    if record["status"]=="COMPARISON_RECORDED_UNQUALIFIED":
+        require(len(commands("helper"))==len(terminals("helper"))==1 and
+                len(commands("comparator"))==len(terminals("comparator"))==comparisons,
+                "S3B claimed full comparison without exact real UCI terminal counts")
+    require(len(commands("anchor"))<=1,"S3B native anchor sent duplicate go")
     if record.get("optional_denial") is not None:
         require(record["optional_denial"]=="STALE_DISPATCH_REFUSED"
                 and record["status"]=="OPTIONAL_ABSTAINED_STALE"

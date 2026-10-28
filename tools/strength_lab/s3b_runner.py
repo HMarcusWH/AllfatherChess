@@ -496,7 +496,7 @@ def main()->int:
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--family",choices=("reckless","lc0"),default="reckless")
     parser.add_argument("--position",default="position startpos moves e2e4")
-    parser.add_argument("--go",default="go movetime 10000")
+    parser.add_argument("--go",default="go wtime 300000 btime 300000 winc 0 binc 0")
     parser.add_argument("--verify",type=Path)
     args=parser.parse_args()
     if args.verify is not None:

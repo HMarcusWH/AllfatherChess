@@ -1463,3 +1463,13 @@ evidence, equal-compute improvement or a playing-strength claim.
 The opt-in experimental runtime still publishes ONLY the Stockfish
 anchor's own move. Live/public/combined distribution permissions remain
 false. See [STRENGTH_S3A_RESOURCE_CONTRACTS.md](STRENGTH_S3A_RESOURCE_CONTRACTS.md).
+
+
+### STRENGTH-S3-B real-engine offline diagnostic
+
+The source-bound real-engine proposer and two-root Stockfish sidecar retain
+legal PV and source flight evidence, but the seed SOURCE_TEST_FIXTURE cost
+plan and procfs process-only accounting do NOT qualify whole participants,
+valid production WorkGrants, playing strength or an S4 QualityWitness.
+Move, live, public, release and equal-compute claims remain false. See
+[STRENGTH_S3B_REAL_COMPARATOR.md](STRENGTH_S3B_REAL_COMPARATOR.md).

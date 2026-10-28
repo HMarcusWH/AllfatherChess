@@ -58,3 +58,20 @@ Regression tests:
     python3 -m unittest discover -s tests/strength_s3b -p 'test_*.py' -v
 
 S4 move-quality/publication authority remains entirely unimplemented.
+
+
+## Native-anchor stale dispatch, retained negative publication
+
+The initial real workflow run 40621046264 showed the expected shallow
+Stockfish incumbent race: the guarded Reckless go was correctly refused
+when the anchor changed root epoch before source bytes crossed stdin.
+An early optional refusal is not an authority failure or permission to
+retry. The latest policy samples the genuine incumbent 450 ms after
+first eligible PV observation and still rejects every later epoch change.
+Native Stockfish continues independently to produce its real bestmove;
+its original S3A flight remains retained even after optional denial.
+
+The real-engine CI uses --require-comparison: it fails rather than
+advertising complete two-root implementation when either the actual
+specialist proposal or two native Stockfish comparison rounds are missing.
+Negative abstentions remain separately source-bound.

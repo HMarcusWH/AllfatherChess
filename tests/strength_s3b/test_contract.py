@@ -24,6 +24,7 @@ class DiagnosticBoundary(unittest.TestCase):
         self.assertEqual(policy["comparator"]["round_nodes"],[16384,65536])
         self.assertEqual(policy["proposer"]["reckless"]["nodes"],4096)
         self.assertEqual(policy["proposer"]["lc0"]["nodes"],128)
+        self.assertEqual(policy["incumbent_stabilization_s"],0.45)
         self.assertEqual(policy["supported_native_go_commands"],["go wtime 300000 btime 300000 winc 0 binc 0"])
 
     def test_real_source_identity_roundtrip(self):

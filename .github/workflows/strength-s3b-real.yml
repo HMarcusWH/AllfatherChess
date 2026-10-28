@@ -79,13 +79,13 @@ jobs:
       - name: Real Reckless proposal + Stockfish comparison unplayed diagnostic
         env:
           ALLFATHER_S3B_OFFLINE: '1'
-        run: python3 -m tools.strength_lab.s3b_runner --family reckless
+        run: python3 -m tools.strength_lab.s3b_runner --family reckless --require-comparison
       - name: Real BLAS LC0 proposal + Stockfish comparison unplayed diagnostic
         env:
           ALLFATHER_S3B_OFFLINE: '1'
           OPENBLAS_NUM_THREADS: '1'
           OMP_NUM_THREADS: '1'
-        run: python3 -m tools.strength_lab.s3b_runner --family lc0
+        run: python3 -m tools.strength_lab.s3b_runner --family lc0 --require-comparison
       - name: Preserve every raw and negative S3B artifact
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

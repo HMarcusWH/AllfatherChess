@@ -251,6 +251,8 @@ def verify(directory:Path)->dict[str,Any]:
                 "S3B producer reported completed comparison without evidence")
     return {"schema_version":1,"kind":"strength_s3b_independent_verdict_v1",
             "execution_integrity":"INCOMPLETE" if record["errors"] else "RECORDED",
+            "producer_status":record["status"],
+            "failure_reasons":[str(x)[:220] for x in record["errors"][:10]],
             "source_commit":source,
             "real_proposer_observed":record["proposer"] is not None,
             "actual_proposal_observed":proposal_seen,

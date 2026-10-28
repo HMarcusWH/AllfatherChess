@@ -1451,3 +1451,15 @@ The separate `qualification/strength/e00-admission-contract-v1.json`
 source policy permits only a **REVIEW_REQUIRED** record after exact-source
 512/512, resource-qualified, independently verified E00 PASS. It does not
 create a scientific certificate or grant any move/publication authority.
+
+
+### STRENGTH-S3-A source-only preparation (27 October 2026)
+
+S3-A adds typed candidate and two-root input records, an independent
+full-history chess-rules verifier, and comparator-first source-only
+BudgetLedger reservations. Test fixtures do not constitute actual
+qualified host costs, real WorkGrants, backend launches, move-quality
+evidence, equal-compute improvement or a playing-strength claim.
+The opt-in experimental runtime still publishes ONLY the Stockfish
+anchor's own move. Live/public/combined distribution permissions remain
+false. See [STRENGTH_S3A_RESOURCE_CONTRACTS.md](STRENGTH_S3A_RESOURCE_CONTRACTS.md).

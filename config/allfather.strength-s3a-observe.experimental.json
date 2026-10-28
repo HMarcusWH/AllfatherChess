@@ -1,0 +1,36 @@
+{
+  "schema_version": 3,
+  "mode": "anchor",
+  "anchor": "stockfish-anchor",
+  "root": "..",
+  "instances": {
+    "stockfish-anchor": {
+      "family": "stockfish",
+      "role": "anchor",
+      "binary": "build/online-engine-opt-v2/bin/stockfish",
+      "cwd": ".",
+      "args": [],
+      "options": {
+        "Threads": 1,
+        "Hash": 64,
+        "MultiPV": 1,
+        "Move Overhead": 100,
+        "Ponder": false,
+        "UCI_Chess960": false
+      }
+    }
+  },
+  "strength": {
+    "policy": "strength_s3a_contracts_observe_v1",
+    "mode": "observe_only",
+    "evidence_dir": "build/strength-s3a-evidence",
+    "timing": {
+      "policy": "native_anchor_clock_watchdog_v1",
+      "guard_ms": 750,
+      "stop_grace_ms": 300,
+      "output_margin_ms": 50,
+      "prepare_budget_ms": 100,
+      "max_events_per_turn": 4096
+    }
+  }
+}

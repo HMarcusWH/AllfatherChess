@@ -34,7 +34,8 @@ class S2Settings:
 
     def __post_init__(self):
         require(self.mode == "observe_only" and self.policy in
-                ("strength_s2_incumbent_observe_v1", "strength_e00_incumbent_observe_v1"),
+                ("strength_s2_incumbent_observe_v1", "strength_e00_incumbent_observe_v1",
+                 "strength_s3a_contracts_observe_v1"),
                 "S2/E00 permits observe-only; apply/control are future protocols")
         require(re.fullmatch(r"[0-9a-f]{40}",self.source_commit) is not None,"missing exact source")
         require(re.fullmatch(r"[0-9a-f]{64}",self.profile_sha256) is not None,"missing profile SHA")

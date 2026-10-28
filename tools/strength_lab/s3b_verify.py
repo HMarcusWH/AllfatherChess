@@ -194,10 +194,15 @@ def verify(directory:Path)->dict[str,Any]:
         item=record["proposer"]
         req=_proposer_request(item["request"])
         legacy_spec=assets["legacy"]["instances"][req.family+"-shadow"]
+        expected_opts=dict(legacy_spec["options"])
+        if req.family=="lc0":
+            require(assets["policy"]["proposer"]["lc0"]["multipv"]==2,
+                    "S3B LC0 native variant not source-frozen")
+            expected_opts["MultiPV"]=2
         require(req.proposer_search.binary_sha256==
                 sha(assets["inputs"][req.family+"_engines"]) and
                 req.proposer_search.options_sha256==digest({
-                    "options":legacy_spec["options"],
+                    "options":expected_opts,
                     "args":legacy_spec.get("args",[])}) and
                 (req.family!="lc0" or req.network_sha256==
                  sha(assets["inputs"]["lc0_networks"])),

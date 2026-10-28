@@ -286,6 +286,12 @@ def run(*,family:str,position_command:str,go_command:str,
           "public_bot_release":False,"live_game_authorized":False}
     try:
         helper_opts=dict(cfg["legacy"]["instances"][family+"-shadow"]["options"])
+        if family=="lc0":
+            # Explicitly versioned S3-B unplayed MultiPV2 proposal profile:
+            # retain the canonical BLAS engine, backend and network source.
+            require(policy["proposer"]["lc0"]["multipv"]==2,
+                    "S3B LC0 full-root two-rank policy changed")
+            helper_opts["MultiPV"]=2
         helper_args=list(cfg["legacy"]["instances"][family+"-shadow"].get("args",[]))
         helper_env=dict(cfg["legacy"]["instances"][family+"-shadow"].get("environment",{}))
         compare_opts=dict(aopts)
@@ -302,6 +308,20 @@ def run(*,family:str,position_command:str,go_command:str,
                   args=["-m","controller","--config",str(SOURCE_PROFILE)],
                   env={"ALLFATHER_S3A_OFFLINE":"1"})
         started["anchor"]=s3a
+        total_seed=(policy["anchor_memory_seed_bytes"]+
+                    policy["proposer"][family]["peak_memory_seed_bytes"]+
+                    policy["comparator"]["peak_memory_seed_bytes"])
+        current_rss={name:_procfs(obj.pid) for name,obj in started.items()}
+        rows["startup_memory"]={
+            "seed_sum_bytes":total_seed,
+            "total_seed_ceiling_bytes":policy["memory_seed_bytes"],
+            "observed_process_only_rss":current_rss,
+            "qualifying_peak_measured":False}
+        require(total_seed<=policy["memory_seed_bytes"] and
+                all(item is not None for item in current_rss.values()) and
+                sum(item["process_rss_bytes"] for item in current_rss.values())
+                    <=policy["memory_seed_bytes"],
+                "S3B both idle sidecars plus anchor exceed source memory ceiling")
         for item in started.values():
             item.new_game()
             item.ready()

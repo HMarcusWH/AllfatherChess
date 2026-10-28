@@ -36,15 +36,25 @@ class ProposalEvidence(unittest.TestCase):
         self.assertFalse(d["move_authorized"])
         self.assertEqual(d["proposal"]["native_work_semantics"],"reckless.uci_nodes")
 
-    def test_lc0_can_nominate_nonincumbent_pv_when_terminal_is_incumbent(self):
+    def test_lc0_needs_completed_rank1_rank2_in_same_depth(self):
         req=make_request("lc0")
-        d=reconstruct_proposer(
-            req,[{"line":GOOD,"ns":110}],"bestmove e7e5",
-            terminal_ns=120,grant_digest=SHA("a"),
-            settlement_sha256=SHA("b"))
+        one=GOOD.replace("pv c7c5 g1f3","pv e7e5 g1f3")
+        two=GOOD.replace("multipv 1","multipv 2").replace("nodes 4500","nodes 4700")
+        raw=[{"line":one,"ns":110},{"line":two,"ns":115}]
+        d=reconstruct_proposer(req,raw,"bestmove e7e5",
+              terminal_ns=120,grant_digest=SHA("a"),
+              settlement_sha256=SHA("b"))
         self.assertEqual(d["proposal"]["move"],"c7c5")
-        self.assertEqual(d["native_limit_overshot"],True)
+        self.assertTrue(d["native_limit_overshot"])
         self.assertFalse(d["quality_qualified"])
+        missing=reconstruct_proposer(req,raw[:1],"bestmove e7e5",
+              terminal_ns=120,grant_digest=SHA("a"),settlement_sha256=SHA("b"))
+        self.assertEqual(missing["status"],"NO_ALTERNATIVE")
+        stale=reconstruct_proposer(req,[raw[0],{
+            "line":two.replace("depth 11","depth 12"),"ns":115
+        }],"bestmove e7e5",terminal_ns=120,
+              grant_digest=SHA("a"),settlement_sha256=SHA("b"))
+        self.assertEqual(stale["status"],"NO_ALTERNATIVE")
 
     def test_no_non_incumbent_is_valid_zero_coverage(self):
         req=make_request()

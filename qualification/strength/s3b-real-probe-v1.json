@@ -24,7 +24,8 @@
       "nodes": 128,
       "reserved_cpu_ms": 2000,
       "wall_bound_ms": 1750,
-      "peak_memory_seed_bytes": 536870912
+      "peak_memory_seed_bytes": 536870912,
+      "multipv": 2
     },
     "reckless": {
       "family": "reckless",

@@ -153,20 +153,28 @@ def reconstruct_proposer(req:ProposerRequestV1, observations:list[dict],
                           "score_type":"mate" if f.mate is not None else
                                        "cp" if f.cp is not None else "missing",
                           "raw_sha256":hashlib.sha256(e["line"].encode()).hexdigest()})
-    # LC0: nominate the most recently reported eligible non-incumbent PV.
-    # The raw frame rank is retained for independent review. This is only
-    # a source diagnostic, not a proven highest-ranked internal LC0 choice.
-    # If only MPV1 was emitted, bestmove fallback is
-    # allowed only when different from incumbent. Reckless: terminal only.
-    challenger=None
-    if req.family=="lc0":
-        candidates=sorted((x for x in pv_frames
-                           if x["root"]!=req.incumbent.move),
-                          key=lambda x:(-x["event"],x["multipv"]))
-        if candidates:
-            challenger=candidates[0]["root"]
-    if challenger is None and m.group(1)!=req.incumbent.move:
-        challenger=m.group(1)
+    # LC0: only a completed rank1/rank2 same-depth pair may nominate
+    # rank2 when final rank1/bestmove is the incumbent. Do not resurrect a
+    # stale PV from an earlier depth or a partial MultiPV iteration.
+    # A different real terminal is the best-ranked terminal nomination.
+    challenger=m.group(1) if m.group(1)!=req.incumbent.move else None
+    if challenger is None and req.family=="lc0":
+        pending=None
+        complete=None
+        for frame in pv_frames:
+            if frame["multipv"]==1:
+                pending=frame
+            elif frame["multipv"]==2:
+                if (pending is not None and
+                    frame["depth"]==pending["depth"] and
+                    frame["nodes"]>=pending["nodes"] and
+                    frame["root"]!=pending["root"]):
+                    complete=(pending,frame)
+                pending=None
+        if (complete is not None and
+            complete[0]["root"]==m.group(1) and
+            complete[1]["root"]!=req.incumbent.move):
+            challenger=complete[1]["root"]
     max_nodes=max((f["nodes"] for f in pv_frames),default=0)
     need_ok=challenger is not None and max_nodes>0
     proposal=None

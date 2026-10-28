@@ -49,8 +49,8 @@ def legal_pv(position_command:str, raw:str, expected_root:str)->bool:
             require(MOVE.fullmatch(item) is not None,"malformed S3 PV move")
             board.push_uci(item)
         return True
-    except (SearchRequestError, ValueError, AssertionError, StrengthContractError,
-            chess.IllegalMoveError, chess.InvalidMoveError, chess.AmbiguousMoveError):
+    except (SearchRequestError, ValueError, AssertionError,
+            StrengthContractError, ImportError):
         return False
 
 

@@ -153,8 +153,10 @@ def reconstruct_proposer(req:ProposerRequestV1, observations:list[dict],
                           "score_type":"mate" if f.mate is not None else
                                        "cp" if f.cp is not None else "missing",
                           "raw_sha256":hashlib.sha256(e["line"].encode()).hexdigest()})
-    # LC0: highest-ranked legal non-incumbent in the LAST completed report
-    # sequence (no CP mixing). If only MPV1 was emitted, bestmove fallback is
+    # LC0: nominate the most recently reported eligible non-incumbent PV.
+    # The raw frame rank is retained for independent review. This is only
+    # a source diagnostic, not a proven highest-ranked internal LC0 choice.
+    # If only MPV1 was emitted, bestmove fallback is
     # allowed only when different from incumbent. Reckless: terminal only.
     challenger=None
     if req.family=="lc0":

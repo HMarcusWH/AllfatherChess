@@ -180,12 +180,13 @@ class NativeAnchorObservation:
 def _wait_task(process:UciProcess,collector,anchor:NativeAnchorObservation,
                epoch:int,token:int,deadline:float)->bool:
     """Stop a stale/late helper by its EXACT search token, never the anchor."""
-    while not collector.event.wait(0.075):
+    completed=collector.event if hasattr(collector,"event") else collector._event
+    while not completed.wait(0.075):
         if not anchor.permits(epoch) or time.monotonic()>=deadline:
             stopped=process.stop_search(token,timeout=.25)
             if not stopped and process.active_token==token:
                 process.kill_search(token)
-            collector.event.wait(.35)
+            completed.wait(.35)
             return False
     return anchor.permits(epoch)
 
@@ -455,6 +456,9 @@ def run(*,family:str,position_command:str,go_command:str,
         if schedule is not None:
             schedule.finish()
             rows["scheduler"]=schedule.report()
+        rows["engine_stderr_tails"]={
+            label:list(obj.stderr_tail)[-120:]
+            for label,obj in started.items()}
         for label in ("helper","comparator","anchor"):
             obj=started.get(label)
             if obj is not None:

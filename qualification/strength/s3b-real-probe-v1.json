@@ -60,5 +60,6 @@
     "public_bot_release": false,
     "live_game_authorized": false,
     "release_authorized": false
-  }
+  },
+  "incumbent_stabilization_s": 0.45
 }

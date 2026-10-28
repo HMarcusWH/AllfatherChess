@@ -280,7 +280,7 @@ def run(*,family:str,position_command:str,go_command:str,
           "anchor_search":asearch.as_dict(),"legal_roots":list(legal),
           "anchor_terminal":None,"anchor_terminal_ns":None,
           "proposer":None,"comparison_rounds":[],"scheduler":None,
-          "flight":None,"errors":[],"status":"NOT_RUN",
+          "flight":None,"errors":[],"optional_denial":None,"status":"NOT_RUN",
           "resource_qualified":False,"strength_qualified":False,
           "equal_compute":False,"move_authorized":False,
           "public_bot_release":False,"live_game_authorized":False}
@@ -333,7 +333,16 @@ def run(*,family:str,position_command:str,go_command:str,
         if not anchor.info_available.wait(policy["first_incumbent_timeout_s"]):
             rows["status"]="NO_INCUMBENT_BEFORE_DEADLINE"
         else:
+            # First PV root changes rapidly during shallow Stockfish search.
+            # Bind the latest genuine epoch after a source-frozen observation
+            # window; later changes still cancel optional work atomically.
+            if policy["incumbent_stabilization_s"]>0:
+                anchor.done.wait(policy["incumbent_stabilization_s"])
             checkpoint=anchor.current()
+            rows["incumbent_snapshot"]=(None if checkpoint is None
+                else {"root":checkpoint.move,"epoch":checkpoint.root_epoch,
+                      "progress_seq":checkpoint.progress_seq,
+                      "depth":checkpoint.depth})
             if checkpoint is None or anchor.done.is_set():
                 rows["status"]="ANCHOR_ALREADY_TERMINAL"
             else:
@@ -468,11 +477,28 @@ def run(*,family:str,position_command:str,go_command:str,
         if anchor.errors:
             rows["errors"].extend(anchor.errors)
             rows["status"]="INCOMPLETE"
+    except UciDispatchRejected:
+        # An epoch change is a correct refusal, not a reason to
+        # terminate or forget the independent Stockfish anchor output.
+        rows["optional_denial"]="STALE_DISPATCH_REFUSED"
+        rows["status"]="OPTIONAL_ABSTAINED_STALE"
+        if schedule is not None:
+            schedule.abort("STALE_OPTIONAL_DISPATCH")
     except (OSError,ValueError,TimeoutError,UciProcessError,
             StrengthContractError,RuntimeError) as exc:
         rows["errors"].append(type(exc).__name__+": "+str(exc)[:220])
         rows["status"]="INCOMPLETE"
     finally:
+        if "anchor" in started:
+            # Native Stockfish owns its terminal even if optional work failed.
+            if not anchor.done.wait(policy["anchor_wait_timeout_s"]):
+                rows["errors"].append("ANCHOR_MISSING_TERMINAL")
+                rows["status"]="INCOMPLETE"
+            rows["anchor_terminal"]=anchor.terminal
+            rows["anchor_terminal_ns"]=anchor.terminal_ns
+            if anchor.errors:
+                rows["errors"].extend(anchor.errors)
+                rows["status"]="INCOMPLETE"
         if schedule is not None:
             schedule.finish()
             rows["scheduler"]=schedule.report()
@@ -518,6 +544,8 @@ def main()->int:
     parser.add_argument("--position",default="position startpos moves e2e4")
     parser.add_argument("--go",default="go wtime 300000 btime 300000 winc 0 binc 0")
     parser.add_argument("--verify",type=Path)
+    parser.add_argument("--require-comparison",action="store_true",
+                        help="fail unless real proposer and both comparison rounds are reconstructed")
     args=parser.parse_args()
     if args.verify is not None:
         from tools.strength_lab.s3b_verify import verify
@@ -529,7 +557,12 @@ def main()->int:
     from tools.strength_lab.s3b_verify import verify
     report=verify(folder)
     print(json.dumps({"run":str(folder),**report},sort_keys=True))
-    return 0 if report["execution_integrity"]=="RECORDED" else 2
+    sufficient=(report["execution_integrity"]=="RECORDED" and
+                report["native_anchor_published"] is True and
+                (not args.require_comparison or
+                 (report["actual_proposal_observed"] is True and
+                  report["comparator_rounds_reconstructed"]==2)))
+    return 0 if sufficient else 2
 
 
 if __name__=="__main__":

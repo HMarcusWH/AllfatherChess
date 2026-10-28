@@ -241,6 +241,14 @@ def verify(directory:Path)->dict[str,Any]:
         require(actual==raw,"S3B raw MultiPV/terminal transcript altered")
         comparisons+=1
     require(comparisons<=2,"S3B unapproved comparator budget/round inflation")
+    if record.get("optional_denial") is not None:
+        require(record["optional_denial"]=="STALE_DISPATCH_REFUSED"
+                and record["status"]=="OPTIONAL_ABSTAINED_STALE"
+                and record["scheduler"] is not None
+                and record["scheduler"]["state"]=="ABORTED"
+                and not record["comparison_rounds"]
+                and record["proposer"] is None,
+                "S3B optional denial does not reconstruct to an aborted flight")
     if record["status"]=="COMPARISON_RECORDED_UNQUALIFIED":
         require(proposal_seen and comparisons==2 and
                 all(x["disposition"]=="COMPLETE_CP"

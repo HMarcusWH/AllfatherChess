@@ -7,6 +7,7 @@ A complete research replay still reports NO move/strength/resource authority.
 from __future__ import annotations
 
 import hashlib
+import json
 from pathlib import Path
 import subprocess
 from typing import Any
@@ -104,9 +105,10 @@ def _flight(row:dict)->None:
             "source flight does not match emitted native anchor bestmove")
     require(f["kind"]=="strength_s2_flight_v1",
             "S3B flight accidentally impersonates legacy G3 evidence")
-    # flight SHA is a source-file byte receipt; reproduction must have identical
-    # canonical JSON bytes when original run file is retained. Recorded here
-    # only as an opaque origin; never used as a move-quality score.
+    frozen=(json.dumps(f,sort_keys=True,indent=2,
+                       ensure_ascii=True,allow_nan=False)+"\n").encode("ascii")
+    require(hashlib.sha256(frozen).hexdigest()==item["flight_sha256"],
+            "S3B retained S2 flight file bytes differ from signed origin hash")
 
 
 def _checked(path:Path,root:Path)->Path:
@@ -145,6 +147,13 @@ def verify(directory:Path)->dict[str,Any]:
             "S3B retained evidence/policy bytes drifted")
     source=subprocess.check_output(["git","-C",str(ROOT),"rev-parse","HEAD"],
                                    text=True).strip()
+    from tools.strength_lab.s3b_runner import preflight
+    assets=preflight()
+    require(record["bundle_manifest_sha256"]==assets["manifest_sha256"],
+            "S3B comparator used a foreign or altered source bundle")
+    require(record["family"] in ("lc0","reckless") and
+            record["external_go_command"] in assets["policy"]["supported_native_go_commands"],
+            "S3B off-policy native UCI clock")
     require(source==record["source_commit"]==index["source_commit"],
             "S3B source identity differs from exact Git commit")
     for claim in ("resource_qualified","strength_qualified","equal_compute",
@@ -152,6 +161,10 @@ def verify(directory:Path)->dict[str,Any]:
         require(record[claim] is False,"S3B producer claims unearned authority: "+claim)
     turn=_typed_turn(record["turn"])
     anchor=_search(record["anchor_search"])
+    anchor_options=assets["s3a"]["instances"]["stockfish-anchor"]["options"]
+    require(anchor.binary_sha256==sha(assets["inputs"]["stockfish_engines"]) and
+            anchor.options_sha256==digest({"options":anchor_options,"args":[]}),
+            "S3B native Stockfish executable/options do not match source")
     require(anchor.turn==turn and
             anchor.source_commit==source and
             anchor.profile_sha256==record["source_profile_sha256"] and
@@ -180,6 +193,15 @@ def verify(directory:Path)->dict[str,Any]:
     if record["proposer"] is not None:
         item=record["proposer"]
         req=_proposer_request(item["request"])
+        legacy_spec=assets["legacy"]["instances"][req.family+"-shadow"]
+        require(req.proposer_search.binary_sha256==
+                sha(assets["inputs"][req.family+"_engines"]) and
+                req.proposer_search.options_sha256==digest({
+                    "options":legacy_spec["options"],
+                    "args":legacy_spec.get("args",[])}) and
+                (req.family!="lc0" or req.network_sha256==
+                 sha(assets["inputs"]["lc0_networks"])),
+                "S3B source-locked proposer binary/options/network drift")
         require(req.anchor_search==anchor and req.position_command==
                 record["position_command"] and req.family==record["family"],
                 "S3B proposed under a foreign source/search")
@@ -199,8 +221,15 @@ def verify(directory:Path)->dict[str,Any]:
         require(proposal is not None,"S3B comparator without real legal challenger")
         req=_comparator_request(raw["request"],proposal,
                                 record["bundle_manifest_sha256"])
+        comparator_options=dict(anchor_options)
+        comparator_options.update({"Threads":1,"Hash":128,"MultiPV":2})
         require(req.round_number==i and req.comparator_search.binary_sha256==
-                anchor.binary_sha256, "S3B comparator input did not match exact anchor")
+                anchor.binary_sha256 and
+                req.comparator_engine_sha256==sha(assets["inputs"]["stockfish_engines"]) and
+                req.comparator_nnue_sha256==sha(assets["inputs"]["stockfish_networks"]) and
+                req.comparator_search.options_sha256==digest({
+                    "options":comparator_options,"args":[]}),
+                "S3B comparator binary/NNUE/options do not match exact anchor")
         actual=reconstruct_comparison(req,raw["observations"],
                                       raw["terminal_line"],
                                       completed_ns=raw["terminal_ns"])
